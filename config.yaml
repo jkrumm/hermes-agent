@@ -1,0 +1,112 @@
+# Hermes Agent — config.yaml template
+# Copy to ~/.hermes/config.yaml on Mac Mini M2 Pro
+# Secrets resolved via .env — use ${VAR_NAME} syntax
+
+# --- LLM ---
+model:
+  provider: "custom"
+  base_url: "https://iu-mac-book.dinosaur-sole.ts.net/v1"
+  model: "gemma4-agent"
+  context_length: 128000
+  # No API key — Tailscale encrypts at network layer
+  reasoning_effort: "medium"
+  tool_use_enforcement: true
+
+fallback_model:
+  provider: "anthropic"
+  model: "claude-sonnet-4"
+  api_key: "${ANTHROPIC_API_KEY}"
+  base_url: "${ANTHROPIC_BASE_URL}"
+
+# Local first for auxiliary — Gemma 4 (1472 Elo) handles these fine.
+# Google only for vision — Anthropic endpoint doesn't support images.
+auxiliary:
+  vision:
+    provider: "google"
+    model: "gemini-2.5-flash"
+    api_key: "${GEMINI_API_KEY}"
+  compression:
+    provider: "custom"
+    base_url: "https://iu-mac-book.dinosaur-sole.ts.net/v1"
+    model: "gemma4-agent"
+  web_extraction:
+    provider: "custom"
+    base_url: "https://iu-mac-book.dinosaur-sole.ts.net/v1"
+    model: "gemma4-agent"
+
+# --- Voice ---
+voice:
+  stt:
+    provider: "custom"
+    base_url: "http://iu-mac-book.dinosaur-sole.ts.net:8000/v1"
+    model: "mlx-community/whisper-large-v3-turbo-asr-fp16"
+  tts:
+    provider: "custom"
+    base_url: "http://iu-mac-book.dinosaur-sole.ts.net:8000/v1"
+    model: "mlx-community/Kokoro-82M-bf16"
+    voice: "af_heart"
+
+# --- Slack (Socket Mode) ---
+slack:
+  enabled: true
+  bot_token: "${SLACK_BOT_TOKEN}"
+  app_token: "${SLACK_APP_TOKEN}"
+  require_mention: false            # Responds to all messages in channels he's invited to
+  allow_bots: "none"
+  reply_in_thread: true
+  reply_broadcast: false
+  reply_to_mode: "first"
+  group_sessions_per_user: true
+  stt_enabled: true                 # Auto-transcribe voice memos
+  home_channel: "${SLACK_CHANNEL_HERMES}"    # #hermes — cron results, proactive messages
+
+# --- Terminal Backend ---
+terminal_backend: "local"
+
+# --- Memory ---
+memory:
+  enabled: true
+  # MEMORY.md ~2,200 chars, USER.md ~1,375 chars
+
+# --- Context ---
+context:
+  compression_threshold: 0.5
+  file_read_limit: 100000
+
+# --- MCP Servers (Phase 1+) ---
+# mcp_servers:
+#   ticktick:
+#     command: "npx"
+#     args: ["ticktick-mcp"]
+#     env:
+#       TICKTICK_CLIENT_ID: "${TICKTICK_CLIENT_ID}"
+#       TICKTICK_CLIENT_SECRET: "${TICKTICK_CLIENT_SECRET}"
+#   google-calendar:
+#     command: "npx"
+#     args: ["google-calendar-mcp"]
+#     env:
+#       GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID}"
+#       GOOGLE_CLIENT_SECRET: "${GOOGLE_CLIENT_SECRET}"
+#   gmail:
+#     command: "npx"
+#     args: ["gmail-mcp"]
+#     env:
+#       GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID}"
+#       GOOGLE_CLIENT_SECRET: "${GOOGLE_CLIENT_SECRET}"
+#   github:
+#     command: "npx"
+#     args: ["github-mcp"]
+#     env:
+#       GITHUB_TOKEN: "${GITHUB_TOKEN}"
+
+# --- Security ---
+security:
+  secret_redaction: true
+  smart_approval: "smart"
+
+# --- Display ---
+display:
+  tool_progress: "new"
+  streaming: true
+  tool_progress_overrides:
+    slack: "off"                    # Suppress tool noise in Slack channels
