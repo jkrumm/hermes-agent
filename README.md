@@ -136,11 +136,43 @@ tail -f /tmp/hermes-gateway.log  # watch for successful Slack connection
 
 ### 9. Verify
 
-- [ ] Send message in `#hermes` on Slack — get response via Gemma 4
-- [ ] Send voice memo in Slack — get transcribed + spoken response
-- [ ] Kill M2 Max Ollama — verify fallback to Anthropic Claude
-- [ ] `hermes config check` — no missing options
-- [ ] Web dashboard accessible at `http://localhost:PORT` (v0.9.0+)
+- [x] Send message in `#hermes` on Slack — get response via Gemma 4
+- [x] Send voice memo in Slack — get transcribed via Whisper STT
+- [x] TTS audio generation via Kokoro — uploads as Ogg Vorbis file
+- [ ] Fallback to Anthropic Claude when M2 Max is offline
+- [ ] Backup cron — daily rsync to homelab
+
+### Known Issues / TODOs
+
+- **TTS format**: Kokoro outputs Ogg Vorbis — Slack shows as download, not inline player. Investigate mp3/m4a output for inline playback.
+- **Gateway launchd**: `hermes gateway restart` sometimes doesn't reload. Use `hermes gateway stop && hermes gateway start` as workaround.
+- **`.env` rebuild**: API keys with `=` chars break shell splitting. Use the Python builder script (see below) instead of `op run ... env > .env`.
+
+```bash
+# Rebuild ~/.hermes/.env from 1Password (handles keys with = chars)
+python3 -c "
+import subprocess, os
+refs = {
+    'SLACK_BOT_TOKEN': 'op://hermes/slack/bot-token',
+    'SLACK_APP_TOKEN': 'op://hermes/slack/app-token',
+    'SLACK_ALLOWED_USERS': 'op://hermes/slack/allowed-user-id',
+    'SLACK_CHANNEL_HERMES': 'op://hermes/slack/channel-hermes',
+    'SLACK_CHANNEL_INBOX': 'op://hermes/slack/channel-inbox',
+    'ANTHROPIC_API_KEY': 'op://common/anthropic/API_KEY',
+    'ANTHROPIC_BASE_URL': 'op://common/anthropic/BASE_URL',
+    'GEMINI_API_KEY': 'op://hermes/google-ai-studio/api-key',
+    'GITHUB_TOKEN': 'op://hermes/github/token',
+}
+lines = []
+for key, ref in refs.items():
+    val = subprocess.check_output(['op', 'read', ref, '--account', 'tkrumm'], text=True).strip()
+    lines.append(f'{key}={val}')
+with open(os.path.expanduser('~/.hermes/.env'), 'w') as f:
+    f.write('\n'.join(lines) + '\n')
+os.chmod(os.path.expanduser('~/.hermes/.env'), 0o600)
+print(f'Written {len(lines)} secrets')
+"
+```
 
 ## Backup
 
@@ -155,8 +187,8 @@ Homelab → Backblaze B2 via existing restic schedule picks up `~/hermes-backup/
 
 | Phase | Domain | Status |
 |-|-|-|
-| 0 | Foundation (Hermes + Slack + LLM + Voice) | **Active** |
-| 1 | Assistant (TickTick, Calendar, Briefings) | Planned |
+| 0 | Foundation (Hermes + Slack + LLM + Voice) | **Done** (2026-04-14) |
+| 1 | Assistant (TickTick, Calendar, Briefings) | **Next** |
 | 2 | Journal (Voice memos, Obsidian, Mood) | Planned |
 | 3 | Watchdog (Docker, UptimeKuma, GitHub Issues) | Planned |
 | 4 | News (RSS, YouTube, Reddit, Dedup) | Planned |
