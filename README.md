@@ -25,30 +25,31 @@ All connected via Tailscale.
 | Channel | ID | Hermes | External bots | Role |
 |-|-|-|-|-|
 | `#hermes` | C0ASRUD7K1U | read + write | — | Main conversation, Johannes ↔ Hermes |
-| `#inbox` | C0AT6TB49HP | read + write | — | Drop: voice memos, links, quick notes (Phase 2) |
+| `#inbox` | C0AT6TB49HP | read + write | HomeLab bot | Johannes + HomeLab drops (voice memos, links, digests) → Hermes processes |
+| `#alerts` | C0AS1LAUQ3C | read + write | HomeLab bot, Sentry | Docker/UptimeKuma/Sentry fires in → Hermes triages and acts |
+| `#watchdog` | C0ASRULFTSS | write only | — | Hermes posts its own proactive monitoring results (Phase 3) |
 | `#briefings` | C0AT6TH404R | write only | — | Hermes posts morning/evening audio (Phase 1) |
 | `#journal` | C0ATN8W6N2U | write only | — | Hermes posts structured journal entries (Phase 2) |
-| `#watchdog` | C0ASRULFTSS | read + write | HomeLab bot | Docker/UptimeKuma alerts → Hermes acts (Phase 3) |
-| `#alerts` | C0AS1LAUQ3C | read + write | Sentry, others | External monitoring → Hermes triages (Phase 3) |
 | `#news` | C0ASXJD0ZEG | write only | — | Daily digest (Phase 4) |
 
 ### Trigger Matrix
 
 | Source | Channel | What happens |
 |-|-|-|
-| Johannes message | `#hermes` | Hermes responds immediately (no mention needed) |
-| Johannes voice memo | `#inbox` | Hermes transcribes + processes (Phase 2) |
-| Johannes drops link | `#inbox` | Hermes extracts + summarises (Phase 2) |
+| Johannes message | `#hermes` | Hermes responds immediately |
+| Johannes voice memo / link | `#inbox` | Hermes transcribes / extracts + processes (Phase 2) |
+| HomeLab bot drops digest/capture | `#inbox` | Hermes processes it the same as a manual drop |
+| Docker / UptimeKuma alert | `#alerts` | Hermes calls homelab-api, checks state, responds or escalates |
+| Sentry / external alert | `#alerts` | Hermes triages, checks context, notifies if critical |
 | Cron job | `#hermes` / `#briefings` | Hermes posts proactive update or audio briefing |
-| HomeLab bot alert | `#watchdog` | Hermes reads alert, calls homelab-api, responds or escalates |
-| Sentry / external | `#alerts` | Hermes triages, checks context, notifies if critical |
+| Hermes monitoring loop | `#watchdog` | Hermes writes its own status checks (Phase 3, Hermes-initiated) |
 
 ### Bot Membership Rules
 
 - **Hermes bot**: invited to all channels above
-- **HomeLab bot**: `#watchdog` only — never `#hermes`
-- **Sentry**: `#alerts` only — never `#hermes`
-- **Adding a new integration**: create a dedicated channel, invite Hermes + the bot there
+- **HomeLab bot**: `#inbox` + `#alerts` — never `#hermes` or `#watchdog`
+- **Sentry / other monitors**: `#alerts` only
+- **Adding a new integration**: invite it to `#alerts` (reactive) or `#inbox` (data drops) — never `#hermes`
 
 ## Files
 
