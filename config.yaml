@@ -18,8 +18,11 @@ fallback_model:
   api_key: "${ANTHROPIC_API_KEY}"
   base_url: "${ANTHROPIC_BASE_URL}"
 
-# Local first for auxiliary — Gemma 4 (1472 Elo) handles these fine.
-# Google only for vision — Anthropic endpoint doesn't support images.
+# Auxiliary model strategy:
+#   compression  → local Gemma 4 (sees full conversation — keep on-device)
+#   web_extract  → Haiku (public web content, faster than local)
+#   approval     → Haiku (speed + accuracy matter for command classification)
+#   vision       → Gemini Flash (Anthropic endpoint doesn't support images)
 auxiliary:
   vision:
     provider: "google"
@@ -29,22 +32,43 @@ auxiliary:
     provider: "custom"
     base_url: "https://iu-mac-book.dinosaur-sole.ts.net/v1"
     model: "gemma4-agent"
-  web_extraction:
-    provider: "custom"
-    base_url: "https://iu-mac-book.dinosaur-sole.ts.net/v1"
-    model: "gemma4-agent"
+  web_extract:
+    provider: "anthropic"
+    model: "claude-haiku-4-5-20251001"
+    api_key: "${ANTHROPIC_API_KEY}"
+    base_url: "${ANTHROPIC_BASE_URL}"
+  approval:
+    provider: "anthropic"
+    model: "claude-haiku-4-5-20251001"
+    api_key: "${ANTHROPIC_API_KEY}"
+    base_url: "${ANTHROPIC_BASE_URL}"
 
-# --- Voice ---
-voice:
-  stt:
-    provider: "custom"
-    base_url: "http://iu-mac-book.dinosaur-sole.ts.net:8000/v1"
+# --- Speech-to-Text (Whisper on M2 Max via mlx-audio) ---
+stt:
+  provider: "openai"
+  openai:
     model: "mlx-community/whisper-large-v3-turbo-asr-fp16"
-  tts:
-    provider: "custom"
     base_url: "http://iu-mac-book.dinosaur-sole.ts.net:8000/v1"
-    model: "mlx-community/Kokoro-82M-bf16"
-    voice: "af_heart"
+    api_key: "not-needed"          # Tailscale encrypts at network layer
+
+# --- Text-to-Speech (Qwen3-TTS VoiceDesign on M2 Max via mlx-audio) ---
+# Acoustic attribute control via instruct parameter — no named voices,
+# describe the desired voice in natural language instead.
+# Supports: English, German, French, Japanese, Korean, Russian, Portuguese, Spanish, Italian, Chinese
+tts:
+  provider: "openai"
+  openai:
+    model: "mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-bf16"
+    voice: ""                      # VoiceDesign uses instruct, not named voices
+    base_url: "http://iu-mac-book.dinosaur-sole.ts.net:8000/v1"
+    api_key: "not-needed"          # Tailscale encrypts at network layer
+    extra_body:
+      instruct: >-
+        A calm, composed middle-aged male voice with a deep, resonant tone
+        and magnetic quality. Steady, unhurried speaking pace with clear
+        articulation and warm undertones. Professional and authoritative yet
+        approachable, suitable for documentary narration and thoughtful
+        conversation.
 
 # --- Slack (Socket Mode) ---
 slack:
@@ -59,6 +83,10 @@ slack:
   group_sessions_per_user: true
   stt_enabled: true                 # Auto-transcribe voice memos
   home_channel: "${SLACK_CHANNEL_HERMES}"    # #hermes — cron results, proactive messages
+
+# --- Web Search ---
+web:
+  backend: "tavily"                   # Tavily: search + extract + crawl, no CAPTCHAs
 
 # --- Terminal Backend ---
 terminal_backend: "local"

@@ -8,6 +8,7 @@ SLACK_APP_TOKEN=op://hermes/slack/app-token
 SLACK_ALLOWED_USERS=op://hermes/slack/allowed-user-id
 # Channel IDs — fill after creating channels (Settings > Copy Channel ID)
 SLACK_CHANNEL_HERMES=op://hermes/slack/channel-hermes
+SLACK_HOME_CHANNEL=op://hermes/slack/channel-hermes
 SLACK_CHANNEL_INBOX=op://hermes/slack/channel-inbox
 
 # Anthropic — fallback LLM
@@ -16,6 +17,12 @@ ANTHROPIC_BASE_URL=op://common/anthropic/BASE_URL
 
 # Google AI Studio — vision only (Anthropic endpoint doesn't support images)
 GEMINI_API_KEY=op://hermes/google-ai-studio/api-key
+
+# Tavily — web search, extract, crawl (replaces browser-based search)
+TAVILY_API_KEY=op://hermes/tavily/API_KEY
+
+# Voice — dummy key for OpenAI-compatible TTS/STT on M2 Max (Tailscale handles auth)
+VOICE_TOOLS_OPENAI_KEY=not-needed
 
 # GitHub — issue creation, repo queries (watchdog, Phase 3)
 GITHUB_TOKEN=op://hermes/github/token

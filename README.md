@@ -157,15 +157,23 @@ refs = {
     'SLACK_APP_TOKEN': 'op://hermes/slack/app-token',
     'SLACK_ALLOWED_USERS': 'op://hermes/slack/allowed-user-id',
     'SLACK_CHANNEL_HERMES': 'op://hermes/slack/channel-hermes',
+    'SLACK_HOME_CHANNEL': 'op://hermes/slack/channel-hermes',
     'SLACK_CHANNEL_INBOX': 'op://hermes/slack/channel-inbox',
     'ANTHROPIC_API_KEY': 'op://common/anthropic/API_KEY',
     'ANTHROPIC_BASE_URL': 'op://common/anthropic/BASE_URL',
     'GEMINI_API_KEY': 'op://hermes/google-ai-studio/api-key',
+    'TAVILY_API_KEY': 'op://hermes/tavily/API_KEY',
     'GITHUB_TOKEN': 'op://hermes/github/token',
+}
+# Static env vars (not from 1Password)
+static = {
+    'VOICE_TOOLS_OPENAI_KEY': 'not-needed',  # Dummy key for OpenAI-compatible TTS/STT on M2 Max
 }
 lines = []
 for key, ref in refs.items():
     val = subprocess.check_output(['op', 'read', ref, '--account', 'tkrumm'], text=True).strip()
+    lines.append(f'{key}={val}')
+for key, val in static.items():
     lines.append(f'{key}={val}')
 with open(os.path.expanduser('~/.hermes/.env'), 'w') as f:
     f.write('\n'.join(lines) + '\n')
