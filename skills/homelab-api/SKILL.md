@@ -51,8 +51,8 @@ When asked about tasks, schedule, emails, infrastructure status, or Slack messag
 ### UptimeKuma — monitor status
 | Method | Path | Description |
 |-|-|-|
-| GET | `/uptime-kuma/monitors` | All monitors: live status, ping, uptime ratios (1d/30d) |
-| GET | `/uptime-kuma/status` | Summary counts: up/down/total (excludes monitor groups) |
+| GET | `/uptime-kuma/monitors` | All monitors: live status, ping, uptime ratios (1d/30d). `status: 1` = UP, `status: 0` = DOWN |
+| GET | `/uptime-kuma/status` | Summary counts: up/down/total — use this first for "any down?" checks |
 
 ### Docker — HomeLab
 | Method | Path | Key params | Description |
@@ -111,6 +111,7 @@ curl -s -X POST -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: ap
 ## Notes
 
 - `/summary` is the most efficient first call for morning briefings or status checks
+- UptimeKuma: `status: 1` = UP, `status: 0` = DOWN — use `/uptime-kuma/status` for quick "any down?" checks, `/monitors` only when listing all
 - Docker logs: use `?tail=50` for quick checks
 - Gmail search supports standard Gmail query syntax in the `query` param
 - Slack search supports Slack operator syntax (`in:#hermes`, `from:@johannes`)
