@@ -11,7 +11,7 @@ SLACK_CHANNEL_HERMES=op://hermes/slack/channel-hermes
 SLACK_HOME_CHANNEL=op://hermes/slack/channel-hermes
 SLACK_CHANNEL_INBOX=op://hermes/slack/channel-inbox
 
-# Anthropic — fallback LLM
+# Anthropic — fallback LLM via IU company proxy
 ANTHROPIC_API_KEY=op://common/anthropic/API_KEY
 ANTHROPIC_BASE_URL=op://common/anthropic/BASE_URL
 
