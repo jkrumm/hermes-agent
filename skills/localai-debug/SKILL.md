@@ -1,6 +1,6 @@
 ---
 name: localai-debug
-description: Debug and manage the local AI stack on M2 Max (Ollama, audio/TTS/STT, monitor) via the management API at https://iu-mac-book.dinosaur-sole.ts.net/api — use when Gemma4 or voice is unreachable, slow, or misbehaving
+description: Check status, health, VRAM usage, token activity, and system metrics of the M2 Max local AI stack (Ollama/Gemma4, TTS/STT, monitor) — also use to debug issues or restart services via https://iu-mac-book.dinosaur-sole.ts.net/api
 version: 1.0.0
 metadata:
   hermes:
