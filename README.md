@@ -26,7 +26,7 @@ All connected via Tailscale.
 |-|-|-|-|-|
 | `#hermes` | C0ASRUD7K1U | read + write | — | Main conversation, Johannes ↔ Hermes |
 | `#inbox` | C0AT6TB49HP | read + write | HomeLab bot | Johannes + HomeLab drops (voice memos, links, digests) → Hermes processes |
-| `#alerts` | C0AS1LAUQ3C | read + write | HomeLab bot, Sentry | Docker/UptimeKuma/Sentry fires in → Hermes triages and acts |
+| `#alerts` | C0AS1LAUQ3C | read + write | HomeLab bot, external monitors | Docker/UptimeKuma and other monitors fire in → Hermes triages and acts |
 | `#watchdog` | C0ASRULFTSS | write only | — | Hermes posts its own proactive monitoring results (Phase 3) |
 | `#briefings` | C0AT6TH404R | write only | — | Hermes posts morning/evening audio (Phase 1) |
 | `#journal` | C0ATN8W6N2U | write only | — | Hermes posts structured journal entries (Phase 2) |
@@ -40,7 +40,7 @@ All connected via Tailscale.
 | Johannes voice memo / link | `#inbox` | Hermes transcribes / extracts + processes (Phase 2) |
 | HomeLab bot drops digest/capture | `#inbox` | Hermes processes it the same as a manual drop |
 | Docker / UptimeKuma alert | `#alerts` | Hermes calls homelab-api, checks state, responds or escalates |
-| Sentry / external alert | `#alerts` | Hermes triages, checks context, notifies if critical |
+| External monitor alert | `#alerts` | Hermes triages, checks context, notifies if critical |
 | Cron job | `#hermes` / `#briefings` | Hermes posts proactive update or audio briefing |
 | Hermes monitoring loop | `#watchdog` | Hermes writes its own status checks (Phase 3, Hermes-initiated) |
 
@@ -48,7 +48,7 @@ All connected via Tailscale.
 
 - **Hermes bot**: invited to all channels above
 - **HomeLab bot**: `#inbox` + `#alerts` — never `#hermes` or `#watchdog`
-- **Sentry / other monitors**: `#alerts` only
+- **Other external monitors**: `#alerts` only
 - **Adding a new integration**: invite it to `#alerts` (reactive) or `#inbox` (data drops) — never `#hermes`
 
 ## Files
