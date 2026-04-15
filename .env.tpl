@@ -27,10 +27,6 @@ VOICE_TOOLS_OPENAI_KEY=not-needed
 # GitHub — issue creation, repo queries (watchdog, Phase 3)
 GITHUB_TOKEN=op://hermes/github/token
 
-# TickTick — task management (Phase 1)
-# TICKTICK_CLIENT_ID=op://hermes/ticktick/client-id
-# TICKTICK_CLIENT_SECRET=op://hermes/ticktick/client-secret
-
-# Google OAuth — Calendar + Gmail read-only (Phase 1)
-# GOOGLE_CLIENT_ID=op://hermes/google-oauth/client-id
-# GOOGLE_CLIENT_SECRET=op://hermes/google-oauth/client-secret
+# Homelab API — single integration layer for TickTick, Gmail, Calendar, Docker, UptimeKuma, Slack
+# Replaces separate MCP servers for Phase 1 + Phase 3. Base URL: https://api.jkrumm.com
+HOMELAB_API_KEY=op://common/api/SECRET

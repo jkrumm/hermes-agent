@@ -20,13 +20,15 @@ All connected via Tailscale.
 
 ## Files
 
-| File | Purpose | Deploy to |
+| File | Live path | How |
 |-|-|-|
-| `config.yaml` | Main config template | `~/.hermes/config.yaml` |
-| `.env.tpl` | 1Password secret references | `~/.hermes/.env.tpl` |
-| `SOUL.md` | Agent identity | `~/.hermes/SOUL.md` |
-| `USER.md` | User preferences | `~/.hermes/memories/USER.md` |
-| `skills/` | Skill definitions (Phase 1+) | `~/.hermes/skills/` (symlink) |
+| `config.yaml` | `~/.hermes/config.yaml` | symlink |
+| `.env.tpl` | `~/.hermes/.env.tpl` | symlink |
+| `SOUL.md` | `~/.hermes/SOUL.md` | symlink |
+| `USER.md` | `~/.hermes/memories/USER.md` | copied — Hermes writes to it |
+| `skills/{name}/` | `~/.hermes/skills/{name}/` | symlink per skill |
+| `cron/` | `~/.hermes/cron/` | symlink |
+| `hooks/` | `~/.hermes/hooks/` | symlink |
 
 ## Phase 0 — Foundation Setup
 
@@ -84,10 +86,16 @@ Create these channels and invite the Hermes bot:
 ### 6. Deploy Config
 
 ```bash
-# Copy templates to Mac Mini ~/.hermes/
-cp config.yaml ~/.hermes/config.yaml
-cp .env.tpl ~/.hermes/.env.tpl
-cp SOUL.md ~/.hermes/SOUL.md
+# Symlink config files to Mac Mini ~/.hermes/
+REPO=~/SourceRoot/claude-local/hermes
+ln -sf $REPO/config.yaml ~/.hermes/config.yaml
+ln -sf $REPO/.env.tpl ~/.hermes/.env.tpl
+ln -sf $REPO/SOUL.md ~/.hermes/SOUL.md
+ln -sf $REPO/cron ~/.hermes/cron
+ln -sf $REPO/hooks ~/.hermes/hooks
+# Skills: symlink each custom skill individually
+ln -sf $REPO/skills/homelab-api ~/.hermes/skills/homelab-api
+# USER.md: copy (not symlink) — Hermes writes to this file
 mkdir -p ~/.hermes/memories
 cp USER.md ~/.hermes/memories/USER.md
 
@@ -164,6 +172,7 @@ refs = {
     'GEMINI_API_KEY': 'op://hermes/google-ai-studio/api-key',
     'TAVILY_API_KEY': 'op://hermes/tavily/API_KEY',
     'GITHUB_TOKEN': 'op://hermes/github/token',
+    'HOMELAB_API_KEY': 'op://common/api/SECRET',
 }
 # Static env vars (not from 1Password)
 static = {

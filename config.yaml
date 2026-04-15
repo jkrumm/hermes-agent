@@ -84,6 +84,15 @@ slack:
   stt_enabled: true                 # Auto-transcribe voice memos
   home_channel: "${SLACK_CHANNEL_HERMES}"    # #hermes — cron results, proactive messages
 
+# --- Homelab API ---
+# Single authenticated HTTP layer for TickTick, Gmail, Calendar, Docker, UptimeKuma, Slack
+# Replaces separate MCP servers for Phase 1 (assistant) + Phase 3 (watchdog)
+# Skill reference: skills/homelab-api/reference.md
+# OpenAPI spec: https://api.jkrumm.com/docs/json
+homelab_api:
+  base_url: "https://api.jkrumm.com"
+  api_key: "${HOMELAB_API_KEY}"
+
 # --- Web Search ---
 web:
   backend: "tavily"                   # Tavily: search + extract + crawl, no CAPTCHAs
