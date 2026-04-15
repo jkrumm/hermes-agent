@@ -1,17 +1,28 @@
-# Homelab API — Reference
+---
+name: homelab-api
+description: Call the homelab REST API (https://api.jkrumm.com) for TickTick tasks, Gmail, Google Calendar, Docker containers (homelab + VPS), UptimeKuma monitors, and Slack — use curl with Bearer $HOMELAB_API_KEY
+version: 1.0.0
+metadata:
+  hermes:
+    tags: [ticktick, tasks, gmail, calendar, docker, uptime, slack, homelab, api]
+    related_skills: []
+---
 
-Personal integration layer exposing TickTick, Gmail, Calendar, Docker, UptimeKuma, and Slack
-over a single authenticated REST API.
+# Homelab API
+
+Personal integration layer for TickTick, Gmail, Calendar, Docker, UptimeKuma, and Slack over a single authenticated REST API. Use `curl` with `$HOMELAB_API_KEY` from the environment.
 
 **Base URL:** `https://api.jkrumm.com`
-**Auth:** All endpoints (except `/health`) require `Authorization: Bearer ${HOMELAB_API_KEY}`
+**Auth:** `Authorization: Bearer $HOMELAB_API_KEY` (available in env)
 **OpenAPI spec:** `https://api.jkrumm.com/docs/json`
+
+When asked about tasks, schedule, emails, infrastructure status, or Slack messages — use this API. Do not say you lack tooling; use curl via the terminal.
 
 ---
 
 ## Endpoint Groups
 
-### Summary (start here for status overviews)
+### Summary — start here for status overviews
 | Method | Path | Description |
 |-|-|-|
 | GET | `/summary` | Single-call snapshot: UptimeKuma status + Docker summaries (homelab + VPS) + TickTick alerts |
@@ -33,9 +44,9 @@ over a single authenticated REST API.
 | GET | `/gmail/emails/{id}` | — | Full email with decoded body + attachment metadata |
 
 ### Google Calendar — read-only
-| Method | Path | Key params | Description |
-|-|-|-|-|
-| GET | `/gmail/calendar` | — | Upcoming events across all personal calendars (30-day window) |
+| Method | Path | Description |
+|-|-|-|
+| GET | `/gmail/calendar` | Upcoming events across all personal calendars (30-day window) |
 
 ### UptimeKuma — monitor status
 | Method | Path | Description |
@@ -76,16 +87,17 @@ over a single authenticated REST API.
 ## Usage Pattern
 
 ```bash
-# Status overview (use for morning briefing, watchdog checks)
+# Status overview
 curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://api.jkrumm.com/summary"
 
-# Today's tasks
+# Today's tasks (get projects first, then fetch tasks per project)
 curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://api.jkrumm.com/ticktick/projects"
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://api.jkrumm.com/ticktick/project/{projectId}/data"
 
-# Today's calendar
+# Today's calendar events
 curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://api.jkrumm.com/gmail/calendar"
 
-# Container health (homelab)
+# Container health
 curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://api.jkrumm.com/docker/homelab/summary"
 
 # Create a task
@@ -98,8 +110,8 @@ curl -s -X POST -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: ap
 
 ## Notes
 
-- `/summary` is the most efficient call for status checks — use it first before drilling into individual endpoints
-- Docker logs endpoint: use `?tail=50` for quick checks, omit for full default (100 lines)
-- Gmail search supports standard Gmail query syntax in the `query` param (e.g., `is:unread from:newsletter@example.com`)
-- Slack search supports Slack operator syntax (e.g., `in:#hermes from:@johannes`)
-- This reference is auto-generated from the live OpenAPI spec — run `/docs` in the homelab project to regenerate
+- `/summary` is the most efficient first call for morning briefings or status checks
+- Docker logs: use `?tail=50` for quick checks
+- Gmail search supports standard Gmail query syntax in the `query` param
+- Slack search supports Slack operator syntax (`in:#hermes`, `from:@johannes`)
+- This skill is auto-regenerated from the live OpenAPI spec — run `/docs` in the homelab project after API route changes
