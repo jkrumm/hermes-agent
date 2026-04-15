@@ -24,7 +24,7 @@ All connected via Tailscale.
 
 | Channel | ID | Hermes | External bots | Role |
 |-|-|-|-|-|
-| `#hermes` | C0ASRUD7K1U | read + write | — | Main conversation, Johannes ↔ Hermes |
+| `#hermes` | C0ASRUD7K1U | read + write | HomeLab bot | Main conversation, HomeLab-triggered checks |
 | `#inbox` | C0AT6TB49HP | read + write | HomeLab bot | Johannes + HomeLab drops (voice memos, links, digests) → Hermes processes |
 | `#alerts` | C0AS1LAUQ3C | read + write | HomeLab bot, external monitors | Docker/UptimeKuma and other monitors fire in → Hermes triages and acts |
 | `#watchdog` | C0ASRULFTSS | write only | — | Hermes posts its own proactive monitoring results (Phase 3) |
@@ -47,7 +47,7 @@ All connected via Tailscale.
 ### Bot Membership Rules
 
 - **Hermes bot**: invited to all channels above
-- **HomeLab bot**: `#inbox` + `#alerts` — never `#hermes` or `#watchdog`
+- **HomeLab bot**: `#hermes` + `#inbox` + `#alerts` — never `#watchdog`
 - **Other external monitors**: `#alerts` only
 - **Adding a new integration**: invite it to `#alerts` (reactive) or `#inbox` (data drops) — never `#hermes`
 

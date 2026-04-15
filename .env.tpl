@@ -6,6 +6,7 @@
 SLACK_BOT_TOKEN=op://hermes/slack/bot-token
 SLACK_APP_TOKEN=op://hermes/slack/app-token
 SLACK_ALLOWED_USERS=op://hermes/slack/allowed-user-id
+SLACK_ALLOW_ALL_USERS=true        # Channel membership is the ACL — no per-user ID filtering needed
 # Channel IDs — fill after creating channels (Settings > Copy Channel ID)
 SLACK_CHANNEL_HERMES=op://hermes/slack/channel-hermes
 SLACK_HOME_CHANNEL=op://hermes/slack/channel-hermes

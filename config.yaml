@@ -76,7 +76,7 @@ slack:
   bot_token: "${SLACK_BOT_TOKEN}"
   app_token: "${SLACK_APP_TOKEN}"
   require_mention: false            # Responds to all messages in channels he's invited to
-  allow_bots: "all"               # Channel membership = ACL — invite Hermes only to trusted channels
+  allow_bots: "all"               # Accept bot messages — channel membership is the ACL
   reply_in_thread: true
   reply_broadcast: false
   reply_to_mode: "first"
@@ -87,7 +87,7 @@ slack:
 # --- Homelab API ---
 # Single authenticated HTTP layer for TickTick, Gmail, Calendar, Docker, UptimeKuma, Slack
 # Replaces separate MCP servers for Phase 1 (assistant) + Phase 3 (watchdog)
-# Skill reference: skills/homelab-api/reference.md
+# Skill: skills/homelab-api/SKILL.md (auto-loaded by skill manager)
 # OpenAPI spec: https://api.jkrumm.com/docs/json
 homelab_api:
   base_url: "https://api.jkrumm.com"
