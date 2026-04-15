@@ -18,6 +18,38 @@ Mac Mini M2 Pro — Hermes Agent (always-on)
 All connected via Tailscale.
 ```
 
+## Channel Architecture
+
+`allow_bots: all` + channel membership = ACL. Hermes processes every message in channels it's been invited to — human or bot. Keep external bots out of `#hermes`.
+
+| Channel | ID | Hermes | External bots | Role |
+|-|-|-|-|-|
+| `#hermes` | C0ASRUD7K1U | read + write | — | Main conversation, Johannes ↔ Hermes |
+| `#inbox` | C0AT6TB49HP | read + write | — | Drop: voice memos, links, quick notes (Phase 2) |
+| `#briefings` | C0AT6TH404R | write only | — | Hermes posts morning/evening audio (Phase 1) |
+| `#journal` | C0ATN8W6N2U | write only | — | Hermes posts structured journal entries (Phase 2) |
+| `#watchdog` | C0ASRULFTSS | read + write | HomeLab bot | Docker/UptimeKuma alerts → Hermes acts (Phase 3) |
+| `#alerts` | C0AS1LAUQ3C | read + write | Sentry, others | External monitoring → Hermes triages (Phase 3) |
+| `#news` | C0ASXJD0ZEG | write only | — | Daily digest (Phase 4) |
+
+### Trigger Matrix
+
+| Source | Channel | What happens |
+|-|-|-|
+| Johannes message | `#hermes` | Hermes responds immediately (no mention needed) |
+| Johannes voice memo | `#inbox` | Hermes transcribes + processes (Phase 2) |
+| Johannes drops link | `#inbox` | Hermes extracts + summarises (Phase 2) |
+| Cron job | `#hermes` / `#briefings` | Hermes posts proactive update or audio briefing |
+| HomeLab bot alert | `#watchdog` | Hermes reads alert, calls homelab-api, responds or escalates |
+| Sentry / external | `#alerts` | Hermes triages, checks context, notifies if critical |
+
+### Bot Membership Rules
+
+- **Hermes bot**: invited to all channels above
+- **HomeLab bot**: `#watchdog` only — never `#hermes`
+- **Sentry**: `#alerts` only — never `#hermes`
+- **Adding a new integration**: create a dedicated channel, invite Hermes + the bot there
+
 ## Files
 
 | File | Live path | How |
