@@ -63,12 +63,12 @@ tts:
     base_url: "http://iu-mac-book.dinosaur-sole.ts.net:8000/v1"
     api_key: "not-needed"          # Tailscale encrypts at network layer
     extra_body:
+      # Base voice character — _prepare_tts_metadata() dynamically adapts
+      # emotion, pace, and energy per message via the auxiliary LLM.
       instruct: >-
-        A calm, composed middle-aged male voice with a deep, resonant tone
-        and magnetic quality. Steady, unhurried speaking pace with clear
-        articulation and warm undertones. Professional and authoritative yet
-        approachable, suitable for documentary narration and thoughtful
-        conversation.
+        A calm male voice in his early thirties with a warm, smooth baritone.
+        Natural conversational pace, clear and articulate. Professional but
+        approachable, like a knowledgeable friend giving you an update.
 
 # --- Slack (Socket Mode) ---
 slack:
