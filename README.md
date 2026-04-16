@@ -128,6 +128,12 @@ ln -sf $REPO/cron ~/.hermes/cron
 ln -sf $REPO/hooks ~/.hermes/hooks
 # Skills: symlink each custom skill individually
 ln -sf $REPO/skills/homelab-api ~/.hermes/skills/homelab-api
+ln -sf $REPO/skills/infrastructure ~/.hermes/skills/infrastructure
+ln -sf $REPO/skills/tasks ~/.hermes/skills/tasks
+ln -sf $REPO/skills/schedule ~/.hermes/skills/schedule
+ln -sf $REPO/skills/weather ~/.hermes/skills/weather
+ln -sf $REPO/skills/slack ~/.hermes/skills/slack
+ln -sf $REPO/skills/localai-debug ~/.hermes/skills/localai-debug
 # USER.md: copy (not symlink) — Hermes writes to this file
 mkdir -p ~/.hermes/memories
 cp USER.md ~/.hermes/memories/USER.md

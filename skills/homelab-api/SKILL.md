@@ -115,9 +115,13 @@ curl -s -X POST -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: ap
 
 ## Notes
 
+- This is the **full endpoint reference** — use domain-specific skills for focused guidance:
+  - `infrastructure` — UptimeKuma + Docker (decision trees, field semantics, formatting)
+  - `tasks` — TickTick (CRUD workflows, priority/date semantics)
+  - `schedule` — Calendar + Gmail (search syntax, event formatting)
+  - `weather` — Munich forecast (thresholds, response formatting)
+  - `slack` — Slack search, unreads, channel history, messaging
+- Only load this skill when no domain skill matches, or you need the complete endpoint list
 - `/summary` is the most efficient first call for morning briefings or status checks
-- UptimeKuma: `status: 1` = UP, `status: 0` = DOWN — use `/uptime-kuma/status` for quick "any down?" checks, `/monitors` only when listing all
-- Docker logs: use `?tail=50` for quick checks
-- Gmail search supports standard Gmail query syntax in the `query` param
 - Slack search supports Slack operator syntax (`in:#hermes`, `from:@johannes`)
 - This skill is auto-regenerated from the live OpenAPI spec — run `/docs` in the homelab project after API route changes

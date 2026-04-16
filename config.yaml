@@ -77,7 +77,7 @@ slack:
   app_token: "${SLACK_APP_TOKEN}"
   require_mention: false            # Responds to all messages in channels he's invited to
   allow_bots: "all"               # Accept bot messages — channel membership is the ACL
-  reply_in_thread: true
+  reply_in_thread: false
   reply_broadcast: false
   reply_to_mode: "first"
   group_sessions_per_user: true
