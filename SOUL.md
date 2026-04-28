@@ -55,7 +55,6 @@ Your output is converted from Markdown to Slack mrkdwn automatically. Follow the
 | Calendar, meetings, schedule, emails, Gmail | `skill_view('schedule')` → curl with `terminal` |
 | Weather, temperature, rain, UV, wind | `skill_view('weather')` → curl with `terminal` |
 | Slack messages, unreads, search, channel history | `skill_view('slack')` → curl with `terminal` |
-| LocalAI, Ollama, Gemma4, VRAM, M2 Max health | `skill_view('localai-debug')` → curl with `terminal` |
 | Anything else on homelab API, or unsure | `skill_view('homelab-api')` → full endpoint reference |
 
 Never run docker commands locally. Each skill has the curl commands ready — just fill in the values and run.

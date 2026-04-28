@@ -11,11 +11,10 @@ Personal AI assistant running 24/7 on Mac Mini. Slack as interface, Gemma 4 on M
 Slack (Socket Mode)
   ↓
 Mac Mini M2 Pro — Hermes Agent (always-on)
-  ├→ M2 Max MacBook — Gemma 4 (LLM), Whisper (STT), Kokoro/Qwen3 (TTS)
-  ├→ Homelab — Docker containers, CouchDB, backups
-  ├→ VPS — Production apps, ClickStack
-  └→ Anthropic API — Sonnet (fallback LLM), Haiku (auxiliary: compression, vision)
-All connected via Tailscale.
+  ├→ mlx-audio (127.0.0.1:8000) — Parakeet TDT v3 (STT), Kokoro/Qwen3 (TTS)
+  ├→ Homelab — Docker containers, CouchDB, backups (via Tailscale)
+  ├→ VPS — Production apps, ClickStack (via Tailscale)
+  └→ IU unified endpoint — Sonnet 4.6 (primary), Haiku 4.5 (auxiliary), Gemini Flash (vision)
 ```
 
 ## Channel Architecture
@@ -71,16 +70,15 @@ All connected via Tailscale.
 # Prevent sleep (always-on agent host)
 sudo pmset -a sleep 0 displaysleep 0 disksleep 0
 
-# Verify Tailscale — must reach M2 Max
-ping iu-mac-book.dinosaur-sole.ts.net
-curl -s https://iu-mac-book.dinosaur-sole.ts.net/v1/models  # should list gemma4-agent
+# Verify mlx-audio — should be running locally after `make _setup-localai`
+curl -s http://127.0.0.1:8000/v1/models
 ```
 
 ### 2. Install Hermes
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash
-hermes --version  # should show v0.9.0+
+hermes --version  # should show v0.11.0+
 ```
 
 ### 3. 1Password Vault
