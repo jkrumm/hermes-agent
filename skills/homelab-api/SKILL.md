@@ -70,10 +70,10 @@ When asked about tasks, schedule, emails, infrastructure status, or Slack messag
 | GET | `/docker/vps/logs/{name}` | `tail?` (default 100) | Recent log lines for container |
 | GET | `/docker/vps/summary` | — | Host resources + container counts + health alerts |
 
-### Weather — Munich forecast (Open-Meteo)
-| Method | Path | Description |
-|-|-|-|
-| GET | `/weather/forecast` | Current conditions + 48h hourly + 7-day daily — temp, rain, clouds, UV, wind |
+### Weather — forecast (Open-Meteo)
+| Method | Path | Key params | Description |
+|-|-|-|-|
+| GET | `/weather/forecast` | `city?` (default Munich) | Current + 48h hourly + 7-day daily — temp, rain, clouds, UV, wind. Geocoded via Open-Meteo. |
 
 ### Slack
 | Method | Path | Key params | Description |
@@ -119,7 +119,7 @@ curl -s -X POST -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: ap
   - `infrastructure` — UptimeKuma + Docker (decision trees, field semantics, formatting)
   - `tasks` — TickTick (CRUD workflows, priority/date semantics)
   - `schedule` — Calendar + Gmail (search syntax, event formatting)
-  - `weather` — Munich forecast (thresholds, response formatting)
+  - `weather` — forecast for any city, default Munich (thresholds, response formatting)
   - `slack` — Slack search, unreads, channel history, messaging
 - Only load this skill when no domain skill matches, or you need the complete endpoint list
 - `/summary` is the most efficient first call for morning briefings or status checks

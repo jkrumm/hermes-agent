@@ -1,7 +1,7 @@
 ---
 name: weather
-description: Get weather forecast for Munich — current conditions, 48h hourly detail, 7-day daily overview with rain, clouds, temperature, UV index, and wind
-version: 1.0.0
+description: Get weather forecast for any city (default Munich) — current conditions, 48h hourly detail, 7-day daily overview with rain, clouds, temperature, UV index, and wind
+version: 1.1.0
 metadata:
   hermes:
     tags: [weather, forecast, rain, temperature, uv, wind, clouds]
@@ -10,12 +10,13 @@ metadata:
 
 # Weather
 
-Weather forecast for Munich via the homelab API. Data sourced from Open-Meteo (DWD/ECMWF models).
+Weather forecast for any city via the homelab API. Defaults to Munich. Data sourced from Open-Meteo (DWD/ECMWF models).
 
 **Endpoint:** `GET https://api.jkrumm.com/weather/forecast`
+**Query:** `?city=<name>` (optional, default `Munich`) — any city name; geocoded via Open-Meteo
 **Auth:** `Authorization: Bearer $HOMELAB_API_KEY`
 
-Use this skill when Johannes asks about weather, temperature, rain, whether to bring an umbrella, UV protection, wind conditions, or weekend plans that depend on weather.
+Use this skill when Johannes asks about weather, temperature, rain, whether to bring an umbrella, UV protection, wind conditions, or weekend plans that depend on weather — for Munich or any other city.
 
 ---
 
@@ -32,8 +33,14 @@ Single call returns everything:
 ## Usage
 
 ```bash
+# Default — Munich
 curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://api.jkrumm.com/weather/forecast"
+
+# Any other city
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://api.jkrumm.com/weather/forecast?city=Salzburg"
 ```
+
+Response includes resolved `city` and `country` so you can confirm the geocoder picked the right place. A 400 is returned if the city can't be geocoded.
 
 ## How to Respond
 
@@ -47,7 +54,9 @@ curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://api.jkrumm.com/weat
 
 ## Notes
 
-- Location is fixed to Munich — no location parameter needed
+- Default location is Munich — pass `?city=<name>` for anywhere else (e.g. `Salzburg`, `Berlin`, `Hamburg`)
+- Geocoding handles fuzzy matches and accents; pick the more specific name if multiple cities share a name (e.g. `Frankfurt am Main` vs `Frankfurt an der Oder`)
 - Temperatures in °C, wind in km/h, precipitation in mm
+- `today` is in the resolved city's local timezone, not always Europe/Berlin
 - `condition` field is already human-readable (translated from WMO weather codes)
 - Data updates roughly every hour from Open-Meteo
