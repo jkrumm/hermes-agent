@@ -11,7 +11,7 @@ Slack (Socket Mode)
   ↓
 Mac Mini M2 Pro — Hermes Agent (always-on)
   ├→ localai-helper (127.0.0.1:8001) — TTS orchestration (language, rewrite, chunk, concat)
-  ├→ mlx-audio (127.0.0.1:8000) — Parakeet TDT v3 (STT), Qwen3-TTS VoiceDesign (TTS)
+  ├→ mlx-audio (127.0.0.1:8000) — Parakeet TDT v3 (STT), Voxtral 4B (TTS)
   ├→ Homelab — Docker containers, CouchDB, backups (via Tailscale)
   ├→ VPS — Production apps, ClickStack (via Tailscale)
   └→ IU unified endpoint — Sonnet 4.6 (primary), Haiku 4.5 (auxiliary), Gemini Flash (vision)
@@ -183,7 +183,7 @@ tail -f /tmp/hermes-gateway.log  # watch for successful Slack connection
 
 - [x] Send message in `#hermes` on Slack — get response via Sonnet 4.6
 - [x] Send voice memo in Slack — get transcribed via Parakeet STT
-- [x] TTS audio generation — Qwen3-TTS via localai-helper, MP3 output
+- [x] TTS audio generation — Voxtral 4B via localai-helper, MP3 output
 - [ ] Backup cron — daily rsync to homelab
 
 ### Known Issues / TODOs

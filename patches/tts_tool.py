@@ -1,8 +1,8 @@
 """TTS tool — thin client over localai-helper (:8001).
 
 Calls POST /v1/tts/synthesize which orchestrates:
-  language detection, speakable rewrite (Haiku), title + delivery (Haiku),
-  400-char sentence-boundary chunking, Qwen3-TTS synthesis, ffmpeg MP3.
+  language detection, speakable rewrite (Haiku), title (Haiku),
+  paragraph-aware chunking, Voxtral 4B synthesis, MP3 encode.
 
 Returns a MEDIA:<path> tag Hermes delivers as a Slack audio attachment.
 

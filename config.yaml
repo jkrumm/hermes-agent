@@ -73,8 +73,9 @@ stt:
 # --- Text-to-Speech ---
 # All TTS synthesis is orchestrated by localai-helper (:8001) via tts_tool.py.
 # The helper handles: language detection, speakable rewrite (Haiku), title
-# (Haiku), Voxtral synthesis via mlx-audio (:8000), and ffmpeg post-processing
-# (leading silence trim + 30ms fade-in + 50ms fade-out + MP3 encode).
+# (Haiku), paragraph-aware chunking, Voxtral synthesis via mlx-audio (:8000),
+# and MP3 encoding. No audio post-processing — Voxtral output is shipped
+# unmodified.
 #
 # Model: mlx-community/Voxtral-4B-TTS-2603-mlx-4bit (2.5 GB)
 # Voice presets are language-mapped in localai/helper/routes/tts.py:
