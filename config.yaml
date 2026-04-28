@@ -70,32 +70,23 @@ stt:
     base_url: "http://127.0.0.1:8000/v1"
     api_key: "not-needed"
 
-# --- Text-to-Speech (Qwen3-TTS VoiceDesign on local mlx-audio) ---
-# Acoustic attribute control via instruct parameter — no named voices,
-# describe the desired voice in natural language instead.
-# Supports: English, German, French, Japanese, Korean, Russian, Portuguese, Spanish, Italian, Chinese
+# --- Text-to-Speech ---
+# All TTS synthesis is orchestrated by localai-helper (:8001) via tts_tool.py.
+# The helper handles: language detection, speakable rewrite (Haiku), chunking,
+# Qwen3-TTS synthesis via mlx-audio (:8000), and ffmpeg MP3 concatenation.
+#
+# Model: mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-bf16
+# lang_code: always set to "german" or "english" (full word — not "de"/"en").
+#   "auto" and short ISO codes fall through to English output (mlx-audio bug).
+# instruct: always in English — VoiceDesign benchmarked on EN/ZH instruct only.
+# Voice definition and lang_code live in localai/helper/routes/tts.py.
 tts:
   provider: "openai"
   openai:
     model: "mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-bf16"
-    voice: ""                      # VoiceDesign uses instruct, not named voices
-    base_url: "http://127.0.0.1:8000/v1"
+    voice: ""
+    base_url: "http://127.0.0.1:8001/v1"
     api_key: "not-needed"
-    extra_body:
-      # Base voice character — _prepare_tts_metadata() dynamically adapts
-      # emotion, pace, and energy per message via the auxiliary LLM.
-      # Instruct is in German because Qwen3-TTS reads instruct language as
-      # speaker's native tongue. lang_code is NOT set — it overrode speaker
-      # gender to female in testing. German instruct + auto lang detection
-      # gives native German pronunciation while staying male.
-      instruct: >-
-        Eine tiefe MÄNNLICHE Stimme eines Mannes Anfang Dreißig. Warmer,
-        weicher Bariton. Maskulines, tiefes Stimmregister. Akzentfreies
-        muttersprachliches Hochdeutsch, natürlicher Sprechrhythmus, klar
-        und artikuliert. Professionell aber zugänglich, wie ein gut
-        informierter Freund, der dir ein Update gibt. Spricht englische
-        Wörter mit korrekter englischer Aussprache, deutsche Wörter mit
-        korrekter deutscher Aussprache.
 
 # --- Slack (Socket Mode) ---
 # Per-thread sessions are the 0.11.0 default. Each top-level DM creates a new

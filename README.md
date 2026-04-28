@@ -1,8 +1,7 @@
 # Hermes Agent — Mac Mini M2 Pro
 
-Personal AI assistant running 24/7 on Mac Mini. Slack as interface, Gemma 4 on M2 Max as brain, four skill domains (assistant, journal, watchdog, news).
+Personal AI assistant running 24/7 on Mac Mini. Slack as interface, Sonnet 4.6 as brain, seven skill domains.
 
-**PRD**: `../hermes-agent-prd.md`
 **Hermes docs**: https://hermes-agent.nousresearch.com/docs/
 
 ## Architecture
@@ -11,7 +10,8 @@ Personal AI assistant running 24/7 on Mac Mini. Slack as interface, Gemma 4 on M
 Slack (Socket Mode)
   ↓
 Mac Mini M2 Pro — Hermes Agent (always-on)
-  ├→ mlx-audio (127.0.0.1:8000) — Parakeet TDT v3 (STT), Kokoro/Qwen3 (TTS)
+  ├→ localai-helper (127.0.0.1:8001) — TTS orchestration (language, rewrite, chunk, concat)
+  ├→ mlx-audio (127.0.0.1:8000) — Parakeet TDT v3 (STT), Qwen3-TTS VoiceDesign (TTS)
   ├→ Homelab — Docker containers, CouchDB, backups (via Tailscale)
   ├→ VPS — Production apps, ClickStack (via Tailscale)
   └→ IU unified endpoint — Sonnet 4.6 (primary), Haiku 4.5 (auxiliary), Gemini Flash (vision)
@@ -181,15 +181,13 @@ tail -f /tmp/hermes-gateway.log  # watch for successful Slack connection
 
 ### 9. Verify
 
-- [x] Send message in `#hermes` on Slack — get response via Gemma 4
-- [x] Send voice memo in Slack — get transcribed via Whisper STT
-- [x] TTS audio generation via Kokoro — uploads as Ogg Vorbis file
-- [ ] Fallback to Anthropic Claude when M2 Max is offline
+- [x] Send message in `#hermes` on Slack — get response via Sonnet 4.6
+- [x] Send voice memo in Slack — get transcribed via Parakeet STT
+- [x] TTS audio generation — Qwen3-TTS via localai-helper, MP3 output
 - [ ] Backup cron — daily rsync to homelab
 
 ### Known Issues / TODOs
 
-- **TTS format**: Kokoro outputs Ogg Vorbis — Slack shows as download, not inline player. Investigate mp3/m4a output for inline playback.
 - **Gateway launchd**: `hermes gateway restart` sometimes doesn't reload. Use `hermes gateway stop && hermes gateway start` as workaround.
 - **`.env` rebuild**: API keys with `=` chars break shell splitting. Use the Python builder script (see below) instead of `op run ... env > .env`.
 
@@ -212,9 +210,7 @@ refs = {
     'HOMELAB_API_KEY': 'op://common/api/SECRET',
 }
 # Static env vars (not from 1Password)
-static = {
-    'VOICE_TOOLS_OPENAI_KEY': 'not-needed',  # Dummy key for OpenAI-compatible TTS/STT on M2 Max
-}
+static = {}
 lines = []
 for key, ref in refs.items():
     val = subprocess.check_output(['op', 'read', ref, '--account', 'tkrumm'], text=True).strip()
