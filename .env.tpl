@@ -31,3 +31,8 @@ GITHUB_TOKEN=op://hermes/github/token
 # Homelab API — single integration layer for TickTick, Gmail, Calendar, Docker, UptimeKuma, Slack
 # Replaces separate MCP servers for Phase 1 + Phase 3. Base URL: https://api.jkrumm.com
 HOMELAB_API_KEY=op://common/api/SECRET
+
+# UptimeKuma push URLs — consumed by hermes/scripts/{hermes-liveness,hermes-backup}.sh
+# Push monitors created manually in UK UI; URLs stored in 1Password after creation.
+UPTIME_PUSH_HERMES=op://hermes/uptime-kuma/agent-push-url
+UPTIME_PUSH_BACKUP=op://hermes/uptime-kuma/backup-push-url

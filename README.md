@@ -117,28 +117,18 @@ Create these channels and invite the Hermes bot:
 ### 6. Deploy Config
 
 ```bash
-# Symlink config files to Mac Mini ~/.hermes/
-REPO=~/SourceRoot/claude-local/hermes
-ln -sf $REPO/config.yaml ~/.hermes/config.yaml
-ln -sf $REPO/.env.tpl ~/.hermes/.env.tpl
-ln -sf $REPO/SOUL.md ~/.hermes/SOUL.md
-ln -sf $REPO/cron ~/.hermes/cron
-ln -sf $REPO/hooks ~/.hermes/hooks
-# Skills: symlink each custom skill individually
-ln -sf $REPO/skills/homelab-api ~/.hermes/skills/homelab-api
-ln -sf $REPO/skills/infrastructure ~/.hermes/skills/infrastructure
-ln -sf $REPO/skills/tasks ~/.hermes/skills/tasks
-ln -sf $REPO/skills/schedule ~/.hermes/skills/schedule
-ln -sf $REPO/skills/weather ~/.hermes/skills/weather
-ln -sf $REPO/skills/slack ~/.hermes/skills/slack
-ln -sf $REPO/skills/localai-debug ~/.hermes/skills/localai-debug
-# USER.md: copy (not symlink) — Hermes writes to this file
-mkdir -p ~/.hermes/memories
-cp USER.md ~/.hermes/memories/USER.md
+# Mac Mini-only — symlinks all hermes config files, installs com.localai.helper
+# (FastAPI orchestrator on :8001), and registers the liveness + backup crons.
+# Universal `make setup` deliberately skips this so other Macs only get mlx-audio.
+cd ~/SourceRoot/claude-local && make hermes
 
-# Verify secrets resolve
-op run --account tkrumm --env-file=~/.hermes/.env.tpl -- env | grep SLACK
+# Verify
+make hermes-status
 ```
+
+`make hermes` runs idempotently. Re-run after editing skills, cron scripts, or
+the helper plist template. Crontab entries are rewritten in place — existing
+hermes lines are replaced, unrelated entries are preserved.
 
 ### 7. Run Hermes Setup
 
@@ -184,7 +174,8 @@ tail -f /tmp/hermes-gateway.log  # watch for successful Slack connection
 - [x] Send message in `#hermes` on Slack — get response via Sonnet 4.6
 - [x] Send voice memo in Slack — get transcribed via Parakeet STT
 - [x] TTS audio generation — Voxtral 4B via localai-helper, MP3 output
-- [ ] Backup cron — daily rsync to homelab
+- [x] Backup cron — daily 03:00 rsync to `homelab:/mnt/hdd/backups/hermes/`, pings UK
+- [x] Liveness cron — every 5 min, pings UK if gateway running + Slack connected
 
 ### Known Issues / TODOs
 
@@ -208,6 +199,8 @@ refs = {
     'TAVILY_API_KEY': 'op://hermes/tavily/API_KEY',
     'GITHUB_TOKEN': 'op://hermes/github/token',
     'HOMELAB_API_KEY': 'op://common/api/SECRET',
+    'UPTIME_PUSH_HERMES': 'op://hermes/uptime-kuma/agent-push-url',
+    'UPTIME_PUSH_BACKUP': 'op://hermes/uptime-kuma/backup-push-url',
 }
 # Static env vars (not from 1Password)
 static = {}
@@ -224,14 +217,20 @@ print(f'Written {len(lines)} secrets')
 "
 ```
 
-## Backup
+## Cron — Liveness + Backup
 
-```bash
-# Daily rsync to homelab (add to crontab on Mac Mini)
-# 0 3 * * * rsync -az --exclude='*.mp3' ~/.hermes/ homelab:~/hermes-backup/
-```
+Both installed by `make hermes`. Both ping UptimeKuma push monitors.
 
-Homelab → Backblaze B2 via existing restic schedule picks up `~/hermes-backup/`.
+| When | Script | What |
+|-|-|-|
+| `*/5 * * * *` | `hermes/scripts/hermes-liveness.sh` | Read `~/.hermes/gateway_state.json`. If `gateway_state == "running"` AND `platforms.slack.state == "connected"` AND PID alive → curl `$UPTIME_PUSH_HERMES`. UK monitor `Hermes Agent - Push` (interval 360s). |
+| `0 3 * * *` | `hermes/scripts/hermes-backup.sh` | rsync `~/.hermes/` → `homelab:/mnt/hdd/backups/hermes/` (excludes `audio_cache/`, `image_cache/`, `cache/`, `sandboxes/`, `sessions/`, `hermes-agent/`, `*.lock`, `*.pid`). On success → curl `$UPTIME_PUSH_BACKUP`. UK monitor `Hermes Backup - Push` (interval 25h). |
+
+**Push URLs** are stored in 1Password (`op://hermes/uptime-kuma/{agent,backup}-push-url`) and resolved into `~/.hermes/.env` by the rebuild script below. Scripts no-op silently if the URL is missing — UK alerts on the missing heartbeat.
+
+**Push monitors** are created manually in the UK UI per existing convention (uptime-kuma-api 1.2.1 doesn't support UK 2.x push creation). Monitor specs are documented declaratively in `homelab/uptime-kuma/monitors.yaml` under the Infrastructure subgroup.
+
+**Restic / B2:** Duplicati already mounts `/mnt:/source/mnt`, so `/mnt/hdd/backups/hermes/` is picked up by the existing B2 backup job.
 
 ## Phases
 
