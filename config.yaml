@@ -72,18 +72,20 @@ stt:
 
 # --- Text-to-Speech ---
 # All TTS synthesis is orchestrated by localai-helper (:8001) via tts_tool.py.
-# The helper handles: language detection, speakable rewrite (Haiku), chunking,
-# Qwen3-TTS synthesis via mlx-audio (:8000), and ffmpeg MP3 concatenation.
+# The helper handles: language detection, speakable rewrite (Haiku), title
+# (Haiku), Voxtral synthesis via mlx-audio (:8000), and ffmpeg post-processing
+# (leading silence trim + 30ms fade-in + 50ms fade-out + MP3 encode).
 #
-# Model: mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-bf16
-# lang_code: always set to "german" or "english" (full word — not "de"/"en").
-#   "auto" and short ISO codes fall through to English output (mlx-audio bug).
-# instruct: always in English — VoiceDesign benchmarked on EN/ZH instruct only.
-# Voice definition and lang_code live in localai/helper/routes/tts.py.
+# Model: mlx-community/Voxtral-4B-TTS-2603-mlx-4bit (2.5 GB)
+# Voice presets are language-mapped in localai/helper/routes/tts.py:
+#   de → de_male  (slight Austrian Hochdeutsch lean — Mistral demo "Patrick")
+#   en → neutral_male
+# Voxtral has no instruct / lang_code / system_prompt — voice preset is the
+# only character knob. Expression comes from text content (implicit steering).
 tts:
   provider: "openai"
   openai:
-    model: "mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-bf16"
+    model: "mlx-community/Voxtral-4B-TTS-2603-mlx-4bit"
     voice: ""
     base_url: "http://127.0.0.1:8001/v1"
     api_key: "not-needed"
