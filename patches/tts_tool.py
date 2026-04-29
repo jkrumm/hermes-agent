@@ -41,7 +41,12 @@ def text_to_speech_tool(
         r = requests.post(
             f"{_HELPER_URL}/v1/tts/synthesize",
             json={"text": text.strip()},
-            timeout=300,
+            # Long-form German briefings (~2500 chars / 4 chunks) take
+            # ~16 min wall on M2 Pro because Fish S2 Pro is gen-bound,
+            # not chunk-overhead-bound. The helper itself waits up to
+            # 1800s per chunk; match that here so multi-paragraph
+            # voice memos don't trip the requests timeout mid-chunk.
+            timeout=1800,
         )
         r.raise_for_status()
         data = r.json()
@@ -95,9 +100,18 @@ TTS_SCHEMA = {
     "description": (
         "Convert text to speech audio and deliver as a Slack voice memo. "
         "Use for briefings, weather updates, status summaries, or any response "
-        "that benefits from audio. The helper rewrites markdown-heavy text into "
-        "natural spoken prose, detects language automatically, and handles any "
-        "length — including multi-minute memos. Returns a MEDIA: path."
+        "that benefits from audio. The helper:\n"
+        "  • detects language automatically (German / English)\n"
+        "  • runs Haiku to rewrite the text as natural spoken prose AND inject "
+        "Fish S2 Pro prosody tags ([professional broadcast tone] [warm] anchor "
+        "+ [emphasis] on key words + [short pause] between topics + emotional "
+        "tags when content warrants them)\n"
+        "  • paragraph/sentence chunks for any length (multi-minute memos OK, "
+        "long generations take ~5 min per 800 chars)\n"
+        "  • applies smile EQ + loudness normalization for production quality\n"
+        "Returns a MEDIA: path. You do NOT need to add prosody tags yourself — "
+        "the rewrite step handles that. Just write the natural narrative text "
+        "you want spoken."
     ),
     "parameters": {
         "type": "object",
@@ -105,8 +119,9 @@ TTS_SCHEMA = {
             "text": {
                 "type": "string",
                 "description": (
-                    "The text to speak. Write it as you would for Slack — the helper "
-                    "rewrites it for speech automatically. Any length is supported."
+                    "The text to speak. Plain prose — write it the way it should "
+                    "sound when spoken (the helper polishes it further). Any length "
+                    "supported; for long-form briefings, target paragraphs not bullets."
                 ),
             },
         },
