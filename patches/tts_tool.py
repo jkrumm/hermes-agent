@@ -32,15 +32,19 @@ _OUTPUT_DIR = Path(os.getenv("TTS_OUTPUT_DIR", "~/.hermes/cache/audio")).expandu
 def text_to_speech_tool(
     text: str,
     output_path: str | None = None,
+    paragraph_pause_secs: float | None = None,
 ) -> str:
     """Convert text to speech. Returns JSON with MEDIA tag for Slack delivery."""
     if not text or not text.strip():
         return json.dumps({"success": False, "error": "Text is required"})
 
+    payload: dict = {"text": text.strip()}
+    if paragraph_pause_secs is not None:
+        payload["paragraph_pause_secs"] = float(paragraph_pause_secs)
     try:
         r = requests.post(
             f"{_HELPER_URL}/v1/tts/synthesize",
-            json={"text": text.strip()},
+            json=payload,
             # Long-form German briefings (~2500 chars / 4 chunks) take
             # ~16 min wall on M2 Pro because Fish S2 Pro is gen-bound,
             # not chunk-overhead-bound. The helper itself waits up to
@@ -121,7 +125,20 @@ TTS_SCHEMA = {
                 "description": (
                     "The text to speak. Plain prose — write it the way it should "
                     "sound when spoken (the helper polishes it further). Any length "
-                    "supported; for long-form briefings, target paragraphs not bullets."
+                    "supported; for long-form briefings, target paragraphs not bullets. "
+                    "The helper splits on blank-line paragraph boundaries first — use "
+                    "blank lines to mark deliberate section boundaries that you want "
+                    "the listener to hear as separate beats."
+                ),
+            },
+            "paragraph_pause_secs": {
+                "type": "number",
+                "description": (
+                    "Optional override for the silence inserted between paragraph-"
+                    "boundary chunks. Default ~0.6s. Set to 1.5–2.5 for multi-section "
+                    "briefings where you want a noticeable beat between sections "
+                    "(weather → infra → training → tasks). Don't go above ~3 — the "
+                    "listener will think the audio froze."
                 ),
             },
         },
@@ -138,6 +155,7 @@ registry.register(
     handler=lambda args, **kw: text_to_speech_tool(
         text=args.get("text", ""),
         output_path=args.get("output_path"),
+        paragraph_pause_secs=args.get("paragraph_pause_secs"),
     ),
     check_fn=check_tts_requirements,
     emoji="🔊",
