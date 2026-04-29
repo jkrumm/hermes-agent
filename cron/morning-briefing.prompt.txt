@@ -1,0 +1,118 @@
+You are generating Johannes's morning briefing. It is a weekday at 07:00 Europe/Berlin. Do not greet, do not address Johannes by name. The output goes to Slack #briefings as a structured message PLUS an audio attachment.
+
+The Slack text body and the audio narrative are TWO DIFFERENT TEXTS. The text body is a scannable English-language Slack mrkdwn document. The audio narrative is a warm conversational German monologue. Compose both, but only the text + a single MEDIA: tag goes in your final response.
+
+## Step 1 — Gather data (use the `terminal` tool directly, all eight in parallel)
+
+**Important:** call the `terminal` tool directly with each shell command. Do NOT wrap calls in `execute_code` — that path is slower and prevents proper parallelization.
+
+The five loaded skills (tasks, schedule, weather, infrastructure, slack) document the homelab API base URL and auth pattern — follow what they specify. Issue all eight calls as eight `terminal` tool invocations in a single parallel batch:
+
+1. Homelab `/summary` — combined tasks + uptime overview (see `tasks` and `infrastructure` skills)
+2. Homelab `/docker/homelab/summary` — Mac Mini Docker stack (see `infrastructure` skill)
+3. Homelab `/docker/vps/summary` — VPS Docker stack (see `infrastructure` skill)
+4. Homelab `/gmail/calendar?days=1` — today's calendar (see `schedule` skill)
+5. Homelab `/weather/forecast` — Munich forecast (see `weather` skill)
+6. Homelab `/slack/channels/C0AS1LAUQ3C/messages?limit=20` — last 20 messages from #alerts (see `slack` skill)
+7. `gh search prs --owner jkrumm --state open --json title,repository,url --limit 20` — open PRs across personal repos
+8. `gh search issues --owner jkrumm --state open --json title,repository,url --limit 20` — open issues across personal repos
+
+If any individual call fails, continue and note the gap in the affected section.
+
+## Step 2 — Compose the Slack text body (English, mrkdwn)
+
+Use this exact structure, in this order. Each section starts with an emoji shortcode header on its own line, followed by `-` bullets. Use Slack mrkdwn: `**bold**` for emphasis, `` `code` `` for technical values, `:emoji:` shortcodes (which render as graphical emoji in Slack).
+
+```
+:sunny: Weather — Munich
+- <condition>, <temp_min>–<temp_max>°C, <rain summary>
+- <one extra-context line: morning chill, UV warning if max>6, gust warning if >50 km/h, otherwise omit>
+
+:date: Today's Schedule
+- <time> <title> <(location or videoLink hint, if any)>
+(If no events: a single line "- No events scheduled.")
+
+:hammer_and_wrench: Infrastructure
+- UptimeKuma: <up>/<total> monitors UP <(downMonitors list if any down)>
+- Homelab Docker: <running>/<total> containers, <unhealthy summary or "all healthy">
+- VPS Docker: <running>/<total> containers, <unhealthy summary or "all healthy">
+
+:rotating_light: Recent Alerts (last 24h)
+- <distinct alert text from #alerts messages, deduplicated, max 5>
+(If none: a single line "- No alerts in the last 24h.")
+
+:octocat: GitHub
+- <N> open PRs <(if N > 0, list each as "repo: title")>
+- <N> open issues <(if N > 0, list each as "repo: title")>
+(If both 0: a single line "- All clean across all repos.")
+
+:checkered_flag: Tasks — <X> overdue, <Y> due today
+**Overdue**
+- :briefcase: Work: <title> (Due <Mon DD>, <High|>)
+- :house: Personal: <title> (Due <Mon DD>, <High|>)
+- :innocent: Dev: <title> (Due <Mon DD>, <High|>)
+**Due Today**
+- ... (same format)
+(Only include "Due Today" subhead if any tasks are due today. If 0 overdue and 0 due today, just write "- All clear, you're caught up.")
+```
+
+Style rules for the text body:
+- Use `-` for bullets (NEVER `*` — breaks the mrkdwn converter)
+- Project emojis: `:briefcase:` for Work, `:house:` for Personal, `:innocent:` for Dev (match existing Hermes style); pick a sensible emoji for any other project name
+- Dates as "Apr 17", not ISO
+- Mark high-priority tasks (`priority: 5`) with "High" in the parens
+- Cap each task subgroup at 8 items; if more, end the group with "- … and N more"
+- For #alerts: extract just the meaningful text, dedupe identical lines, drop emoji-prefixes from the source messages
+- Keep each bullet to one line where possible
+
+## Step 3 — Compose the audio narrative (German, ~120–180 words)
+
+A separate text — only fed to text_to_speech. Three short paragraphs, conversational tone:
+
+1. **Wetter & Termine** — pull weather from `daily_7d[0]` (covers the full day; the briefing runs at 07:00 so `current` is misleading). Mention temp range, condition, rain probability if > 30%, UV warning if max > 6, wind gusts if > 50 km/h. Then mention today's events with start time spoken naturally ("neun Uhr sechsunddreißig", not "09:36"). If no events, "Heute keine Termine."
+2. **Infrastruktur & Alerts** — one sentence on infra ("Alle Systeme grün" or "X ist down: …"). One sentence on recent alerts ("Keine Alerts in der Nacht" or "Ein Alert: …").
+3. **Aufgaben & GitHub** — count of overdue + due today, name top 3 most-urgent tasks (overdue + high-priority first), then GitHub status ("Auf GitHub alles aufgeräumt" or "X offene PRs, Y offene Issues").
+
+Style rules for the narrative:
+- No bullets, no emoji shortcodes, no markdown — this becomes audio
+- Times spoken: "Viertel nach neun" or "neun Uhr fünfzehn"
+- Dates as "heute" / "morgen" / weekday names
+- Open with the date in German: "Heute ist <Wochentag>, der <Datum> April."
+- Under 180 words total
+
+## Step 4 — Synthesize audio
+
+Pass the narrative (Step 3 text only — NOT the Slack body) to the `text_to_speech` tool. It returns JSON with `media_tag` of the form `MEDIA:/path/to/file.mp3`.
+
+## Step 5 — Final response
+
+Output the Slack text body from Step 2, then a blank line, then the `MEDIA:` tag on its own line. Nothing else — no commentary, no headers, no metadata. Example shape:
+
+```
+:sunny: Weather — Munich
+- Cloudy, 7–19°C, no rain expected
+- Cool morning, feels-like 5–6°C — bring a jacket
+
+:date: Today's Schedule
+- 09:36 Train München-Pasing → Köln Hbf
+
+:hammer_and_wrench: Infrastructure
+- UptimeKuma: 60/60 monitors UP
+- Homelab Docker: 33/33 containers, 1 unhealthy (`garmin-sync`)
+- VPS Docker: 16/16 containers, all healthy
+
+:rotating_light: Recent Alerts (last 24h)
+- No alerts in the last 24h.
+
+:octocat: GitHub
+- 0 open PRs
+- 1 open issue (homelab: feat(weather): Add city/location parameter)
+
+:checkered_flag: Tasks — 9 overdue, 0 due today
+**Overdue**
+- :briefcase: Work: Prepare LoA cases (Due Apr 07, High)
+- :briefcase: Work: Find LoA studyEnd case (Due Apr 07, High)
+- ... etc
+
+MEDIA:/Users/jkrumm/.hermes/cache/audio/Wetter Muenchen Dienstag 07:00 28.04.26.mp3
+```
