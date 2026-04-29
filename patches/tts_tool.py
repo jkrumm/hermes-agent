@@ -2,7 +2,7 @@
 
 Calls POST /v1/tts/synthesize which orchestrates:
   language detection, speakable rewrite (Haiku), title (Haiku),
-  paragraph-aware chunking, Voxtral 4B synthesis, MP3 encode.
+  paragraph-aware chunking, Fish S2 Pro synthesis (smile EQ on DE), MP3 encode.
 
 Returns a MEDIA:<path> tag Hermes delivers as a Slack audio attachment.
 

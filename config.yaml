@@ -76,21 +76,24 @@ stt:
 
 # --- Text-to-Speech ---
 # All TTS synthesis is orchestrated by localai-helper (:8001) via tts_tool.py.
-# The helper handles: language detection, speakable rewrite (Haiku), title
-# (Haiku), paragraph-aware chunking, Voxtral synthesis via mlx-audio (:8000),
-# and MP3 encoding. No audio post-processing — Voxtral output is shipped
-# unmodified.
+# The helper handles: language detection, speakable rewrite (Haiku, only when
+# markdown-heavy), title (Haiku), paragraph-aware chunking, Fish S2 Pro
+# synthesis at :8002, and MP3 encoding.
 #
-# Model: mlx-community/Voxtral-4B-TTS-2603-mlx-4bit (2.5 GB)
-# Voice presets are language-mapped in localai/helper/routes/tts.py:
-#   de → de_male  (slight Austrian Hochdeutsch lean — Mistral demo "Patrick")
-#   en → neutral_male
-# Voxtral has no instruct / lang_code / system_prompt — voice preset is the
-# only character knob. Expression comes from text content (implicit steering).
+# Engine: Fish Audio S2 Pro (8-bit MLX, ~6.7 GB). Clone-only model — each
+# synthesis uses a fixed reference clip per language (loaded once at server
+# startup):
+#   de → pip_cut_smile_de  (Pip Klöckner, Audacity-cut, smile EQ baked in)
+#   en → ethan_en          (fish.audio S2 demo voice — warm/expressive)
+#
+# German output gets a smile EQ post-process (highpass + scoop + presence +
+# air + loudnorm) applied server-side. English passes through raw.
+# Inline emotion tags ([chuckle], [whisper], [pause], [excited], …) are
+# first-class — see localai/fish-s2-pro/REFERENCE.md.
 tts:
   provider: "openai"
   openai:
-    model: "mlx-community/Voxtral-4B-TTS-2603-mlx-4bit"
+    model: "fish-s2-pro"
     voice: ""
     base_url: "http://127.0.0.1:8001/v1"
     api_key: "not-needed"
