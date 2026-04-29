@@ -8,6 +8,10 @@
 model:
   provider: "anthropic"
   model: "claude-sonnet-4-6"
+  # Hermes 0.11.0 cron-scheduler bug workaround: cron/scheduler.py reads only
+  # `model.default`, while cli.py / gateway read `model.default OR model.model`.
+  # Mirror the model name into `default` so cron sessions resolve correctly.
+  default: "claude-sonnet-4-6"
   api_key: "${ANTHROPIC_API_KEY}"
   base_url: "${ANTHROPIC_BASE_URL}"
   context_length: 1000000
