@@ -1,16 +1,16 @@
 ---
 name: homelab-api
-description: Call the homelab REST API (https://api.jkrumm.com) for TickTick tasks, Gmail, Google Calendar, Docker containers (homelab + VPS), UptimeKuma monitors, and Slack — use curl with Bearer $HOMELAB_API_KEY
-version: 1.0.0
+description: Call the homelab REST API (https://api.jkrumm.com) for TickTick tasks, Gmail, Calendar, Docker (homelab + VPS), UptimeKuma, Slack, weather, fitness tracking (workouts, weight, Garmin), user profile, and read-only SQL — use curl with Bearer $HOMELAB_API_KEY
+version: 1.1.0
 metadata:
   hermes:
-    tags: [ticktick, tasks, gmail, calendar, docker, uptime, slack, homelab, api]
+    tags: [ticktick, tasks, gmail, calendar, docker, uptime, slack, weather, fitness, workouts, weight, garmin, profile, sql, homelab, api]
     related_skills: []
 ---
 
 # Homelab API
 
-Personal integration layer for TickTick, Gmail, Calendar, Docker, UptimeKuma, and Slack over a single authenticated REST API. Use `curl` with `$HOMELAB_API_KEY` from the environment.
+Personal integration layer for TickTick, Gmail, Calendar, Docker, UptimeKuma, Slack, weather, fitness tracking, and user profile over a single authenticated REST API. Use `curl` with `$HOMELAB_API_KEY` from the environment.
 
 **Base URL:** `https://api.jkrumm.com`
 **Auth:** `Authorization: Bearer $HOMELAB_API_KEY` (available in env)
@@ -87,6 +87,46 @@ When asked about tasks, schedule, emails, infrastructure status, or Slack messag
 | GET | `/slack/users` | — | Workspace users (cached 5 min) |
 | GET | `/slack/unreads` | — | Channels with unread messages, sorted by count |
 
+### Daily Metrics — Garmin sync
+| Method | Path | Key params | Description |
+|-|-|-|-|
+| GET | `/daily-metrics/` | `date_from?`, `date_to?`, `_order?` | Daily Garmin metrics with optional date range filter |
+
+### Fitness — exercises, workouts, sets, weight log
+| Method | Path | Key params | Description |
+|-|-|-|-|
+| GET | `/exercises/` | — | All exercises sorted by `display_order` |
+| GET | `/workouts/` | `_start?`, `_end?`, `_sort?`, `_order?`, `exercise?`, `date_from?`, `date_to?` | List workouts |
+| GET | `/workouts/{id}` | — | Workout with sets and computed 1RM metrics |
+| POST | `/workouts/` | `date!`, `exercise_id!`, `sets!`, `notes?` | Create workout with sets (transactional) |
+| PATCH | `/workouts/{id}` | `date?`, `exercise_id?`, `notes?`, `sets?` | Update workout |
+| DELETE | `/workouts/{id}` | — | Delete workout + cascade-delete its sets |
+| GET | `/workout-sets/` | `_start?`, `_end?`, `workout_id?` | List workout sets |
+| POST | `/workout-sets/` | `workout_id!`, `set_number!`, `set_type!`, `weight_kg!`, `reps!` | Create workout set |
+| PATCH | `/workout-sets/{id}` | `set_number?`, `set_type?`, `weight_kg?`, `reps?` | Update workout set |
+| DELETE | `/workout-sets/{id}` | — | Delete workout set |
+| GET | `/weight-log/` | `_order?` | List all weight entries |
+| POST | `/weight-log/` | `date!`, `weight_kg!` | Add weight entry |
+| DELETE | `/weight-log/{id}` | — | Delete weight entry |
+
+### User Profile
+| Method | Path | Key params | Description |
+|-|-|-|-|
+| GET | `/user-profile/` | — | Get profile (single row, auto-created on first access) |
+| PUT | `/user-profile/` | `height_cm?`, `birth_date?`, `gender?`, `goal_weight_kg?` | Update profile fields |
+
+### Query — read-only SQL
+| Method | Path | Key params | Description |
+|-|-|-|-|
+| POST | `/query` | `sql!` | Execute a read-only SQL query against the homelab DB |
+
+### Health & OAuth — infrastructure plumbing
+| Method | Path | Description |
+|-|-|-|
+| GET | `/health` | Service healthcheck |
+| GET | `/oauth/google/init` | Begin Google OAuth flow |
+| GET | `/oauth/google/callback` | OAuth callback handler |
+
 ---
 
 ## Usage Pattern
@@ -121,7 +161,9 @@ curl -s -X POST -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: ap
   - `schedule` — Calendar + Gmail (search syntax, event formatting)
   - `weather` — forecast for any city, default Munich (thresholds, response formatting)
   - `slack` — Slack search, unreads, channel history, messaging
+- Endpoint groups without a domain skill yet: `daily-metrics`, `exercises`, `workouts`, `workout-sets`, `weight-log`, `user-profile`, `query`, `health`, `oauth`. Call them via this skill until usage justifies a dedicated domain skill.
 - Only load this skill when no domain skill matches, or you need the complete endpoint list
 - `/summary` is the most efficient first call for morning briefings or status checks
 - Slack search supports Slack operator syntax (`in:#hermes`, `from:@johannes`)
+- `/query` accepts arbitrary read-only SQL — use sparingly, prefer named endpoints when one exists
 - This skill is auto-regenerated from the live OpenAPI spec — run `/docs` in the homelab project after API route changes
