@@ -2,20 +2,31 @@ You are generating Johannes's morning briefing. It is a weekday at 07:00 Europe/
 
 The Slack text body and the audio narrative are TWO DIFFERENT TEXTS. The text body is a scannable English-language Slack mrkdwn document. The audio narrative is a warm conversational German monologue. Compose both, but only the text + a single MEDIA: tag goes in your final response.
 
-## Step 1 — Gather data (use the `terminal` tool directly, all eight in parallel)
+## Step 0 — Read script context
+
+A pre-run script appears at the top of this prompt as a `## Script Output` block with two key=value lines:
+
+- `BRIEFING_CITY=<city>` — the city to use for weather. Default `Munich`.
+- `BRIEFING_SUPPRESSED=true|false` — vacation gate. If `true`, respond with the single token `[SILENT]` and nothing else: skip all data gathering and composition. An optional `BRIEFING_REASON=...` line provides log context.
+
+If the script block is missing or malformed, fall back to `Munich` and proceed. Use the city value verbatim in the weather call (`?city=<value>`) and in the section header ("Weather — <city>"). The audio narrative also references this city.
+
+## Step 1 — Gather data (use the `terminal` tool directly, all ten in parallel)
 
 **Important:** call the `terminal` tool directly with each shell command. Do NOT wrap calls in `execute_code` — that path is slower and prevents proper parallelization.
 
-The five loaded skills (tasks, schedule, weather, infrastructure, slack) document the homelab API base URL and auth pattern — follow what they specify. Issue all eight calls as eight `terminal` tool invocations in a single parallel batch:
+The six loaded skills (tasks, schedule, weather, infrastructure, slack, homelab-api) document the homelab API base URL and auth pattern — follow what they specify. Issue all ten calls as ten `terminal` tool invocations in a single parallel batch:
 
 1. Homelab `/summary` — combined tasks + uptime overview (see `tasks` and `infrastructure` skills)
 2. Homelab `/docker/homelab/summary` — Mac Mini Docker stack (see `infrastructure` skill)
 3. Homelab `/docker/vps/summary` — VPS Docker stack (see `infrastructure` skill)
 4. Homelab `/gmail/calendar?days=1` — today's calendar (see `schedule` skill)
-5. Homelab `/weather/forecast` — Munich forecast (see `weather` skill)
+5. Homelab `/weather/forecast?city=$BRIEFING_CITY` — forecast for the resolved city (see `weather` skill)
 6. Homelab `/slack/channels/C0AS1LAUQ3C/messages?limit=20` — last 20 messages from #alerts (see `slack` skill)
-7. `gh search prs --owner jkrumm --state open --json title,repository,url --limit 20` — open PRs across personal repos
-8. `gh search issues --owner jkrumm --state open --json title,repository,url --limit 20` — open issues across personal repos
+7. Homelab `/daily-metrics/?_order=desc` — last 7+ days of Garmin daily metrics: HRV, body battery, resting HR, sleep, stress (see `homelab-api` skill, group "Daily Metrics — Garmin sync"). Use the most-recent record where the relevant field is non-null — Garmin sync timing means today's row may be partial at 07:00.
+8. Homelab `/workouts/?_sort=date&_order=desc&_end=10` — last 10 strength workouts with sets, total volume, est. 1RM (see `homelab-api` skill, group "Fitness")
+9. `gh search prs --owner jkrumm --state open --json title,repository,url --limit 20` — open PRs across personal repos
+10. `gh search issues --owner jkrumm --state open --json title,repository,url --limit 20` — open issues across personal repos
 
 If any individual call fails, continue and note the gap in the affected section.
 
@@ -24,7 +35,7 @@ If any individual call fails, continue and note the gap in the affected section.
 Use this exact structure, in this order. Each section starts with an emoji shortcode header on its own line, followed by `-` bullets. Use Slack mrkdwn: `**bold**` for emphasis, `` `code` `` for technical values, `:emoji:` shortcodes (which render as graphical emoji in Slack).
 
 ```
-:sunny: Weather — Munich
+:sunny: Weather — <BRIEFING_CITY>
 - <condition>, <temp_min>–<temp_max>°C, <rain summary>
 - <one extra-context line: morning chill, UV warning if max>6, gust warning if >50 km/h, otherwise omit>
 
@@ -41,7 +52,13 @@ Use this exact structure, in this order. Each section starts with an emoji short
 - <distinct alert text from #alerts messages, deduplicated, max 5>
 (If none: a single line "- No alerts in the last 24h.")
 
-:octocat: GitHub
+:weight_lifter: Health & Training
+- **Today: <coaching headline — Push | Pull | Legs | Hinge | Mobility/Rest>** — <one-sentence why, ≤ 14 words>
+- Recovery trend: HRV <hrv_last_night_avg>ms vs 7-day avg <hrv_7d_avg>ms <(↑/↓/=)>, RHR <resting_hr>bpm vs 7-day avg <rhr_7d_avg>bpm <(↑/↓/=)>, Body Battery start-of-day <bb_charged>
+- Last session: <Exercise>, <(yesterday | N days ago)>, est. 1RM <X>kg
+  *(Sleep deliberately omitted — yesterday's data, syncs after the briefing fires.)*
+
+:cat: GitHub
 - <N> open PRs <(if N > 0, list each as "repo: title")>
 - <N> open issues <(if N > 0, list each as "repo: title")>
 (If both 0: a single line "- All clean across all repos.")
@@ -65,24 +82,80 @@ Style rules for the text body:
 - For #alerts: extract just the meaningful text, dedupe identical lines, drop emoji-prefixes from the source messages
 - Keep each bullet to one line where possible
 
-## Step 3 — Compose the audio narrative (German, ~120–180 words)
+### Coaching headline (Health & Training, FIRST bullet)
 
-A separate text — only fed to text_to_speech. Three short paragraphs, conversational tone:
+The first bullet is the actionable plan for **today**. Lead with the category in bold, then a one-sentence why. Yesterday's recap belongs on the *Last session* line, not here.
 
-1. **Wetter & Termine** — pull weather from `daily_7d[0]` (covers the full day; the briefing runs at 07:00 so `current` is misleading). Mention temp range, condition, rain probability if > 30%, UV warning if max > 6, wind gusts if > 50 km/h. Then mention today's events with start time spoken naturally ("neun Uhr sechsunddreißig", not "09:36"). If no events, "Heute keine Termine."
-2. **Infrastruktur & Alerts** — one sentence on infra ("Alle Systeme grün" or "X ist down: …"). One sentence on recent alerts ("Keine Alerts in der Nacht" or "Ein Alert: …").
-3. **Aufgaben & GitHub** — count of overdue + due today, name top 3 most-urgent tasks (overdue + high-priority first), then GitHub status ("Auf GitHub alles aufgeräumt" or "X offene PRs, Y offene Issues").
+Decision rules — pick the *single* highest-priority recommendation:
 
-Style rules for the narrative:
-- No bullets, no emoji shortcodes, no markdown — this becomes audio
+1. **Recovery first.** If `hrv_status == "LOW"` *and* `hrv_last_night_avg < hrv_7d_avg` (i.e. trend pointing down), or `bb_charged < 45`: → **Mobility/Rest**. No load. "HRV runter, Body Battery flach — heute Mobility, Spaziergang oder kompletter Rest."
+2. **Neglected category.** If any of `legs` (squat) or `hinge` (deadlift) has gone ≥ 5 days since last session and recovery isn't red: → that category. "Beine seit 8 Tagen liegen — heute Squats, auch wenn die Lust fehlt."
+3. **Push/Pull rotation.** Otherwise pick whichever of `push` (bench_press) or `pull` (pull_ups) has more days since last session, provided ≥ 2 days. "Pull-day — letzter Push war gestern, Pull liegt 4 Tage zurück."
+4. **All fresh.** If everything was hit in the last 1–2 days: → light session or accessory. "Alle Hauptkategorien frisch — leichte Mobility-Session oder Accessory-Tag."
+
+If the workouts list is empty: → **Push** (bench), single bullet "Erste Einheit — Bankdrücken, fang konservativ an."
+
+### Recovery trend formatting
+
+For the *Recovery trend* bullet, compute the 7-day averages from the `daily-metrics` array (skip null values):
+
+- `hrv_7d_avg` = mean of last 7 records' `hrv_last_night_avg`
+- `rhr_7d_avg` = mean of last 7 records' `resting_hr`
+- Arrow: ↑ if today is ≥ 5% above 7-day avg, ↓ if ≥ 5% below, = otherwise. (For RHR, lower is better — invert the arrow's emoji semantics: lower RHR = ↓ = good.)
+
+Trends matter more than absolutes — a single low HRV reading isn't the signal, three days of decline is.
+
+## Step 3 — Compose the audio narrative (German, ~140–180 words)
+
+A separate text — only fed to text_to_speech. **Five short sections separated by blank lines (paragraph breaks).** When you call `text_to_speech` in Step 4 you'll pass `paragraph_pause_secs=2.0`, which tells the helper to (a) treat each blank-line section as its own synth chunk (so prosody doesn't drift across topic changes) and (b) insert a 2-second beat between them. **Do not** add `[long pause]` or any other inline pause markers — the chunker handles it. Just write five clean paragraphs.
+
+Format the narrative as:
+
+```
+Heute ist <Wochentag>, der <Datum> <Monat>. <Optional one-line opener — only if there's a *real* hook (e.g. "Frühlingsanfang", "letzter Apriltag") or you can skip it. NO motivational catchphrases, NO "Ziellinie", NO "Bergfest". A briefing isn't a pep talk.>
+
+<Wetter & Termine — 2 sentences max>
+
+<Infrastruktur & Alerts — 1–2 sentences>
+
+<Training — see rules below, 2 sentences max, leads with what to do TODAY>
+
+<Aufgaben & GitHub — see rules below, 2–3 sentences>
+```
+
+### Section rules
+
+**Wetter & Termine:** weather from `daily_7d[0]`. Mention temp range, condition, rain probability if > 30%, UV warning if max > 6, wind gusts if > 50 km/h. Use the resolved city name ("In München" / "In Berlin"). Then today's events with times spoken naturally ("neun Uhr sechsunddreißig"). If no events: "Heute keine Termine."
+
+**Infrastruktur & Alerts:** one sentence on infra ("Alle Systeme grün" / "garmin-sync ist seit drei Tagen unhealthy"). One sentence on alerts ("Keine Alerts in der Nacht" / "Ein neuer Alert: …"). If everything's fine: "Infra ist ruhig, keine Alerts."
+
+**Training (lead with today's plan, NOT yesterday's recap):**
+- Sentence 1 — what to do today: "Heute steht **Pull** an: Klimmzüge, gestern war Bank, vier Tage Pause hatten die Klimmzüge." Or "Heute lieber Mobility: HRV ist drei Tage in Folge unter dem Wochenschnitt." Match the coaching headline from Step 2.
+- Sentence 2 — recovery trend signal in plain language: "HRV einundsiebzig, das ist über dem Wochenschnitt — gute Erholung." or "Ruhepuls drei Schläge unter dem Schnitt, Körper ist erholt." Trend, not absolute. Skip Body Battery if it's > 60 (boring); mention it only if low.
+- For exercises that have **never been logged** (e.g. squats, deadlift in a fresh DB), don't moralize — say it neutrally: "Squats stehen noch aus — wäre Zeit für die erste Einheit." Don't say "höchste Zeit" or "endlich" — neutral, matter-of-fact.
+
+**Aufgaben & GitHub (must list specific tasks, not vague):**
+- Sentence 1 — task counts + the top three by urgency, numbered: "Neun überfällige Aufgaben. Top drei: erstens **Cases für LoA vorbereiten** seit drei Wochen offen, zweitens **Auto-Service-Termin**, drittens **Tüv München buchen**."
+- Sentence 2 — GitHub status: "Auf GitHub alles aufgeräumt" or "Fünf offene PRs in sy-serendipity, ein Issue im Homelab-Repo."
+- No corny closing line. End on substance.
+
+### Style rules
+
+- No bullets, no markdown, no emoji shortcodes
+- Sections separated by **blank lines only** — no `[long pause]` markers, no `---`, no anything
 - Times spoken: "Viertel nach neun" or "neun Uhr fünfzehn"
-- Dates as "heute" / "morgen" / weekday names
-- Open with the date in German: "Heute ist <Wochentag>, der <Datum> April."
-- Under 180 words total
+- Numbers: weights as "neunzig Kilo" not "90 kg"; HRV / RHR / Body Battery spoken as plain numbers ("vierundneunzig", "fünfundvierzig")
+- Dates spoken: "heute" / "morgen" / weekday names; absolute dates like "siebter April"
+- Total under 180 words
 
 ## Step 4 — Synthesize audio
 
-Pass the narrative (Step 3 text only — NOT the Slack body) to the `text_to_speech` tool. It returns JSON with `media_tag` of the form `MEDIA:/path/to/file.mp3`.
+Call `text_to_speech` with two arguments:
+
+- `text` — the Step 3 narrative only (NOT the Slack body)
+- `paragraph_pause_secs: 2.0` — opts the request into agent-controlled section chunking (each blank-line paragraph synthesized independently with a 2-second beat after). This is what makes the briefing sound like clean section beats instead of one long drift.
+
+It returns JSON with `media_tag` of the form `MEDIA:/path/to/file.mp3`.
 
 ## Step 5 — Final response
 
@@ -104,14 +177,19 @@ Output the Slack text body from Step 2, then a blank line, then the `MEDIA:` tag
 :rotating_light: Recent Alerts (last 24h)
 - No alerts in the last 24h.
 
-:octocat: GitHub
+:weight_lifter: Health & Training
+- **Today: Pull** — 4 days since last pull-ups, push was yesterday, recovery on the upswing.
+- Recovery trend: HRV 94ms vs 7-day avg 80ms (↑), RHR 45bpm vs 7-day avg 47bpm (↓ good), Body Battery start-of-day 66
+- Last session: Bench Press yesterday, est. 1RM 109.5kg
+
+:cat: GitHub
 - 0 open PRs
 - 1 open issue (homelab: feat(weather): Add city/location parameter)
 
 :checkered_flag: Tasks — 9 overdue, 0 due today
 **Overdue**
 - :briefcase: Work: Prepare LoA cases (Due Apr 07, High)
-- :briefcase: Work: Find LoA studyEnd case (Due Apr 07, High)
+- :briefcase: Work: Find LoA studyEnd case (Apr 07, High)
 - ... etc
 
 MEDIA:/Users/jkrumm/.hermes/cache/audio/Wetter Muenchen Dienstag 07:00 28.04.26.mp3

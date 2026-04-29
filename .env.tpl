@@ -36,3 +36,8 @@ HOMELAB_API_KEY=op://common/api/SECRET
 # Push monitors created manually in UK UI; URLs stored in 1Password after creation.
 UPTIME_PUSH_HERMES=op://hermes/uptime-kuma/agent-push-url
 UPTIME_PUSH_BACKUP=op://hermes/uptime-kuma/backup-push-url
+
+# Cron job idle timeout — hermes-agent/cron/scheduler.py kills any cron job that goes idle
+# (no tool activity / agent thinking) for this long. Default 600s is too tight for the
+# morning briefing's long-form German Fish S2 Pro TTS run; 1800s gives headroom.
+HERMES_CRON_TIMEOUT=1800
