@@ -109,7 +109,7 @@ slack:
   allow_bots: "all"                 # Accept bot messages — channel membership is the ACL
   reply_in_thread: true             # Match per-thread session model
   reply_broadcast: false
-  reply_to_mode: "first"
+  # reply_to_mode is unused on Slack (only telegram/discord honor it) — dropped.
   group_sessions_per_user: true
   stt_enabled: true                 # Auto-transcribe voice memos
   home_channel: "${SLACK_CHANNEL_HERMES}"    # #hermes — cron results, proactive messages

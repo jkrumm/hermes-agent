@@ -1,0 +1,98 @@
+diff --git a/gateway/platforms/slack.py b/gateway/platforms/slack.py
+index 191689a5a..3a26bc17e 100644
+--- a/gateway/platforms/slack.py
++++ b/gateway/platforms/slack.py
+@@ -20,6 +20,7 @@ from typing import Dict, Optional, Any, Tuple
+ try:
+     from slack_bolt.async_app import AsyncApp
+     from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
++    from slack_sdk.errors import SlackApiError
+     from slack_sdk.web.async_client import AsyncWebClient
+     SLACK_AVAILABLE = True
+ except ImportError:
+@@ -27,6 +28,7 @@ except ImportError:
+     AsyncApp = Any
+     AsyncSocketModeHandler = Any
+     AsyncWebClient = Any
++    SlackApiError = Exception  # type: ignore[misc, assignment]
+ 
+ import sys
+ from pathlib import Path as _Path
+@@ -297,7 +299,29 @@ class SlackAdapter(BasePlatformAdapter):
+                     if broadcast and i == 0:
+                         kwargs["reply_broadcast"] = True
+ 
+-                last_result = await self._get_client(chat_id).chat_postMessage(**kwargs)
++                # LOCAL PATCH (remove once Hermes v0.12+ ships): if Slack
++                # rejects the thread parent (`cannot_reply_to_message`),
++                # retry the same chunk as a plain channel message. Mirrors
++                # the Telegram `Message thread not found` fallback in
++                # upstream commit 41d9d0807.
++                try:
++                    last_result = await self._get_client(chat_id).chat_postMessage(**kwargs)
++                except SlackApiError as _slack_err:
++                    err_payload = getattr(_slack_err, "response", None) or {}
++                    err_code = err_payload.get("error") if isinstance(err_payload, dict) else None
++                    if err_code == "cannot_reply_to_message" and "thread_ts" in kwargs:
++                        logger.warning(
++                            "[Slack] cannot_reply_to_message — thread parent ts %s "
++                            "rejected; retrying chunk %d as channel-level message",
++                            kwargs.get("thread_ts"), i,
++                        )
++                        kwargs.pop("thread_ts", None)
++                        kwargs.pop("reply_broadcast", None)
++                        # Disable threading for subsequent chunks in this send too.
++                        thread_ts = None
++                        last_result = await self._get_client(chat_id).chat_postMessage(**kwargs)
++                    else:
++                        raise
+ 
+             # Track the sent message ts so we can auto-respond to thread
+             # replies without requiring @mention.
+@@ -431,11 +455,23 @@ class SlackAdapter(BasePlatformAdapter):
+             existing_thread = (metadata or {}).get("thread_id") or (metadata or {}).get("thread_ts")
+             return existing_thread or None
+ 
++        # LOCAL PATCH (remove once Hermes v0.12+ ships upstream commit 4b5a88d71):
++        # _handle_message_event sets metadata.thread_id = event.thread_ts or ts —
++        # i.e. for top-level messages it synthesizes thread_id from the message's
++        # own ts purely for session keying. Replying to that synthetic ts hits
++        # Slack's `cannot_reply_to_message` whenever the message can't host a
++        # thread (system messages, child replies, deleted, ephemeral). Detect
++        # the synthetic case (thread_id == reply_to and no real thread_ts field)
++        # and fall back to a plain channel message.
+         if metadata:
+-            if metadata.get("thread_id"):
+-                return metadata["thread_id"]
+-            if metadata.get("thread_ts"):
+-                return metadata["thread_ts"]
++            thread_id = metadata.get("thread_id")
++            real_thread_ts = metadata.get("thread_ts")
++            if thread_id and thread_id == reply_to and not real_thread_ts:
++                return None
++            if thread_id:
++                return thread_id
++            if real_thread_ts:
++                return real_thread_ts
+         return reply_to
+ 
+     async def _upload_file(
+@@ -486,6 +522,18 @@ class SlackAdapter(BasePlatformAdapter):
+ 
+         text = content
+ 
++        # 0a) Normalize * list markers to - (prevents interference with italic)
++        text = re.sub(r'^(\s*)\* ', r'\1- ', text, flags=re.MULTILINE)
++
++        # 0b) Strip backticks from inline code that contains emoji shortcodes.
++        # LLMs often wrap `:emoji: text` in backticks, but Slack won't render
++        # emoji shortcodes inside code spans.
++        text = re.sub(
++            r'`(:[a-z_]+:\s[^`]*)`',
++            r'\1',
++            text,
++        )
++
+         # 1) Protect fenced code blocks (``` ... ```)
+         text = re.sub(
+             r'(```(?:[^\n]*\n)?[\s\S]*?```)',
