@@ -9,10 +9,28 @@ Symlink-eligible — this directory mirrors ~/.hermes/cron/ already.
 
 import datetime
 import json
+import subprocess
 import sys
 from pathlib import Path
 
 STATE_FILE = Path(__file__).parent / "briefing-state.json"
+WATCHDOG_SUMMARY = Path(__file__).parent / "watchdog-summary.py"
+
+
+def emit_watchdog() -> None:
+    """Best-effort: append watchdog summary block to context output."""
+    if not WATCHDOG_SUMMARY.exists():
+        return
+    try:
+        res = subprocess.run(
+            [sys.executable, str(WATCHDOG_SUMMARY)],
+            capture_output=True, text=True, timeout=10,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            print()
+            print(res.stdout.rstrip())
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
 
 
 def main() -> None:
@@ -21,12 +39,14 @@ def main() -> None:
     except FileNotFoundError:
         print("BRIEFING_CITY=Munich")
         print("BRIEFING_SUPPRESSED=false")
+        emit_watchdog()
         return
     except json.JSONDecodeError as e:
         print(f"BRIEFING_CITY=Munich", file=sys.stderr)
         print(f"WARNING: state file invalid ({e}) — falling back to defaults", file=sys.stderr)
         print("BRIEFING_CITY=Munich")
         print("BRIEFING_SUPPRESSED=false")
+        emit_watchdog()
         return
 
     city = state.get("city") or "Munich"
@@ -42,6 +62,7 @@ def main() -> None:
 
     print(f"BRIEFING_CITY={city}")
     print("BRIEFING_SUPPRESSED=false")
+    emit_watchdog()
 
 
 if __name__ == "__main__":

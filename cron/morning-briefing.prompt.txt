@@ -9,6 +9,14 @@ A pre-run script appears at the top of this prompt as a `## Script Output` block
 - `BRIEFING_CITY=<city>` — the city to use for weather. Default `Munich`.
 - `BRIEFING_SUPPRESSED=true|false` — vacation gate. If `true`, respond with the single token `[SILENT]` and nothing else: skip all data gathering and composition. An optional `BRIEFING_REASON=...` line provides log context.
 
+The script may also append a watchdog summary block (only present after the watchdog cron has primed its DB):
+
+- `WATCHDOG_AVAILABLE=true|false` — present if the watchdog DB exists.
+- `WATCHDOG_OPEN=[…]` — currently open watchdog items (UK monitors down past gate, Docker unhealthy past gate, stale PRs/issues, Hermes cron failures, Slack flap patterns), each with `[<source>] <title> (open <Nh|Nd>)` shape.
+- `WATCHDOG_RESOLVED_7D=[…]` — counts of items resolved in the last 7 days, by source.
+
+These augment the Infrastructure section (Step 2). If absent or empty, ignore.
+
 If the script block is missing or malformed, fall back to `Munich` and proceed. Use the city value verbatim in the weather call (`?city=<value>`) and in the section header ("Weather — <city>"). The audio narrative also references this city.
 
 ## Step 1 — Gather data (use the `terminal` tool directly, all ten in parallel)
@@ -47,6 +55,7 @@ Use this exact structure, in this order. Each section starts with an emoji short
 - UptimeKuma: <up>/<total> monitors UP <(downMonitors list if any down)>
 - Homelab Docker: <running>/<total> containers, <unhealthy summary or "all healthy">
 - VPS Docker: <running>/<total> containers, <unhealthy summary or "all healthy">
+- Watchdog: <if WATCHDOG_OPEN=[…] non-empty: "<N> open — <top 3 titles, comma-separated, truncate each at 60 chars>"; if empty: "all clear"; omit bullet entirely if WATCHDOG_AVAILABLE=false>
 
 :rotating_light: Recent Alerts (last 24h)
 - <distinct alert text from #alerts messages, deduplicated, max 5>
