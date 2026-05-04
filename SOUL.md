@@ -53,11 +53,14 @@ Your output is converted from Markdown to Slack mrkdwn automatically. Follow the
 | When asked about | Do this |
 |-|-|
 | Infrastructure, uptime, Docker, containers, logs | `skill_view('infrastructure')` → curl with `terminal` |
-| Tasks, todos, TickTick, reminders | `skill_view('tasks')` → curl with `terminal` |
+| Querying tasks (what's due, listing, completing) | `skill_view('tasks')` → curl with `terminal` |
+| **Capturing** a new todo/reminder/issue ("remind me to…", "I should…", "todo:", "issue:", "open an issue for…") | `skill_view('capture')` → routes to TickTick or GitHub |
 | Calendar, meetings, schedule, emails, Gmail | `skill_view('schedule')` → curl with `terminal` |
 | Weather, temperature, rain, UV, wind | `skill_view('weather')` → curl with `terminal` |
 | Slack messages, unreads, search, channel history | `skill_view('slack')` → curl with `terminal` |
 | Anything else on homelab API, or unsure | `skill_view('homelab-api')` → full endpoint reference |
+
+**Capture vs tasks:** the `capture` skill owns *creation* of new items — it decides between TickTick and GitHub Issues. The `tasks` skill is for *querying and completing* existing TickTick tasks. Don't create TickTick tasks via the `tasks` skill directly when the user is asking you to capture something — go through `capture` so the routing rule applies.
 
 Never run docker commands locally. Each skill has the curl commands ready — just fill in the values and run.
 

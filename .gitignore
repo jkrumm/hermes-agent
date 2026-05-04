@@ -1,0 +1,21 @@
+.DS_Store
+
+# Hermes runtime state — cron jobs registry + per-run output
+cron/jobs.json
+cron/output/
+
+# Hermes briefing state — local-only city + vacation flag.
+# Edits (vacation_until before a trip, city when remote) shouldn't pollute
+# git history. Template lives next to it as briefing-state.example.json.
+scripts/briefing-state.json
+
+# Hermes capture skill cache — repos + ticktick_projects, refreshed on miss.
+# Local-only runtime cache; template lives next to it as state.example.json.
+skills/capture/state.json
+
+# Claude Code runtime state
+.claude/
+
+# Python
+__pycache__/
+*.pyc

@@ -18,7 +18,7 @@ The schedule deliberately excludes Friday and Sunday — Friday evening is alrea
 
 ```bash
 # Create
-hermes cron create "0 22 * * 1-4" "$(cat ~/SourceRoot/claude-local/hermes/cron/evening-report.prompt.txt)" \
+hermes cron create "0 22 * * 1-4" "$(cat ~/SourceRoot/dotfiles/hermes/cron/evening-report.prompt.txt)" \
   --skill homelab-api \
   --skill schedule \
   --skill weather \
@@ -31,7 +31,7 @@ hermes cron create "0 22 * * 1-4" "$(cat ~/SourceRoot/claude-local/hermes/cron/e
 hermes cron run <job_id>
 
 # Edit prompt only
-hermes cron edit <job_id> --prompt "$(cat ~/SourceRoot/claude-local/hermes/cron/evening-report.prompt.txt)"
+hermes cron edit <job_id> --prompt "$(cat ~/SourceRoot/dotfiles/hermes/cron/evening-report.prompt.txt)"
 ```
 
 `--script briefing-context.py` is shared with the morning briefing. The same `briefing-state.json` controls the city + vacation flag for both. Vacation suppresses both reports until the date passes.

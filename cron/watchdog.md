@@ -45,7 +45,7 @@ Resolved rows are kept indefinitely for trend queries (`SELECT source, COUNT(*) 
 
 ```bash
 # Create
-hermes cron create "*/30 * * * *" "$(cat ~/SourceRoot/claude-local/hermes/cron/watchdog.prompt.txt)" \
+hermes cron create "*/30 * * * *" "$(cat ~/SourceRoot/dotfiles/hermes/cron/watchdog.prompt.txt)" \
   --script watchdog-poll.py \
   --name "Watchdog" \
   --deliver slack:C0ASRULFTSS
@@ -54,7 +54,7 @@ hermes cron create "*/30 * * * *" "$(cat ~/SourceRoot/claude-local/hermes/cron/w
 hermes cron run <job_id>
 
 # Edit prompt only
-hermes cron edit <job_id> --prompt "$(cat ~/SourceRoot/claude-local/hermes/cron/watchdog.prompt.txt)"
+hermes cron edit <job_id> --prompt "$(cat ~/SourceRoot/dotfiles/hermes/cron/watchdog.prompt.txt)"
 ```
 
 ## Manual debugging

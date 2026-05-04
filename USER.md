@@ -14,7 +14,7 @@ Software engineer. Runs personal infrastructure across Mac Mini (agent host), M2
 - **Tasks**: TickTick (personal + work lists)
 - **Calendar**: Google Calendar
 - **Knowledge**: Obsidian (CouchDB-synced across devices)
-- **Code**: Claude Code on Mac Mini, GitHub repos (homelab, homelab-private, vps, claude-local)
+- **Code**: Claude Code on Mac Mini, GitHub repos (homelab, homelab-private, vps, dotfiles)
 - **Communication**: Slack (with you), Proton Mail (personal)
 
 ## Journal Style

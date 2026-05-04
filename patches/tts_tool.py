@@ -7,9 +7,9 @@ Calls POST /v1/tts/synthesize which orchestrates:
 Returns a MEDIA:<path> tag Hermes delivers as a Slack audio attachment.
 
 Local modification to ~/.hermes/hermes-agent/tools/tts_tool.py.
-Source of truth: ~/SourceRoot/claude-local/hermes/patches/tts_tool.py
+Source of truth: ~/SourceRoot/dotfiles/hermes/patches/tts_tool.py
 Re-apply after `hermes update`:
-  cp ~/SourceRoot/claude-local/hermes/patches/tts_tool.py \
+  cp ~/SourceRoot/dotfiles/hermes/patches/tts_tool.py \
      ~/.hermes/hermes-agent/tools/tts_tool.py
 """
 

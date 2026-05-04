@@ -16,7 +16,7 @@ Source-of-truth for the morning briefing prompt. **This file is documentation, n
 
 ```bash
 # Create
-hermes cron create "0 7 * * 1-5" "$(cat ~/SourceRoot/claude-local/hermes/cron/morning-briefing.prompt.txt)" \
+hermes cron create "0 7 * * 1-5" "$(cat ~/SourceRoot/dotfiles/hermes/cron/morning-briefing.prompt.txt)" \
   --skill tasks \
   --skill schedule \
   --skill weather \
@@ -31,7 +31,7 @@ hermes cron create "0 7 * * 1-5" "$(cat ~/SourceRoot/claude-local/hermes/cron/mo
 hermes cron run <job_id>
 
 # Edit prompt only
-hermes cron edit <job_id> --prompt "$(cat ~/SourceRoot/claude-local/hermes/cron/morning-briefing.prompt.txt)"
+hermes cron edit <job_id> --prompt "$(cat ~/SourceRoot/dotfiles/hermes/cron/morning-briefing.prompt.txt)"
 ```
 
 `--script briefing-context.py` is a *bare filename* — Hermes resolves it under `~/.hermes/scripts/` and rejects absolute paths that escape that directory.
@@ -88,7 +88,7 @@ Two prompt tweaks landed during iteration: use `daily_7d[0]` for the weather (so
 
 Two files in `hermes/scripts/`:
 
-- **`briefing-state.json`** — *gitignored*, runtime state. Edited locally; never commits. Schema: `{"city": "Munich", "vacation_until": null}`. `make hermes` seeds this from the example on first install if it doesn't exist; subsequent edits stay local.
+- **`briefing-state.json`** — *gitignored*, runtime state. Edited locally; never commits. Schema: `{"city": "Munich", "vacation_until": null}`. `make setup` seeds this from the example on first install if it doesn't exist; subsequent edits stay local.
 - **`briefing-state.example.json`** — *tracked*, canonical default. Reference for the schema and a fresh-install seed.
 - **`briefing-context.py`** — pre-run script. Reads `briefing-state.json` and emits one of:
   - `BRIEFING_CITY=<value>` + `BRIEFING_SUPPRESSED=false` (normal day)

@@ -3,7 +3,7 @@
 Reads briefing-state.json and emits prompt context to stdout. Hermes cron
 appends this output to the prompt so the agent can branch on it.
 
-Source of truth: ~/SourceRoot/claude-local/hermes/cron/briefing-context.py
+Source of truth: ~/SourceRoot/dotfiles/hermes/cron/briefing-context.py
 Symlink-eligible — this directory mirrors ~/.hermes/cron/ already.
 """
 
@@ -15,22 +15,32 @@ from pathlib import Path
 
 STATE_FILE = Path(__file__).parent / "briefing-state.json"
 WATCHDOG_SUMMARY = Path(__file__).parent / "watchdog-summary.py"
+COVERAGE_SCRIPT = Path(__file__).parent / "briefing-coverage.py"
 
 
-def emit_watchdog() -> None:
-    """Best-effort: append watchdog summary block to context output."""
-    if not WATCHDOG_SUMMARY.exists():
+def _run_subscript(path: Path, timeout: int) -> None:
+    """Best-effort: run a sub-script and append its stdout to context output."""
+    if not path.exists():
         return
     try:
         res = subprocess.run(
-            [sys.executable, str(WATCHDOG_SUMMARY)],
-            capture_output=True, text=True, timeout=10,
+            [sys.executable, str(path)],
+            capture_output=True, text=True, timeout=timeout,
         )
         if res.returncode == 0 and res.stdout.strip():
             print()
             print(res.stdout.rstrip())
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
+
+
+def emit_watchdog() -> None:
+    _run_subscript(WATCHDOG_SUMMARY, timeout=10)
+
+
+def emit_coverage() -> None:
+    """Append full TickTick + GitHub backlog snapshot."""
+    _run_subscript(COVERAGE_SCRIPT, timeout=30)
 
 
 def main() -> None:
@@ -40,6 +50,7 @@ def main() -> None:
         print("BRIEFING_CITY=Munich")
         print("BRIEFING_SUPPRESSED=false")
         emit_watchdog()
+        emit_coverage()
         return
     except json.JSONDecodeError as e:
         print(f"BRIEFING_CITY=Munich", file=sys.stderr)
@@ -47,6 +58,7 @@ def main() -> None:
         print("BRIEFING_CITY=Munich")
         print("BRIEFING_SUPPRESSED=false")
         emit_watchdog()
+        emit_coverage()
         return
 
     city = state.get("city") or "Munich"
@@ -63,6 +75,7 @@ def main() -> None:
     print(f"BRIEFING_CITY={city}")
     print("BRIEFING_SUPPRESSED=false")
     emit_watchdog()
+    emit_coverage()
 
 
 if __name__ == "__main__":

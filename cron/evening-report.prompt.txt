@@ -13,6 +13,12 @@ A pre-run script appears at the top of this prompt as a `## Script Output` block
 
 The script may also append a `## Watchdog State` block (open watchdog items, resolved counts). **Ignore it entirely.** The evening report does not surface infrastructure or incident state — that is the watchdog cron's job, and it has its own channel. Do not reference it even if present.
 
+The script also appends a coverage block (full TickTick + GitHub backlog snapshot). Apply the following selectively:
+
+- `TICKTICK_HIGH_PRIO_DATELESS=[…]` — **use this** to enrich the "For Tomorrow" pick. A P5 task without a due-date would otherwise vanish from `/summary` and never surface; if the list is non-empty and "For Tomorrow" would be empty or short, pull a P5-dateless item in (cap still 3 items total).
+- `TICKTICK_BACKLOG=[…]` — informational only. Do **not** dump backlog counts in the evening report; wind-down tone forbids it.
+- `GITHUB_OPEN_BY_REPO`, `GITHUB_FRESH_48H`, `GITHUB_TOTAL` — **ignore entirely**. Same reason as the watchdog block — GitHub status doesn't belong in a wind-down report.
+
 If the script block is missing or malformed, fall back to `Munich` and proceed. Use the city value verbatim in the weather call (`?city=<value>`) and in the section header.
 
 ## Step 1 — Gather data (use the `terminal` tool directly, all five in parallel)
@@ -58,7 +64,7 @@ Use this exact structure, in this order. Each section starts with an emoji short
 (If no events: a single line "- No events scheduled.")
 
 :checkered_flag: For Tomorrow
-- <up to 3 items: priority 5 first, then due-tomorrow, then high-priority due soon — match the project emoji style (:briefcase: Work, :house: Personal, :innocent: Dev)>
+- <up to 3 items, selection order: (1) due-tomorrow, (2) priority 5 due in next 7 days, (3) priority 5 dateless from `TICKTICK_HIGH_PRIO_DATELESS` — pull these in only when the first two categories don't fill all 3 slots. Match the project emoji style (:briefcase: Work, :house: Personal, :innocent: Dev). For dateless P5 items, mark them with "(P5, no due-date)" instead of a date.>
 (If nothing meaningful: a single line "- Nothing pinned for tomorrow.")
 
 :partly_sunny: Tomorrow's Weather — <BRIEFING_CITY>

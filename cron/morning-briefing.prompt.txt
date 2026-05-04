@@ -17,6 +17,17 @@ The script may also append a watchdog summary block (only present after the watc
 
 These augment the Infrastructure section (Step 2). If absent or empty, ignore.
 
+The script also appends a coverage block — full backlog snapshot beyond what `/summary` (date-bound only) and watchdog (stale-only) surface:
+
+- `COVERAGE_AVAILABLE=true|false`
+- `TICKTICK_BACKLOG=[…]` — one line per active TickTick project: `- <name>: <N> active (<X> dateless, <Y> P5)`. Dateless tasks are completely invisible in `/summary` — use this block to know they exist.
+- `TICKTICK_HIGH_PRIO_DATELESS=[…]` — P5 tasks without a due date. **These MUST appear in the briefing — they're high-priority and would otherwise be invisible.**
+- `GITHUB_OPEN_BY_REPO=[…]` — every repo with open issues/PRs, regardless of staleness. Pairs with `WATCHDOG_OPEN` (watchdog flags only stale ≥3d).
+- `GITHUB_FRESH_48H=[…]` — items created/updated in the last 48h. Worth surfacing in the GitHub section so freshly-captured items don't disappear.
+- `GITHUB_TOTAL=<N> PRs, <M> issues` — rolled-up count.
+
+If `COVERAGE_AVAILABLE=false` or the blocks are absent, fall back to /summary + watchdog data only.
+
 If the script block is missing or malformed, fall back to `Munich` and proceed. Use the city value verbatim in the weather call (`?city=<value>`) and in the section header ("Weather — <city>"). The audio narrative also references this city.
 
 ## Step 1 — Gather data (use the `terminal` tool directly, all ten in parallel)
@@ -68,18 +79,23 @@ Use this exact structure, in this order. Each section starts with an emoji short
   *(Sleep deliberately omitted — yesterday's data, syncs after the briefing fires.)*
 
 :cat: GitHub
-- <N> open PRs <(if N > 0, list each as "repo: title")>
-- <N> open issues <(if N > 0, list each as "repo: title")>
-(If both 0: a single line "- All clean across all repos.")
+- <N> open PRs <(if N > 0, list each as "repo: title", grouped by repo)>
+- <N> open issues <(if N > 0, list each as "repo: title", grouped by repo)>
+- <if GITHUB_FRESH_48H non-empty: "Fresh (last 48h): <list of repo#N: title>" — flag freshly-captured items so they don't get lost>
+(If `GITHUB_TOTAL=0 PRs, 0 issues`: a single line "- All clean across all repos.")
 
-:checkered_flag: Tasks — <X> overdue, <Y> due today
+:checkered_flag: Tasks — <X> overdue, <Y> due today, <Z> dateless backlog
 **Overdue**
 - :briefcase: Work: <title> (Due <Mon DD>, <High|>)
 - :house: Personal: <title> (Due <Mon DD>, <High|>)
 - :innocent: Dev: <title> (Due <Mon DD>, <High|>)
 **Due Today**
 - ... (same format)
-(Only include "Due Today" subhead if any tasks are due today. If 0 overdue and 0 due today, just write "- All clear, you're caught up.")
+**High-Priority Dateless** (only if `TICKTICK_HIGH_PRIO_DATELESS=[…]` non-empty)
+- <icon> <project>: <title> (P5, no due-date)
+**Backlog by project** (only if `TICKTICK_BACKLOG=[…]` non-empty)
+- One line summarizing each project: `- <icon> <project>: <N> active (<X> dateless)` — drop projects with 0 active.
+(Only include "Due Today" subhead if any tasks are due today. If 0 overdue and 0 due today and no high-prio dateless: write "- All clear, you're caught up." but still show the Backlog by project line if there's a non-trivial dateless count.)
 ```
 
 Style rules for the text body:
@@ -145,7 +161,8 @@ Heute ist <Wochentag>, der <Datum> <Monat>. <Optional one-line opener — only i
 
 **Aufgaben & GitHub (must list specific tasks, not vague):**
 - Sentence 1 — task counts + the top three by urgency, numbered: "Neun überfällige Aufgaben. Top drei: erstens **Cases für LoA vorbereiten** seit drei Wochen offen, zweitens **Auto-Service-Termin**, drittens **Tüv München buchen**."
-- Sentence 2 — GitHub status: "Auf GitHub alles aufgeräumt" or "Fünf offene PRs in sy-serendipity, ein Issue im Homelab-Repo."
+- Sentence 1b — if `TICKTICK_HIGH_PRIO_DATELESS` is non-empty, add it: "Außerdem zwei hochpriorisierte Aufgaben ohne Datum: **Pflanzen gießen** und **Steuererklärung**." If empty, skip this line.
+- Sentence 2 — GitHub status from `GITHUB_TOTAL` + `GITHUB_FRESH_48H`: "Auf GitHub alles aufgeräumt" or "Fünf offene PRs in sy-serendipity. Frisch heute: ein neues Issue in dotfiles — Watchdog-Prompt zu lang." Always mention fresh-48h items individually if present (they're new, easy to lose).
 - No corny closing line. End on substance.
 
 ### Style rules

@@ -86,7 +86,7 @@ hermes --version  # should show v0.11.0+
 
 Create vault `hermes` in 1Password (account `tkrumm`) with items:
 - `slack` — fields: `bot-token`, `app-token`
-- `github` — field: `token` (PAT scoped to homelab/homelab-private/vps/claude-local)
+- `github` — field: `token` (PAT scoped to homelab/homelab-private/vps/dotfiles)
 
 Existing items reused:
 - `op://common/anthropic/API_KEY` — Anthropic (fallback LLM + auxiliary)
@@ -120,14 +120,14 @@ Create these channels and invite the Hermes bot:
 ```bash
 # Mac Mini-only — symlinks all hermes config files, installs com.localai.helper
 # (FastAPI orchestrator on :8001), and registers the liveness + backup crons.
-# Universal `make setup` deliberately skips this so other Macs only get mlx-audio.
-cd ~/SourceRoot/claude-local && make hermes
+# `dotfiles` must already be cloned and set up (provides the helper plist template).
+cd ~/SourceRoot/hermes-agent && make setup
 
 # Verify
-make hermes-status
+make status
 ```
 
-`make hermes` runs idempotently. Re-run after editing skills, cron scripts, or
+`make setup` runs idempotently. Re-run after editing skills, cron scripts, or
 the helper plist template. Crontab entries are rewritten in place — existing
 hermes lines are replaced, unrelated entries are preserved.
 
@@ -220,12 +220,12 @@ print(f'Written {len(lines)} secrets')
 
 ## Cron — Liveness + Backup
 
-Both installed by `make hermes`. Both ping UptimeKuma push monitors.
+Both installed by `make setup`. Both ping UptimeKuma push monitors.
 
 | When | Script | What |
 |-|-|-|
-| `*/5 * * * *` | `hermes/scripts/hermes-liveness.sh` | Read `~/.hermes/gateway_state.json`. If `gateway_state == "running"` AND `platforms.slack.state == "connected"` AND PID alive → curl `$UPTIME_PUSH_HERMES`. UK monitor `Hermes Agent - Push` (interval 360s). |
-| `0 3 * * *` | `hermes/scripts/hermes-backup.sh` | rsync `~/.hermes/` → `homelab:/mnt/hdd/backups/hermes/` (excludes `audio_cache/`, `image_cache/`, `cache/`, `sandboxes/`, `sessions/`, `hermes-agent/`, `*.lock`, `*.pid`). On success → curl `$UPTIME_PUSH_BACKUP`. UK monitor `Hermes Backup - Push` (interval 25h). |
+| `*/5 * * * *` | `scripts/hermes-liveness.sh` | Read `~/.hermes/gateway_state.json`. If `gateway_state == "running"` AND `platforms.slack.state == "connected"` AND PID alive → curl `$UPTIME_PUSH_HERMES`. UK monitor `Hermes Agent - Push` (interval 360s). |
+| `0 3 * * *` | `scripts/hermes-backup.sh` | rsync `~/.hermes/` → `homelab:/mnt/hdd/backups/hermes/` (excludes `audio_cache/`, `image_cache/`, `cache/`, `sandboxes/`, `sessions/`, `hermes-agent/`, `*.lock`, `*.pid`). On success → curl `$UPTIME_PUSH_BACKUP`. UK monitor `Hermes Backup - Push` (interval 25h). |
 
 **Push URLs** are stored in 1Password (`op://hermes/uptime-kuma/{agent,backup}-push-url`) and resolved into `~/.hermes/.env` by the rebuild script below. Scripts no-op silently if the URL is missing — UK alerts on the missing heartbeat.
 

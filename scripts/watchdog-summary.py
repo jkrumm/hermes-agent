@@ -3,7 +3,7 @@
 Emits a compact block consumed by briefing-context.py and the morning
 briefing prompt's Infrastructure section. Does not mutate state.
 
-Source of truth: ~/SourceRoot/claude-local/hermes/scripts/watchdog-summary.py
+Source of truth: ~/SourceRoot/dotfiles/hermes/scripts/watchdog-summary.py
 """
 
 from __future__ import annotations
