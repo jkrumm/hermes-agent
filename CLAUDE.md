@@ -53,11 +53,11 @@ cloned alongside hermes-agent** for `make setup` to succeed.
 Re-apply after `hermes update`:
 
 - `~/.hermes/hermes-agent/tools/tts_tool.py` — thin client over `localai-helper:8001/v1/tts/synthesize`; replaces 1600-line multi-provider original. Source: `patches/tts_tool.py`. Re-apply: `cp ~/SourceRoot/hermes-agent/patches/tts_tool.py ~/.hermes/hermes-agent/tools/tts_tool.py`
-- `~/.hermes/hermes-agent/gateway/platforms/slack.py` — three changes, all in `patches/slack-cannot-reply-to-message.patch`. Re-apply: `cd ~/.hermes/hermes-agent && git apply ~/SourceRoot/hermes-agent/patches/slack-cannot-reply-to-message.patch`
+- `~/.hermes/hermes-agent/gateway/platforms/slack.py` — three changes, all in `patches/slack-cannot-reply-to-message.patch`. Re-apply: `cd ~/.hermes/hermes-agent && git apply ~/SourceRoot/hermes-agent/patches/slack-cannot-reply-to-message.patch`. **Patch applies cleanly to v0.12** — all context lines unchanged in upstream.
   - `format_message()` pre-steps: normalize `*` list markers to `-`, strip backticks from inline code containing emoji shortcodes. **Not upstream.**
-  - `_resolve_thread_ts` synthetic-thread guard: detect synthetic `thread_id == reply_to` (no real `thread_ts`) → return `None`. **Upstream in v0.12 (commit `4b5a88d71`) — this hunk will conflict on v0.12 update; apply with `--3way` or skip hunk manually.**
+  - `_resolve_thread_ts` synthetic-thread guard: detect synthetic `thread_id == reply_to` (no real `thread_ts`) → return `None`. **Not upstream.** v0.12 added a similar guard but gated on `reply_in_thread: false` only — our config uses `reply_in_thread: true`, so v0.12's guard is a no-op for us.
   - `send()` retry: on `cannot_reply_to_message`, drop `thread_ts` and retry chunk as plain channel message. **Not upstream.**
-- `~/.hermes/hermes-agent/gateway/config.py` — bridge `reply_in_thread`, `reply_broadcast` from `slack:` YAML section into platform `extra` dict. **No patch file saved.** Verify on v0.12 update — `reply_in_thread` bridging may be upstream in v0.12. If still needed, apply manually and save a patch.
+- `~/.hermes/hermes-agent/gateway/config.py` — bridge `reply_in_thread`, `reply_broadcast` from `slack:` YAML section into platform `extra` dict. **No patch file. Upstreamed in v0.12** (config.py line 692). Remove this entry after upgrading.
 - `~/.hermes/hermes-agent/cron/scheduler.py` — skip `resolve_channel_name` for raw Slack channel IDs in `_resolve_single_delivery_target`. Source: `patches/scheduler-skip-resolver-for-slack-ids.patch`. Re-apply: `cd ~/.hermes/hermes-agent && git apply ~/SourceRoot/hermes-agent/patches/scheduler-skip-resolver-for-slack-ids.patch`. Without this, `--deliver slack:<C…ID>` fails with `channel_not_found` for any channel that has exactly one thread session in the directory (prefix-match collision against compound `C…:thread_ts` entries).
 
 ## Setup
