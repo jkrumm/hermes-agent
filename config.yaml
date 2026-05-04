@@ -125,6 +125,12 @@ homelab_api:
 web:
   backend: "tavily"                   # Tavily: search + extract + crawl, no CAPTCHAs
 
+# --- Cron ---
+# Disable the "Cronjob Response: ... To stop or manage..." wrapper around
+# delivered cron output. Source: cron/scheduler.py:397-406.
+cron:
+  wrap_response: false
+
 # --- Terminal Backend ---
 terminal_backend: "local"
 
