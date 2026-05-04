@@ -16,8 +16,8 @@ Blocks emitted:
   GITHUB_FRESH_48H=[...]              # items created in last 48h
   GITHUB_TOTAL=<N>                    # rolled-up count
 
-Source of truth: ~/SourceRoot/dotfiles/hermes/scripts/briefing-coverage.py
-Symlink-eligible — ~/.hermes/scripts/ mirrors this directory.
+Source of truth: ~/SourceRoot/hermes-agent/scripts/briefing-coverage.py
+Symlinked — ~/.hermes/scripts/ → ~/SourceRoot/hermes-agent/scripts/
 """
 
 from __future__ import annotations

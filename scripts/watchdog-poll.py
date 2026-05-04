@@ -4,8 +4,8 @@ Polls UptimeKuma, Docker (homelab + vps), GitHub, Slack #alerts/#updates,
 and Hermes self-state. Reconciles against ~/.hermes/watchdog.db (SQLite).
 Emits NEW=, REMINDERS=, RESOLVED= blocks for the LLM cron prompt.
 
-Source of truth: ~/SourceRoot/dotfiles/hermes/scripts/watchdog-poll.py
-~/.hermes/scripts/ is itself a symlink to this directory (see make hermes).
+Source of truth: ~/SourceRoot/hermes-agent/scripts/watchdog-poll.py
+~/.hermes/scripts/ is itself a symlink to this directory (see make setup).
 """
 
 from __future__ import annotations

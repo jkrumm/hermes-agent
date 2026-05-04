@@ -35,7 +35,10 @@ cloned alongside hermes-agent** for `make setup` to succeed.
 - `scripts/hermes-backup.sh` — daily 03:00, rsyncs `~/.hermes/` → `homelab:/mnt/hdd/backups/hermes/`, pings `$UPTIME_PUSH_BACKUP` on success.
 
 **Hermes cron pre-run scripts (executed by `hermes-agent` before each cron run, *not* by macOS crontab):**
-- `scripts/briefing-context.py` — reads `briefing-state.json` and emits `BRIEFING_CITY` + `BRIEFING_SUPPRESSED` for the morning briefing prompt. Output is appended as `## Script Output` block.
+- `scripts/briefing-context.py` — reads `briefing-state.json` and emits `BRIEFING_CITY` + `BRIEFING_SUPPRESSED` for the morning briefing prompt. Calls `briefing-coverage.py` as subprocess. Output is appended as `## Script Output` block.
+- `scripts/briefing-coverage.py` — full TickTick backlog + open GitHub items; emits `COVERAGE_AVAILABLE`, `TICKTICK_BACKLOG`, `TICKTICK_HIGH_PRIO_DATELESS`, `GITHUB_OPEN_BY_REPO`, `GITHUB_FRESH_48H`, `GITHUB_TOTAL` blocks. Called by `briefing-context.py`.
+- `scripts/watchdog-poll.py` — polls UptimeKuma, Docker (homelab + vps), GitHub, Slack `#alerts`; reconciles against `~/.hermes/watchdog.db`. Emits `NEW=`, `REMINDERS=`, `RESOLVED=` blocks for the watchdog cron prompt.
+- `scripts/watchdog-summary.py` — read-only snapshot of open watchdog items from `watchdog.db`; consumed by `briefing-context.py` for the morning briefing Infrastructure section.
 - `scripts/briefing-state.json` — *gitignored* runtime config (city + vacation flag). Edit locally; never commits. Seeded from `briefing-state.example.json` on first `make setup`.
 - `skills/capture/state.json` — *gitignored* runtime cache for the capture skill (GitHub repos + TickTick projects). Refreshed on miss via `gh repo list jkrumm` and `/ticktick/projects`. Seeded empty from `state.example.json` on first `make setup`.
 
@@ -50,9 +53,11 @@ cloned alongside hermes-agent** for `make setup` to succeed.
 Re-apply after `hermes update`:
 
 - `~/.hermes/hermes-agent/tools/tts_tool.py` — thin client over `localai-helper:8001/v1/tts/synthesize`; replaces 1600-line multi-provider original. Source: `patches/tts_tool.py`. Re-apply: `cp ~/SourceRoot/hermes-agent/patches/tts_tool.py ~/.hermes/hermes-agent/tools/tts_tool.py`
-- `~/.hermes/hermes-agent/gateway/platforms/slack.py` — `format_message()` pre-steps: normalize `*` list markers to `-`, strip backticks from inline code containing emoji shortcodes
-- `~/.hermes/hermes-agent/gateway/platforms/slack.py` — `_resolve_thread_ts` synthetic-thread guard + defensive retry-without-thread on `cannot_reply_to_message` in `send()`. Mirrors upstream commits `4b5a88d71` and `41d9d0807` semantics. Source: `patches/slack-cannot-reply-to-message.patch`. Re-apply: `cd ~/.hermes/hermes-agent && git apply ~/SourceRoot/hermes-agent/patches/slack-cannot-reply-to-message.patch`. **Remove once Hermes v0.12+ ships** — both fixes will be upstream.
-- `~/.hermes/hermes-agent/gateway/config.py` — bridge `reply_in_thread`, `reply_broadcast`, `reply_to_mode` from `slack:` YAML section into platform `extra` dict (upstream still only bridges `require_mention`, `allow_bots`, `free_response_channels` as of 0.11.0). Note: `reply_to_mode` is consumed by telegram/discord only, not Slack — dropped from `slack:` section in `config.yaml`.
+- `~/.hermes/hermes-agent/gateway/platforms/slack.py` — three changes, all in `patches/slack-cannot-reply-to-message.patch`. Re-apply: `cd ~/.hermes/hermes-agent && git apply ~/SourceRoot/hermes-agent/patches/slack-cannot-reply-to-message.patch`
+  - `format_message()` pre-steps: normalize `*` list markers to `-`, strip backticks from inline code containing emoji shortcodes. **Not upstream.**
+  - `_resolve_thread_ts` synthetic-thread guard: detect synthetic `thread_id == reply_to` (no real `thread_ts`) → return `None`. **Upstream in v0.12 (commit `4b5a88d71`) — this hunk will conflict on v0.12 update; apply with `--3way` or skip hunk manually.**
+  - `send()` retry: on `cannot_reply_to_message`, drop `thread_ts` and retry chunk as plain channel message. **Not upstream.**
+- `~/.hermes/hermes-agent/gateway/config.py` — bridge `reply_in_thread`, `reply_broadcast` from `slack:` YAML section into platform `extra` dict. **No patch file saved.** Verify on v0.12 update — `reply_in_thread` bridging may be upstream in v0.12. If still needed, apply manually and save a patch.
 - `~/.hermes/hermes-agent/cron/scheduler.py` — skip `resolve_channel_name` for raw Slack channel IDs in `_resolve_single_delivery_target`. Source: `patches/scheduler-skip-resolver-for-slack-ids.patch`. Re-apply: `cd ~/.hermes/hermes-agent && git apply ~/SourceRoot/hermes-agent/patches/scheduler-skip-resolver-for-slack-ids.patch`. Without this, `--deliver slack:<C…ID>` fails with `channel_not_found` for any channel that has exactly one thread session in the directory (prefix-match collision against compound `C…:thread_ts` entries).
 
 ## Setup

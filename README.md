@@ -79,7 +79,7 @@ curl -s http://127.0.0.1:8000/v1/models
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash
-hermes --version  # should show v0.11.0+
+hermes --version  # should show v0.12.0+
 ```
 
 ### 3. 1Password Vault
