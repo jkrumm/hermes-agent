@@ -572,7 +572,8 @@ def upsert_grouped(conn: sqlite3.Connection, source: str, groups: list[dict[str,
             # Silent record — bump cumulative count but don't surface
             payload = json.loads(row["payload_json"] or "{}")
             payload["batch_count_last"] = g["count"]
-            payload["ts_last"] = g["payload"]["ts_last"]
+            if "ts_last" in g["payload"]:
+                payload["ts_last"] = g["payload"]["ts_last"]
             cur.execute(
                 "UPDATE events SET payload_json=? WHERE id=?",
                 (json.dumps(payload), row["id"]),
