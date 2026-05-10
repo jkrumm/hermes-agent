@@ -28,8 +28,9 @@ VOICE_TOOLS_OPENAI_KEY=not-needed
 # GitHub — issue creation, repo queries (watchdog, Phase 3)
 GITHUB_TOKEN=op://hermes/github/token
 
-# Homelab API — single integration layer for TickTick, Gmail, Calendar, Docker, UptimeKuma, Slack
-# Replaces separate MCP servers for Phase 1 + Phase 3. Base URL: https://api.jkrumm.com
+# Argo API (formerly homelab API) — single integration layer for TickTick, Gmail,
+# Calendar, Docker, UptimeKuma, Slack. Base URL: https://argo.jkrumm.com/api
+# (env var name HOMELAB_API_KEY kept for shell/cron compatibility)
 HOMELAB_API_KEY=op://common/api/SECRET
 
 # UptimeKuma push URLs — consumed by hermes/scripts/{hermes-liveness,hermes-backup}.sh

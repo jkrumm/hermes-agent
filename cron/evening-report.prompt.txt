@@ -25,9 +25,9 @@ If the script block is missing or malformed, fall back to `Munich` and proceed. 
 
 **Important:** call the `terminal` tool directly with each shell command. Do NOT wrap calls in `execute_code` — that path is slower and prevents proper parallelization.
 
-The four loaded skills (homelab-api, schedule, weather, tasks) document the homelab API base URL and auth pattern — follow what they specify. Issue all five calls as five `terminal` tool invocations in a single parallel batch:
+The four loaded skills (argo-api, schedule, weather, tasks) document the homelab API base URL and auth pattern — follow what they specify. Issue all five calls as five `terminal` tool invocations in a single parallel batch:
 
-1. Homelab `/daily-metrics/?_order=desc` — last 7+ days of Garmin daily metrics: HRV, body battery, resting HR, sleep duration, sleep score, stress (see `homelab-api` skill, group "Daily Metrics — Garmin sync").
+1. Homelab `/daily-metrics/?_order=desc` — last 7+ days of Garmin daily metrics: HRV, body battery, resting HR, sleep duration, sleep score, stress (see `argo-api` skill, group "Daily Metrics — Garmin sync").
 
    **Date semantics — read carefully, this is easy to get wrong:**
    - Each row is dated `YYYY-MM-DD`. The row dated **today** (the run date) is where Garmin records the night that just ended this morning — i.e., **last night's sleep, last night's HRV, today's resting HR, today's body battery range**.
@@ -35,7 +35,7 @@ The four loaded skills (homelab-api, schedule, weather, tasks) document the home
    - At 22:00 today's row is normally fully populated (Garmin syncs the night's sleep through the morning). Always read from today's row first.
    - If today's row has `sleep_score: null` or `hrv_last_night_avg: null` (sync gap), do **not** substitute yesterday's row. Instead, write the affected line as `- Last night's sleep: data still syncing` (or `- HRV last night: data still syncing`). Honesty beats stale data.
    - The 7-day averages for trend arrows (see Step 2) are still computed from the last 7 days of non-null values — those use historical data, no issue there.
-2. Homelab `/workouts/?_sort=date&_order=desc&_end=5` — last 5 workouts including any logged today (see `homelab-api` skill, group "Fitness"). Match by `date` field equal to today's date in `YYYY-MM-DD`.
+2. Homelab `/workouts/?_sort=date&_order=desc&_end=5` — last 5 workouts including any logged today (see `argo-api` skill, group "Fitness"). Match by `date` field equal to today's date in `YYYY-MM-DD`.
 3. Homelab `/gmail/calendar?days=2` — today + tomorrow's calendar (see `schedule` skill). Filter to events on tomorrow's date for the report.
 4. Homelab `/weather/forecast?city=$BRIEFING_CITY` — forecast for the resolved city (see `weather` skill). Use `daily_7d[1]` for tomorrow (index 0 is today, already past).
 5. Homelab `/summary` — for tomorrow's task signal: count of high-priority items and items due tomorrow (see `tasks` skill). **Do NOT surface overdue counts in the output** — even though the endpoint returns them, the evening report intentionally does not show overdue work.
