@@ -22,7 +22,7 @@ curl -s -X POST \
   -H "Authorization: Bearer $HOMELAB_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"text":"your test prompt here"}' \
-  "https://api.jkrumm.com/slack/channels/$CHANNEL/messages"
+  "https://argo.jkrumm.com/api/slack/channels/$CHANNEL/messages"
 ```
 
 Wait for a response:
@@ -72,8 +72,8 @@ response ready: platform=slack chat=... time=51.7s api_calls=3 response=751 char
 **From session JSONL — healthy pattern:**
 ```
 [1] user: question
-[2] THINK: knows to use skill_view('homelab-api')...
-[3] tool: {"success": true, "name": "homelab-api", ...}   ← skill_view hit directly
+[2] THINK: knows to use skill_view('argo-api')...
+[3] tool: {"success": true, "name": "argo-api", ...}   ← skill_view hit directly
 [4] THINK: read the endpoints, forming curl command
 [5] tool: {"status": "success", "output": "..."}          ← terminal/curl result
 [6] assistant: clean answer
@@ -82,7 +82,7 @@ response ready: platform=slack chat=... time=51.7s api_calls=3 response=751 char
 **Red flags in the trace:**
 - `skills_list` appearing twice before `skill_view` → skill not mentioned in SOUL.md by name
 - `execute_code` with Python requests → SOUL.md needs to say "use terminal, not execute_code"
-- `find skills/homelab-api/reference.md` → dead file path in SOUL.md (rename to skill name)
+- `find skills/argo-api/reference.md` → dead file path in SOUL.md (rename to skill name)
 - 404 on guessed API paths → skill SKILL.md missing or not loaded
 - `gpt-4o-mini not found` → session summarization auxiliary failure, non-blocking
 
@@ -91,9 +91,9 @@ response ready: platform=slack chat=... time=51.7s api_calls=3 response=751 char
 ## Common Failures and Fixes
 
 ### Hermes searches filesystem instead of using skill
-**Symptom:** session shows `search_files`, `read_file` with a path like `skills/homelab-api/reference.md`
+**Symptom:** session shows `search_files`, `read_file` with a path like `skills/argo-api/reference.md`
 **Cause:** SOUL.md had a dead file path reference
-**Fix:** Replace file paths in SOUL.md with skill names: `skill_view('homelab-api')`
+**Fix:** Replace file paths in SOUL.md with skill names: `skill_view('argo-api')`
 
 ### Hermes uses `execute_code` instead of `terminal` for curl
 **Symptom:** session shows Python `requests` code, often with import errors
@@ -103,7 +103,7 @@ response ready: platform=slack chat=... time=51.7s api_calls=3 response=751 char
 ### Skill not found on first try (2 `skills_list` calls)
 **Symptom:** `skills_list` appears twice in trace before `skill_view`
 **Cause:** the model lists all skills to verify, rather than calling `skill_view` directly
-**Fix:** In SOUL.md name the exact skill and tool call: `call skill_view('homelab-api')`
+**Fix:** In SOUL.md name the exact skill and tool call: `call skill_view('argo-api')`
 
 ### Wrong interpretation of API response values
 **Symptom:** Hermes reports wrong status (e.g., UptimeKuma `status: 1` called "down")
@@ -162,7 +162,7 @@ Update this table after each validation run.
 | File | Purpose |
 |-|-|
 | `hermes/SOUL.md` | System prompt — skill routing table lives here |
-| `hermes/skills/homelab-api/SKILL.md` | Full endpoint reference (fallback when no domain skill matches) |
+| `hermes/skills/argo-api/SKILL.md` | Full endpoint reference (fallback when no domain skill matches) |
 | `hermes/skills/infrastructure/SKILL.md` | UptimeKuma + Docker behavioral guidance |
 | `hermes/skills/tasks/SKILL.md` | TickTick task management behavioral guidance |
 | `hermes/skills/schedule/SKILL.md` | Calendar + Gmail behavioral guidance |

@@ -5,7 +5,7 @@ version: 1.0.0
 metadata:
   hermes:
     tags: [capture, todo, reminder, issue, ticktick, github, routing]
-    related_skills: [tasks, homelab-api]
+    related_skills: [tasks, argo-api]
 ---
 
 # Capture (TickTick + GitHub Issues)
@@ -127,7 +127,7 @@ rm -f "$TMP"
 ```bash
 TMP=$(mktemp)
 curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" \
-  "https://api.jkrumm.com/ticktick/projects" \
+  "https://argo.jkrumm.com/api/ticktick/projects" \
   | jq '[.data[] | select(.closed != true) | {id, name}]' > "$TMP"
 jq --slurpfile projects "$TMP" \
   '.ticktick_projects = $projects[0] | .ticktick_last_refresh = (now | strftime("%Y-%m-%dT%H:%M:%SZ"))' \
@@ -151,7 +151,7 @@ PROJECT_ID=$(jq -r '.ticktick_projects[] | select(.name == "💼Work") | .id' ~/
 # Create task — title is short imperative, dueDate optional
 curl -s -X POST -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: application/json" \
   -d "{\"title\":\"Renew Tailscale cert\",\"projectId\":\"$PROJECT_ID\",\"dueDate\":\"2026-05-30\",\"priority\":3}" \
-  "https://api.jkrumm.com/ticktick/task"
+  "https://argo.jkrumm.com/api/ticktick/task"
 ```
 
 **Inbox fallback:** `projectId: "inbox"` (literal string, no cache lookup needed).

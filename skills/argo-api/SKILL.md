@@ -1,6 +1,6 @@
 ---
-name: homelab-api
-description: Call the homelab REST API (https://api.jkrumm.com) for TickTick tasks, Gmail, Calendar, Docker (homelab + VPS), UptimeKuma, Slack, weather, fitness tracking (workouts, weight, Garmin), user profile, and read-only SQL — use curl with Bearer $HOMELAB_API_KEY
+name: argo-api
+description: Call the argo REST API (https://argo.jkrumm.com/api) for TickTick tasks, Gmail, Calendar, Docker (homelab + VPS), UptimeKuma, Slack, weather, fitness tracking (workouts, weight, Garmin), user profile, and read-only SQL — use curl with Bearer $HOMELAB_API_KEY
 version: 1.1.0
 metadata:
   hermes:
@@ -12,9 +12,9 @@ metadata:
 
 Personal integration layer for TickTick, Gmail, Calendar, Docker, UptimeKuma, Slack, weather, fitness tracking, and user profile over a single authenticated REST API. Use `curl` with `$HOMELAB_API_KEY` from the environment.
 
-**Base URL:** `https://api.jkrumm.com`
+**Base URL:** `https://argo.jkrumm.com/api`
 **Auth:** `Authorization: Bearer $HOMELAB_API_KEY` (available in env)
-**OpenAPI spec:** `https://api.jkrumm.com/docs/json`
+**OpenAPI spec:** `https://argo.jkrumm.com/api/docs/json`
 
 When asked about tasks, schedule, emails, infrastructure status, or Slack messages — use this API. Do not say you lack tooling; use curl via the terminal.
 
@@ -133,22 +133,22 @@ When asked about tasks, schedule, emails, infrastructure status, or Slack messag
 
 ```bash
 # Status overview
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://api.jkrumm.com/summary"
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/summary"
 
 # Today's tasks (get projects first, then fetch tasks per project)
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://api.jkrumm.com/ticktick/projects"
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://api.jkrumm.com/ticktick/project/{projectId}/data"
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/ticktick/projects"
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/ticktick/project/{projectId}/data"
 
 # Today's calendar events
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://api.jkrumm.com/gmail/calendar"
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/gmail/calendar"
 
 # Container health
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://api.jkrumm.com/docker/homelab/summary"
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/docker/homelab/summary"
 
 # Create a task
 curl -s -X POST -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: application/json" \
   -d '{"title":"Task title","projectId":"inbox"}' \
-  "https://api.jkrumm.com/ticktick/task"
+  "https://argo.jkrumm.com/api/ticktick/task"
 ```
 
 ---

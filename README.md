@@ -39,7 +39,7 @@ Mac Mini M2 Pro — Hermes Agent (always-on)
 | Johannes message | `#hermes` | Hermes responds immediately |
 | Johannes voice memo / link | `#inbox` | Hermes transcribes / extracts + processes (Phase 2) |
 | HomeLab bot drops digest/capture | `#inbox` | Hermes processes it the same as a manual drop |
-| Docker / UptimeKuma alert | `#alerts` | Hermes calls homelab-api, checks state, responds or escalates |
+| Docker / UptimeKuma alert | `#alerts` | Hermes calls argo-api, checks state, responds or escalates |
 | External monitor alert | `#alerts` | Hermes triages, checks context, notifies if critical |
 | Cron job | `#hermes` / `#briefings` | Hermes posts proactive update or audio briefing |
 | Hermes monitoring loop | `#watchdog` | Hermes writes its own status checks (Phase 3, Hermes-initiated) |

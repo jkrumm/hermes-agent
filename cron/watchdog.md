@@ -16,7 +16,7 @@ Source-of-truth for the watchdog cron prompt and registration. This file is docu
 
 | Source | Polled via | Surface gate | Reminder cadence |
 |-|-|-|-|
-| UptimeKuma down monitors | `https://api.jkrumm.com/uptime-kuma/monitors` | sustained 30 min | every 6h |
+| UptimeKuma down monitors | `https://argo.jkrumm.com/api/uptime-kuma/monitors` | sustained 30 min | every 6h |
 | Docker unhealthy (homelab + vps) | `/docker/{host}/summary` | sustained 30 min | every 6h |
 | Stale GitHub PRs | `gh search prs --owner jkrumm --state open` | no update >3 days | every 3 days |
 | Stale GitHub issues | `gh search issues --owner jkrumm --state open` | no update >3 days | every 7 days |

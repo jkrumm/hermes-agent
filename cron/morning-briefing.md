@@ -7,7 +7,7 @@ Source-of-truth for the morning briefing prompt. **This file is documentation, n
 | Field | Value |
 |-|-|
 | Schedule | `0 7 * * 1-5` (07:00 weekdays, Europe/Berlin) |
-| Skills | `tasks`, `schedule`, `weather`, `infrastructure`, `slack`, `homelab-api` |
+| Skills | `tasks`, `schedule`, `weather`, `infrastructure`, `slack`, `argo-api` |
 | Pre-run script | `briefing-context.py` (lives in `~/.hermes/scripts/`, source in `hermes/scripts/`) |
 | Deliver | `slack:C0AT6TH404R` (#briefings) |
 | Name | `Morning briefing` |
@@ -22,7 +22,7 @@ hermes cron create "0 7 * * 1-5" "$(cat ~/SourceRoot/dotfiles/hermes/cron/mornin
   --skill weather \
   --skill infrastructure \
   --skill slack \
-  --skill homelab-api \
+  --skill argo-api \
   --script briefing-context.py \
   --name "Morning briefing" \
   --deliver slack:C0AT6TH404R

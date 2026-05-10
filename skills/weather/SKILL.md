@@ -5,14 +5,14 @@ version: 1.1.0
 metadata:
   hermes:
     tags: [weather, forecast, rain, temperature, uv, wind, clouds]
-    related_skills: [homelab-api]
+    related_skills: [argo-api]
 ---
 
 # Weather
 
 Weather forecast for any city via the homelab API. Defaults to Munich. Data sourced from Open-Meteo (DWD/ECMWF models).
 
-**Endpoint:** `GET https://api.jkrumm.com/weather/forecast`
+**Endpoint:** `GET https://argo.jkrumm.com/api/weather/forecast`
 **Query:** `?city=<name>` (optional, default `Munich`) — any city name; geocoded via Open-Meteo
 **Auth:** `Authorization: Bearer $HOMELAB_API_KEY`
 
@@ -34,10 +34,10 @@ Single call returns everything:
 
 ```bash
 # Default — Munich
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://api.jkrumm.com/weather/forecast"
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/weather/forecast"
 
 # Any other city
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://api.jkrumm.com/weather/forecast?city=Salzburg"
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/weather/forecast?city=Salzburg"
 ```
 
 Response includes resolved `city` and `country` so you can confirm the geocoder picked the right place. A 400 is returned if the city can't be geocoded.

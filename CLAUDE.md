@@ -25,7 +25,7 @@ cloned alongside hermes-agent** for `make setup` to succeed.
 | `cron/` | `~/.hermes/cron/` | symlink — Hermes-driven (LLM) cron jobs |
 | `scripts/` | `~/.hermes/scripts/` | symlink — Hermes cron pre-run scripts (security check requires they live under `HERMES_HOME/scripts/`). Also holds host-level shell scripts. |
 | `hooks/` | `~/.hermes/hooks/` | symlink — add hooks here |
-| `skills/{name}/` | `~/.hermes/skills/{name}/` | symlink per skill (homelab-api, infrastructure, tasks, capture, schedule, weather, slack) |
+| `skills/{name}/` | `~/.hermes/skills/{name}/` | symlink per skill (argo-api, infrastructure, tasks, capture, schedule, weather, slack) |
 | `USER.md` | `~/.hermes/memories/USER.md` | copied — Hermes writes to it |
 | `cc-skills/hermes-validate/` | `~/SourceRoot/.claude/skills/hermes-validate/` | symlink — Claude Code slash command for validating Hermes routing |
 | `cc-skills/hermes-update/` | `~/SourceRoot/.claude/skills/hermes-update/` | symlink — Claude Code slash command for updating the upstream Hermes repo |
@@ -44,7 +44,7 @@ cloned alongside hermes-agent** for `make setup` to succeed.
 
 ## Homelab API Integration
 
-`skills/homelab-api/SKILL.md` endpoint tables are regenerated from `https://api.jkrumm.com/docs/json` by the homelab `/docs` skill. Domain skills (infrastructure, tasks, capture, schedule, weather, slack) are updated in the same pass if their endpoints changed.
+`skills/argo-api/SKILL.md` endpoint tables are regenerated from `https://argo.jkrumm.com/api/docs/json` by the homelab `/docs` skill. Domain skills (infrastructure, tasks, capture, schedule, weather, slack) are updated in the same pass if their endpoints changed.
 
 **API secret:** `op://common/api/SECRET` (account `tkrumm`) — wired in `.env.tpl`.
 

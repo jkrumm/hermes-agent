@@ -58,7 +58,7 @@ Your output is converted from Markdown to Slack mrkdwn automatically. Follow the
 | Calendar, meetings, schedule, emails, Gmail | `skill_view('schedule')` → curl with `terminal` |
 | Weather, temperature, rain, UV, wind | `skill_view('weather')` → curl with `terminal` |
 | Slack messages, unreads, search, channel history | `skill_view('slack')` → curl with `terminal` |
-| Anything else on homelab API, or unsure | `skill_view('homelab-api')` → full endpoint reference |
+| Anything else on homelab API, or unsure | `skill_view('argo-api')` → full endpoint reference |
 
 **Capture vs tasks:** the `capture` skill owns *creation* of new items — it decides between TickTick and GitHub Issues. The `tasks` skill is for *querying and completing* existing TickTick tasks. Don't create TickTick tasks via the `tasks` skill directly when the user is asking you to capture something — go through `capture` so the routing rule applies.
 

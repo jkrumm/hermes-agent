@@ -5,14 +5,14 @@ version: 1.0.0
 metadata:
   hermes:
     tags: [calendar, gmail, email, schedule, meetings, events]
-    related_skills: [homelab-api]
+    related_skills: [argo-api]
 ---
 
 # Schedule & Email (Google Calendar + Gmail)
 
 Check upcoming events across all personal calendars and query the Gmail inbox.
 
-**Base URL:** `https://api.jkrumm.com`
+**Base URL:** `https://argo.jkrumm.com/api`
 **Auth:** `Authorization: Bearer $HOMELAB_API_KEY`
 
 ---
@@ -21,26 +21,26 @@ Check upcoming events across all personal calendars and query the Gmail inbox.
 
 ```bash
 # Upcoming calendar events (default 30 days)
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://api.jkrumm.com/gmail/calendar"
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/gmail/calendar"
 
 # Shorter window
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://api.jkrumm.com/gmail/calendar?days=7"
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/gmail/calendar?days=7"
 
 # Recent emails (default 7 days, max 50)
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://api.jkrumm.com/gmail/emails?days=3"
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/gmail/emails?days=3"
 
 # Unread emails only
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://api.jkrumm.com/gmail/emails?unread=true"
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/gmail/emails?unread=true"
 
 # Important/starred emails
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://api.jkrumm.com/gmail/emails?important=true"
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://api.jkrumm.com/gmail/emails?starred=true"
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/gmail/emails?important=true"
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/gmail/emails?starred=true"
 
 # Search with Gmail query syntax
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://api.jkrumm.com/gmail/emails?query=from:amazon.de"
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/gmail/emails?query=from:amazon.de"
 
 # Full email body (when asked about a specific email)
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://api.jkrumm.com/gmail/emails/{id}"
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/gmail/emails/{id}"
 ```
 
 ---

@@ -5,14 +5,14 @@ version: 1.0.0
 metadata:
   hermes:
     tags: [uptime, docker, containers, homelab, vps, infrastructure, monitoring, health]
-    related_skills: [homelab-api, localai-debug]
+    related_skills: [argo-api, localai-debug]
 ---
 
 # Infrastructure Status
 
 Monitor service uptime (UptimeKuma) and Docker container health across homelab and VPS.
 
-**Base URL:** `https://api.jkrumm.com`
+**Base URL:** `https://argo.jkrumm.com/api`
 **Auth:** `Authorization: Bearer $HOMELAB_API_KEY`
 
 ---
@@ -21,23 +21,23 @@ Monitor service uptime (UptimeKuma) and Docker container health across homelab a
 
 ```bash
 # Best first call — single snapshot of everything
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://api.jkrumm.com/summary"
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/summary"
 
 # Any services down?
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://api.jkrumm.com/uptime-kuma/status"
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/uptime-kuma/status"
 
 # All monitor details (only if asked for specifics)
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://api.jkrumm.com/uptime-kuma/monitors"
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/uptime-kuma/monitors"
 
 # Docker overview — homelab or vps
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://api.jkrumm.com/docker/homelab/summary"
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://api.jkrumm.com/docker/vps/summary"
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/docker/homelab/summary"
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/docker/vps/summary"
 
 # Container resource usage
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://api.jkrumm.com/docker/homelab/stats"
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/docker/homelab/stats"
 
 # Container logs (use tail=50 for quick checks)
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://api.jkrumm.com/docker/homelab/logs/container-name?tail=50"
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/docker/homelab/logs/container-name?tail=50"
 ```
 
 ---
@@ -49,7 +49,7 @@ curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://api.jkrumm.com/dock
 
 **"Any alerts?" / "What happened?" / "Recent warnings?"**
 → Call `/summary` for current status AND check the #alerts Slack channel (`C0AS1LAUQ3C`) for recent automated alerts
-→ Use `skill_view('slack')` to search: `curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://api.jkrumm.com/slack/channels/C0AS1LAUQ3C/messages?limit=20"`
+→ Use `skill_view('slack')` to search: `curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/slack/channels/C0AS1LAUQ3C/messages?limit=20"`
 
 **"Is X down?" / "What's the uptime?"**
 → Call `/uptime-kuma/status` first (3 numbers: up/down/total)

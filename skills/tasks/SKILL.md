@@ -5,14 +5,14 @@ version: 1.0.0
 metadata:
   hermes:
     tags: [ticktick, tasks, todo, projects, productivity]
-    related_skills: [homelab-api]
+    related_skills: [argo-api]
 ---
 
 # Task Management (TickTick)
 
 Query, create, update, and complete tasks in TickTick.
 
-**Base URL:** `https://api.jkrumm.com`
+**Base URL:** `https://argo.jkrumm.com/api`
 **Auth:** `Authorization: Bearer $HOMELAB_API_KEY`
 
 ---
@@ -21,31 +21,31 @@ Query, create, update, and complete tasks in TickTick.
 
 ```bash
 # List all projects (get projectId for further queries)
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://api.jkrumm.com/ticktick/projects"
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/ticktick/projects"
 
 # Get tasks for a specific project
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://api.jkrumm.com/ticktick/project/{projectId}/data"
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/ticktick/project/{projectId}/data"
 
 # Overdue + due-soon tasks (from /summary, includes project names)
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://api.jkrumm.com/summary" | jq '.ticktick'
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/summary" | jq '.ticktick'
 
 # Create a task
 curl -s -X POST -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: application/json" \
   -d '{"title":"Task title","projectId":"inbox","dueDate":"2026-04-20","priority":3}' \
-  "https://api.jkrumm.com/ticktick/task"
+  "https://argo.jkrumm.com/api/ticktick/task"
 
 # Update a task
 curl -s -X POST -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: application/json" \
   -d '{"title":"Updated title","priority":5}' \
-  "https://api.jkrumm.com/ticktick/task/{taskId}"
+  "https://argo.jkrumm.com/api/ticktick/task/{taskId}"
 
 # Complete a task
 curl -s -X POST -H "Authorization: Bearer $HOMELAB_API_KEY" \
-  "https://api.jkrumm.com/ticktick/project/{projectId}/task/{taskId}/complete"
+  "https://argo.jkrumm.com/api/ticktick/project/{projectId}/task/{taskId}/complete"
 
 # Delete a task
 curl -s -X DELETE -H "Authorization: Bearer $HOMELAB_API_KEY" \
-  "https://api.jkrumm.com/ticktick/project/{projectId}/task/{taskId}"
+  "https://argo.jkrumm.com/api/ticktick/project/{projectId}/task/{taskId}"
 ```
 
 ---

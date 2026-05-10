@@ -4,7 +4,7 @@ SOURCEROOT    := $(HOME)/SourceRoot
 CLAUDE_DIR    := $(SOURCEROOT)/.claude
 DOTFILES_DIR  := $(SOURCEROOT)/dotfiles
 LAUNCHAGENTS  := $(HOME)/Library/LaunchAgents
-HERMES_SKILLS := capture homelab-api infrastructure schedule slack tasks weather
+HERMES_SKILLS := capture argo-api infrastructure schedule slack tasks weather
 CC_SKILLS     := hermes-validate hermes-update
 
 # localai-helper plist template lives in dotfiles. Helper service runs only

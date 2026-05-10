@@ -7,7 +7,7 @@ Source-of-truth for the evening report prompt. **This file is documentation, not
 | Field | Value |
 |-|-|
 | Schedule | `0 22 * * 1-4` (22:00 Mon–Thu, Europe/Berlin) |
-| Skills | `homelab-api`, `schedule`, `weather`, `tasks` |
+| Skills | `argo-api`, `schedule`, `weather`, `tasks` |
 | Pre-run script | `briefing-context.py` (shared with morning briefing) |
 | Deliver | `slack:C0AT6TH404R` (#briefings) |
 | Name | `Evening report` |
@@ -19,7 +19,7 @@ The schedule deliberately excludes Friday and Sunday — Friday evening is alrea
 ```bash
 # Create
 hermes cron create "0 22 * * 1-4" "$(cat ~/SourceRoot/dotfiles/hermes/cron/evening-report.prompt.txt)" \
-  --skill homelab-api \
+  --skill argo-api \
   --skill schedule \
   --skill weather \
   --skill tasks \
