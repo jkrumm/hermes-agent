@@ -32,7 +32,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-API_BASE = "https://api.jkrumm.com"
+API_BASE = "https://argo.jkrumm.com/api"
 GH_OWNER = "jkrumm"
 HTTP_TIMEOUT = 8
 GH_TIMEOUT = 20

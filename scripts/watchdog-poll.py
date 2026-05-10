@@ -28,7 +28,7 @@ DB_PATH = HERMES_HOME / "watchdog.db"
 STATE_PATH = HERMES_HOME / "scripts" / "briefing-state.json"
 JOBS_PATH = HERMES_HOME / "cron" / "jobs.json"
 
-API_BASE = "https://api.jkrumm.com"
+API_BASE = "https://argo.jkrumm.com/api"
 GH_OWNER = "jkrumm"
 
 CH_ALERTS = "C0AS1LAUQ3C"

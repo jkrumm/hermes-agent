@@ -114,11 +114,12 @@ slack:
   stt_enabled: true                 # Auto-transcribe voice memos
   home_channel: "${SLACK_CHANNEL_HERMES}"    # #hermes — cron results, proactive messages
 
-# --- Homelab API ---
+# --- Argo API (formerly homelab API; now lives in jkrumm/argo on the VPS) ---
 # Single authenticated HTTP layer for TickTick, Gmail, Calendar, Docker, UptimeKuma, Slack
-# OpenAPI spec: https://api.jkrumm.com/docs/json
+# OpenAPI spec: https://argo.jkrumm.com/api/docs/json
+# (config key intentionally still `homelab_api` — internal code reads it; only URLs change)
 homelab_api:
-  base_url: "https://api.jkrumm.com"
+  base_url: "https://argo.jkrumm.com/api"
   api_key: "${HOMELAB_API_KEY}"
 
 # --- Web Search ---

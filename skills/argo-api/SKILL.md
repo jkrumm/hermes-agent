@@ -8,9 +8,9 @@ metadata:
     related_skills: []
 ---
 
-# Homelab API
+# Argo API
 
-Personal integration layer for TickTick, Gmail, Calendar, Docker, UptimeKuma, Slack, weather, fitness tracking, and user profile over a single authenticated REST API. Use `curl` with `$HOMELAB_API_KEY` from the environment.
+Personal integration layer for TickTick, Gmail, Calendar, Docker, UptimeKuma, Slack, weather, fitness tracking, and user profile over a single authenticated REST API. Use `curl` with `$HOMELAB_API_KEY` from the environment (env var name kept for shell/cron compatibility — the value is the argo API key).
 
 **Base URL:** `https://argo.jkrumm.com/api`
 **Auth:** `Authorization: Bearer $HOMELAB_API_KEY` (available in env)
