@@ -73,7 +73,6 @@ If the repo identity is genuinely ambiguous between two candidates, ask.
 | `jkrumm.dev` | Personal site |
 | `home` | Home dashboard |
 | `Auto-Claude` | Autonomous multi-session AI coding |
-| `sideproject-docker-stack` | Docker compose for sideprojects |
 | `homebrew-tap` | Homebrew formulas for jkrumm tools |
 
 This list is a hint, not exhaustive. The live cache (see below) is the source of truth.
