@@ -1,16 +1,18 @@
 # Watchdog — Hermes Cron Job
 
-Source-of-truth for the watchdog cron prompt and registration. This file is documentation, not auto-loaded.
+Source-of-truth for the watchdog cron registration. This file is documentation, not auto-loaded.
 
 ## Job Spec
 
 | Field | Value |
 |-|-|
 | Schedule | `*/30 * * * *` (every 30 min, all days) |
-| Skills | none — pre-run script does all data gathering |
-| Pre-run script | `watchdog-poll.py` |
+| Mode | `no_agent` — script stdout delivered verbatim, no LLM round-trip |
+| Script | `watchdog-slack.py` (wrapper → `watchdog-poll.py --slack-body`) |
 | Deliver | `slack:C0ASRULFTSS` (#watchdog) |
 | Name | `Watchdog` |
+
+`watchdog-slack.py` is a thin wrapper because Hermes invokes cron scripts as `python3 <path>` with no args. The real work lives in `watchdog-poll.py`. Empty stdout = silent delivery; non-empty stdout = Slack mrkdwn body sent verbatim. `watchdog.prompt.txt` is kept for reference but unused since the cut-over to `no_agent`.
 
 ## Sources monitored
 
@@ -41,32 +43,40 @@ Vacation flag (`vacation_until` in the same state file) suppresses the same way.
 
 Resolved rows are kept indefinitely for trend queries (`SELECT source, COUNT(*) WHERE resolved_at >= … GROUP BY source`).
 
-## Create / Update
+## Re-register
 
 ```bash
-# Create
-hermes cron create "*/30 * * * *" "$(cat ~/SourceRoot/dotfiles/hermes/cron/watchdog.prompt.txt)" \
-  --script watchdog-poll.py \
+# Initial create (no_agent — no prompt needed)
+hermes cron create "*/30 * * * *" "" \
+  --script watchdog-slack.py \
+  --no-agent \
   --name "Watchdog" \
   --deliver slack:C0ASRULFTSS
 
 # Trigger immediately for testing
 hermes cron run <job_id>
 
-# Edit prompt only
-hermes cron edit <job_id> --prompt "$(cat ~/SourceRoot/dotfiles/hermes/cron/watchdog.prompt.txt)"
+# Toggle modes
+hermes cron edit <job_id> --no-agent --script watchdog-slack.py   # current
+hermes cron edit <job_id> --agent --script watchdog-poll.py       # revert to LLM
 ```
 
 ## Manual debugging
 
 ```bash
-# Dry-run the poller (mutates state — see below to reset)
-python3 ~/.hermes/scripts/watchdog-poll.py
+# Dry-run the slack body — read-only, uses a temp DB copy.
+python3 ~/.hermes/scripts/watchdog-poll.py --slack-body --dry-run
 
-# Snapshot of currently open items + 7-day resolved counts
+# Dry-run the legacy KV-block emission (for diff against historical cron runs).
+python3 ~/.hermes/scripts/watchdog-poll.py --dry-run
+
+# Production poll — mutates real DB. Equivalent to one cron tick.
+python3 ~/.hermes/scripts/watchdog-poll.py --slack-body
+
+# Snapshot of currently open items + 7-day resolved counts (read-only).
 python3 ~/.hermes/scripts/watchdog-summary.py
 
-# Reset state (e.g. after threshold tuning)
+# Reset state (e.g. after threshold tuning).
 rm ~/.hermes/watchdog.db
 ```
 

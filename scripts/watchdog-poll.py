@@ -581,6 +581,105 @@ def upsert_grouped(conn: sqlite3.Connection, source: str, groups: list[dict[str,
     return out
 
 
+SOURCE_EMOJI = {
+    "uk": ":satellite_antenna:",
+    "docker_homelab": ":whale:",
+    "docker_vps": ":whale:",
+    "github_pr": ":cat:",
+    "github_issue": ":cat:",
+    "slack_alert": ":mega:",
+    "slack_update": ":package:",
+    "hermes_cron": ":robot_face:",
+    "hermes_log": ":bug:",
+}
+
+SECTION_CAP = 8
+
+
+def _render_bullet(item: dict[str, Any], kind: str, now: dt.datetime) -> str:
+    """kind ∈ {'new', 'reminder', 'resolved'}. Returns a single Slack-mrkdwn line, no leading dash."""
+    src = item.get("source", "?")
+    emoji = SOURCE_EMOJI.get(src, ":grey_question:")
+    title = (item.get("title") or "?").strip()
+    url = (item.get("url") or "").strip()
+
+    # source-specific body
+    if src in ("github_pr", "github_issue"):
+        ext = (item.get("external_id") or "").strip()
+        # Strip owner from "owner/repo#N" — display as "repo#N".
+        if "/" in ext:
+            ext = ext.split("/", 1)[1]
+        body = f"{emoji} {title}"
+        suffix_bits = []
+        if ext:
+            suffix_bits.append(f"`{ext}`")
+        if url:
+            suffix_bits.append(f"<{url}>")
+        if suffix_bits:
+            body += f" ({', '.join(suffix_bits)})"
+    elif src.startswith("docker_"):
+        host = "homelab" if src == "docker_homelab" else "vps"
+        # Docker titles end with " (homelab)" or " (vps)" — strip to avoid duplication
+        # since we already render "on <host>".
+        cleaned = re.sub(r"\s*\((?:homelab|vps)\)\s*$", "", title)
+        body = f"{emoji} {cleaned} on {host}"
+    else:
+        body = f"{emoji} {title}"
+        if url:
+            body += f" (<{url}>)"
+
+    # kind-specific suffixes
+    if kind == "reminder":
+        rc = item.get("reminder_count") or 0
+        if rc:
+            body += f" — reminder #{rc}"
+
+    return body
+
+
+def _render_section(label: str, header_emoji: str, items: list[dict[str, Any]], kind: str,
+                    now: dt.datetime) -> list[str]:
+    if not items:
+        return []
+    lines = [f"{header_emoji} **{label}**"]
+    capped = items[:SECTION_CAP]
+    overflow = len(items) - len(capped)
+    for it in capped:
+        lines.append(f"- {_render_bullet(it, kind, now)}")
+    if overflow > 0:
+        lines.append(f"- … and {overflow} more")
+    return lines
+
+
+def compose_slack_body(
+    new: list[dict[str, Any]],
+    reminders: list[dict[str, Any]],
+    resolved: list[dict[str, Any]],
+    *,
+    quiet: bool,
+    vacation: bool,
+    now: dt.datetime,
+) -> str:
+    """Returns the Slack mrkdwn message body, or empty string for suppression.
+
+    Empty stdout maps to silent delivery under cron `no_agent` mode.
+    """
+    if quiet or vacation:
+        return ""
+    if not new and not reminders and not resolved:
+        return ""
+
+    sections: list[list[str]] = []
+    if new:
+        sections.append(_render_section("New", ":rotating_light:", new, "new", now))
+    if reminders:
+        sections.append(_render_section("Reminders", ":bell:", reminders, "reminder", now))
+    if resolved:
+        sections.append(_render_section("Resolved", ":white_check_mark:", resolved, "resolved", now))
+
+    return "\n\n".join("\n".join(sec) for sec in sections)
+
+
 def fmt_block(label: str, items: list[dict[str, Any]]) -> str:
     if not items:
         return f"{label}=[]"
@@ -601,16 +700,10 @@ def fmt_block(label: str, items: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def main() -> int:
-    env = load_env()
-    state = load_state()
-    quiet = in_quiet_hours(state)
-    vacation = vacation_active(state)
-    now = dt.datetime.now(dt.timezone.utc)
+def _run_poll(conn: sqlite3.Connection, now: dt.datetime, env: dict[str, str],
+              ) -> tuple[list[dict], list[dict], list[dict]]:
+    """Run the full polling pipeline against `conn`. Returns (new, reminders, resolved)."""
     now_iso = now.isoformat()
-
-    conn = db_connect()
-
     all_new: list[dict] = []
     all_rem: list[dict] = []
     all_res: list[dict] = []
@@ -644,7 +737,6 @@ def main() -> int:
         since = cursor_get(conn, cur_key)
         msgs, latest = poll_slack_messages(env, ch_id, since, skip_uk_push=skip_uk)
         if since is None:
-            # First run — establish watermark, do not emit historical messages
             if latest:
                 cursor_set(conn, cur_key, latest, now_iso)
             continue
@@ -654,8 +746,53 @@ def main() -> int:
         if latest and latest != since:
             cursor_set(conn, cur_key, latest, now_iso)
 
-    conn.commit()
-    conn.close()
+    return all_new, all_rem, all_res
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = set(argv if argv is not None else sys.argv[1:])
+    emit_slack_body = "--slack-body" in args
+    dry_run = "--dry-run" in args
+
+    env = load_env()
+    state = load_state()
+    quiet = in_quiet_hours(state)
+    vacation = vacation_active(state)
+    now = dt.datetime.now(dt.timezone.utc)
+    now_iso = now.isoformat()
+
+    if dry_run:
+        # Run poll against a temp copy of the DB so we don't advance notified_at /
+        # last_reminder_at on operator-driven invocations.
+        import shutil
+        import tempfile
+        global DB_PATH
+        original_db = DB_PATH
+        tmpdir = tempfile.mkdtemp(prefix="watchdog-dryrun-")
+        tmp_db = Path(tmpdir) / "watchdog.db"
+        if original_db.exists():
+            shutil.copy2(original_db, tmp_db)
+        DB_PATH = tmp_db
+        try:
+            conn = db_connect()
+            all_new, all_rem, all_res = _run_poll(conn, now, env)
+            conn.commit()
+            conn.close()
+        finally:
+            DB_PATH = original_db
+            shutil.rmtree(tmpdir, ignore_errors=True)
+    else:
+        conn = db_connect()
+        all_new, all_rem, all_res = _run_poll(conn, now, env)
+        conn.commit()
+        conn.close()
+
+    if emit_slack_body:
+        body = compose_slack_body(all_new, all_rem, all_res,
+                                  quiet=quiet, vacation=vacation, now=now)
+        if body:
+            print(body)
+        return 0
 
     print(f"QUIET_HOURS={'true' if quiet else 'false'}")
     print(f"VACATION={'true' if vacation else 'false'}")

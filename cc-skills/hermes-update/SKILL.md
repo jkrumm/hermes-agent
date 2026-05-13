@@ -25,34 +25,44 @@ If clean: jump straight to **Restart**. If conflicts or upstream rewrote a custo
 
 ## Known local modifications
 
-Three upstream files are customized. Re-apply if upstream overwrote them.
+Seven local mods. Source-of-truth list (with re-apply commands and *why* each is needed) lives in `~/SourceRoot/hermes-agent/CLAUDE.md` under "Local Modifications to Upstream". This file is the operational playbook.
 
-### `tools/tts_tool.py` — thin client over localai-helper
+Files touched:
 
-The upstream file is a 1600-line multi-provider TTS implementation (Edge / ElevenLabs / OpenAI / MiniMax / Mistral / Gemini / xAI / NeuTTS / KittenTTS). We replace it entirely with a ~160-line thin client that POSTs to `localai-helper:8001/v1/tts/synthesize`. The helper handles language detection, speakable rewrite, chunking, Fish S2 Pro synthesis (smile EQ for German), and ffmpeg encode.
+| File | Patch | Kind |
+|-|-|-|
+| `tools/tts_tool.py` | `patches/tts_tool.py` | full file replacement (~2200 → ~160 lines) |
+| `tools/tts_fast_tool.py` | `patches/tts_fast_tool.py` | new file (additive, auto-discovered) |
+| `gateway/platforms/slack.py` | `patches/slack-cannot-reply-to-message.patch` | three-part mrkdwn + thread fallback |
+| `cron/scheduler.py` | `patches/scheduler-skip-resolver-for-slack-ids.patch` | skip channel resolver for raw `C…` IDs |
+| `run_agent.py` | `patches/run-agent-third-party-endpoint-token-refresh.patch` | broaden third-party endpoint skip to all non-anthropic.com hosts |
+| `toolsets.py` | `patches/toolsets-expose-text-to-speech-fast.patch` | expose `text_to_speech_fast` in the `tts` toolset |
+| `agent/auxiliary_client.py` | `patches/auxiliary-client-anthropic-mode-respect.patch` | respect `api_mode: anthropic_messages` for custom base URLs |
 
-The thin client also exposes `paragraph_pause_secs` as a tool argument, so agents (e.g. the morning briefing) can declare deliberate section beats by inserting blank lines and asking the helper for a longer inter-paragraph pause.
+### Re-apply procedure
 
-**Re-apply:**
 ```bash
-cp ~/SourceRoot/dotfiles/hermes/patches/tts_tool.py \
-   ~/.hermes/hermes-agent/tools/tts_tool.py
+# 1. The two TTS files are full replacements — copy, don't apply.
+cp ~/SourceRoot/hermes-agent/patches/tts_tool.py      ~/.hermes/hermes-agent/tools/tts_tool.py
+cp ~/SourceRoot/hermes-agent/patches/tts_fast_tool.py ~/.hermes/hermes-agent/tools/tts_fast_tool.py
 rm -f ~/.hermes/hermes-agent/tools/__pycache__/tts_tool*.pyc
+
+# 2. The five .patch files. Use --3way so upstream context shifts get auto-merged.
+cd ~/.hermes/hermes-agent
+for p in slack-cannot-reply-to-message \
+         scheduler-skip-resolver-for-slack-ids \
+         run-agent-third-party-endpoint-token-refresh \
+         toolsets-expose-text-to-speech-fast \
+         auxiliary-client-anthropic-mode-respect; do
+  git apply --3way ~/SourceRoot/hermes-agent/patches/${p}.patch
+done
 ```
 
-The thin client only depends on `requests` and `tools.registry` — both stable upstream APIs.
+If a `git apply` fails outright (not just a context shift), inspect the upstream file by hand — the patch was written for a specific surrounding shape and may need a new version. The original purpose of each patch is documented in `CLAUDE.md`; rewrite the patch against current upstream and commit the new `.patch` file back to `patches/`.
 
-### `gateway/platforms/slack.py` — Markdown pre-normalization
+### What `hermes update` does on its own
 
-`format_message()` is patched to (a) replace `*` list markers with `-` (asterisk lists break the mrkdwn converter), and (b) strip backticks around emoji shortcodes (`:warning:` etc., otherwise they don't render).
-
-**Re-apply:** read upstream `format_message()`, add the two pre-steps. The logic is small (~10 lines).
-
-### `gateway/config.py` — Slack threading bridge
-
-Bridges `reply_in_thread`, `reply_broadcast`, `reply_to_mode` from the `slack:` YAML section into the platform `extra` dict. Upstream as of 0.11.0 only bridges `require_mention`, `allow_bots`, `free_response_channels`.
-
-**Re-apply:** find where the existing fields are bridged and add the three threading fields alongside.
+`hermes update` stashes your working changes, pulls upstream, then tries to re-apply the stash. Expect conflicts on the five patched files — that is normal. The CLI prints the stash ref (`Restore your changes later with: git stash apply <sha>`); keep it as a fallback. After conflicts surface, the CLI resets the working tree clean — re-apply via the loop above.
 
 ---
 
@@ -72,4 +82,4 @@ tail -20 ~/.hermes/logs/gateway.log
 
 ## Verify
 
-Send a message in `#hermes` on Slack and confirm a response. If TTS was touched, send a message that triggers voice output and check `~/.hermes/cache/audio/` for an MP3 with a sensible title.
+Send a message in `#hermes` on Slack and confirm a response. If TTS was touched, send a message that triggers voice output and check `~/.hermes/cache/audio/` for an MP3 with a sensible title. For `text_to_speech_fast`, ask explicitly for fast/Supertonic TTS — distinct LLM-facing tool.
