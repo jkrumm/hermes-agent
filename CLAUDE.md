@@ -27,8 +27,10 @@ cloned alongside hermes-agent** for `make setup` to succeed.
 | `hooks/` | `~/.hermes/hooks/` | symlink — add hooks here |
 | `skills/{name}/` | `~/.hermes/skills/{name}/` | symlink per skill (argo-api, infrastructure, tasks, capture, schedule, weather, slack, garmin-health, strength) |
 | `USER.md` | `~/.hermes/memories/USER.md` | copied — Hermes writes to it |
-| `cc-skills/hermes-validate/` | `~/SourceRoot/.claude/skills/hermes-validate/` | symlink — Claude Code slash command for validating Hermes routing |
-| `cc-skills/hermes-update/` | `~/SourceRoot/.claude/skills/hermes-update/` | symlink — Claude Code slash command for updating the upstream Hermes repo |
+
+**Claude Code per-repo skills** (committed at `.claude/skills/`, not symlinked — auto-loaded by Claude Code when started inside this repo):
+- `/hermes-validate` — slash command to test Hermes routing + fix SOUL.md / SKILL.md
+- `/hermes-update` — slash command to pull upstream Hermes, re-apply local patches, restart the gateway
 
 **Host-level scripts (called by macOS `crontab`, not symlinked):**
 - `scripts/hermes-liveness.sh` — every 5 min, checks gateway state + Slack connection, pings `$UPTIME_PUSH_HERMES` on success.
@@ -82,8 +84,7 @@ Prerequisites:
 **Adding a Hermes skill:** create `skills/{name}/SKILL.md`, add `{name}` to
 `HERMES_SKILLS` in the Makefile, run `make setup`.
 
-**Adding a CC slash command for Hermes:** create `cc-skills/{name}/SKILL.md`,
-add `{name}` to `CC_SKILLS` in the Makefile, run `make setup`.
+**Adding a CC slash command for Hermes:** create `.claude/skills/{name}/SKILL.md`. Auto-loaded by Claude Code when started inside this repo — no symlink, no Makefile change needed.
 
 **Patches:** when fixing bugs in upstream Hermes, save the diff under `patches/`
 and document the re-apply command in this file.

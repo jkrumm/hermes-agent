@@ -1,11 +1,9 @@
 HERMES_REPO   := $(shell pwd)
 HERMES_DIR    := $(HOME)/.hermes
 SOURCEROOT    := $(HOME)/SourceRoot
-CLAUDE_DIR    := $(SOURCEROOT)/.claude
 DOTFILES_DIR  := $(SOURCEROOT)/dotfiles
 LAUNCHAGENTS  := $(HOME)/Library/LaunchAgents
 HERMES_SKILLS := capture argo-api infrastructure schedule slack tasks weather garmin-health strength
-CC_SKILLS     := hermes-validate hermes-update
 
 # localai-helper plist template lives in dotfiles. Helper service runs only
 # on Mac Mini for Hermes; rendered + loaded as part of `make setup` here.
@@ -14,8 +12,9 @@ HELPER_PLIST  := com.localai.helper
 
 # ============================================================================
 # Setup — Mac Mini-only. Symlinks config + skills into ~/.hermes/, renders the
-# localai-helper plist, installs liveness + backup cron, symlinks CC skills
-# (hermes-validate, hermes-update) into ~/SourceRoot/.claude/skills/.
+# localai-helper plist, installs liveness + backup cron. Claude Code skills
+# (hermes-validate, hermes-update) live committed at .claude/skills/ — no
+# setup step needed; they auto-load when Claude is started inside this repo.
 # ============================================================================
 
 .PHONY: setup
@@ -27,7 +26,6 @@ setup:
 	@$(MAKE) --no-print-directory _symlinks
 	@$(MAKE) --no-print-directory _helper
 	@$(MAKE) --no-print-directory _cron
-	@$(MAKE) --no-print-directory _cc-skills
 	@echo ""
 	@echo "  Done. Follow-up:"
 	@echo "    1. Create push monitors in UptimeKuma UI (Hermes Agent - Push, Hermes Backup - Push)"
@@ -123,16 +121,6 @@ _cron:
 	printf '%s\n%s\n%s\n' "$$NEW" "$$LIVENESS" "$$BACKUP" | sed '/^$$/d' | crontab -; \
 	echo "    ✓ crontab installed (*/5 liveness, 03:00 backup)"
 
-.PHONY: _cc-skills
-_cc-skills:
-	@echo "  Claude Code skills (symlinked into $$SOURCEROOT/.claude/skills/)..."
-	@mkdir -p "$(CLAUDE_DIR)/skills"
-	@for skill in $(CC_SKILLS); do \
-		$(MAKE) --no-print-directory _link \
-			SRC="$(HERMES_REPO)/cc-skills/$$skill" \
-			DST="$(CLAUDE_DIR)/skills/$$skill"; \
-	done
-
 # ============================================================================
 # Status
 # ============================================================================
@@ -164,9 +152,13 @@ status:
 	@crontab -l 2>/dev/null | grep -q "hermes-backup.sh" \
 		&& echo "    ✓ backup cron" \
 		|| echo "    ✗ backup cron [missing — run make setup]"
-	@echo "  CC skills"
-	@for skill in $(CC_SKILLS); do \
-		$(MAKE) --no-print-directory _check DST="$(CLAUDE_DIR)/skills/$$skill"; \
+	@echo "  CC skills (per-repo, auto-loaded by Claude Code inside this dir)"
+	@for skill in hermes-update hermes-validate; do \
+		if [ -d ".claude/skills/$$skill" ]; then \
+			echo "    ✓ $$skill"; \
+		else \
+			echo "    ✗ $$skill [missing in .claude/skills/]"; \
+		fi; \
 	done
 	@echo ""
 

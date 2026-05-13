@@ -774,7 +774,7 @@ When Phase 2 resumes:
 5. Use `claude -p` for the eval harness (subscription-backed). If subscription rate-limits, swap to IU SDK with the existing pattern.
 6. For implementation work *itself* (writing scripts, editing files), use the user's Claude Code session — that's already covered by their subscription.
 7. Hermes coding conventions live in `~/SourceRoot/hermes-agent/CLAUDE.md`. Personal coding conventions in `~/.claude/CLAUDE.md`. Read both.
-8. Commit per Hermes-Agent convention (direct-to-master, see §"Direct-to-master repos" in `~/SourceRoot/CLAUDE.md`).
+8. Commit per Hermes-Agent convention (direct-to-master, see §"SourceRoot workspace — Direct-to-master repos" in `~/.claude/CLAUDE.md`).
 9. When in doubt, ask Johannes. He prefers small steps + frequent checkpoints over autonomous big-bang work.
 
 End of PRD.

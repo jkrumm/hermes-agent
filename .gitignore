@@ -13,8 +13,9 @@ scripts/briefing-state.json
 # Local-only runtime cache; template lives next to it as state.example.json.
 skills/capture/state.json
 
-# Claude Code runtime state
-.claude/
+# Claude Code runtime state (but keep committed skills)
+.claude/*
+!.claude/skills/
 
 # Python
 __pycache__/
