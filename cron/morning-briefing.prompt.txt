@@ -42,8 +42,8 @@ The seven loaded skills (tasks, schedule, weather, infrastructure, slack, garmin
 4. Argo `/calendar?days=1` — today's calendar (see `schedule` skill)
 5. Argo `/weather/forecast?city=$BRIEFING_CITY` — forecast for the resolved city (see `weather` skill)
 6. Argo `/slack/channels/C0AS1LAUQ3C/messages?limit=20` — last 20 messages from #alerts (see `slack` skill)
-7. Argo `/daily-metrics?order=desc&limit=14` — last ~14 days of Garmin daily metrics: HRV, body battery, resting HR, sleep, stress (see `garmin-health` skill). Use the most-recent record where the relevant field is non-null — Garmin sync timing means today's row may be partial at 07:00.
-8. Argo `/workouts?sort=date&order=desc&limit=10` — last 10 strength workouts with sets, total volume, est. 1RM (see `strength` skill)
+7. Argo `/daily-metrics?order=desc&limit=14` — last ~14 days of Garmin daily metrics: HRV, body battery, resting HR, sleep, stress (see `garmin-health` skill). Response is `{data: [...], total: N}` — read `response.data` for the row array. Use the most-recent record where the relevant field is non-null — Garmin sync timing means today's row may be partial at 07:00.
+8. Argo `/workouts?sort=date&order=desc&limit=10` — last 10 strength workouts with sets, total volume, est. 1RM (see `strength` skill). Response is `{data: [...], total: N}` — read `response.data`.
 9. `gh search prs --owner jkrumm --state open --json title,repository,url --limit 20` — open PRs across personal repos
 10. `gh search issues --owner jkrumm --state open --json title,repository,url --limit 20` — open issues across personal repos
 
@@ -122,7 +122,7 @@ If the workouts list is empty: → **Push** (bench), single bullet "Erste Einhei
 
 ### Recovery trend formatting
 
-For the *Recovery trend* bullet, compute the 7-day averages from the `daily-metrics` array (skip null values):
+For the *Recovery trend* bullet, compute the 7-day averages from `response.data` of the `/daily-metrics` call (skip null values):
 
 - `hrv_7d_avg` = mean of last 7 records' `hrv_last_night_avg`
 - `rhr_7d_avg` = mean of last 7 records' `resting_hr`

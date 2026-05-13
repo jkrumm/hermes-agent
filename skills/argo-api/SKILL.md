@@ -1,7 +1,7 @@
 ---
 name: argo-api
 description: Call the argo REST API (https://argo.jkrumm.com/api) for TickTick tasks, Gmail, Calendar, Docker (homelab + VPS), UptimeKuma, Slack, weather, Garmin Health, Strength tracking, user profile, and read-only SQL — use curl with Bearer $HOMELAB_API_KEY
-version: 1.3.0
+version: 1.4.0
 metadata:
   hermes:
     tags: [ticktick, tasks, gmail, calendar, docker, uptime, slack, weather, garmin, strength, workouts, weight, profile, sql, homelab, api]
@@ -15,9 +15,26 @@ Personal integration layer for TickTick, Gmail, Calendar, Docker, UptimeKuma, Sl
 **Base URL:** `https://argo.jkrumm.com/api`
 **Auth:** `Authorization: Bearer $HOMELAB_API_KEY` (available in env)
 **OpenAPI spec:** `https://argo.jkrumm.com/api/openapi/json`
-**Discovery:** `GET /` — index endpoint returning the 6 tag groups + short descriptions for agent self-orientation.
+**Discovery:** `GET /` — public root returning `{name, version, description, docs, auth, tags[]}`. Use for bootstrap orientation; read `/openapi/json` for the full surface.
 
 When asked about tasks, schedule, emails, infrastructure status, or Slack messages — use this API. Do not say you lack tooling; use curl via the terminal.
+
+## Response envelope — listing endpoints
+
+**Listing endpoints** wrap their results in `{data: [...], total: N}`:
+
+- `/daily-metrics`, `/activities`, `/weight-log` (Garmin Health)
+- `/workouts`, `/workout-sets`, `/exercises` (Strength)
+
+Always read `response.data` for the array and `response.total` for the row count. **Bare arrays are no longer returned.**
+
+**Detail / aggregate / summary endpoints** return bare objects:
+
+- `/recovery`, `/training-load`, `/fitness-direction`, `/user-profile`
+- `/workouts/summary/*` (each has its own shape — `points[]`, `byExercise{}`, etc.)
+- `/summary`, `/health`, `/calendar`, `/weather/forecast`
+- `/daily-metrics/{summary,series,sync-status}`, `/weight-log/{summary,series}`, `/activities/summary`
+- `/uptime-kuma/{status,monitors}`, `/docker/*/{summary,stats,containers}`
 
 ## Tag taxonomy (6 groups)
 
@@ -39,7 +56,7 @@ The OpenAPI surface is grouped into exactly 6 tags. Use these names verbatim whe
 ### System — start here for status overviews
 | Method | Path | Description |
 |-|-|-|
-| GET | `/` | Discovery index — tag groups + endpoint counts |
+| GET | `/` | Discovery index — name, version, docs, auth scheme, tag list |
 | GET | `/summary` | Single-call snapshot: UptimeKuma status + Docker summaries (homelab + VPS) + TickTick alerts |
 | GET | `/health` | Service healthcheck |
 | POST | `/query` | Execute a read-only SQL query against the homelab DB |

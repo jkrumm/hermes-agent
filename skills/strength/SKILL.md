@@ -139,6 +139,12 @@ curl -s -X POST -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: ap
 
 ---
 
+## Response Envelope (listing endpoints)
+
+`/workouts`, `/workout-sets`, and `/exercises` (the GET-list forms) return `{data: [...], total: N}`. Always read `response.data` for the row array; `response.total` is the un-paginated count.
+
+Detail endpoints (`/workouts/{id}`, `/workout-sets/{id}`) and all `/workouts/summary/*` analytics return bare objects with their own per-endpoint shapes (`points[]`, `byExercise{}`, `weeks[]`, etc. — see decision tree above).
+
 ## Field Semantics
 
 ### Set types

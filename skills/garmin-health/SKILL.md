@@ -136,6 +136,12 @@ curl -s -X PUT -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: app
 
 ---
 
+## Response Envelope (listing endpoints)
+
+`/daily-metrics`, `/activities`, and `/weight-log` (the GET-list forms) return `{data: [...], total: N}`. Always read `response.data` for the row array; `response.total` is the un-paginated row count.
+
+Detail / aggregate / summary endpoints — `/daily-metrics/{summary,series,sync-status}`, `/activities/summary`, `/weight-log/{summary,series,{id}}`, `/recovery`, `/recovery/series`, `/training-load`, `/fitness-direction`, `/user-profile` — return bare objects (their own per-endpoint shapes, see below).
+
 ## Field Semantics
 
 ### `/daily-metrics` row (one per date)
