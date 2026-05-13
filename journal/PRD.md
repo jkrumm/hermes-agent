@@ -1,8 +1,8 @@
 # Hermes Journal — PRD
 
-**Status:** v1 — ready for implementation
+**Status:** v1.1 — Phase 1 complete, Phase 2 paused at pre-execution recon (postponed by Johannes)
 **Owner:** Johannes
-**Last updated:** 2026-05-04
+**Last updated:** 2026-05-13
 
 ---
 
@@ -614,24 +614,35 @@ Decisions locked. See §5.
 
 ### Phase 1 — Vault skeleton + JOURNAL.md (no automation)
 
-**Deliverables:**
-- Create `~/Obsidian/Vault/Journal/` with the §7 directory structure (empty `entries/`, `entities/`, etc.).
-- Write `JOURNAL.md` with §9 tone rules + §8 schemas as reference.
-- Write `prompts/v1-baseline.md`, `v2-anti-sycophancy.md`, `v3-with-cbt-frame.md`.
-- Write `judge.md` for the eval harness.
+**Status:** DONE 2026-05-05 (artifacts only — vault skeleton deferred to Phase 3).
 
-**Acceptance:** Johannes reads JOURNAL.md + the three prompt variants + judge.md and signs off on tone. No code yet.
+**Deliverables:**
+- ~~Create `~/Obsidian/Vault/Journal/` with the §7 directory structure (empty `entries/`, `entities/`, etc.).~~ **Postponed to Phase 3** — no point creating the vault tree before the eval has picked a winning prompt variant. Path also changed: target is `~/Obsidian/Vault/01_Journal/` to fit existing PARA structure (empty `01_Journal/` already exists).
+- ~~Write `JOURNAL.md`~~ — DONE at `journal/JOURNAL.md` (repo). Moves to `~/Obsidian/Vault/01_Journal/JOURNAL.md` on Phase 3 cutover.
+- ~~Write `prompts/v1-baseline.md`, `v2-anti-sycophancy.md`, `v3-with-cbt-frame.md`~~ — DONE under `journal/eval/prompts/`.
+- ~~Write `judge.md`~~ — DONE at `journal/eval/judge.md`.
+
+**Deviations from PRD v1 (intentional, signed off):**
+- §9.3 crisis-triage block (Telefonseelsorge) removed from JOURNAL.md. Johannes does not want therapy-style guardrails — system designed for an emotionally healthy adult journaler. `Keine Diagnose` and `Keine Eskalation` rules retained because they serve reflection quality.
+- No mentions of the IU endpoint or Johannes's employer in any journal artifact (prompts, judge, code). PRD still references IU openly — this is internal-planning-only.
+- YAML emotion shape changed from `Angst (40%)` strings to `{ name: Angst, pct: 40 }` structured for parse-robustness.
+- Added explicit `new_entities` block to analyzer YAML so the ingest script doesn't have to diff against KNOWN_* lists.
+- Reflexion section capped at one Socratic device per entry (alternative reading OR disproportion check OR rationalization flag OR named cognitive distortion) — prevents CBT-bot drift.
+
+**Acceptance:** Johannes read JOURNAL.md + the three prompt variants + judge.md and signed off on tone. ✓
 
 ### Phase 2 — Eval harness + Mindsera backfill
 
-**Deliverables:**
+**Status:** PAUSED at pre-execution recon 2026-05-13. Postponed by Johannes. Resume by re-reading §15a below + answering the four open questions.
+
+**Deliverables (unchanged from v1):**
 - `journal/scripts/match_voice_memos.py` — pair Mindsera entries to exported voice memos.
 - `journal/scripts/compress_audio.sh` — Opus encoder.
 - `journal/eval/run.py` — eval harness with two-axis scoring.
 - Run all variants × both conditions on the 95 Mindsera entries.
 - Generate `scorecard.json` per run + a cross-variant comparison report.
 
-**Acceptance:** §13.5 criteria met. Winning variant identified.
+**Acceptance:** §13.5 criteria met. Winning variant identified. (See §15a-3 for proposed amendment to acceptance criteria based on recon findings.)
 
 ### Phase 3 — Live capture (Slack `#journal`)
 
@@ -670,6 +681,55 @@ Decisions locked. See §5.
 - Verify homelab destination exists or provision it.
 
 **Acceptance:** next day's 03:00 backup pushes vault to homelab successfully. UptimeKuma pings.
+
+---
+
+## 15a. Phase 2 pre-execution recon (2026-05-13)
+
+Done before any code was written. Captures what `~/Downloads/entries/` actually looks like and where PRD v1 assumptions broke. **Read this before resuming Phase 2.**
+
+### 15a-1. Corpus shape
+
+| Aspect | Reality |
+|-|-|
+| Total entries | 95 (confirmed) |
+| Date range | 2025-09-27 → 2026-01-16 (~3.5 months) |
+| Same-day entries | 4 on 2025-09-27, 2 on multiple other days — confirms PRD §5.13 decision to honor Mindsera's per-entry split |
+| **First 4 entries (all 2025-09-27)** | **English Q&A**, Mindsera onboarding flow ("Hi Jo, Welcome to Mindsera…"). Not voice memos. Interleaved Mindsera prompts + Johannes's typed (?) replies. |
+| **From 2025-09-28 onward** | German voice-memo monologues — clean single-paragraph STT transcripts |
+| Mindsera analysis structure | `**Summary:**` bullets + `**Emotional State:**` (per-emotion paragraph with quote evidence). **No reflection section. No Socratic question. No mood number. No themes/people/places metadata.** |
+| Mindsera analysis language | Mixed: `**Summary:**` matches entry language. Emotion labels always English (`Anxiety`, `Sadness`, `Hope`). Per-emotion evidence in English with German quotes embedded when source is German. |
+
+### 15a-2. Open design questions (need Johannes call before resuming)
+
+1. **Drop the 4 onboarding English entries from the eval pool?** They're not voice memos and the format is alien. Tendency: drop them, leave readable as historical context. 91 German entries is plenty for statistical power.
+
+2. **Voice memo export path.** PRD §16.1 said Johannes will export. Still pending. Options: `~/Downloads/voice-memos/` dump, AirDrop-watched inbox, or pre-existing location. Format determines matcher logic — `Recording NNN.m4a` (mtime-keyed) vs `2025-09-28 14:32 Memo.m4a` (filename-keyed) differ.
+
+3. **Asymmetric axis problem.** `reframe_quality`, `depth`, and `german_quality` favor Hermes-Opus on virtually every entry by *structural* definition — Mindsera doesn't do reflection, Socratic prompting, or German output. The real contest narrows to `anti_sycophancy` and `emotion_accuracy`. Tendency: keep all 5 axes, but **promote `anti_sycophancy ≥ 4.5/5` from "additional criterion" to the load-bearing acceptance gate** (replacing the "average ≥ 4.0/5 on all five axes" criterion in §13.5). The other three become bonus signal.
+
+4. **judge.md needs a section-absent calibration line.** If Mindsera's analysis has no Reflexion / no Folgefrage, the judge must score `reframe_quality = 1` and `depth = 1` rather than "n/a" (which would inflate Mindsera's average). Add one explicit line to judge.md when resuming.
+
+### 15a-3. Proposed Phase 2 sub-step order (signed off before pause, not yet executed)
+
+| # | Step | Output |
+|-|-|-|
+| 1 | Voice memo recon (after path given) | format report, mtime sanity-check |
+| 2 | `match_voice_memos.py` | `eval/pairs.json` (`<mindsera-id>` → `<voice-memo-path>`) + conflict report (orphan memos, orphan entries) |
+| 3 | `compress_audio.sh` | one-liner Opus encoder, callable from matcher + ingest |
+| 4 | Parakeet STT batch | `eval/transcripts/<mindsera-id>.txt` per paired entry |
+| 5 | `run.py` skeleton | resumable harness with checkpoint state, `claude -p` subprocess pool |
+| 6 | Tighten judge.md (section-absent calibration per §15a-2.4) | small edit |
+| 7 | Execute eval matrix | `runs/<iso>--<variant>--<condition>/` per run |
+| 8 | `compare.py` | cross-variant report |
+
+### 15a-4. Resume protocol
+
+When Phase 2 resumes:
+1. Re-read §15a-1 through §15a-3.
+2. Get answers to the four questions in §15a-2.
+3. Start at step 1 of §15a-3.
+4. Cross-reference `~/.claude/projects/-Users-jkrumm-SourceRoot-hermes-agent/memory/` for the two journal feedback memories (no crisis framing, no employer mentions).
 
 ---
 
