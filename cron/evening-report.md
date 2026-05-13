@@ -7,7 +7,7 @@ Source-of-truth for the evening report prompt. **This file is documentation, not
 | Field | Value |
 |-|-|
 | Schedule | `0 22 * * 1-4` (22:00 Mon–Thu, Europe/Berlin) |
-| Skills | `argo-api`, `schedule`, `weather`, `tasks` |
+| Skills | `garmin-health`, `strength`, `schedule`, `weather`, `tasks` |
 | Pre-run script | `briefing-context.py` (shared with morning briefing) |
 | Deliver | `slack:C0AT6TH404R` (#briefings) |
 | Name | `Evening report` |
@@ -19,7 +19,8 @@ The schedule deliberately excludes Friday and Sunday — Friday evening is alrea
 ```bash
 # Create
 hermes cron create "0 22 * * 1-4" "$(cat ~/SourceRoot/dotfiles/hermes/cron/evening-report.prompt.txt)" \
-  --skill argo-api \
+  --skill garmin-health \
+  --skill strength \
   --skill schedule \
   --skill weather \
   --skill tasks \
@@ -41,7 +42,7 @@ hermes cron edit <job_id> --prompt "$(cat ~/SourceRoot/dotfiles/hermes/cron/even
 Mon–Thu at 22:00, a fresh Hermes session:
 
 1. Pre-run script (`briefing-context.py`) emits `BRIEFING_CITY=…` + `BRIEFING_SUPPRESSED=true|false`. On vacation the agent short-circuits with `[SILENT]`.
-2. Fires 5 parallel curls — `/daily-metrics/`, `/workouts/`, `/gmail/calendar?days=2`, `/weather/forecast`, `/summary`
+2. Fires 5 parallel curls — `/daily-metrics`, `/workouts`, `/calendar?days=2`, `/weather/forecast`, `/summary`
 3. Composes a structured Slack mrkdwn body (English, 5 sections) — Today's Training, Recovery & Body, Tomorrow's Schedule, For Tomorrow (max 3 items), Tomorrow's Weather
 4. Composes a separate German narrative (~120–150 words, four paragraphs, calm wind-down tone)
 5. Calls TTS on the narrative → MP3 + `MEDIA:` tag
@@ -92,8 +93,8 @@ If a Mon–Thu falls on a public holiday, the calendar will show no events and t
 
 - If 22:00 feels too late (or too early), edit the cron expression. `0 21 * * 1-4` for 21:00.
 - If the audio feels too long, tighten the prompt's word target from 150 to 110.
-- The 7-day averages for HRV/RHR are computed from the same `/daily-metrics/` payload as the morning briefing — keep the trend formula consistent across both prompts so arrows mean the same thing.
-- If a workout is logged late (after 22:00), tomorrow's report will catch it as "yesterday's session" only via the `/workouts/` order. Acceptable — the alternative is a delayed cron, which feels worse.
+- The 7-day averages for HRV/RHR are computed from the same `/daily-metrics` payload as the morning briefing — keep the trend formula consistent across both prompts so arrows mean the same thing.
+- If a workout is logged late (after 22:00), tomorrow's report will catch it as "yesterday's session" only via the `/workouts` order. Acceptable — the alternative is a delayed cron, which feels worse.
 
 ## Open question — sleep timing on the data side
 

@@ -34,16 +34,16 @@ If the script block is missing or malformed, fall back to `Munich` and proceed. 
 
 **Important:** call the `terminal` tool directly with each shell command. Do NOT wrap calls in `execute_code` — that path is slower and prevents proper parallelization.
 
-The six loaded skills (tasks, schedule, weather, infrastructure, slack, argo-api) document the homelab API base URL and auth pattern — follow what they specify. Issue all ten calls as ten `terminal` tool invocations in a single parallel batch:
+The seven loaded skills (tasks, schedule, weather, infrastructure, slack, garmin-health, strength) document the argo API base URL and auth pattern — follow what they specify. Issue all ten calls as ten `terminal` tool invocations in a single parallel batch:
 
-1. Homelab `/summary` — combined tasks + uptime overview (see `tasks` and `infrastructure` skills)
-2. Homelab `/docker/homelab/summary` — Mac Mini Docker stack (see `infrastructure` skill)
-3. Homelab `/docker/vps/summary` — VPS Docker stack (see `infrastructure` skill)
-4. Homelab `/gmail/calendar?days=1` — today's calendar (see `schedule` skill)
-5. Homelab `/weather/forecast?city=$BRIEFING_CITY` — forecast for the resolved city (see `weather` skill)
-6. Homelab `/slack/channels/C0AS1LAUQ3C/messages?limit=20` — last 20 messages from #alerts (see `slack` skill)
-7. Homelab `/daily-metrics/?_order=desc` — last 7+ days of Garmin daily metrics: HRV, body battery, resting HR, sleep, stress (see `argo-api` skill, group "Daily Metrics — Garmin sync"). Use the most-recent record where the relevant field is non-null — Garmin sync timing means today's row may be partial at 07:00.
-8. Homelab `/workouts/?_sort=date&_order=desc&_end=10` — last 10 strength workouts with sets, total volume, est. 1RM (see `argo-api` skill, group "Fitness")
+1. Argo `/summary` — combined tasks + uptime overview (see `tasks` and `infrastructure` skills)
+2. Argo `/docker/homelab/summary` — Mac Mini Docker stack (see `infrastructure` skill)
+3. Argo `/docker/vps/summary` — VPS Docker stack (see `infrastructure` skill)
+4. Argo `/calendar?days=1` — today's calendar (see `schedule` skill)
+5. Argo `/weather/forecast?city=$BRIEFING_CITY` — forecast for the resolved city (see `weather` skill)
+6. Argo `/slack/channels/C0AS1LAUQ3C/messages?limit=20` — last 20 messages from #alerts (see `slack` skill)
+7. Argo `/daily-metrics?order=desc&limit=14` — last ~14 days of Garmin daily metrics: HRV, body battery, resting HR, sleep, stress (see `garmin-health` skill). Use the most-recent record where the relevant field is non-null — Garmin sync timing means today's row may be partial at 07:00.
+8. Argo `/workouts?sort=date&order=desc&limit=10` — last 10 strength workouts with sets, total volume, est. 1RM (see `strength` skill)
 9. `gh search prs --owner jkrumm --state open --json title,repository,url --limit 20` — open PRs across personal repos
 10. `gh search issues --owner jkrumm --state open --json title,repository,url --limit 20` — open issues across personal repos
 

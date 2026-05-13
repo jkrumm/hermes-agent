@@ -7,7 +7,7 @@ Source-of-truth for the morning briefing prompt. **This file is documentation, n
 | Field | Value |
 |-|-|
 | Schedule | `0 7 * * 1-5` (07:00 weekdays, Europe/Berlin) |
-| Skills | `tasks`, `schedule`, `weather`, `infrastructure`, `slack`, `argo-api` |
+| Skills | `tasks`, `schedule`, `weather`, `infrastructure`, `slack`, `garmin-health`, `strength` |
 | Pre-run script | `briefing-context.py` (lives in `~/.hermes/scripts/`, source in `hermes/scripts/`) |
 | Deliver | `slack:C0AT6TH404R` (#briefings) |
 | Name | `Morning briefing` |
@@ -22,7 +22,8 @@ hermes cron create "0 7 * * 1-5" "$(cat ~/SourceRoot/dotfiles/hermes/cron/mornin
   --skill weather \
   --skill infrastructure \
   --skill slack \
-  --skill argo-api \
+  --skill garmin-health \
+  --skill strength \
   --script briefing-context.py \
   --name "Morning briefing" \
   --deliver slack:C0AT6TH404R
@@ -43,7 +44,7 @@ The prompt is kept as a separate `.prompt.txt` file (sibling to this doc) so it 
 Every weekday at 07:00 a fresh Hermes session:
 
 1. Pre-run script (`briefing-context.py`) emits `BRIEFING_CITY=…` + `BRIEFING_SUPPRESSED=true|false` from `briefing-state.json`. On vacation the agent short-circuits with `[SILENT]`.
-2. Fires 10 parallel curls/`gh` calls — `/summary`, both Docker summaries, calendar, weather (city from script), recent #alerts, `/daily-metrics/` (Garmin), `/workouts/` (strength), open PRs, open issues
+2. Fires 10 parallel curls/`gh` calls — `/summary`, both Docker summaries, calendar, weather (city from script), recent #alerts, `/daily-metrics` (Garmin), `/workouts` (strength), open PRs, open issues
 3. Composes a structured Slack mrkdwn body (English, emoji-headed sections, bullet lists) — including a `:weight_lifter: Health & Training` section with last workout, recovery (HRV / Body Battery / resting HR), brief sleep, and a synthesized coaching line
 4. Composes a separate German narrative (~150–200 words, conversational, four paragraphs incl. *Körper & Training*)
 5. Calls TTS on the narrative → MP3 + `MEDIA:` tag
@@ -106,8 +107,8 @@ Workflow:
 
 The two data sources are siloed:
 
-- **Garmin daily metrics** (`/daily-metrics/`) capture sleep, HRV, body battery, stress, resting HR, `vigorous_intensity_min`, `moderate_intensity_min`. Sync is overnight + on-demand from the watch — at 07:00 last night's sleep score is often missing (use the most-recent non-null value).
-- **Strength workouts** (`/workouts/`) are manually logged via the homelab API. Exercises are pinned to four categories (`push`, `pull`, `legs`, `hinge`). No row-level link to a Garmin activity.
+- **Garmin daily metrics** (`/daily-metrics`) capture sleep, HRV, body battery, stress, resting HR, `vigorous_intensity_min`, `moderate_intensity_min`. Sync is overnight + on-demand from the watch — at 07:00 last night's sleep score is often missing (use the most-recent non-null value).
+- **Strength workouts** (`/workouts`) are manually logged via the argo API. Exercises are pinned to four categories (`push`, `pull`, `legs`, `hinge`). No row-level link to a Garmin activity.
 - Garmin's auto-detection rarely catches strength sessions as `vigorous_intensity_min` — a bench press session shows up as 0 vigorous minutes if the watch wasn't started in Strength mode.
 
 The morning briefing bridges this in *prompt-space* (the LLM looks at last-workout date + recovery state and synthesizes a coaching line), not in the data layer. Future work, if useful: a sync that promotes a logged workout into a Garmin "Strength Training" activity, or pulls Garmin Training Readiness / Training Status fields when those land in `garmin-sync`.
