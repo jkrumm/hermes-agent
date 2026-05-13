@@ -1,0 +1,23 @@
+diff --git a/agent/auxiliary_client.py b/agent/auxiliary_client.py
+index 4c706748a..2b8c0e193 100644
+--- a/agent/auxiliary_client.py
++++ b/agent/auxiliary_client.py
+@@ -2175,7 +2175,17 @@ def resolve_provider_client(
+     # ── Custom endpoint (OPENAI_BASE_URL + OPENAI_API_KEY) ───────────
+     if provider == "custom":
+         if explicit_base_url:
+-            custom_base = _to_openai_base_url(explicit_base_url).strip()
++            # Respect api_mode=anthropic_messages: without this guard the
++            # /anthropic suffix gets stripped to /v1, downstream
++            # _maybe_wrap_anthropic can no longer detect the Anthropic
++            # Messages surface, and the OpenAI client hits
++            # /v1/chat/completions on an /anthropic-only gateway → 404
++            # "Endpoint not found". Local-modification: see
++            # patches/auxiliary-client-anthropic-mode-respect.patch.
++            if api_mode == "anthropic_messages":
++                custom_base = (explicit_base_url or "").strip().rstrip("/")
++            else:
++                custom_base = _to_openai_base_url(explicit_base_url).strip()
+             custom_key = (
+                 (explicit_api_key or "").strip()
+                 or os.getenv("OPENAI_API_KEY", "").strip()

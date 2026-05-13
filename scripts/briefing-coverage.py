@@ -131,7 +131,7 @@ def main() -> None:
         if p.get("closed"):
             continue
         pid, pname = p.get("id"), p.get("name", "?")
-        data = http_get_json(f"{API_BASE}/ticktick/project/{pid}/data", headers)
+        data = http_get_json(f"{API_BASE}/ticktick/projects/{pid}/data", headers)
         inner = data.get("data") if isinstance(data, dict) else None
         tasks = inner.get("tasks", []) if isinstance(inner, dict) else []
         active = [t for t in tasks if t.get("status") == 0]

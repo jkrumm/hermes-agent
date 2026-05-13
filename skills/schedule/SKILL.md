@@ -21,10 +21,10 @@ Check upcoming events across all personal calendars and query the Gmail inbox.
 
 ```bash
 # Upcoming calendar events (default 30 days)
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/gmail/calendar"
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/calendar"
 
 # Shorter window
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/gmail/calendar?days=7"
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/calendar?days=7"
 
 # Recent emails (default 7 days, max 50)
 curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/gmail/emails?days=3"
@@ -48,11 +48,11 @@ curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api
 ## Decision Tree
 
 **"What's on my calendar?" / "Any meetings today?"**
-→ Call `/gmail/calendar?days=7` — filter results to today/this week in your response
+→ Call `/calendar?days=7` — filter results to today/this week in your response
 → Events include `start`, `end`, `isAllDay`, `location`, `videoLink`, `attendees`
 
 **"What's my schedule this week?"**
-→ Combine `/gmail/calendar?days=7` with tasks from the `tasks` skill for a full picture
+→ Combine `/calendar?days=7` with tasks from the `tasks` skill for a full picture
 
 **"Any new emails?" / "Check my inbox"**
 → Call `/gmail/emails?unread=true&days=3`

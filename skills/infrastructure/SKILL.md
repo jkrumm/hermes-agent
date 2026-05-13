@@ -5,7 +5,7 @@ version: 1.0.0
 metadata:
   hermes:
     tags: [uptime, docker, containers, homelab, vps, infrastructure, monitoring, health]
-    related_skills: [argo-api, localai-debug]
+    related_skills: [argo-api]
 ---
 
 # Infrastructure Status
@@ -29,15 +29,21 @@ curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api
 # All monitor details (only if asked for specifics)
 curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/uptime-kuma/monitors"
 
-# Docker overview — homelab or vps
+# Docker overview — homelab or vps (interchangeable shape)
 curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/docker/homelab/summary"
 curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/docker/vps/summary"
 
-# Container resource usage
+# Container resource usage (homelab + vps both)
 curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/docker/homelab/stats"
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/docker/vps/stats"
 
-# Container logs (use tail=50 for quick checks)
+# Full container list (state, health, restart count) — rarely needed if /summary suffices
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/docker/homelab/containers"
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/docker/vps/containers"
+
+# Container logs (use tail=50 for quick checks) — works for both hosts
 curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/docker/homelab/logs/container-name?tail=50"
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/docker/vps/logs/container-name?tail=50"
 ```
 
 ---
@@ -71,6 +77,22 @@ curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api
 ## Field Semantics
 
 ### UptimeKuma
+
+Both `/uptime-kuma/status` and `/uptime-kuma/monitors` responses are enveloped:
+
+```json
+{ "status": "ready", "lastUpdatedAt": "...", "staleSince": null, "lastError": null, "up": 61, "down": 0, "total": 61, "monitors": [...] }
+```
+
+| Envelope field | Meaning |
+|-|-|
+| `status` | `"ready"` / `"loading"` / `"error"` — overall service state |
+| `lastUpdatedAt` | When the bridge last refreshed from UptimeKuma |
+| `staleSince` | Non-null = bridge hasn't updated since this timestamp — trust signal is shaky |
+| `lastError` | Non-null = bridge errored last poll — surface it if asked "is monitoring working?" |
+
+Per-monitor fields (inside `monitors[]`):
+
 | Field | Values | Meaning |
 |-|-|-|
 | `status` | `1` | UP — healthy |

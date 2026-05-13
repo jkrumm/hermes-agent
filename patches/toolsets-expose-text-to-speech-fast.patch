@@ -1,0 +1,15 @@
+diff --git a/toolsets.py b/toolsets.py
+index 2a77f615c..d4c5d38a8 100644
+--- a/toolsets.py
++++ b/toolsets.py
+@@ -163,8 +163,8 @@ TOOLSETS = {
+     },
+     
+     "tts": {
+-        "description": "Text-to-speech: convert text to audio with Edge TTS (free), ElevenLabs, OpenAI, or xAI",
+-        "tools": ["text_to_speech"],
++        "description": "Text-to-speech: convert text to audio. text_to_speech (Fish-S2-Pro, slow, high-quality, German/English) for long-form briefings; text_to_speech_fast (Supertonic-3, fast, English-only) for short voice memos.",
++        "tools": ["text_to_speech", "text_to_speech_fast"],
+         "includes": []
+     },
+     

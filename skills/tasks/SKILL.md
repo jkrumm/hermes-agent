@@ -24,28 +24,28 @@ Query, create, update, and complete tasks in TickTick.
 curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/ticktick/projects"
 
 # Get tasks for a specific project
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/ticktick/project/{projectId}/data"
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/ticktick/projects/{projectId}/data"
 
 # Overdue + due-soon tasks (from /summary, includes project names)
 curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/summary" | jq '.ticktick'
 
-# Create a task
+# Create a task — full body: title!, projectId?, dueDate?, priority?, content?, startDate?, isAllDay?
 curl -s -X POST -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: application/json" \
-  -d '{"title":"Task title","projectId":"inbox","dueDate":"2026-04-20","priority":3}' \
-  "https://argo.jkrumm.com/api/ticktick/task"
+  -d '{"title":"Task title","projectId":"inbox","dueDate":"2026-04-20","priority":3,"content":"longer notes here"}' \
+  "https://argo.jkrumm.com/api/ticktick/tasks"
 
-# Update a task
+# Update a task — same body fields as create
 curl -s -X POST -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: application/json" \
-  -d '{"title":"Updated title","priority":5}' \
-  "https://argo.jkrumm.com/api/ticktick/task/{taskId}"
+  -d '{"title":"Updated title","priority":5,"content":"updated notes"}' \
+  "https://argo.jkrumm.com/api/ticktick/tasks/{taskId}"
 
 # Complete a task
 curl -s -X POST -H "Authorization: Bearer $HOMELAB_API_KEY" \
-  "https://argo.jkrumm.com/api/ticktick/project/{projectId}/task/{taskId}/complete"
+  "https://argo.jkrumm.com/api/ticktick/projects/{projectId}/tasks/{taskId}/complete"
 
 # Delete a task
 curl -s -X DELETE -H "Authorization: Bearer $HOMELAB_API_KEY" \
-  "https://argo.jkrumm.com/api/ticktick/project/{projectId}/task/{taskId}"
+  "https://argo.jkrumm.com/api/ticktick/projects/{projectId}/tasks/{taskId}"
 ```
 
 ---
@@ -54,17 +54,17 @@ curl -s -X DELETE -H "Authorization: Bearer $HOMELAB_API_KEY" \
 
 **"What are my tasks?" / "What's due?"**
 → Call `/summary` first — it returns `overdue` and `dueSoon` (next 7 days) with project names already resolved
-→ Only call `/ticktick/projects` + `/ticktick/project/{id}/data` if full project listing is needed
+→ Only call `/ticktick/projects` + `/ticktick/projects/{id}/data` if full project listing is needed
 
 **"Add a task" / "Remind me to..."**
-→ POST to `/ticktick/task` with at minimum `title`
+→ POST to `/ticktick/tasks` with at minimum `title`
 → Use `projectId: "inbox"` if no project specified
 → Always use `YYYY-MM-DD` for dates
 
 **"Mark X as done"**
 → Need both `projectId` and `taskId`
 → `/summary` gives `taskId` and `projectName` but NOT `projectId` — call `/ticktick/projects` to resolve the name to an ID
-→ POST to `/ticktick/project/{projectId}/task/{taskId}/complete`
+→ POST to `/ticktick/projects/{projectId}/tasks/{taskId}/complete`
 
 ---
 
@@ -89,6 +89,10 @@ curl -s -X DELETE -H "Authorization: Bearer $HOMELAB_API_KEY" \
 - API returns dates in `YYYY-MM-DD` format
 - `dueDate` — when the task is due
 - `startDate` — optional, when to start working on it
+- `isAllDay` — boolean; default true for date-only tasks
+
+### Body / notes
+- `content` — long-form notes attached to the task (markdown allowed in TickTick)
 
 ---
 

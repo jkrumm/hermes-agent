@@ -150,7 +150,7 @@ PROJECT_ID=$(jq -r '.ticktick_projects[] | select(.name == "💼Work") | .id' ~/
 # Create task — title is short imperative, dueDate optional
 curl -s -X POST -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: application/json" \
   -d "{\"title\":\"Renew Tailscale cert\",\"projectId\":\"$PROJECT_ID\",\"dueDate\":\"2026-05-30\",\"priority\":3}" \
-  "https://argo.jkrumm.com/api/ticktick/task"
+  "https://argo.jkrumm.com/api/ticktick/tasks"
 ```
 
 **Inbox fallback:** `projectId: "inbox"` (literal string, no cache lookup needed).
