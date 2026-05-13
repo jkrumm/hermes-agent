@@ -44,7 +44,8 @@ curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api
 curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/m365/calendar/upcoming?days=2"
 
 # Discover new M365 routes (Teams, channels, alerts) as they land
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/openapi/json" | jq '.paths | to_entries[] | select(.value | to_entries[].value.tags? // [] | contains(["M365"])) | .key'
+# Fetch the spec, then filter client-side for paths tagged "M365":
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/openapi/json"
 ```
 
 ---

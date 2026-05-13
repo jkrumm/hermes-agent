@@ -1,0 +1,44 @@
+diff --git a/tools/cronjob_tools.py b/tools/cronjob_tools.py
+index e63b60047..b64c12b8c 100644
+--- a/tools/cronjob_tools.py
++++ b/tools/cronjob_tools.py
+@@ -82,6 +82,39 @@ def _scan_cron_prompt(prompt: str) -> str:
+         # Allow the bundled GitHub skill fallback shape without opening a
+         # blanket exemption for arbitrary Authorization-header exfiltration.
+         prompt_to_scan = prompt.replace(github_auth_header.group(0), "curl https://api.github.com/user")
++    # Local patch (Hermes-agent local mod, see ~/SourceRoot/hermes-agent/patches/):
++    # Argo (argo.jkrumm.com) is this deployment's trusted personal API gateway.
++    # Every bundled skill uses the same curl shape with `Authorization: Bearer
++    # $HOMELAB_API_KEY` against argo — GET and POST (including multi-line shell
++    # continuations with embedded JSON). The upstream `exfil_curl_*` patterns
++    # flag these because they're indistinguishable from real exfil at the regex
++    # level. Strategy: replace any bash code fence (``` ... ```) whose body
++    # references argo.jkrumm.com with a sanitized placeholder, then also strip
++    # single-line argo curls outside fences. Real exfil to a non-argo host
++    # remains flagged because it would either live outside an argo-only fence
++    # or appear on a non-argo line.
++    def _sanitize_argo_fence(match):
++        body = match.group(0)
++        if not re.search(r'https?://argo\.jkrumm\.com\b', body, re.IGNORECASE):
++            return body
++        # Only sanitize fences where argo.jkrumm.com is the ONLY http(s) host —
++        # if any other host appears alongside, leave the fence intact so the
++        # downstream exfil patterns can flag a co-located evil curl.
++        other_hosts = re.findall(r'https?://([^\s"\'`/]+)', body, re.IGNORECASE)
++        if any(not h.lower().endswith('argo.jkrumm.com') for h in other_hosts):
++            return body
++        return '```\n# [argo bash fence — sanitized by local allowlist]\n```'
++    prompt_to_scan = re.sub(
++        r'```[a-zA-Z0-9_-]*\n[\s\S]*?\n```',
++        _sanitize_argo_fence,
++        prompt_to_scan,
++    )
++    prompt_to_scan = re.sub(
++        r'^.*\bcurl\b[^\n]*\bhttps?://argo\.jkrumm\.com\b[^\n]*$',
++        '# [argo curl — sanitized by local allowlist]',
++        prompt_to_scan,
++        flags=re.IGNORECASE | re.MULTILINE,
++    )
+     for char in _CRON_INVISIBLE_CHARS:
+         if char in prompt_to_scan:
+             return f"Blocked: prompt contains invisible unicode U+{ord(char):04X} (possible injection)."
