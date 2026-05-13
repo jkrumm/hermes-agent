@@ -30,22 +30,23 @@ If `COVERAGE_AVAILABLE=false` or the blocks are absent, fall back to /summary + 
 
 If the script block is missing or malformed, fall back to `Munich` and proceed. Use the city value verbatim in the weather call (`?city=<value>`) and in the section header ("Weather — <city>"). The audio narrative also references this city.
 
-## Step 1 — Gather data (use the `terminal` tool directly, all ten in parallel)
+## Step 1 — Gather data (use the `terminal` tool directly, all eleven in parallel)
 
 **Important:** call the `terminal` tool directly with each shell command. Do NOT wrap calls in `execute_code` — that path is slower and prevents proper parallelization.
 
-The seven loaded skills (tasks, schedule, weather, infrastructure, slack, garmin-health, strength) document the argo API base URL and auth pattern — follow what they specify. Issue all ten calls as ten `terminal` tool invocations in a single parallel batch:
+The eight loaded skills (tasks, schedule, m365, weather, infrastructure, slack, garmin-health, strength) document the argo API base URL and auth pattern — follow what they specify. Issue all eleven calls as eleven `terminal` tool invocations in a single parallel batch:
 
 1. Argo `/summary` — combined tasks + uptime overview (see `tasks` and `infrastructure` skills)
 2. Argo `/docker/homelab/summary` — Mac Mini Docker stack (see `infrastructure` skill)
 3. Argo `/docker/vps/summary` — VPS Docker stack (see `infrastructure` skill)
-4. Argo `/calendar?days=1` — today's calendar (see `schedule` skill)
-5. Argo `/weather/forecast?city=$BRIEFING_CITY` — forecast for the resolved city (see `weather` skill)
-6. Argo `/slack/channels/C0AS1LAUQ3C/messages?limit=20` — last 20 messages from #alerts (see `slack` skill)
-7. Argo `/daily-metrics?order=desc&limit=14` — last ~14 days of Garmin daily metrics: HRV, body battery, resting HR, sleep, stress (see `garmin-health` skill). Response is `{data: [...], total: N}` — read `response.data` for the row array. Use the most-recent record where the relevant field is non-null — Garmin sync timing means today's row may be partial at 07:00.
-8. Argo `/workouts?sort=date&order=desc&limit=10` — last 10 strength workouts with sets, total volume, est. 1RM (see `strength` skill). Response is `{data: [...], total: N}` — read `response.data`.
-9. `gh search prs --owner jkrumm --state open --json title,repository,url --limit 20` — open PRs across personal repos
-10. `gh search issues --owner jkrumm --state open --json title,repository,url --limit 20` — open issues across personal repos
+4. Argo `/calendar?days=1` — today's **personal** Google calendar (see `schedule` skill)
+5. Argo `/m365/calendar/upcoming?days=1` — today's **IU work** Outlook calendar (see `m365` skill). On `503 M365 not authenticated …`, do not retry — surface a single bullet "IU work calendar unavailable (token expired — run `bun m365:auth:prod`)" under Today's Schedule and continue.
+6. Argo `/weather/forecast?city=$BRIEFING_CITY` — forecast for the resolved city (see `weather` skill)
+7. Argo `/slack/channels/C0AS1LAUQ3C/messages?limit=20` — last 20 messages from #alerts (see `slack` skill)
+8. Argo `/daily-metrics?order=desc&limit=14` — last ~14 days of Garmin daily metrics: HRV, body battery, resting HR, sleep, stress (see `garmin-health` skill). Response is `{data: [...], total: N}` — read `response.data` for the row array. Use the most-recent record where the relevant field is non-null — Garmin sync timing means today's row may be partial at 07:00.
+9. Argo `/workouts?sort=date&order=desc&limit=10` — last 10 strength workouts with sets, total volume, est. 1RM (see `strength` skill). Response is `{data: [...], total: N}` — read `response.data`.
+10. `gh search prs --owner jkrumm --state open --json title,repository,url --limit 20` — open PRs across personal repos
+11. `gh search issues --owner jkrumm --state open --json title,repository,url --limit 20` — open issues across personal repos
 
 If any individual call fails, continue and note the gap in the affected section.
 
@@ -60,7 +61,7 @@ Use this exact structure, in this order. Each section starts with an emoji short
 
 :date: Today's Schedule
 - <time> <title> <(location or videoLink hint, if any)>
-(If no events: a single line "- No events scheduled.")
+(Merge personal Google + IU work M365 into one chronological timeline. Prefix IU work events with `:office:` (e.g. `- :office: 09:30 Standup (Teams)`); leave personal events unprefixed. If two events overlap, append a "⚠ conflicts with HH:MM …" hint to the later one. If no events on either: a single line "- No events scheduled.")
 
 :hammer_and_wrench: Infrastructure
 - UptimeKuma: <up>/<total> monitors UP <(downMonitors list if any down)>
@@ -150,7 +151,7 @@ Heute ist <Wochentag>, der <Datum> <Monat>. <Optional one-line opener — only i
 
 ### Section rules
 
-**Wetter & Termine:** weather from `daily_7d[0]`. Mention temp range, condition, rain probability if > 30%, UV warning if max > 6, wind gusts if > 50 km/h. Use the resolved city name ("In München" / "In Berlin"). Then today's events with times spoken naturally ("neun Uhr sechsunddreißig"). If no events: "Heute keine Termine."
+**Wetter & Termine:** weather from `daily_7d[0]`. Mention temp range, condition, rain probability if > 30%, UV warning if max > 6, wind gusts if > 50 km/h. Use the resolved city name ("In München" / "In Berlin"). Then today's events with times spoken naturally ("neun Uhr sechsunddreißig"). Merge personal + IU work meetings into one sentence chronologically; mark work meetings naturally in German ("zehn Uhr IU-Standup", "vierzehn Uhr Architecture Review mit dem Team") so they sound distinct from personal events without a hard label. If no events on either calendar: "Heute keine Termine." If only the M365 call failed and personal calendar succeeded, list personal events normally and skip silently — don't read the auth-error bullet aloud.
 
 **Infrastruktur & Alerts:** one sentence on infra ("Alle Systeme grün" / "garmin-sync ist seit drei Tagen unhealthy"). One sentence on alerts ("Keine Alerts in der Nacht" / "Ein neuer Alert: …"). If everything's fine: "Infra ist ruhig, keine Alerts."
 
@@ -194,6 +195,7 @@ Output the Slack text body from Step 2, then a blank line, then the `MEDIA:` tag
 
 :date: Today's Schedule
 - 09:36 Train München-Pasing → Köln Hbf
+- :office: 14:00 Architecture review (Teams)
 
 :hammer_and_wrench: Infrastructure
 - UptimeKuma: 60/60 monitors UP

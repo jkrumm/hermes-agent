@@ -7,7 +7,7 @@ Source-of-truth for the evening report prompt. **This file is documentation, not
 | Field | Value |
 |-|-|
 | Schedule | `0 22 * * 1-4` (22:00 Mon–Thu, Europe/Berlin) |
-| Skills | `garmin-health`, `strength`, `schedule`, `weather`, `tasks` |
+| Skills | `garmin-health`, `strength`, `schedule`, `m365`, `weather`, `tasks` |
 | Pre-run script | `briefing-context.py` (shared with morning briefing) |
 | Deliver | `slack:C0AT6TH404R` (#briefings) |
 | Name | `Evening report` |
@@ -22,6 +22,7 @@ hermes cron create "0 22 * * 1-4" "$(cat ~/SourceRoot/dotfiles/hermes/cron/eveni
   --skill garmin-health \
   --skill strength \
   --skill schedule \
+  --skill m365 \
   --skill weather \
   --skill tasks \
   --script briefing-context.py \
@@ -42,7 +43,7 @@ hermes cron edit <job_id> --prompt "$(cat ~/SourceRoot/dotfiles/hermes/cron/even
 Mon–Thu at 22:00, a fresh Hermes session:
 
 1. Pre-run script (`briefing-context.py`) emits `BRIEFING_CITY=…` + `BRIEFING_SUPPRESSED=true|false`. On vacation the agent short-circuits with `[SILENT]`.
-2. Fires 5 parallel curls — `/daily-metrics`, `/workouts`, `/calendar?days=2`, `/weather/forecast`, `/summary`
+2. Fires 6 parallel curls — `/daily-metrics`, `/workouts`, `/calendar?days=2` (personal Google), `/m365/calendar/upcoming?days=2` (IU work Outlook), `/weather/forecast`, `/summary`
 3. Composes a structured Slack mrkdwn body (English, 5 sections) — Today's Training, Recovery & Body, Tomorrow's Schedule, For Tomorrow (max 3 items), Tomorrow's Weather
 4. Composes a separate German narrative (~120–150 words, four paragraphs, calm wind-down tone)
 5. Calls TTS on the narrative → MP3 + `MEDIA:` tag

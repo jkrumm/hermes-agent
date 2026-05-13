@@ -25,7 +25,7 @@ cloned alongside hermes-agent** for `make setup` to succeed.
 | `cron/` | `~/.hermes/cron/` | symlink — Hermes-driven (LLM) cron jobs |
 | `scripts/` | `~/.hermes/scripts/` | symlink — Hermes cron pre-run scripts (security check requires they live under `HERMES_HOME/scripts/`). Also holds host-level shell scripts. |
 | `hooks/` | `~/.hermes/hooks/` | symlink — add hooks here |
-| `skills/{name}/` | `~/.hermes/skills/{name}/` | symlink per skill (argo-api, infrastructure, tasks, capture, schedule, weather, slack, garmin-health, strength) |
+| `skills/{name}/` | `~/.hermes/skills/{name}/` | symlink per skill (argo-api, infrastructure, tasks, capture, schedule, m365, weather, slack, garmin-health, strength) |
 | `USER.md` | `~/.hermes/memories/USER.md` | copied — Hermes writes to it |
 
 **Claude Code per-repo skills** (committed at `.claude/skills/`, not symlinked — auto-loaded by Claude Code when started inside this repo):
@@ -46,7 +46,9 @@ cloned alongside hermes-agent** for `make setup` to succeed.
 
 ## Homelab API Integration
 
-`skills/argo-api/SKILL.md` endpoint tables are regenerated from `https://argo.jkrumm.com/api/openapi/json` by the homelab `/docs` skill. The argo API uses a 6-tag taxonomy — **Garmin Health, Strength, Productivity, Infrastructure, External Data, System** — and exposes a `GET /` discovery index for agent self-orientation. Domain skills (infrastructure, tasks, capture, schedule, weather, slack, garmin-health, strength) are updated in the same pass if their endpoints changed.
+`skills/argo-api/SKILL.md` endpoint tables are regenerated from `https://argo.jkrumm.com/api/openapi/json` by the homelab `/docs` skill. The argo API uses a 7-tag taxonomy — **Garmin Health, Strength, Productivity, Infrastructure, External Data, System, M365** — and exposes a `GET /` discovery index for agent self-orientation. Domain skills (infrastructure, tasks, capture, schedule, m365, weather, slack, garmin-health, strength) are updated in the same pass if their endpoints changed.
+
+**M365 surface (IU work).** Argo wraps the IU M365 MCP server (Outlook + Teams + Graph) behind a curated read-only REST surface. Currently exposes `GET /api/m365/calendar/upcoming?days=14`; future Teams/Graph routes land under the same `tag=M365` and Hermes's `m365` skill picks them up via OpenAPI discovery without a SOUL.md edit. Calendar is wired into both daily briefings (morning: today; evening: tomorrow) and merged with personal Google events under one timeline with `:office:` prefix on work events. Mail is intentionally **not** exposed — decline if asked. `503 M365 not authenticated …` → tell the user to run `bun m365:auth:prod` from `~/SourceRoot/argo`.
 
 **Split: garmin-health vs strength.** Garmin Health owns passive measurements (`/daily-metrics`, `/recovery`, `/training-load`, `/fitness-direction`, `/activities`, `/weight-log`, `/user-profile`). Strength owns active lifting (`/workouts`, `/workout-sets`, `/exercises`) plus the 13-endpoint `/workouts/summary/*` analytics suite (e1RM, INOL, ACWR per-exercise, MEV/MAV/MRV landmarks, deload-signal, readiness). The cross-skill bridge is `/workouts/summary/readiness` — it joins Garmin recovery + strength fatigue debt and lives in `strength`. Note `weight-log` + `user-profile` are tagged Garmin Health in the live OpenAPI even though they're physically distinct from daily metrics; respect that grouping in cross-references.
 
@@ -82,7 +84,7 @@ Prerequisites:
 ## Editing Rules
 
 **Adding a Hermes skill:** create `skills/{name}/SKILL.md`, add `{name}` to
-`HERMES_SKILLS` in the Makefile, run `make setup`.
+`HERMES_SKILLS` in the Makefile, run `make setup`. If the skill should appear in scheduled briefings, also wire it into the relevant cron prompt (`cron/*.prompt.txt`) and re-sync `cron/jobs.json`.
 
 **Adding a CC slash command for Hermes:** create `.claude/skills/{name}/SKILL.md`. Auto-loaded by Claude Code when started inside this repo — no symlink, no Makefile change needed.
 

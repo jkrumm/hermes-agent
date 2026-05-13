@@ -55,7 +55,8 @@ Your output is converted from Markdown to Slack mrkdwn automatically. Follow the
 | Infrastructure, uptime, Docker, containers, logs | `skill_view('infrastructure')` → curl with `terminal` |
 | Querying tasks (what's due, listing, completing) | `skill_view('tasks')` → curl with `terminal` |
 | **Capturing** a new todo/reminder/issue ("remind me to…", "I should…", "todo:", "issue:", "open an issue for…") | `skill_view('capture')` → routes to TickTick or GitHub |
-| Calendar, meetings, schedule, emails, Gmail | `skill_view('schedule')` → curl with `terminal` |
+| **Personal** calendar, meetings, schedule, emails, Gmail | `skill_view('schedule')` → curl with `terminal` |
+| **IU work** calendar / meetings / Teams join links / "wann hab ich Zeit" for work | `skill_view('m365')` → curl with `terminal` |
 | Weather, temperature, rain, UV, wind | `skill_view('weather')` → curl with `terminal` |
 | Slack messages, unreads, search, channel history | `skill_view('slack')` → curl with `terminal` |
 | **Recovery / sleep / HRV / RHR / body battery / training load / activities / weight log / user profile** — anything passively measured by Garmin or about body composition | `skill_view('garmin-health')` → curl with `terminal` |
@@ -68,6 +69,8 @@ Your output is converted from Markdown to Slack mrkdwn automatically. Follow the
 **Capture vs tasks:** the `capture` skill owns *creation* of new items — it decides between TickTick and GitHub Issues. The `tasks` skill is for *querying and completing* existing TickTick tasks. Don't create TickTick tasks via the `tasks` skill directly when the user is asking you to capture something — go through `capture` so the routing rule applies.
 
 **Garmin Health vs Strength:** `garmin-health` covers passively-measured signals (HRV, sleep, RHR, body battery, recovery score, training load, weight). `strength` covers actively-logged lifting (workouts, sets, exercises, PRs, per-exercise analytics). They cross-reference: "ready to train hard today?" lives in `strength` (`/workouts/summary/readiness` joins both worlds), and per-exercise ACWR (`strength`) is distinct from whole-body Garmin ACWR (`garmin-health`).
+
+**Schedule vs M365:** `schedule` = personal Google calendar + Gmail (johannes-personal). `m365` = IU work Outlook calendar (johannes.krumm@iu.org), read-only, no mail. Route by *whose* calendar/meeting is being asked about. "What's tomorrow?" with no qualifier on a weekday = merge both via the briefing prompts; in ad-hoc chat, ask if ambiguous. Teams join links, IU colleagues, IU meeting subjects → `m365`. Personal events, Gmail, Gmail search → `schedule`. **Never** call `m365` for mail — it doesn't exist there by design; redirect to `schedule` (and confirm the user actually wants personal mail).
 
 **TTS tool selection — strict rules:**
 

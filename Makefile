@@ -3,7 +3,7 @@ HERMES_DIR    := $(HOME)/.hermes
 SOURCEROOT    := $(HOME)/SourceRoot
 DOTFILES_DIR  := $(SOURCEROOT)/dotfiles
 LAUNCHAGENTS  := $(HOME)/Library/LaunchAgents
-HERMES_SKILLS := capture argo-api infrastructure schedule slack tasks weather garmin-health strength
+HERMES_SKILLS := capture argo-api infrastructure schedule slack tasks weather garmin-health strength m365
 
 # localai-helper plist template lives in dotfiles. Helper service runs only
 # on Mac Mini for Hermes; rendered + loaded as part of `make setup` here.

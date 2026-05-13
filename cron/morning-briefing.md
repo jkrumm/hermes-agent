@@ -7,7 +7,7 @@ Source-of-truth for the morning briefing prompt. **This file is documentation, n
 | Field | Value |
 |-|-|
 | Schedule | `0 7 * * 1-5` (07:00 weekdays, Europe/Berlin) |
-| Skills | `tasks`, `schedule`, `weather`, `infrastructure`, `slack`, `garmin-health`, `strength` |
+| Skills | `tasks`, `schedule`, `m365`, `weather`, `infrastructure`, `slack`, `garmin-health`, `strength` |
 | Pre-run script | `briefing-context.py` (lives in `~/.hermes/scripts/`, source in `hermes/scripts/`) |
 | Deliver | `slack:C0AT6TH404R` (#briefings) |
 | Name | `Morning briefing` |
@@ -19,6 +19,7 @@ Source-of-truth for the morning briefing prompt. **This file is documentation, n
 hermes cron create "0 7 * * 1-5" "$(cat ~/SourceRoot/dotfiles/hermes/cron/morning-briefing.prompt.txt)" \
   --skill tasks \
   --skill schedule \
+  --skill m365 \
   --skill weather \
   --skill infrastructure \
   --skill slack \
@@ -44,7 +45,7 @@ The prompt is kept as a separate `.prompt.txt` file (sibling to this doc) so it 
 Every weekday at 07:00 a fresh Hermes session:
 
 1. Pre-run script (`briefing-context.py`) emits `BRIEFING_CITY=…` + `BRIEFING_SUPPRESSED=true|false` from `briefing-state.json`. On vacation the agent short-circuits with `[SILENT]`.
-2. Fires 10 parallel curls/`gh` calls — `/summary`, both Docker summaries, calendar, weather (city from script), recent #alerts, `/daily-metrics` (Garmin), `/workouts` (strength), open PRs, open issues
+2. Fires 11 parallel curls/`gh` calls — `/summary`, both Docker summaries, personal calendar, **IU work calendar (`/m365/calendar/upcoming`)**, weather (city from script), recent #alerts, `/daily-metrics` (Garmin), `/workouts` (strength), open PRs, open issues
 3. Composes a structured Slack mrkdwn body (English, emoji-headed sections, bullet lists) — including a `:weight_lifter: Health & Training` section with last workout, recovery (HRV / Body Battery / resting HR), brief sleep, and a synthesized coaching line
 4. Composes a separate German narrative (~150–200 words, conversational, four paragraphs incl. *Körper & Training*)
 5. Calls TTS on the narrative → MP3 + `MEDIA:` tag

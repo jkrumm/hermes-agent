@@ -21,11 +21,11 @@ The script also appends a coverage block (full TickTick + GitHub backlog snapsho
 
 If the script block is missing or malformed, fall back to `Munich` and proceed. Use the city value verbatim in the weather call (`?city=<value>`) and in the section header.
 
-## Step 1 — Gather data (use the `terminal` tool directly, all five in parallel)
+## Step 1 — Gather data (use the `terminal` tool directly, all six in parallel)
 
 **Important:** call the `terminal` tool directly with each shell command. Do NOT wrap calls in `execute_code` — that path is slower and prevents proper parallelization.
 
-The five loaded skills (garmin-health, strength, schedule, weather, tasks) document the argo API base URL and auth pattern — follow what they specify. Issue all five calls as five `terminal` tool invocations in a single parallel batch:
+The six loaded skills (garmin-health, strength, schedule, m365, weather, tasks) document the argo API base URL and auth pattern — follow what they specify. Issue all six calls as six `terminal` tool invocations in a single parallel batch:
 
 1. Argo `/daily-metrics?order=desc&limit=14` — last ~14 days of Garmin daily metrics: HRV, body battery, resting HR, sleep duration, sleep score, stress (see `garmin-health` skill). Response is `{data: [...], total: N}` — read `response.data` for the row array.
 
@@ -36,9 +36,10 @@ The five loaded skills (garmin-health, strength, schedule, weather, tasks) docum
    - If today's row has `sleep_score: null` or `hrv_last_night_avg: null` (sync gap), do **not** substitute yesterday's row. Instead, write the affected line as `- Last night's sleep: data still syncing` (or `- HRV last night: data still syncing`). Honesty beats stale data.
    - The 7-day averages for trend arrows (see Step 2) are still computed from the last 7 days of non-null values — those use historical data, no issue there.
 2. Argo `/workouts?sort=date&order=desc&limit=5` — last 5 workouts including any logged today (see `strength` skill). Response is `{data: [...], total: N}` — read `response.data`. Match by `date` field equal to today's date in `YYYY-MM-DD`.
-3. Argo `/calendar?days=2` — today + tomorrow's calendar (see `schedule` skill). Filter to events on tomorrow's date for the report.
-4. Argo `/weather/forecast?city=$BRIEFING_CITY` — forecast for the resolved city (see `weather` skill). Use `daily_7d[1]` for tomorrow (index 0 is today, already past).
-5. Argo `/summary` — for tomorrow's task signal: count of high-priority items and items due tomorrow (see `tasks` skill). **Do NOT surface overdue counts in the output** — even though the endpoint returns them, the evening report intentionally does not show overdue work.
+3. Argo `/calendar?days=2` — today + tomorrow's **personal** Google calendar (see `schedule` skill). Filter to events on tomorrow's date for the report.
+4. Argo `/m365/calendar/upcoming?days=2` — today + tomorrow's **IU work** Outlook calendar (see `m365` skill). Filter to tomorrow's date for the report. On `503 M365 not authenticated …`, do not retry — surface a single bullet "IU work calendar unavailable (token expired)" under Tomorrow's Schedule and continue. Do not mention this in the audio narrative.
+5. Argo `/weather/forecast?city=$BRIEFING_CITY` — forecast for the resolved city (see `weather` skill). Use `daily_7d[1]` for tomorrow (index 0 is today, already past).
+6. Argo `/summary` — for tomorrow's task signal: count of high-priority items and items due tomorrow (see `tasks` skill). **Do NOT surface overdue counts in the output** — even though the endpoint returns them, the evening report intentionally does not show overdue work.
 
 If any individual call fails, continue and note the gap in the affected section.
 
@@ -61,7 +62,7 @@ Use this exact structure, in this order. Each section starts with an emoji short
 
 :date: Tomorrow's Schedule
 - <HH:MM> <title> <(location or videoLink hint, if any)>
-(If no events: a single line "- No events scheduled.")
+(Merge personal Google + IU work M365 into one chronological timeline for tomorrow only. Prefix IU work events with `:office:` (e.g. `- :office: 09:30 Standup (Teams)`); leave personal events unprefixed. If no events on either: a single line "- No events scheduled.")
 
 :checkered_flag: For Tomorrow
 - <up to 3 items, selection order: (1) due-tomorrow, (2) priority 5 due in next 7 days, (3) priority 5 dateless from `TICKTICK_HIGH_PRIO_DATELESS` — pull these in only when the first two categories don't fill all 3 slots. Match the project emoji style (:briefcase: Work, :house: Personal, :innocent: Dev). For dateless P5 items, mark them with "(P5, no due-date)" instead of a date.>
@@ -99,7 +100,7 @@ Format:
 
 <Section 2 — Sleep & recovery going into the night. Speak last night's sleep duration naturally ("sieben Stunden zwanzig"), the HRV trend in plain language ("HRV vierundachtzig, leicht über dem Schnitt — gute Erholung"), and Body Battery state ("Body Battery noch bei sechzig — gut für die Nacht" or "drained bei achtundzwanzig — heute früh ins Bett"). One or two sentences. If the Slack body shows "data still syncing" for any of these (today's row was null), do **not** invent numbers from yesterday's row — say something like "Garmin hat die Schlafdaten noch nicht synchronisiert, das hole ich morgen früh nach" and move on.>
 
-<Section 3 — Tomorrow's schedule + tomorrow's focus. Calendar first ("Morgen früh um neun Uhr Termin XYZ" or "Morgen sind keine Termine eingetragen"). Then if there's a single meaningful pinned task, mention it neutrally ("Eine Sache liegt für morgen an: Auto-Service-Termin"). If nothing is pinned: "Nichts speziell für morgen vorgemerkt." Skip task counts — those stress, not relax.>
+<Section 3 — Tomorrow's schedule + tomorrow's focus. Calendar first, merged personal + IU work in chronological order spoken naturally ("Morgen früh um neun Uhr IU-Standup, danach um vierzehn Uhr Architecture Review", or "Morgen sind keine Termine eingetragen"). Work meetings sound natural in German without an "IU"/"work" label if the meeting name itself implies it; add "mit dem Team" or "IU" only when the meeting name is generic. Then if there's a single meaningful pinned task, mention it neutrally ("Eine Sache liegt für morgen an: Auto-Service-Termin"). If nothing is pinned: "Nichts speziell für morgen vorgemerkt." Skip task counts — those stress, not relax.>
 
 <Section 4 — Tomorrow's weather + a calm closing line. Weather brief ("Morgen in München fünf bis siebzehn Grad, leicht bewölkt, kein Regen"). Closing line ONLY if it adds something — a real weather-related note ("Frühstück draußen wäre möglich") or a clean stop. NEVER motivational, NEVER "Schlaf gut" / "Bis morgen" — those feel hollow. End on the weather if there's nothing else to say.>
 ```
@@ -141,8 +142,8 @@ Output the Slack text body from Step 2, then a blank line, then the `MEDIA:` tag
 - Body Battery now: 38 (drained)
 
 :date: Tomorrow's Schedule
-- 09:30 Standup
-- 14:00 Architecture review (Meet)
+- :office: 09:30 Standup (Teams)
+- :office: 14:00 Architecture review (Teams)
 
 :checkered_flag: For Tomorrow
 - :briefcase: Prepare LoA cases (High)
