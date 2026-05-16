@@ -81,17 +81,23 @@ Every MR returned by `/gitlab/*` carries `jiraKeys: string[]` — auto-extracted
 
 ---
 
-## "Is MR !nnn blocked?" — structured check
+## "Is MR !nnn blocked?" — two levels of check
 
-An MR is **mergeable** when ALL of these are true:
+**Full check (ad-hoc queries).** An MR is **mergeable** when ALL true:
 
 - `mergeStatus === "can_be_merged"`
 - `hasConflicts === false`
 - `draft === false`
-- `approvalsLeft === 0` (from `/approvals`)
-- No unresolved discussion notes (from `/discussions`: `notes[].resolvable && !notes[].resolved`)
+- `approvalsLeft === 0` (from `/approvals` — separate call)
+- No unresolved discussion notes (from `/discussions`: `notes[].resolvable && !notes[].resolved` — separate call)
 
 Spell out which single condition is the blocker — don't just say "blocked". If multiple, list them in priority order.
+
+**Briefing heuristic (morning briefing only).** For the daily "ready-to-merge" tally use a cheaper 3-field check on the MR list response — **no per-MR /approvals or /discussions calls**:
+
+- `mergeStatus === "can_be_merged" && !hasConflicts && !draft`
+
+This may overcount MRs that still need approvals or have unresolved threads, but the morning briefing trades precision for speed (avoids N×2 extra calls per MR). For any MR Johannes asks about specifically, fall back to the full check.
 
 ---
 
@@ -101,7 +107,7 @@ Spell out which single condition is the blocker — don't just say "blocked". If
 |-|-|
 | "What's on my plate?" | `/atlassian/jira/my-issues` (cross-project) + `/atlassian/jira/current-sprint?onlyMine=true` (board-scoped) + `/gitlab/merge-requests?scope=created_by_me&state=opened` |
 | "What needs my review?" | `/gitlab/merge-requests?scope=reviews_for_me&state=opened` |
-| "What's the team shipping today?" | `/atlassian/jira/current-sprint` (no `onlyMine`) + `/gitlab/merge-requests?scope=all&state=opened&authorUsername=<each dev's gitlab.username>` |
+| "What's the team shipping today?" | `/atlassian/jira/current-sprint` (no `onlyMine`) + `/gitlab/merge-requests?scope=all&state=opened&authorUsername=<each dev's gitlab.username>`. **Cost note:** this fans out to N calls per dev — cap at the 5 most-active devs from the roster unless Johannes explicitly asks for everyone. There is no team-wide cross-author MR endpoint. |
 | "Is MR !nnn blocked?" | `/gitlab/projects/{projectId}/merge-requests/{iid}` + `/…/approvals` + `/…/discussions` (parallel) |
 | "What did Y push this week?" | `/gitlab/events/recent?days=7` is **YOU-only**. For a teammate: `/gitlab/merge-requests?scope=all&authorUsername=<gitlab.username>&state=all` filtered by `updatedAt` |
 | "Releases since last week?" | `/gitlab/projects/{projectId}/releases` per repo (no cross-project releases endpoint) |
@@ -168,6 +174,200 @@ curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api
 
 ---
 
+## Response shapes (key fields by endpoint)
+
+Authoritative field reference for the endpoints the briefing prompts and the recurring-question playbook depend on. Use as a contract — if Argo's response is missing one of these, surface the gap explicitly rather than hallucinating a default.
+
+### `/m365/team` — identity hub
+
+```ts
+{
+  team: string,
+  members: Array<{
+    alias: string,                // canonical short id (lowercase first name)
+    displayName: string | null,   // "Last, First" Teams format
+    role: "PO" | "EM" | "TechLead" | "UX" | "AgileCoach" | "Dev",
+    self?: boolean,
+    ms:        { userId: string | null },          // Azure AD GUID
+    atlassian: { accountId: string | null },       // JQL: assignee = "<accountId>"
+    gitlab:    { username: string | null }         // null for non-devs
+  }>,
+  repos: Array<{
+    alias: string,                                  // "studentEnrolment", "bookingFe"
+    purpose: string,
+    kind: "backend" | "frontend" | "internal",
+    domains: string[],
+    gitlab: { projectId: number, path: string, defaultBranch: string, webUrl: string }
+  }>
+}
+```
+
+### `/atlassian/jira/current-sprint` (also `/sprints/:id`)
+
+```ts
+{
+  board:  { id: number, name: string, type: string, projectKey, projectName },
+  sprint: null | {
+    id: number,
+    name: string,                          // e.g. "Prometheus 107"
+    state: "active" | "closed" | "future",
+    startDate: string | null,              // ISO 8601
+    endDate:   string | null,              // ISO 8601 — use for "N days remaining"
+    completeDate: string | null,
+    goal: string | null,
+    boardId: number
+  },
+  issues: Issue[]                          // see Issue shape below
+}
+```
+
+`sprint: null` → no active sprint; surface "no active sprint" and return without listing issues.
+
+### `/atlassian/jira/my-issues`, `/issue/:key`, `/search`, `/backlog`
+
+`my-issues` returns `{ issues: Issue[], isLast: bool }`. `issue/:key` returns a single `Issue`. `search` returns `{ issues: Issue[], isLast: bool, nextPageToken: string | null }` (cursor-paginated). `backlog` returns `{ issues: Issue[], total: int, startAt: int, isLast: bool }` (offset-paginated).
+
+**Issue shape:**
+
+```ts
+{
+  key: string,                             // "EP-17849"
+  url: string,
+  summary: string,
+  status: string,                          // raw workflow status (German on EP board)
+  statusCategory: "todo" | "in-progress" | "done" | "unknown",
+  issueType: string,
+  isSubtask: boolean,
+  priority: string | null,                 // "Highest", "High", "Medium", "Low"
+  project:  { key: string, name: string },
+  assignee: { name: string, email: string | null } | null,
+  reporter: { name: string, email: string | null } | null,
+  dueDate: string | null,                  // "YYYY-MM-DD"
+  created: string,                         // ISO 8601
+  updated: string,                         // ISO 8601
+  labels: string[],
+  parent: { key: string, summary: string } | null
+}
+```
+
+Group/filter by `statusCategory` (normalized), not `status` (workflow-specific).
+
+### `/gitlab/merge-requests` (list — all `scope=…` flavors)
+
+```ts
+{ mergeRequests: MR[] }
+```
+
+**MR shape** (also returned bare by `/projects/:projectId/merge-requests/:iid`):
+
+```ts
+{
+  id: number,                              // global
+  iid: number,                             // per-project (the !1234)
+  projectId: number,                       // matches /m365/team repos[].gitlab.projectId
+  projectPath: string | null,              // "iu-group/epos/prometheus/..."
+  title: string,
+  state: "opened" | "closed" | "merged" | "locked",
+  draft: boolean,
+  webUrl: string,
+  sourceBranch: string,                    // may encode jira key
+  targetBranch: string,
+  author:    { username: string, name: string } | null,
+  assignees: Array<{ username, name }>,
+  reviewers: Array<{ username, name }>,
+  labels: string[],
+  upvotes: number,
+  downvotes: number,
+  userNotesCount: number,
+  mergeStatus: string | null,              // "can_be_merged" = no conflicts
+  hasConflicts: boolean,
+  createdAt: string,                       // ISO 8601
+  updatedAt: string,
+  jiraKeys: string[]                       // auto-extracted: title + branch + description
+}
+```
+
+### `/gitlab/projects/:projectId/merge-requests/:iid/approvals`
+
+```ts
+{ approved: boolean, approvalsRequired: number, approvalsLeft: number, approvedBy: Array<{username,name}> }
+```
+
+### `/gitlab/projects/:projectId/merge-requests/:iid/discussions`
+
+```ts
+{ discussions: Array<{
+    id: string,
+    individualNote: boolean,               // false = threaded conversation
+    notes: Array<{
+      id: number,
+      body: string,                        // markdown
+      author: { username, name } | null,
+      system: boolean,                     // auto-event (filtered by default)
+      resolvable: boolean,
+      resolved: boolean,
+      createdAt: string,
+      updatedAt: string
+    }>
+}> }
+```
+
+Blocker check: any note where `resolvable && !resolved`.
+
+### `/m365/calendar/upcoming` — **bare array, no wrapper**
+
+```ts
+Array<{
+  id: string,
+  title: string,
+  start: string,                           // ISO 8601 UTC, or "YYYY-MM-DD" for isAllDay
+  end:   string,
+  isAllDay: boolean,
+  isOnlineMeeting: boolean,
+  location?: string,
+  organizer?: { name: string, email: string },
+  attendees: Array<{ name, email, status }>,
+  bodyPreview?: string,
+  videoLink?: string,                      // Teams joinUrl
+  webLink?: string                         // Outlook web URL
+}>
+```
+
+### `/m365/important` (curated alerts feed)
+
+```ts
+{ messages: Array<{
+    source: "chat" | "channel",
+    sourceId: string,                      // composite: "chat:<id>" or "channel:<team>:<channel>"
+    label: string,                         // user tag
+    displayName: string | null,
+    notes: string | null,
+    message: ChatMessage                   // see /m365/chats/:id/messages for shape
+}> }
+```
+
+### `/atlassian/confluence/search`
+
+```ts
+{
+  results: Array<{
+    id: string,
+    title: string,
+    type: "page" | "blogpost" | "comment" | "attachment",
+    url: string,
+    spaceKey: string | null,
+    spaceName: string | null,
+    excerpt: string,
+    lastModified: string | null            // ISO 8601
+  }>,
+  start: number, limit: number, totalSize: number, isLast: boolean
+}
+```
+
+Offset-paginated (`start` is 0-based) — **not** cursor-paginated like Jira `/search`.
+
+---
+
 ## Decision tree (the Johannes workflows)
 
 **"What should I focus on?" / "My work overview"**
@@ -225,7 +425,7 @@ Decline politely. Read-only surface by design. Offer to draft the message/ticket
   - Jira list endpoints: `{issues: [...]}` → count with `jq '.issues | length'`
   - M365 chats/teams/channels/messages: `{chats: [...]}`, `{teams: [...]}`, `{channels: [...]}`, `{messages: [...]}`
   - M365 `/important`: `{messages: [...]}`
-  - Confluence list endpoints: `{spaces|pages|results: [...]}`
+  - Confluence list endpoints: `/spaces` → `{spaces: [...]}`, `/pages/:id/children` and `/recently-updated` → `{pages: [...]}`, `/search` → `{results: [...]}`
   - Calendar (`/m365/calendar/upcoming`): **bare array** — `jq 'length'` works directly on this one only.
   - Single-resource endpoints (`/atlassian/jira/issue/:key`, `/gitlab/projects/.../merge-requests/:iid`, `/atlassian/confluence/pages/:id`) return the resource object directly.
   - Never `jq 'length'` on a wrapper object — it counts top-level keys (almost always 1), not items.

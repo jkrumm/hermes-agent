@@ -49,7 +49,9 @@ The eight loaded skills (tasks, schedule, work, weather, infrastructure, slack, 
 11. `gh search issues --owner jkrumm --state open --json title,repository,url --limit 20` — open issues across personal repos
 12. Argo `/atlassian/jira/current-sprint?onlyMine=true` — IU sprint commitments assigned to Johannes (see `work` skill). On `503`, surface "Jira sprint unavailable (token expired)" and continue.
 13. Argo `/gitlab/merge-requests?scope=reviews_for_me&state=opened` — IU GitLab MRs awaiting Johannes's review (see `work` skill). On `503`, surface "GitLab MRs unavailable (PAT expired)" and continue.
-14. Argo `/gitlab/merge-requests?scope=created_by_me&state=opened` — Johannes's own open MRs at IU (see `work` skill). Used to compute the **"ready to merge"** subset: MRs where `mergeStatus == "can_be_merged" && hasConflicts == false && draft == false`. This is a heuristic (does not call `/approvals` per MR for cost reasons) — close enough for the morning summary.
+14. Argo `/gitlab/merge-requests?scope=created_by_me&state=opened` — Johannes's own open MRs at IU (see `work` skill). Used to compute the **"ready to merge"** subset: MRs where `mergeStatus == "can_be_merged" && hasConflicts == false && draft == false`. This is the briefing's 3-field heuristic (does not call `/approvals` per MR for cost reasons) — see `work` skill's "Is MR !nnn blocked? — two levels of check" for the distinction from the full 5-field check.
+
+**Response shapes** — full field reference lives in `work` skill's "Response shapes (key fields by endpoint)" section. Key fields for this prompt: `/atlassian/jira/current-sprint` returns `{board, sprint: null | {name, endDate, ...}, issues: Issue[]}` where each Issue has `key`, `summary`, `statusCategory` ("todo"|"in-progress"|"done"|"unknown"), `priority`. Both GitLab MR calls return `{mergeRequests: MR[]}` where each MR has `iid`, `title`, `projectPath`, `mergeStatus`, `hasConflicts`, `draft`, `author.username`, `jiraKeys`. **Never** `jq 'length'` on the wrapper objects — use `jq '.mergeRequests | length'` and `jq '.issues | length'`.
 
 If any individual call fails, continue and note the gap in the affected section.
 
