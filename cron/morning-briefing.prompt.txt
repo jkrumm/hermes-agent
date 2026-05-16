@@ -30,23 +30,26 @@ If `COVERAGE_AVAILABLE=false` or the blocks are absent, fall back to /summary + 
 
 If the script block is missing or malformed, fall back to `Munich` and proceed. Use the city value verbatim in the weather call (`?city=<value>`) and in the section header ("Weather — <city>"). The audio narrative also references this city.
 
-## Step 1 — Gather data (use the `terminal` tool directly, all eleven in parallel)
+## Step 1 — Gather data (use the `terminal` tool directly, all fourteen in parallel)
 
 **Important:** call the `terminal` tool directly with each shell command. Do NOT wrap calls in `execute_code` — that path is slower and prevents proper parallelization.
 
-The eight loaded skills (tasks, schedule, m365, weather, infrastructure, slack, garmin-health, strength) document the argo API base URL and auth pattern — follow what they specify. Issue all eleven calls as eleven `terminal` tool invocations in a single parallel batch:
+The eight loaded skills (tasks, schedule, work, weather, infrastructure, slack, garmin-health, strength) document the argo API base URL and auth pattern — follow what they specify. The `work` skill covers IU calendar + Teams + Jira + Confluence + GitLab; call its endpoints per the playbook below. Issue all fourteen calls as fourteen `terminal` tool invocations in a single parallel batch:
 
 1. Argo `/summary` — combined tasks + uptime overview (see `tasks` and `infrastructure` skills)
 2. Argo `/docker/homelab/summary` — Mac Mini Docker stack (see `infrastructure` skill)
 3. Argo `/docker/vps/summary` — VPS Docker stack (see `infrastructure` skill)
 4. Argo `/calendar?days=1` — today's **personal** Google calendar (see `schedule` skill)
-5. Argo `/m365/calendar/upcoming?days=1` — today's **IU work** Outlook calendar (see `m365` skill). On `503 M365 not authenticated …`, do not retry — surface a single bullet "IU work calendar unavailable (token expired — run `bun m365:auth:prod`)" under Today's Schedule and continue.
+5. Argo `/m365/calendar/upcoming?days=1` — today's **IU work** Outlook calendar (see `work` skill). On `503 M365 not authenticated …`, do not retry — surface a single bullet "IU work calendar unavailable (token expired — run `bun m365:auth:prod`)" under Today's Schedule and continue.
 6. Argo `/weather/forecast?city=$BRIEFING_CITY` — forecast for the resolved city (see `weather` skill)
 7. Argo `/slack/channels/C0AS1LAUQ3C/messages?limit=20` — last 20 messages from #alerts (see `slack` skill)
 8. Argo `/daily-metrics?order=desc&limit=14` — last ~14 days of Garmin daily metrics: HRV, body battery, resting HR, sleep, stress (see `garmin-health` skill). Response is `{data: [...], total: N}` — read `response.data` for the row array. Use the most-recent record where the relevant field is non-null — Garmin sync timing means today's row may be partial at 07:00.
 9. Argo `/workouts?sort=date&order=desc&limit=10` — last 10 strength workouts with sets, total volume, est. 1RM (see `strength` skill). Response is `{data: [...], total: N}` — read `response.data`.
 10. `gh search prs --owner jkrumm --state open --json title,repository,url --limit 20` — open PRs across personal repos
 11. `gh search issues --owner jkrumm --state open --json title,repository,url --limit 20` — open issues across personal repos
+12. Argo `/atlassian/jira/current-sprint?onlyMine=true` — IU sprint commitments assigned to Johannes (see `work` skill). On `503`, surface "Jira sprint unavailable (token expired)" and continue.
+13. Argo `/gitlab/merge-requests?scope=reviews_for_me&state=opened` — IU GitLab MRs awaiting Johannes's review (see `work` skill). On `503`, surface "GitLab MRs unavailable (PAT expired)" and continue.
+14. Argo `/gitlab/merge-requests?scope=created_by_me&state=opened` — Johannes's own open MRs at IU (see `work` skill). Used to compute the **"ready to merge"** subset: MRs where `mergeStatus == "can_be_merged" && hasConflicts == false && draft == false`. This is a heuristic (does not call `/approvals` per MR for cost reasons) — close enough for the morning summary.
 
 If any individual call fails, continue and note the gap in the affected section.
 
@@ -78,6 +81,13 @@ Use this exact structure, in this order. Each section starts with an emoji short
 - Recovery trend: HRV <hrv_last_night_avg>ms vs 7-day avg <hrv_7d_avg>ms <(↑/↓/=)>, RHR <resting_hr>bpm vs 7-day avg <rhr_7d_avg>bpm <(↑/↓/=)>, Body Battery start-of-day <bb_charged>
 - Last session: <Exercise>, <(yesterday | N days ago)>, est. 1RM <X>kg
   *(Sleep deliberately omitted — yesterday's data, syncs after the briefing fires.)*
+
+:briefcase: Work — Sprint & Reviews
+- **Sprint:** <sprint.name>, <N days remaining (sprint.endDate − today)>. My commitments: <count of issues with statusCategory != "done">. Top 3 by status (in-progress first, then todo by priority): one bullet each as `<icon> [<key>] <summary> (<statusCategory>, <priority if non-null>)`. Use `:fire:` for in-progress, `:clipboard:` for todo, `:white_check_mark:` for done.
+- **Ready to merge:** <count of my MRs matching the heuristic from call 14>. If >0, list each as `[<!iid>] <title> — <projectAlias from URL path>`. If 0: omit the bullet.
+- **Needs my review:** <count from call 13>. If >0, list each as `[<!iid>] <title> — <author.username>`. Cap at 5; if more, append "- … and N more".
+(If sprint has no commitments AND ready-to-merge=0 AND needs-review=0: single line "- Sprint clear, no MRs pending.")
+(If all three work calls 503'd: single line "- Work data unavailable (tokens expired).")
 
 :cat: GitHub
 - <N> open PRs <(if N > 0, list each as "repo: title", grouped by repo)>
@@ -133,7 +143,7 @@ Trends matter more than absolutes — a single low HRV reading isn't the signal,
 
 ## Step 3 — Compose the audio narrative (German, ~140–180 words)
 
-A separate text — only fed to text_to_speech. **Five short sections separated by blank lines (paragraph breaks).** When you call `text_to_speech` in Step 4 you'll pass `paragraph_pause_secs=2.0`, which tells the helper to (a) treat each blank-line section as its own synth chunk (so prosody doesn't drift across topic changes) and (b) insert a 2-second beat between them. **Do not** add `[long pause]` or any other inline pause markers — the chunker handles it. Just write five clean paragraphs.
+A separate text — only fed to text_to_speech. **Five or six short sections separated by blank lines (paragraph breaks).** When you call `text_to_speech` in Step 4 you'll pass `paragraph_pause_secs=2.0`, which tells the helper to (a) treat each blank-line section as its own synth chunk (so prosody doesn't drift across topic changes) and (b) insert a 2-second beat between them. **Do not** add `[long pause]` or any other inline pause markers — the chunker handles it. Just write five (or six, if Arbeit is non-empty — see rules below) clean paragraphs.
 
 Format the narrative as:
 
@@ -145,6 +155,8 @@ Heute ist <Wochentag>, der <Datum> <Monat>. <Optional one-line opener — only i
 <Infrastruktur & Alerts — 1–2 sentences>
 
 <Training — see rules below, 2 sentences max, leads with what to do TODAY>
+
+<Arbeit — CONDITIONAL, see rules below. Skip the entire paragraph (no blank line, no placeholder) if sprint has no commitments AND ready-to-merge=0 AND needs-review=0. Otherwise 1–2 sentences max.>
 
 <Aufgaben & GitHub — see rules below, 2–3 sentences>
 ```
@@ -160,6 +172,13 @@ Heute ist <Wochentag>, der <Datum> <Monat>. <Optional one-line opener — only i
 - Sentence 2 — recovery trend signal in plain language: "HRV einundsiebzig, das ist über dem Wochenschnitt — gute Erholung." or "Ruhepuls drei Schläge unter dem Schnitt, Körper ist erholt." Trend, not absolute. Skip Body Battery if it's > 60 (boring); mention it only if low.
 - For exercises that have **never been logged** (e.g. squats, deadlift in a fresh DB), don't moralize — say it neutrally: "Squats stehen noch aus — wäre Zeit für die erste Einheit." Don't say "höchste Zeit" or "endlich" — neutral, matter-of-fact.
 
+**Arbeit (IU work — sprint + MRs, CONDITIONAL):**
+- Only speak this paragraph if **sprint has commitments OR ready-to-merge ≥1 OR needs-review ≥1.** Otherwise skip the entire paragraph silently — work-quiet days don't need a placeholder sentence.
+- One sentence on sprint state, leading with whichever signal is sharpest: "Im Sprint laufen drei Tickets, top eins **EP-17849 Booking refactor** in Progress." Or "Sprint läuft ruhig, alle Tickets noch im Todo."
+- One sentence on MRs, only if non-zero: "**Drei MRs warten auf deinen Review**, davon eine mergebereit (`!1234`)." or "Eine MR ist mergebereit, kannst direkt mergen." Lead with whichever number is higher; mergeable-by-you beats review-from-you in urgency.
+- Keep it tight: two sentences max, no preamble, no "auf der Arbeit" framing — Johannes knows which calendar this is.
+- If the work calls 503'd, skip silently (the Slack body already surfaces it as a bullet — don't read errors aloud).
+
 **Aufgaben & GitHub (must list specific tasks, not vague):**
 - Sentence 1 — task counts + the top three by urgency, numbered: "Neun überfällige Aufgaben. Top drei: erstens **Cases für LoA vorbereiten** seit drei Wochen offen, zweitens **Auto-Service-Termin**, drittens **Tüv München buchen**."
 - Sentence 1b — if `TICKTICK_HIGH_PRIO_DATELESS` is non-empty, add it: "Außerdem zwei hochpriorisierte Aufgaben ohne Datum: **Pflanzen gießen** und **Steuererklärung**." If empty, skip this line.
@@ -173,7 +192,8 @@ Heute ist <Wochentag>, der <Datum> <Monat>. <Optional one-line opener — only i
 - Times spoken: "Viertel nach neun" or "neun Uhr fünfzehn"
 - Numbers: weights as "neunzig Kilo" not "90 kg"; HRV / RHR / Body Battery spoken as plain numbers ("vierundneunzig", "fünfundvierzig")
 - Dates spoken: "heute" / "morgen" / weekday names; absolute dates like "siebter April"
-- Total under 180 words
+- Jira tickets spoken as letters + numbers: "E-P siebzehntausendachthundertneunundvierzig" or just "Booking refactor" by name. MR IDs: "`!1234`" stays as the technical reference token — fine to skip in audio and just name the title.
+- Total under 200 words (was 180 — bumped to fit the optional Arbeit paragraph)
 
 ## Step 4 — Synthesize audio
 
@@ -209,6 +229,11 @@ Output the Slack text body from Step 2, then a blank line, then the `MEDIA:` tag
 - **Today: Pull** — 4 days since last pull-ups, push was yesterday, recovery on the upswing.
 - Recovery trend: HRV 94ms vs 7-day avg 80ms (↑), RHR 45bpm vs 7-day avg 47bpm (↓ good), Body Battery start-of-day 66
 - Last session: Bench Press yesterday, est. 1RM 109.5kg
+
+:briefcase: Work — Sprint & Reviews
+- **Sprint:** Sprint 42, 3 days remaining. My commitments: 4. Top 3 — :fire: [EP-17849] Booking flow refactor (in-progress, P3), :clipboard: [EP-17920] Profile widget A/B (todo, P4), :clipboard: [EP-17850] Payment edge case (todo)
+- **Ready to merge:** 1 — [!1234] feat(booking): submit retry — booking-fe
+- **Needs my review:** 2 — [!1238] fix(profile): null-safe handler — profile-fe (dmytrorozhko1), [!1240] chore(deps): bun 1.1.42 — student-enrolment (fabian.l)
 
 :cat: GitHub
 - 0 open PRs

@@ -25,7 +25,7 @@ cloned alongside hermes-agent** for `make setup` to succeed.
 | `cron/` | `~/.hermes/cron/` | symlink — Hermes-driven (LLM) cron jobs |
 | `scripts/` | `~/.hermes/scripts/` | symlink — Hermes cron pre-run scripts (security check requires they live under `HERMES_HOME/scripts/`). Also holds host-level shell scripts. |
 | `hooks/` | `~/.hermes/hooks/` | symlink — add hooks here |
-| `skills/{name}/` | `~/.hermes/skills/{name}/` | symlink per skill (argo-api, infrastructure, tasks, capture, schedule, m365, weather, slack, garmin-health, strength) |
+| `skills/{name}/` | `~/.hermes/skills/{name}/` | symlink per skill (argo-api, infrastructure, tasks, capture, schedule, work, weather, slack, garmin-health, strength) |
 | `USER.md` | `~/.hermes/memories/USER.md` | copied — Hermes writes to it |
 
 **Claude Code per-repo skills** (committed at `.claude/skills/`, not symlinked — auto-loaded by Claude Code when started inside this repo):
@@ -46,9 +46,18 @@ cloned alongside hermes-agent** for `make setup` to succeed.
 
 ## Homelab API Integration
 
-`skills/argo-api/SKILL.md` endpoint tables are regenerated from `https://argo.jkrumm.com/api/openapi/json` by the homelab `/docs` skill. The argo API uses a 7-tag taxonomy — **Garmin Health, Strength, Productivity, Infrastructure, External Data, System, M365** — and exposes a `GET /` discovery index for agent self-orientation. Domain skills (infrastructure, tasks, capture, schedule, m365, weather, slack, garmin-health, strength) are updated in the same pass if their endpoints changed.
+`skills/argo-api/SKILL.md` endpoint tables are regenerated from `https://argo.jkrumm.com/api/openapi/json` by the homelab `/docs` skill. The argo API tags relevant to Hermes — **Garmin Health, Strength, Productivity, Infrastructure, External Data, System, M365, Atlassian, GitLab** — are exposed at `GET /` for agent self-orientation. Domain skills (infrastructure, tasks, capture, schedule, work, weather, slack, garmin-health, strength) are updated in the same pass if their endpoints changed.
 
-**M365 surface (IU work).** Argo wraps the IU M365 MCP server (Outlook + Teams + Graph) behind a curated read-only REST surface. Currently exposes `GET /api/m365/calendar/upcoming?days=14`; future Teams/Graph routes land under the same `tag=M365` and Hermes's `m365` skill picks them up via OpenAPI discovery without a SOUL.md edit. Calendar is wired into both daily briefings (morning: today; evening: tomorrow) and merged with personal Google events under one timeline with `:office:` prefix on work events. Mail is intentionally **not** exposed — decline if asked. `503 M365 not authenticated …` → tell the user to run `bun m365:auth:prod` from `~/SourceRoot/argo`.
+**Work surface (IU) — `work` skill.** Argo wraps four upstream systems behind a single curated read-only REST surface, all consumed by the Hermes `work` skill:
+
+- **M365** (Outlook calendar, Teams chats + channels, curated `/m365/important` alerts feed, `/m365/team` roster + repo registry — the cross-system identity hub).
+- **Atlassian / Jira** (`/atlassian/jira/{me, my-issues, current-sprint, sprints, backlog, search, issue/:key, users/search}`) — full ticket + sprint + backlog access plus JQL escape hatch.
+- **Atlassian / Confluence** (`/atlassian/confluence/{spaces, search, pages/:id, pages/:id/children, recently-updated}`) — CQL search + page body in rendered HTML.
+- **GitLab** (`/gitlab/{me, users/search, users/by-username, merge-requests, projects/:id/merge-requests/:iid + approvals + discussions, projects/:id/commits + releases, events/recent}`) — cross-project MR view, per-MR approval state + threaded discussions, per-project commits + releases. MRs auto-extract `jiraKeys` for direct Jira pivots.
+
+The skill is **personal-orientation only** — read-only across every system, never writes, never speaks for or pings teammates. Team-facing assistance (Greenkeeper / standup automation) is a separate Hermes Agent (not yet deployed). The skill's SKILL.md owns: identity model (`/m365/team` `members[]` + `repos[]`), MR↔Jira link via `jiraKeys`, structured "is MR blocked" check (5 conditions), and the recurring-question playbook ("what's on my plate", "what needs my review", "is X blocked", "Confluence context for Y").
+
+Calendar + Teams + sprint + MRs are wired into the morning briefing (today's work meetings merged with personal calendar under `:office:` prefix + dedicated `:briefcase: Work — Sprint & Reviews` section); the evening report keeps only tomorrow's merged calendar (wind-down tone forbids pressure-piling). `503 M365 not authenticated …` → tell the user to run `bun m365:auth:prod` from `~/SourceRoot/argo`. `503` on `/gitlab/*` or `/atlassian/*` → corresponding PAT expired.
 
 **Split: garmin-health vs strength.** Garmin Health owns passive measurements (`/daily-metrics`, `/recovery`, `/training-load`, `/fitness-direction`, `/activities`, `/weight-log`, `/user-profile`). Strength owns active lifting (`/workouts`, `/workout-sets`, `/exercises`) plus the 13-endpoint `/workouts/summary/*` analytics suite (e1RM, INOL, ACWR per-exercise, MEV/MAV/MRV landmarks, deload-signal, readiness). The cross-skill bridge is `/workouts/summary/readiness` — it joins Garmin recovery + strength fatigue debt and lives in `strength`. Note `weight-log` + `user-profile` are tagged Garmin Health in the live OpenAPI even though they're physically distinct from daily metrics; respect that grouping in cross-references.
 

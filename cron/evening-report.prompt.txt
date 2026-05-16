@@ -25,7 +25,7 @@ If the script block is missing or malformed, fall back to `Munich` and proceed. 
 
 **Important:** call the `terminal` tool directly with each shell command. Do NOT wrap calls in `execute_code` — that path is slower and prevents proper parallelization.
 
-The six loaded skills (garmin-health, strength, schedule, m365, weather, tasks) document the argo API base URL and auth pattern — follow what they specify. Issue all six calls as six `terminal` tool invocations in a single parallel batch:
+The six loaded skills (garmin-health, strength, schedule, work, weather, tasks) document the argo API base URL and auth pattern — follow what they specify. Issue all six calls as six `terminal` tool invocations in a single parallel batch:
 
 1. Argo `/daily-metrics?order=desc&limit=14` — last ~14 days of Garmin daily metrics: HRV, body battery, resting HR, sleep duration, sleep score, stress (see `garmin-health` skill). Response is `{data: [...], total: N}` — read `response.data` for the row array.
 
@@ -37,7 +37,7 @@ The six loaded skills (garmin-health, strength, schedule, m365, weather, tasks) 
    - The 7-day averages for trend arrows (see Step 2) are still computed from the last 7 days of non-null values — those use historical data, no issue there.
 2. Argo `/workouts?sort=date&order=desc&limit=5` — last 5 workouts including any logged today (see `strength` skill). Response is `{data: [...], total: N}` — read `response.data`. Match by `date` field equal to today's date in `YYYY-MM-DD`.
 3. Argo `/calendar?days=2` — today + tomorrow's **personal** Google calendar (see `schedule` skill). Filter to events on tomorrow's date for the report.
-4. Argo `/m365/calendar/upcoming?days=2` — today + tomorrow's **IU work** Outlook calendar (see `m365` skill). Filter to tomorrow's date for the report. On `503 M365 not authenticated …`, do not retry — surface a single bullet "IU work calendar unavailable (token expired)" under Tomorrow's Schedule and continue. Do not mention this in the audio narrative.
+4. Argo `/m365/calendar/upcoming?days=2` — today + tomorrow's **IU work** Outlook calendar (see `work` skill). Filter to tomorrow's date for the report. On `503 M365 not authenticated …`, do not retry — surface a single bullet "IU work calendar unavailable (token expired)" under Tomorrow's Schedule and continue. Do not mention this in the audio narrative.
 5. Argo `/weather/forecast?city=$BRIEFING_CITY` — forecast for the resolved city (see `weather` skill). Use `daily_7d[1]` for tomorrow (index 0 is today, already past).
 6. Argo `/summary` — for tomorrow's task signal: count of high-priority items and items due tomorrow (see `tasks` skill). **Do NOT surface overdue counts in the output** — even though the endpoint returns them, the evening report intentionally does not show overdue work.
 
