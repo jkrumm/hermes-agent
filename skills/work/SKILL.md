@@ -111,7 +111,7 @@ This may overcount MRs that still need approvals or have unresolved threads, but
 | "Is MR !nnn blocked?" | `/gitlab/projects/{projectId}/merge-requests/{iid}` + `/…/approvals` + `/…/discussions` (parallel) |
 | "What did Y push this week?" | `/gitlab/events/recent?days=7` is **YOU-only**. For a teammate: `/gitlab/merge-requests?scope=all&authorUsername=<gitlab.username>&state=all` filtered by `updatedAt` |
 | "Releases since last week?" | `/gitlab/projects/{projectId}/releases` per repo (no cross-project releases endpoint) |
-| "Important Teams messages?" | `/m365/important` — pre-curated by Johannes via the dashboard. Each entry has `label`, `notes`, `message`. `?label=alerts` to scope |
+| "Important Teams messages?" / "Anything important from the team this morning?" / "Was Wichtiges in den Arbeits-Chats?" | `/m365/important?top=5&limit=30` — pre-curated by Johannes via the dashboard. Filter `message.createdAt` to the implied window (this morning → last 8h, today → last 24h). `?label=alerts` to scope to one tag. Each entry has `label`, `notes`, `message` |
 | "What's in chat / channel X?" | `/m365/chats` → pick id → `/m365/chats/{chatId}/messages?top=20`. For channels: `/m365/teams` → `/m365/teams/{teamId}/channels` → `/m365/teams/{teamId}/channels/{channelId}/messages` |
 | "Upcoming work meetings?" | `/m365/calendar/upcoming?days=N` (default 14, max 60) |
 | "Confluence context for X?" | `/atlassian/confluence/search?cql=text ~ "X"` then `/atlassian/confluence/pages/{id}?bodyFormat=view` |
@@ -409,7 +409,7 @@ Decline politely. Read-only surface by design. Offer to draft the message/ticket
 
 ## Defaults and gotchas
 
-- **`/m365/important` is curated, not search.** Only returns messages from chats/channels Johannes labeled via the dashboard. If a chat returns nothing, it isn't labeled — don't try to "discover" content there.
+- **`/m365/important` is curated, not search — and never wired into briefings/watchdog.** Only returns messages from chats and channels Johannes labeled via the dashboard (`POST /m365/labels`). Common labels: `alerts`, `pr-reviews`, `general`. If an expected chat returns nothing, it isn't labeled — say so ("doesn't look like that chat is labeled — add it in the dashboard if you want it surfaced here") rather than trying to discover content via `/m365/chats` or `/m365/teams/.../channels`. This endpoint is **ad-hoc only**: it is intentionally not folded into the morning briefing, evening report, or watchdog (work signals don't belong in those — see SOUL.md's personal-orientation rule).
 - **System messages filtered by default.** `/m365/chats/{id}/messages`, channel messages, and `/gitlab/.../discussions` drop join/leave/label-change/merge events unless `?includeSystem=true`. Only flip it for explicit membership/process questions.
 - **`/gitlab/events/recent` is authenticated-user-only.** For a teammate's activity, use `/gitlab/merge-requests?scope=all&authorUsername=<gitlab.username>&state=all` and filter by `updatedAt`.
 - **No cross-project GitLab releases endpoint.** Iterate `/gitlab/projects/{projectId}/releases` per repo from `/m365/team` `repos[]`.
