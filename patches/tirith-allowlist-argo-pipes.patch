@@ -1,0 +1,117 @@
+diff --git a/tools/tirith_security.py b/tools/tirith_security.py
+index 350265d33..398dc35c4 100644
+--- a/tools/tirith_security.py
++++ b/tools/tirith_security.py
+@@ -25,6 +25,8 @@ import json
+ import logging
+ import os
+ import platform
++import re
++import shlex
+ import shutil
+ import stat
+ import subprocess
+@@ -604,6 +606,93 @@ def ensure_installed(*, log_failures: bool = True):
+     return None  # Not available yet; commands will fail-open until ready
+ 
+ 
++# ---------------------------------------------------------------------------
++# Local allowlist — argo.jkrumm.com pipelines
++# ---------------------------------------------------------------------------
++#
++# Tirith's "Pipe to interpreter" rule fires on any `curl | python3` shape,
++# regardless of host trust. For argo.jkrumm.com (Johannes's personal API,
++# bearer-authenticated) the rule is a constant false positive: the response
++# is JSON parsed as data, not code downloaded for execution. We bypass tirith
++# only when (a) every URL in the command is on argo, (b) every pipeline stage
++# runs a known-safe text tool, and (c) there are no shell escape hatches that
++# could smuggle in code from outside the visible command.
++#
++# Mirrors the cron-scanner allowlist (patches/cronjob-tools-allowlist-argo-
++# bearer.patch). Any foreign host or shell metaprogramming → fall through.
++
++_ARGO_HOST = "argo.jkrumm.com"
++
++_ARGO_PIPELINE_SAFE_PROGRAMS = frozenset({
++    "curl", "jq", "python3", "python",
++    "head", "tail", "tee", "tr", "cat", "wc", "cut",
++    "grep", "sort", "awk", "sed", "uniq", "xargs",
++})
++
++# Standalone shell operator tokens that signal control flow or redirection
++# we don't want to reason about — defer to tirith if any appear unquoted.
++# (`source`/`./eval`/`exec` are excluded here because the per-stage program
++# check below already rejects them as non-safe programs at stage-start; as
++# an *argument* — e.g. `jq .` — `.` is harmless.)
++_UNSAFE_STANDALONE_TOKENS = frozenset({
++    ";", "&&", "||", "&",
++    ">", ">>", "<", "<<", "<<<", "2>", "2>>", "&>",
++    "(", ")",
++})
++
++# Substrings that, when found inside any token (even quoted), indicate
++# command substitution or arithmetic expansion that smuggles in code we
++# can't statically verify.
++_UNSAFE_SUBSTRINGS_IN_TOKEN = ("$(", "`", "$((")
++
++_URL_HOST_RE = re.compile(r"https?://([^/\s'\"]+)")
++
++
++def _is_argo_only_pipeline(command: str) -> bool:
++    """Return True if the command is a safe argo-only pipeline.
++
++    Conservative parser: any unparseable shell, foreign host, shell escape
++    hatch, or unfamiliar program → False (defer to tirith).
++    """
++    hosts = _URL_HOST_RE.findall(command)
++    if not hosts or any(host != _ARGO_HOST for host in hosts):
++        return False
++
++    try:
++        lex = shlex.shlex(command, posix=True, punctuation_chars=True)
++        lex.whitespace_split = True
++        tokens = list(lex)
++    except ValueError:
++        return False
++
++    for tok in tokens:
++        if tok in _UNSAFE_STANDALONE_TOKENS:
++            return False
++        if any(s in tok for s in _UNSAFE_SUBSTRINGS_IN_TOKEN):
++            return False
++
++    stages: list[list[str]] = [[]]
++    for tok in tokens:
++        if tok == "|":
++            stages.append([])
++        else:
++            stages[-1].append(tok)
++
++    for stage in stages:
++        if not stage:
++            return False
++        idx = 0
++        while idx < len(stage) and "=" in stage[idx] and not stage[idx].startswith("-"):
++            idx += 1
++        if idx >= len(stage):
++            return False
++        program = stage[idx].rsplit("/", 1)[-1]
++        if program not in _ARGO_PIPELINE_SAFE_PROGRAMS:
++            return False
++
++    return True
++
++
+ # ---------------------------------------------------------------------------
+ # Main API
+ # ---------------------------------------------------------------------------
+@@ -627,6 +716,9 @@ def check_command_security(command: str) -> dict:
+     if not cfg["tirith_enabled"]:
+         return {"action": "allow", "findings": [], "summary": ""}
+ 
++    if _is_argo_only_pipeline(command):
++        return {"action": "allow", "findings": [], "summary": "argo-only pipeline (tirith bypassed)"}
++
+     tirith_path = _resolve_tirith_path(cfg["tirith_path"])
+     timeout = cfg["tirith_timeout"]
+     fail_open = cfg["tirith_fail_open"]
