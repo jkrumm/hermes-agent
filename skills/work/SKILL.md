@@ -1,7 +1,7 @@
 ---
 name: work
 description: IU work surface — Outlook calendar, Teams chats/channels + curated alerts, Jira tickets/sprint/backlog (read + create/update/comment on Johannes's behalf, always Team=Prometheus, auto-signed), Confluence docs, GitLab MRs + approvals + discussions. Cross-system identity via /m365/team roster. Personal assistant only, never team-facing.
-version: 1.2.0
+version: 1.3.0
 metadata:
   hermes:
     tags: [work, iu, calendar, teams, outlook, jira, jira-create, jira-update, sprint, confluence, gitlab, mr, review, ticket]
@@ -121,15 +121,24 @@ Argo exposes three write endpoints for the Prometheus board (EP project, board 2
 5. **Omit storyPoints** by default — points are set during team refinement. Only fill when Johannes asks for a specific number ("a 1-point chore").
 6. **Description is plain text only.** Argo does not convert markdown to ADF — `## Headers`, ``` ``` ``` code fences, `*bold*`, `- bullets` and `[label](url)` links all render as literal characters in Jira. Use natural paragraphs separated by blank lines. Single newlines become hard breaks. To reference another ticket, put the bare key in prose (`EP-17587`) or the full URL on its own line — Jira auto-linkifies both. Do NOT compose ADF JSON either — argo wraps a plain string itself.
 
-**Argo write-surface gaps — do NOT try to work around:**
+**Description = Markdown subset.** The `description` (and comment `body`) field accepts:
 
-- **Cannot add panels / code blocks / formatted lists in descriptions.** Argo's text→ADF converter only handles paragraphs and hard breaks. For richer formatting, send a pre-built ADF doc as `descriptionAdf` (not currently exposed on the route — surface as a future gap), or accept plain-text layout.
+- `#`, `##`, `###` for h1/h2/h3 headings — use `## Acceptance Criteria` style.
+- `**bold**`, `*italic*` / `_italic_`, `` `code` ``.
+- Fenced ``` ```lang ... ``` ``` code blocks.
+- `- ` / `* ` bullet lists (consecutive lines = one list).
+- `1. ` ordered lists.
+- `[text](url)` links.
+- **Bare issue keys (`EP-17587`) and `/browse/<KEY>` URLs are auto-linked to Jira smart-link inlineCards** — never paste a raw `https://careerpartner.atlassian.net/browse/EP-X` URL when you can write `EP-X` and let Argo render it as a smart-link.
+- Blank line splits paragraphs; single newline inside a paragraph = hard break.
 
-When Johannes asks for richer formatting, do NOT silently approximate — name the gap so he can decide whether to extend argo or do it by hand.
+**NOT supported** (will render as literal characters in Jira): tables, blockquotes, nested lists, task lists, images, HTML, link references. If Johannes wants any of those, surface the gap.
 
-**Issue-type swap (closed gap):** `PATCH /atlassian/jira/issues/{key}` now accepts `issueType` — Story↔Task↔Spike↔Bug swap without losing the key. Jira may reject combinations that change schema-required fields; if you get a 400 the body explains which field is missing.
+**Issue-type swap (closed gap):** `PATCH /atlassian/jira/issues/{key}` accepts `issueType` — Story↔Task↔Spike↔Bug swap without losing the key. Jira may reject combinations that change schema-required fields; if you get a 400 the body explains which field is missing.
 
-**Structured issue links (closed gap):** both `POST` and `PATCH` accept a `links: [{type, key}]` array. `type` accepts the direction-flavored phrase ("blocks", "is blocked by", "duplicates", "is duplicated by", "causes", "is caused by", "relates to", "tests", "clones") OR the canonical type name ("Blocks", "Relates"). The phrase form is preferred — it carries the direction unambiguously. PATCH `links` is ADDITIVE (no remove-link endpoint; drop stale links in the Jira UI). Fetch the tenant-valid set from `GET /atlassian/jira/create-meta` `linkTypes[]`.
+**Structured issue links (closed gap):** both `POST` and `PATCH` accept a `links: [{type, key}]` array. `type` accepts the direction-flavored phrase ("blocks", "is blocked by", "duplicates", "is duplicated by", "causes", "is caused by", "relates to", "tests", "clones") OR the canonical type name ("Blocks", "Relates"). The phrase form is preferred — it carries the direction unambiguously. PATCH `links` is ADDITIVE (no remove-link endpoint; drop stale links in the Jira UI).
+
+**Before adding links via PATCH, READ the existing ones.** `GET /atlassian/jira/issue/{key}` now returns a `links: [{type, direction, phrase, key, url, summary, status}]` field — check it first so you don't pile up duplicates with the additive PATCH. Fetch the tenant-valid type set from `GET /atlassian/jira/create-meta` `linkTypes[]`.
 
 **No native "Follows" link type in this tenant.** Closest semantic is `Blocks` reversed: "EP-NEW follows EP-17587" ≡ "EP-NEW is blocked by EP-17587". Use `{type: "is blocked by", key: "EP-17587"}`.
 
@@ -197,13 +206,13 @@ curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" \
 curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" \
   "https://argo.jkrumm.com/api/atlassian/jira/create-meta"
 
-# Jira WRITE — create a ticket (backlog, no assignee, no SP)
+# Jira WRITE — create with markdown body (headings + bullet list + auto-linked issue key)
 curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: application/json" \
   -X POST "https://argo.jkrumm.com/api/atlassian/jira/issues" \
   -d '{
     "issueType": "Spike",
     "summary": "[Topic] Concise imperative title",
-    "description": "What needs to happen and why.\n\nAcceptance criteria as separate paragraph.",
+    "description": "## Context\n\nWe need X because Y. Related to EP-17587.\n\n## Acceptance Criteria\n\n- **Foo** must happen\n- `bar` config flipped\n- Smoke test green",
     "sprint": "backlog"
   }'
 
@@ -362,7 +371,17 @@ Authoritative field reference for the endpoints the briefing prompts and the rec
   created: string,                         // ISO 8601
   updated: string,                         // ISO 8601
   labels: string[],
-  parent: { key: string, summary: string } | null
+  parent: { key: string, summary: string } | null,
+  links: Array<{
+    type: string,                          // "Blocks", "Relates", "Duplicate", ...
+    direction: "inward" | "outward",       // which end THIS ticket is on
+    phrase: string,                        // "blocks" or "is blocked by" — the side for THIS ticket
+    key: string,                           // the OTHER ticket
+    url: string,
+    summary: string,
+    status: string,
+    statusCategory: "todo" | "in-progress" | "done" | "unknown"
+  }>
 }
 ```
 
@@ -521,7 +540,7 @@ Offset-paginated (`start` is 0-based) — **not** cursor-paginated like Jira `/s
 
 1. (Cache once per session) `GET /atlassian/jira/create-meta` for the field shape + enums.
 2. `GET /atlassian/jira/current-sprint` — eyeball the `summary` strings of 5-10 sibling tickets to learn the bracket convention currently in use for this domain (`[FE][Booking Migration] …`, `[MS][TMC] …`, `[BI] …`, `[Admission] …`). Match the existing taxonomy.
-3. Compose the body locally. Plain text; blank lines split paragraphs. Do NOT add a Hermes footer — Argo does it automatically.
+3. Compose the body locally. Markdown subset (see "Description = Markdown subset" above) — use `## Acceptance Criteria` headings + `- ` bullet lists + bare `EP-1234` keys (auto-linked to smart-links). Do NOT add a Hermes footer — Argo does it automatically.
 4. If Johannes wants it assigned to a teammate, resolve via `/m365/team` → `members[].atlassian.accountId`. If "assign to me", call `/atlassian/jira/me` for his own accountId.
 5. `POST /atlassian/jira/issues` with `issueType`, `summary`, `description`, optional `sprint` (default omitted → backlog), `assigneeAccountId`, `priority`, `parentKey` (for Sub-task), `epicKey`.
 6. Quote the returned `key` + `url` back to Johannes ("Created EP-17920 — <url>"). One line, no fluff.
