@@ -1,7 +1,7 @@
 ---
 name: work
 description: IU work surface — Outlook calendar, Teams chats/channels + curated alerts, Jira tickets/sprint/backlog (read + create/update/comment on Johannes's behalf, always Team=Prometheus, auto-signed), Confluence docs, GitLab MRs + approvals + discussions. Cross-system identity via /m365/team roster. Personal assistant only, never team-facing.
-version: 1.1.0
+version: 1.2.0
 metadata:
   hermes:
     tags: [work, iu, calendar, teams, outlook, jira, jira-create, jira-update, sprint, confluence, gitlab, mr, review, ticket]
@@ -119,6 +119,19 @@ Argo exposes three write endpoints for the Prometheus board (EP project, board 2
 3. **Resolve people** via `/m365/team` → `members[].atlassian.accountId`. Pass `accountId` to `assigneeAccountId` (NOT email or display name). For Johannes use `/atlassian/jira/me` or the self-flagged member in the roster.
 4. **Default to backlog** for non-urgent tickets. Only set `sprint: "current"` when Johannes explicitly says "into this sprint" or the work is time-critical.
 5. **Omit storyPoints** by default — points are set during team refinement. Only fill when Johannes asks for a specific number ("a 1-point chore").
+6. **Description is plain text only.** Argo does not convert markdown to ADF — `## Headers`, ``` ``` ``` code fences, `*bold*`, `- bullets` and `[label](url)` links all render as literal characters in Jira. Use natural paragraphs separated by blank lines. Single newlines become hard breaks. To reference another ticket, put the bare key in prose (`EP-17587`) or the full URL on its own line — Jira auto-linkifies both. Do NOT compose ADF JSON either — argo wraps a plain string itself.
+
+**Argo write-surface gaps — do NOT try to work around:**
+
+- **Cannot add panels / code blocks / formatted lists in descriptions.** Argo's text→ADF converter only handles paragraphs and hard breaks. For richer formatting, send a pre-built ADF doc as `descriptionAdf` (not currently exposed on the route — surface as a future gap), or accept plain-text layout.
+
+When Johannes asks for richer formatting, do NOT silently approximate — name the gap so he can decide whether to extend argo or do it by hand.
+
+**Issue-type swap (closed gap):** `PATCH /atlassian/jira/issues/{key}` now accepts `issueType` — Story↔Task↔Spike↔Bug swap without losing the key. Jira may reject combinations that change schema-required fields; if you get a 400 the body explains which field is missing.
+
+**Structured issue links (closed gap):** both `POST` and `PATCH` accept a `links: [{type, key}]` array. `type` accepts the direction-flavored phrase ("blocks", "is blocked by", "duplicates", "is duplicated by", "causes", "is caused by", "relates to", "tests", "clones") OR the canonical type name ("Blocks", "Relates"). The phrase form is preferred — it carries the direction unambiguously. PATCH `links` is ADDITIVE (no remove-link endpoint; drop stale links in the Jira UI). Fetch the tenant-valid set from `GET /atlassian/jira/create-meta` `linkTypes[]`.
+
+**No native "Follows" link type in this tenant.** Closest semantic is `Blocks` reversed: "EP-NEW follows EP-17587" ≡ "EP-NEW is blocked by EP-17587". Use `{type: "is blocked by", key: "EP-17587"}`.
 
 | Question | Call chain |
 |-|-|
@@ -128,7 +141,9 @@ Argo exposes three write endpoints for the Prometheus board (EP project, board 2
 | "Comment on EP-XXXX: tested locally, looks good" | `POST /atlassian/jira/issues/EP-XXXX/comments` `{body:"Tested locally, looks good — ready for review"}` (footer auto-appended) |
 | "Re-assign EP-XXXX to fabi" | resolve via `/m365/team` `alias="fabi"` → `members[].atlassian.accountId` → `PATCH /atlassian/jira/issues/EP-XXXX` `{assigneeAccountId:"<accountId>"}` |
 | "Add EP-XXXX to next sprint" | `PATCH /atlassian/jira/issues/EP-XXXX` `{sprint:"next"}` |
-| "Link EP-XXXX as a sub-task of EP-YYYY" | Sub-task linking happens at creation only via `parentKey` — for existing tickets, decline and ask Johannes if he wants the new sub-task created from scratch. Don't attempt issuelink workarounds. |
+| "Link EP-XXXX as a sub-task of EP-YYYY" | Sub-task hierarchy is set at creation only via `parentKey`. For structural "Blocks / Relates / Duplicates" links between existing tickets use the next row. |
+| "EP-NEW blocks EP-17587" / "EP-NEW relates to EP-Y" / "Mark EP-NEW as duplicate of EP-Z" / "EP-NEW follows EP-17587" | `PATCH /atlassian/jira/issues/EP-NEW` `{links:[{type:"blocks",key:"EP-17587"}]}` (or `"relates to"`, `"is duplicated by"`, `"is blocked by"` for follows-semantics). Additive — never replaces existing links. |
+| "Change EP-XXXX from Story to Task" / "Wrong type, should be a Spike" | `PATCH /atlassian/jira/issues/EP-XXXX` `{issueType:"Task"}` — preserves key + history. 400 if Jira's workflow can't accept the new type (rare on EP — workflow is shared). |
 | "Change story points on EP-XXXX to 3" | `PATCH /atlassian/jira/issues/EP-XXXX` `{storyPoints:3}` (Johannes is asking explicitly — refinement override) |
 
 **Write failure modes:**
@@ -208,6 +223,30 @@ curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: applicatio
 curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: application/json" \
   -X PATCH "https://argo.jkrumm.com/api/atlassian/jira/issues/EP-17849" \
   -d '{ "status": "Code Review" }'
+
+# Jira WRITE — change issue type (preserves key + history)
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: application/json" \
+  -X PATCH "https://argo.jkrumm.com/api/atlassian/jira/issues/EP-17863" \
+  -d '{ "issueType": "Task" }'
+
+# Jira WRITE — add structured issue links (additive)
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: application/json" \
+  -X PATCH "https://argo.jkrumm.com/api/atlassian/jira/issues/EP-17863" \
+  -d '{ "links": [
+    { "type": "is blocked by", "key": "EP-17587" },
+    { "type": "relates to",    "key": "EP-17666" }
+  ] }'
+
+# Jira WRITE — create + link in one shot
+curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: application/json" \
+  -X POST "https://argo.jkrumm.com/api/atlassian/jira/issues" \
+  -d '{
+    "issueType": "Task",
+    "summary": "[Hermes] verify write surface",
+    "description": "Smoke test for the new write endpoints.",
+    "sprint": "backlog",
+    "links": [{ "type": "relates to", "key": "EP-17863" }]
+  }'
 
 # Jira WRITE — add a comment (footer auto-appended)
 curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: application/json" \
