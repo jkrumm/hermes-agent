@@ -1,0 +1,23 @@
+diff --git a/agent/auxiliary_client.py b/agent/auxiliary_client.py
+index 8a6188d1c..632236386 100644
+--- a/agent/auxiliary_client.py
++++ b/agent/auxiliary_client.py
+@@ -4025,7 +4025,17 @@ def _build_call_kwargs(
+             pass  # ZAI vision models do not accept max_tokens
+         elif provider == "custom":
+             custom_base = base_url or _current_custom_base_url()
+-            if base_url_hostname(custom_base) == "api.openai.com":
++            # gpt-5*/gpt-4o/o-series reject max_tokens and require
++            # max_completion_tokens even on non-api.openai.com OpenAI-compatible
++            # gateways (e.g. the IU unified endpoint serving gpt-5-mini as the
++            # auxiliary model). Switch on the model name, not just the hostname.
++            _needs_max_completion = (
++                base_url_hostname(custom_base) == "api.openai.com"
++                or _model_lower.startswith("gpt-5")
++                or _model_lower.startswith("gpt-4o")
++                or _model_lower.startswith(("o1-", "o3-", "o4-"))
++            )
++            if _needs_max_completion:
+                 kwargs["max_completion_tokens"] = max_tokens
+             else:
+                 kwargs["max_tokens"] = max_tokens
