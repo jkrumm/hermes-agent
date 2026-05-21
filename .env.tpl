@@ -12,7 +12,16 @@ SLACK_CHANNEL_HERMES=op://hermes/slack/channel-hermes
 SLACK_HOME_CHANNEL=op://hermes/slack/channel-hermes
 SLACK_CHANNEL_INBOX=op://hermes/slack/channel-inbox
 
-# Anthropic — fallback LLM via IU company proxy
+# Kimi brain (default) — IU unified endpoint, OpenAI-compatible transport.
+# Same key as ANTHROPIC_*; the base is the OpenAI-compat surface (…/openai/v1),
+# DERIVED from BASE_URL (…/anthropic → …/openai/v1). NOTE: the runtime reads the
+# resolved ~/.hermes/.env (rebuilt by the Python builder in README.md, which
+# derives this value); this literal is the documented template only.
+OPENAI_API_KEY=op://common/anthropic/API_KEY
+OPENAI_BASE_URL=https://unified-endpoint-main.app.iu-it.org/openai/v1
+
+# Anthropic — auxiliary models only (Haiku: web_extract / compression / approval
+# / title_generation). The IU company proxy serves Anthropic Messages here.
 ANTHROPIC_API_KEY=op://common/anthropic/API_KEY
 ANTHROPIC_BASE_URL=op://common/anthropic/BASE_URL
 

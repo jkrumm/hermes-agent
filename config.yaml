@@ -1,14 +1,21 @@
 model:
-  provider: anthropic
-  model: claude-sonnet-4-6
-  default: claude-sonnet-4-6
-  api_key: ${ANTHROPIC_API_KEY}
-  base_url: ${ANTHROPIC_BASE_URL}
-  context_length: 1000000
+  provider: custom
+  model: Kimi-K2.6
+  default: Kimi-K2.6
+  api_key: ${OPENAI_API_KEY}
+  base_url: ${OPENAI_BASE_URL}
+  api_mode: chat_completions
+  context_length: 256000
   reasoning_effort: medium
   tool_use_enforcement: true
 providers: {}
-fallback_providers: []
+fallback_providers:
+- provider: custom
+  model: Kimi-K2.5
+  base_url: ${OPENAI_BASE_URL}
+  api_key: ${OPENAI_API_KEY}
+  api_mode: chat_completions
+  context_length: 256000
 credential_pool_strategies: {}
 toolsets:
 - hermes-cli

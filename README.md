@@ -1,6 +1,6 @@
 # Hermes Agent — Mac Mini M2 Pro
 
-Personal AI assistant running 24/7 on Mac Mini. Slack as interface, Sonnet 4.6 as brain, seven skill domains.
+Personal AI assistant running 24/7 on Mac Mini. Slack as interface, Kimi K2.6 as brain (K2.5 failover), seven skill domains.
 
 **Hermes docs**: https://hermes-agent.nousresearch.com/docs/
 
@@ -15,7 +15,7 @@ Mac Mini M2 Pro — Hermes Agent (always-on)
   ├→ fish-s2-pro (127.0.0.1:8002) — Fish Audio S2 Pro (TTS, both DE and EN)
   ├→ Homelab — Docker containers, CouchDB, backups (via Tailscale)
   ├→ VPS — Production apps, ClickStack (via Tailscale)
-  └→ IU unified endpoint — Sonnet 4.6 (primary), Haiku 4.5 (auxiliary), Gemini Flash (vision)
+  └→ IU unified endpoint — Kimi K2.6 (primary, OpenAI-compat; K2.5 failover), Haiku 4.5 (auxiliary), Gemini Flash (vision)
 ```
 
 ## Channel Architecture
@@ -172,7 +172,7 @@ tail -f /tmp/hermes-gateway.log  # watch for successful Slack connection
 
 ### 9. Verify
 
-- [x] Send message in `#hermes` on Slack — get response via Sonnet 4.6
+- [x] Send message in `#hermes` on Slack — get response via Kimi K2.6
 - [x] Send voice memo in Slack — get transcribed via Parakeet STT
 - [x] TTS audio generation — Fish S2 Pro via localai-helper, MP3 output
 - [x] Backup cron — daily 03:00 rsync to `homelab:/mnt/hdd/backups/hermes/`, pings UK
@@ -194,6 +194,7 @@ refs = {
     'SLACK_CHANNEL_HERMES': 'op://hermes/slack/channel-hermes',
     'SLACK_HOME_CHANNEL': 'op://hermes/slack/channel-hermes',
     'SLACK_CHANNEL_INBOX': 'op://hermes/slack/channel-inbox',
+    'OPENAI_API_KEY': 'op://common/anthropic/API_KEY',
     'ANTHROPIC_API_KEY': 'op://common/anthropic/API_KEY',
     'ANTHROPIC_BASE_URL': 'op://common/anthropic/BASE_URL',
     'GEMINI_API_KEY': 'op://hermes/google-ai-studio/api-key',
@@ -203,12 +204,16 @@ refs = {
     'UPTIME_PUSH_HERMES': 'op://hermes/uptime-kuma/agent-push-url',
     'UPTIME_PUSH_BACKUP': 'op://hermes/uptime-kuma/backup-push-url',
 }
+resolved = {}
+for key, ref in refs.items():
+    resolved[key] = subprocess.check_output(['op', 'read', ref, '--account', 'tkrumm'], text=True).strip()
+# Default brain is Kimi-K2.6 on the IU OpenAI-compat transport. Derive its base
+# from BASE_URL (…/anthropic → …/openai/v1) — never read a stored OpenAI base,
+# the op://common/anthropic/OPENAI_BASE_URL field is stale (retired host).
+resolved['OPENAI_BASE_URL'] = resolved['ANTHROPIC_BASE_URL'].replace('/anthropic', '/openai/v1')
 # Static env vars (not from 1Password)
 static = {}
-lines = []
-for key, ref in refs.items():
-    val = subprocess.check_output(['op', 'read', ref, '--account', 'tkrumm'], text=True).strip()
-    lines.append(f'{key}={val}')
+lines = [f'{key}={val}' for key, val in resolved.items()]
 for key, val in static.items():
     lines.append(f'{key}={val}')
 with open(os.path.expanduser('~/.hermes/.env'), 'w') as f:
