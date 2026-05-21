@@ -1,6 +1,6 @@
 # Hermes Agent — Mac Mini M2 Pro
 
-Personal AI assistant running 24/7 on Mac Mini. Slack as interface, Kimi K2.6 as brain (K2.5 failover), seven skill domains.
+Personal AI assistant running 24/7 on Mac Mini. Slack as interface, Kimi K2.6 as brain (EU; `claude-sonnet-4-6-eu` failover), seven skill domains.
 
 **Hermes docs**: https://hermes-agent.nousresearch.com/docs/
 
@@ -15,7 +15,7 @@ Mac Mini M2 Pro — Hermes Agent (always-on)
   ├→ fish-s2-pro (127.0.0.1:8002) — Fish Audio S2 Pro (TTS, both DE and EN)
   ├→ Homelab — Docker containers, CouchDB, backups (via Tailscale)
   ├→ VPS — Production apps, ClickStack (via Tailscale)
-  └→ IU unified endpoint — Kimi K2.6 (primary, OpenAI-compat; K2.5 failover), Haiku 4.5 (auxiliary), Gemini Flash (vision)
+  └→ IU unified endpoint — Kimi K2.6 (primary, OpenAI-compat, EU; claude-sonnet-4-6-eu failover), claude-sonnet-4-6-eu (auxiliary), Gemini Flash (vision)
 ```
 
 ## Channel Architecture

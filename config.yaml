@@ -11,11 +11,11 @@ model:
 providers: {}
 fallback_providers:
 - provider: custom
-  model: Kimi-K2.5
+  model: claude-sonnet-4-6-eu
   base_url: ${OPENAI_BASE_URL}
   api_key: ${OPENAI_API_KEY}
   api_mode: chat_completions
-  context_length: 256000
+  context_length: 200000
 credential_pool_strategies: {}
 toolsets:
 - hermes-cli
@@ -120,21 +120,21 @@ auxiliary:
     extra_body: {}
     download_timeout: 30
   web_extract:
-    provider: anthropic
-    model: claude-haiku-4-5-20251001
-    base_url: ${ANTHROPIC_BASE_URL}
-    api_key: ${ANTHROPIC_API_KEY}
+    provider: custom
+    model: claude-sonnet-4-6-eu
+    base_url: ${OPENAI_BASE_URL}
+    api_key: ${OPENAI_API_KEY}
     timeout: 360
     extra_body: {}
     context_length: 200000
   compression:
-    provider: anthropic
-    model: claude-haiku-4-5-20251001
-    base_url: ${ANTHROPIC_BASE_URL}
-    api_key: ${ANTHROPIC_API_KEY}
+    provider: custom
+    model: claude-sonnet-4-6-eu
+    base_url: ${OPENAI_BASE_URL}
+    api_key: ${OPENAI_API_KEY}
     timeout: 120
     extra_body: {}
-    api_mode: anthropic_messages
+    api_mode: chat_completions
     context_length: 200000
   session_search:
     provider: auto
@@ -152,13 +152,13 @@ auxiliary:
     timeout: 30
     extra_body: {}
   approval:
-    provider: anthropic
-    model: claude-haiku-4-5-20251001
-    base_url: ${ANTHROPIC_BASE_URL}
-    api_key: ${ANTHROPIC_API_KEY}
+    provider: custom
+    model: claude-sonnet-4-6-eu
+    base_url: ${OPENAI_BASE_URL}
+    api_key: ${OPENAI_API_KEY}
     timeout: 30
     extra_body: {}
-    api_mode: anthropic_messages
+    api_mode: chat_completions
     context_length: 200000
   mcp:
     provider: auto
@@ -168,13 +168,13 @@ auxiliary:
     timeout: 30
     extra_body: {}
   title_generation:
-    provider: anthropic
-    model: claude-haiku-4-5-20251001
-    base_url: ${ANTHROPIC_BASE_URL}
-    api_key: ${ANTHROPIC_API_KEY}
+    provider: custom
+    model: claude-sonnet-4-6-eu
+    base_url: ${OPENAI_BASE_URL}
+    api_key: ${OPENAI_API_KEY}
     timeout: 30
     extra_body: {}
-    api_mode: anthropic_messages
+    api_mode: chat_completions
     context_length: 200000
   curator:
     provider: auto
