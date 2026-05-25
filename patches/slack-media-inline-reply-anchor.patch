@@ -1,0 +1,55 @@
+diff --git a/gateway/platforms/base.py b/gateway/platforms/base.py
+index 0bf7b9a2a..68cebe163 100644
+--- a/gateway/platforms/base.py
++++ b/gateway/platforms/base.py
+@@ -3233,6 +3233,13 @@ class BasePlatformAdapter(ABC):
+                     except Exception as batch_err:
+                         logger.warning("[%s] Error batching images: %s", self.name, batch_err, exc_info=True)
+ 
++                # LOCAL MODIFICATION (patches/slack-media-inline-reply-anchor.patch):
++                # Pass the same reply anchor the text reply uses so media files
++                # thread identically to text. Without it, media senders get
++                # reply_to=None and Slack's synthetic-thread guard (which nulls
++                # the message's own ts only when it equals reply_to) can't fire,
++                # so audio/files land in a thread while the text reply is inline.
++                _media_reply_anchor = _reply_anchor_for_event(event)
+                 for media_path, is_voice in _non_image_media:
+                     if human_delay > 0:
+                         await asyncio.sleep(human_delay)
+@@ -3242,18 +3249,21 @@ class BasePlatformAdapter(ABC):
+                             media_result = await self.send_voice(
+                                 chat_id=event.source.chat_id,
+                                 audio_path=media_path,
++                                reply_to=_media_reply_anchor,
+                                 metadata=_thread_metadata,
+                             )
+                         elif ext in _VIDEO_EXTS:
+                             media_result = await self.send_video(
+                                 chat_id=event.source.chat_id,
+                                 video_path=media_path,
++                                reply_to=_media_reply_anchor,
+                                 metadata=_thread_metadata,
+                             )
+                         else:
+                             media_result = await self.send_document(
+                                 chat_id=event.source.chat_id,
+                                 file_path=media_path,
++                                reply_to=_media_reply_anchor,
+                                 metadata=_thread_metadata,
+                             )
+ 
+@@ -3272,12 +3282,14 @@ class BasePlatformAdapter(ABC):
+                             await self.send_video(
+                                 chat_id=event.source.chat_id,
+                                 video_path=file_path,
++                                reply_to=_media_reply_anchor,
+                                 metadata=_thread_metadata,
+                             )
+                         else:
+                             await self.send_document(
+                                 chat_id=event.source.chat_id,
+                                 file_path=file_path,
++                                reply_to=_media_reply_anchor,
+                                 metadata=_thread_metadata,
+                             )
+                     except Exception as file_err:

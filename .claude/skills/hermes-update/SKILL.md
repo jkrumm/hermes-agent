@@ -25,7 +25,7 @@ If clean: jump straight to **Restart**. If conflicts or upstream rewrote a custo
 
 ## Known local modifications
 
-Eight local mods. Source-of-truth list (with re-apply commands and *why* each is needed) lives in `~/SourceRoot/hermes-agent/CLAUDE.md` under "Local Modifications to Upstream". This file is the operational playbook.
+Nine local mods. Source-of-truth list (with re-apply commands and *why* each is needed) lives in `~/SourceRoot/hermes-agent/CLAUDE.md` under "Local Modifications to Upstream". This file is the operational playbook.
 
 Files touched (all are `.patch` files applied with `git apply` — no full-file replacements):
 
@@ -34,6 +34,7 @@ Files touched (all are `.patch` files applied with `git apply` — no full-file 
 | `agent/auxiliary_client.py` | `patches/auxiliary-client-gpt5-max-completion-tokens.patch` | send `max_completion_tokens` for gpt-5/gpt-4o/o-series by name |
 | `agent/auxiliary_client.py` | `patches/auxiliary-client-anthropic-mode-respect.patch` | respect `api_mode: anthropic_messages` for custom base URLs |
 | `gateway/platforms/slack.py` | `patches/slack-cannot-reply-to-message.patch` | three-part mrkdwn + thread fallback |
+| `gateway/platforms/base.py` | `patches/slack-media-inline-reply-anchor.patch` | pass text reply anchor to media senders so attachments don't thread |
 | `cron/scheduler.py` | `patches/scheduler-skip-resolver-for-slack-ids.patch` | skip channel resolver for raw `C…` IDs |
 | `run_agent.py` | `patches/run-agent-third-party-endpoint-token-refresh.patch` | broaden third-party endpoint skip to all non-anthropic.com hosts |
 | `tools/tirith_security.py` | `patches/tirith-allowlist-argo-pipes.patch` | allowlist argo-only pipelines past tirith |
@@ -45,11 +46,12 @@ Files touched (all are `.patch` files applied with `git apply` — no full-file 
 ### Re-apply procedure
 
 ```bash
-# All eight are .patch files. Use --3way so upstream context shifts get auto-merged.
+# All nine are .patch files. Use --3way so upstream context shifts get auto-merged.
 cd ~/.hermes/hermes-agent
 for p in auxiliary-client-gpt5-max-completion-tokens \
          auxiliary-client-anthropic-mode-respect \
          slack-cannot-reply-to-message \
+         slack-media-inline-reply-anchor \
          scheduler-skip-resolver-for-slack-ids \
          run-agent-third-party-endpoint-token-refresh \
          tirith-allowlist-argo-pipes \
@@ -63,7 +65,7 @@ If a `git apply` fails outright (not just a context shift), inspect the upstream
 
 ### What `hermes update` does on its own
 
-`hermes update` stashes your working changes, pulls upstream, then tries to re-apply the stash. Expect conflicts on the eight patched files — that is normal. The CLI prints the stash ref (`Restore your changes later with: git stash apply <sha>`); keep it as a fallback. After conflicts surface, the CLI resets the working tree clean — re-apply via the loop above.
+`hermes update` stashes your working changes, pulls upstream, then tries to re-apply the stash. Expect conflicts on the nine patched files — that is normal. The CLI prints the stash ref (`Restore your changes later with: git stash apply <sha>`); keep it as a fallback. After conflicts surface, the CLI resets the working tree clean — re-apply via the loop above.
 
 ---
 
@@ -83,4 +85,4 @@ tail -20 ~/.hermes/logs/gateway.log
 
 ## Verify
 
-Send a message in `#hermes` on Slack and confirm a response. To verify TTS, ask for a voice memo (e.g. "speak this") and check `~/.hermes/cache/audio/` for an MP3 — it's Gemini Charon via audio-proxy (`:7716`). Test a German message too: Charon should pronounce German natively (no translation to English).
+Send a message in `#hermes` on Slack and confirm a response. To verify TTS, ask for a voice memo (e.g. "speak this") and check `~/.hermes/audio_cache/` for an MP3 named after a gpt-5.4-mini title (not `tts_<timestamp>`) — it's Gemini Charon via audio-proxy (`:7716`). Test a German message too: Charon should pronounce German natively (no translation to English), and the audio attachment should land **inline** in the channel, not in a thread.
