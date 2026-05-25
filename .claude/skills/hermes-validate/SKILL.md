@@ -136,7 +136,6 @@ Then re-send the same test message and compare `api_calls` and `time` in `agent.
 
 | Query type | Skill used | Calls | Time | Status |
 |-|-|-|-|-|
-| LocalAI health (Ollama/VRAM) | `localai-debug` | 3 | ~50s | Working |
 | Infra status (all services + containers) | `infrastructure` | 3 | ~132s | Working — uses /summary, concise |
 | Weather forecast (weekend) | `weather` | 2 | ~66s | Working |
 | Weather UV query (sunscreen) | `weather` | 2 | ~60s | Working |
@@ -168,7 +167,6 @@ Update this table after each validation run.
 | `hermes/skills/schedule/SKILL.md` | Calendar + Gmail behavioral guidance |
 | `hermes/skills/weather/SKILL.md` | Weather forecast behavioral guidance |
 | `hermes/skills/slack/SKILL.md` | Slack messages, search, unreads behavioral guidance |
-| `hermes/skills/localai-debug/SKILL.md` | LocalAI management API reference |
 | `~/.hermes/logs/agent.log` | Structured run log (api_calls, time, inbound messages) |
 | `~/.hermes/sessions/*.jsonl` | Full turn-by-turn session traces |
 | `~/.hermes/logs/gateway.log` | Gateway stdout (startup, tool progress bars) |
