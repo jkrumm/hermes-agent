@@ -25,7 +25,7 @@ If clean: jump straight to **Restart**. If conflicts or upstream rewrote a custo
 
 ## Known local modifications
 
-Seven local mods. Source-of-truth list (with re-apply commands and *why* each is needed) lives in `~/SourceRoot/hermes-agent/CLAUDE.md` under "Local Modifications to Upstream". This file is the operational playbook.
+Eight local mods. Source-of-truth list (with re-apply commands and *why* each is needed) lives in `~/SourceRoot/hermes-agent/CLAUDE.md` under "Local Modifications to Upstream". This file is the operational playbook.
 
 Files touched (all are `.patch` files applied with `git apply` — no full-file replacements):
 
@@ -38,13 +38,14 @@ Files touched (all are `.patch` files applied with `git apply` — no full-file 
 | `run_agent.py` | `patches/run-agent-third-party-endpoint-token-refresh.patch` | broaden third-party endpoint skip to all non-anthropic.com hosts |
 | `tools/tirith_security.py` | `patches/tirith-allowlist-argo-pipes.patch` | allowlist argo-only pipelines past tirith |
 | `tools/cronjob_tools.py` | `patches/cronjob-tools-allowlist-argo-bearer.patch` | allowlist argo bearer curls past the cron-prompt scanner |
+| `tools/tts_tool.py` | `patches/tts-tool-audio-title.patch` | name the audio file from audio-proxy's `X-Audio-Title` header (gpt-5.4-mini title) instead of `tts_<timestamp>` |
 
-> **Audio (TTS/STT) is no longer patched.** Hermes uses the stock upstream `tools/tts_tool.py` (native `openai` provider → Gemini Charon) and `tools/transcription_tools.py` (native `openai` STT → `gpt-4o-transcribe`), pointed at audio-proxy (`:7716`) purely via `config.yaml`. After an update, do nothing for audio — just confirm `config.yaml`'s `tts.openai` / `stt.openai` `base_url` still reads `http://127.0.0.1:7716/v1`.
+> **STT is not patched.** `tools/transcription_tools.py` (native `openai` STT → `gpt-4o-transcribe`) is pointed at audio-proxy (`:7716`) purely via `config.yaml`. TTS uses the stock native `openai` provider (→ Gemini Charon via `:7716`) plus the one small `tts-tool-audio-title` patch above for the filename. After an update, confirm `config.yaml`'s `tts.openai` / `stt.openai` `base_url` still reads `http://127.0.0.1:7716/v1`.
 
 ### Re-apply procedure
 
 ```bash
-# All seven are .patch files. Use --3way so upstream context shifts get auto-merged.
+# All eight are .patch files. Use --3way so upstream context shifts get auto-merged.
 cd ~/.hermes/hermes-agent
 for p in auxiliary-client-gpt5-max-completion-tokens \
          auxiliary-client-anthropic-mode-respect \
@@ -52,7 +53,8 @@ for p in auxiliary-client-gpt5-max-completion-tokens \
          scheduler-skip-resolver-for-slack-ids \
          run-agent-third-party-endpoint-token-refresh \
          tirith-allowlist-argo-pipes \
-         cronjob-tools-allowlist-argo-bearer; do
+         cronjob-tools-allowlist-argo-bearer \
+         tts-tool-audio-title; do
   git apply --3way ~/SourceRoot/hermes-agent/patches/${p}.patch
 done
 ```
@@ -61,7 +63,7 @@ If a `git apply` fails outright (not just a context shift), inspect the upstream
 
 ### What `hermes update` does on its own
 
-`hermes update` stashes your working changes, pulls upstream, then tries to re-apply the stash. Expect conflicts on the seven patched files — that is normal. The CLI prints the stash ref (`Restore your changes later with: git stash apply <sha>`); keep it as a fallback. After conflicts surface, the CLI resets the working tree clean — re-apply via the loop above.
+`hermes update` stashes your working changes, pulls upstream, then tries to re-apply the stash. Expect conflicts on the eight patched files — that is normal. The CLI prints the stash ref (`Restore your changes later with: git stash apply <sha>`); keep it as a fallback. After conflicts surface, the CLI resets the working tree clean — re-apply via the loop above.
 
 ---
 
