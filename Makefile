@@ -1,20 +1,16 @@
 HERMES_REPO   := $(shell pwd)
 HERMES_DIR    := $(HOME)/.hermes
-SOURCEROOT    := $(HOME)/SourceRoot
-DOTFILES_DIR  := $(SOURCEROOT)/dotfiles
-LAUNCHAGENTS  := $(HOME)/Library/LaunchAgents
 HERMES_SKILLS := capture argo-api infrastructure schedule slack tasks weather garmin-health strength work
 
-# localai-helper plist template lives in dotfiles. Helper service runs only
-# on Mac Mini for Hermes; rendered + loaded as part of `make setup` here.
-LOCALAI_DIR   := $(DOTFILES_DIR)/localai
-HELPER_PLIST  := com.localai.helper
+# TTS/STT is served by audio-proxy (:7716), a separate LaunchAgent installed by
+# dotfiles `make setup` — Hermes only points its native openai TTS/STT providers
+# at it in config.yaml. This repo no longer installs or owns any audio service.
 
 # ============================================================================
-# Setup — Mac Mini-only. Symlinks config + skills into ~/.hermes/, renders the
-# localai-helper plist, installs liveness + backup cron. Claude Code skills
-# (hermes-validate, hermes-update) live committed at .claude/skills/ — no
-# setup step needed; they auto-load when Claude is started inside this repo.
+# Setup — Mac Mini-only. Symlinks config + skills into ~/.hermes/, installs
+# liveness + backup cron. Claude Code skills (hermes-validate, hermes-update)
+# live committed at .claude/skills/ — no setup step needed; they auto-load when
+# Claude is started inside this repo.
 # ============================================================================
 
 .PHONY: setup
@@ -24,7 +20,6 @@ setup:
 	@echo ""
 	@$(MAKE) --no-print-directory _precheck
 	@$(MAKE) --no-print-directory _symlinks
-	@$(MAKE) --no-print-directory _helper
 	@$(MAKE) --no-print-directory _cron
 	@echo ""
 	@echo "  Done. Follow-up:"
@@ -43,11 +38,6 @@ _precheck:
 		exit 1; \
 	fi
 	@echo "    ✓ hermes $$(hermes --version 2>/dev/null | head -1)"
-	@if [ ! -d "$(LOCALAI_DIR)" ]; then \
-		echo "    ✗ dotfiles not found at $(DOTFILES_DIR) — clone it before running make setup"; \
-		exit 1; \
-	fi
-	@echo "    ✓ dotfiles found (localai-helper plist source)"
 	@mkdir -p "$(HERMES_DIR)"
 	@mkdir -p "$(HERMES_DIR)/memories"
 	@mkdir -p "$(HERMES_DIR)/skills"
@@ -92,24 +82,6 @@ _symlinks:
 			"$(HERMES_REPO)/skills/capture/state.json"; \
 	fi
 
-.PHONY: _helper
-_helper:
-	@echo "  localai-helper (FastAPI orchestration on :8001)..."
-	@mkdir -p "$(LAUNCHAGENTS)"
-	@SRC="$(LOCALAI_DIR)/$(HELPER_PLIST).plist.template"; \
-	DST="$(LAUNCHAGENTS)/$(HELPER_PLIST).plist"; \
-	TMP="$$(mktemp)"; \
-	sed "s|__HOME__|$(HOME)|g" "$$SRC" > "$$TMP"; \
-	if [ ! -f "$$DST" ] || ! diff -q "$$TMP" "$$DST" >/dev/null 2>&1; then \
-		mv "$$TMP" "$$DST"; \
-		launchctl unload "$$DST" 2>/dev/null || true; \
-		launchctl load "$$DST"; \
-		echo "    ✓ $(HELPER_PLIST) (installed + loaded)"; \
-	else \
-		rm "$$TMP"; \
-		echo "    · $(HELPER_PLIST) (up to date)"; \
-	fi
-
 .PHONY: _cron
 _cron:
 	@echo "  Cron (liveness + backup, both ping UptimeKuma)..."
@@ -143,9 +115,9 @@ status:
 	@[ -f "$(HERMES_DIR)/.env" ] \
 		&& echo "    ✓ .env (rebuilt from 1Password)" \
 		|| echo "    ✗ .env [missing — see README.md \"Rebuild .env\"]"
-	@[ -f "$(LAUNCHAGENTS)/$(HELPER_PLIST).plist" ] \
-		&& echo "    ✓ $(HELPER_PLIST).plist" \
-		|| echo "    ✗ $(HELPER_PLIST).plist [missing — run make setup]"
+	@curl -fsS http://127.0.0.1:7716/health >/dev/null 2>&1 \
+		&& echo "    ✓ audio-proxy (:7716 TTS/STT)" \
+		|| echo "    ✗ audio-proxy [:7716 not responding — installed by dotfiles make setup]"
 	@crontab -l 2>/dev/null | grep -q "hermes-liveness.sh" \
 		&& echo "    ✓ liveness cron" \
 		|| echo "    ✗ liveness cron [missing — run make setup]"
@@ -209,6 +181,6 @@ help:
 	@echo ""
 	@echo "  hermes-agent"
 	@echo ""
-	@echo "  make setup    Mac Mini-only — config symlinks, helper plist, cron, CC skills"
-	@echo "  make status   Verify symlinks, helper plist, crontab, CC skills"
+	@echo "  make setup    Mac Mini-only — config symlinks, cron, CC skills"
+	@echo "  make status   Verify symlinks, audio-proxy, crontab, CC skills"
 	@echo ""

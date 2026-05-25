@@ -10,9 +10,9 @@ Personal AI assistant running 24/7 on Mac Mini. Slack as interface, Kimi K2.6 as
 Slack (Socket Mode)
   ↓
 Mac Mini M2 Pro — Hermes Agent (always-on)
-  ├→ localai-helper (127.0.0.1:8001) — TTS orchestration (language, rewrite, chunk, concat)
-  ├→ mlx-audio (127.0.0.1:8000) — Parakeet TDT v3 (STT only)
-  ├→ fish-s2-pro (127.0.0.1:8002) — Fish Audio S2 Pro (TTS, both DE and EN)
+  ├→ audio-proxy (127.0.0.1:7716) — OpenAI-compatible audio, EU-resident via IU.
+  │     TTS: Gemini 3.1 Flash, voice "Charon" (prep + chunk + MP3 internally).
+  │     STT: gpt-4o-transcribe (German/English steered).
   ├→ Homelab — Docker containers, CouchDB, backups (via Tailscale)
   ├→ VPS — Production apps, ClickStack (via Tailscale)
   └→ IU unified endpoint — Kimi K2.6 (primary, OpenAI-compat, EU; claude-sonnet-4-6-eu failover), gpt-5-mini (auxiliary), Gemini Flash (vision)
@@ -71,8 +71,8 @@ Mac Mini M2 Pro — Hermes Agent (always-on)
 # Prevent sleep (always-on agent host)
 sudo pmset -a sleep 0 displaysleep 0 disksleep 0
 
-# Verify mlx-audio — should be running locally after `make _setup-localai`
-curl -s http://127.0.0.1:8000/v1/models
+# Verify audio-proxy — should be running locally (LaunchAgent, installed by dotfiles `make setup`)
+curl -s http://127.0.0.1:7716/health
 ```
 
 ### 2. Install Hermes
@@ -118,18 +118,19 @@ Create these channels and invite the Hermes bot:
 ### 6. Deploy Config
 
 ```bash
-# Mac Mini-only — symlinks all hermes config files, installs com.localai.helper
-# (FastAPI orchestrator on :8001), and registers the liveness + backup crons.
-# `dotfiles` must already be cloned and set up (provides the helper plist template).
+# Mac Mini-only — symlinks all hermes config files and registers the
+# liveness + backup crons. TTS/STT is served by audio-proxy (:7716), a separate
+# LaunchAgent installed by dotfiles `make setup` — Hermes just points its native
+# openai TTS/STT providers at it (see config.yaml).
 cd ~/SourceRoot/hermes-agent && make setup
 
 # Verify
 make status
 ```
 
-`make setup` runs idempotently. Re-run after editing skills, cron scripts, or
-the helper plist template. Crontab entries are rewritten in place — existing
-hermes lines are replaced, unrelated entries are preserved.
+`make setup` runs idempotently. Re-run after editing skills or cron scripts.
+Crontab entries are rewritten in place — existing hermes lines are replaced,
+unrelated entries are preserved.
 
 ### 7. Run Hermes Setup
 
@@ -173,8 +174,8 @@ tail -f /tmp/hermes-gateway.log  # watch for successful Slack connection
 ### 9. Verify
 
 - [x] Send message in `#hermes` on Slack — get response via Kimi K2.6
-- [x] Send voice memo in Slack — get transcribed via Parakeet STT
-- [x] TTS audio generation — Fish S2 Pro via localai-helper, MP3 output
+- [x] Send voice memo in Slack — get transcribed via audio-proxy (`gpt-4o-transcribe`)
+- [x] TTS audio generation — Gemini Charon via audio-proxy, MP3 output
 - [x] Backup cron — daily 03:00 rsync to `homelab:/mnt/hdd/backups/hermes/`, pings UK
 - [x] Liveness cron — every 5 min, pings UK if gateway running + Slack connected
 

@@ -31,7 +31,8 @@ GEMINI_API_KEY=op://hermes/google-ai-studio/api-key
 # Tavily — web search, extract, crawl (replaces browser-based search)
 TAVILY_API_KEY=op://hermes/tavily/API_KEY
 
-# Voice — dummy key for OpenAI-compatible TTS/STT on M2 Max (Tailscale handles auth)
+# Voice — api_key the native openai TTS/STT tools send to audio-proxy (:7716).
+# audio-proxy runs with PROXY_API_KEY empty (localhost-only), so any value works.
 VOICE_TOOLS_OPENAI_KEY=not-needed
 
 # GitHub — issue creation, repo queries (watchdog, Phase 3)
@@ -49,5 +50,6 @@ UPTIME_PUSH_BACKUP=op://hermes/uptime-kuma/backup-push-url
 
 # Cron job idle timeout — hermes-agent/cron/scheduler.py kills any cron job that goes idle
 # (no tool activity / agent thinking) for this long. Default 600s is too tight for the
-# morning briefing's long-form German Fish S2 Pro TTS run; 1800s gives headroom.
+# morning briefing's long-form German TTS run (audio-proxy chunks + synthesizes a
+# multi-paragraph narrative); 1800s gives headroom.
 HERMES_CRON_TIMEOUT=1800

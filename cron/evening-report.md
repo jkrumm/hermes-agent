@@ -71,7 +71,7 @@ It exists so the day closes with: what your body did today, what tomorrow looks 
 - Four paragraphs separated by blank lines: Today's body+training, Sleep+recovery, Tomorrow's schedule+focus, Tomorrow's weather+optional close
 - Calm low-energy tone; NOT a recap of achievements, NOT motivational
 - ~120–150 words / ~55–70s spoken
-- TTS chunks per paragraph with `paragraph_pause_secs=2.0`
+- audio-proxy (Gemini Charon) chunks the narrative itself at sentence boundaries — no pause/chunking args passed
 
 ## Vacation + city handling
 
