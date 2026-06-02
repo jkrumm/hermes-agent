@@ -1,5 +1,5 @@
 diff --git a/tools/tirith_security.py b/tools/tirith_security.py
-index 350265d33..398dc35c4 100644
+index f40da60e5..a02b61d35 100644
 --- a/tools/tirith_security.py
 +++ b/tools/tirith_security.py
 @@ -25,6 +25,8 @@ import json
@@ -11,7 +11,7 @@ index 350265d33..398dc35c4 100644
  import shutil
  import stat
  import subprocess
-@@ -604,6 +606,93 @@ def ensure_installed(*, log_failures: bool = True):
+@@ -685,6 +687,93 @@ def ensure_installed(*, log_failures: bool = True):
      return None  # Not available yet; commands will fail-open until ready
  
  
@@ -105,13 +105,13 @@ index 350265d33..398dc35c4 100644
  # ---------------------------------------------------------------------------
  # Main API
  # ---------------------------------------------------------------------------
-@@ -627,6 +716,9 @@ def check_command_security(command: str) -> dict:
+@@ -708,6 +797,9 @@ def check_command_security(command: str) -> dict:
      if not cfg["tirith_enabled"]:
          return {"action": "allow", "findings": [], "summary": ""}
  
 +    if _is_argo_only_pipeline(command):
 +        return {"action": "allow", "findings": [], "summary": "argo-only pipeline (tirith bypassed)"}
 +
-     tirith_path = _resolve_tirith_path(cfg["tirith_path"])
-     timeout = cfg["tirith_timeout"]
-     fail_open = cfg["tirith_fail_open"]
+     # Unsupported platform (Windows etc.) — tirith has no binary here and
+     # never will. Skip the resolver entirely so we don't even try to spawn.
+     # Pattern-matching guards still run via the rest of approval.py.

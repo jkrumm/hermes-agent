@@ -1,11 +1,36 @@
 diff --git a/tools/cronjob_tools.py b/tools/cronjob_tools.py
-index e63b60047..b64c12b8c 100644
+index 3b1c46ec3..761ec04fc 100644
 --- a/tools/cronjob_tools.py
 +++ b/tools/cronjob_tools.py
-@@ -82,6 +82,39 @@ def _scan_cron_prompt(prompt: str) -> str:
-         # Allow the bundled GitHub skill fallback shape without opening a
-         # blanket exemption for arbitrary Authorization-header exfiltration.
-         prompt_to_scan = prompt.replace(github_auth_header.group(0), "curl https://api.github.com/user")
+@@ -153,21 +153,59 @@ def _strip_legitimate_emoji_zwj(prompt: str) -> str:
+ 
+ 
+ def _strip_cron_safe_constructs(prompt: str) -> str:
+-    """Strip the GitHub `Authorization: token $GITHUB_TOKEN` auth-header
+-    pattern so it doesn't trip the broader curl-auth-header exfil rule.
++    """Strip known-safe curl shapes so they don't trip the broader
++    curl-auth-header exfil rule:
+ 
+-    Allows the bundled GitHub skill fallback without opening a blanket
++    - the GitHub `Authorization: token $GITHUB_TOKEN` fallback (api.github.com)
++    - argo.jkrumm.com bearer curls (this deployment's trusted personal API)
++
++    Allows the bundled GitHub + argo skill fallbacks without opening a blanket
+     exemption for arbitrary Authorization-header exfiltration.
+     """
++    result = prompt
+     github_auth_header = re.search(
+         rf'curl\s+[^\n]*(?:-H|--header)\s+["\']Authorization:\s*token\s+{_CRON_SECRET_VAR_RE}["\']'
+         r'\s+["\']?https://api\.github\.com(?:/|\b)',
+-        prompt,
++        result,
+         re.IGNORECASE,
+     )
+     if github_auth_header:
+-        return prompt.replace(github_auth_header.group(0), "curl https://api.github.com/user")
+-    return prompt
++        result = result.replace(github_auth_header.group(0), "curl https://api.github.com/user")
++
 +    # Local patch (Hermes-agent local mod, see ~/SourceRoot/hermes-agent/patches/):
 +    # Argo (argo.jkrumm.com) is this deployment's trusted personal API gateway.
 +    # Every bundled skill uses the same curl shape with `Authorization: Bearer
@@ -28,17 +53,18 @@ index e63b60047..b64c12b8c 100644
 +        if any(not h.lower().endswith('argo.jkrumm.com') for h in other_hosts):
 +            return body
 +        return '```\n# [argo bash fence — sanitized by local allowlist]\n```'
-+    prompt_to_scan = re.sub(
++    result = re.sub(
 +        r'```[a-zA-Z0-9_-]*\n[\s\S]*?\n```',
 +        _sanitize_argo_fence,
-+        prompt_to_scan,
++        result,
 +    )
-+    prompt_to_scan = re.sub(
++    result = re.sub(
 +        r'^.*\bcurl\b[^\n]*\bhttps?://argo\.jkrumm\.com\b[^\n]*$',
 +        '# [argo curl — sanitized by local allowlist]',
-+        prompt_to_scan,
++        result,
 +        flags=re.IGNORECASE | re.MULTILINE,
 +    )
-     for char in _CRON_INVISIBLE_CHARS:
-         if char in prompt_to_scan:
-             return f"Blocked: prompt contains invisible unicode U+{ord(char):04X} (possible injection)."
++    return result
+ 
+ 
+ def _check_invisible_unicode(prompt: str) -> str:

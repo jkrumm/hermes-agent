@@ -1,16 +1,16 @@
 diff --git a/gateway/platforms/slack.py b/gateway/platforms/slack.py
-index 191689a5a..3a26bc17e 100644
+index 13564f1e6..9c4550df4 100644
 --- a/gateway/platforms/slack.py
 +++ b/gateway/platforms/slack.py
-@@ -20,6 +20,7 @@ from typing import Dict, Optional, Any, Tuple
+@@ -21,6 +21,7 @@ from typing import Dict, Optional, Any, Tuple, List
  try:
      from slack_bolt.async_app import AsyncApp
      from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 +    from slack_sdk.errors import SlackApiError
      from slack_sdk.web.async_client import AsyncWebClient
-     SLACK_AVAILABLE = True
- except ImportError:
-@@ -27,6 +28,7 @@ except ImportError:
+     import aiohttp
+ 
+@@ -30,6 +31,7 @@ except ImportError:
      AsyncApp = Any
      AsyncSocketModeHandler = Any
      AsyncWebClient = Any
@@ -18,7 +18,7 @@ index 191689a5a..3a26bc17e 100644
  
  import sys
  from pathlib import Path as _Path
-@@ -297,7 +299,29 @@ class SlackAdapter(BasePlatformAdapter):
+@@ -1103,7 +1105,29 @@ class SlackAdapter(BasePlatformAdapter):
                      if broadcast and i == 0:
                          kwargs["reply_broadcast"] = True
  
@@ -47,10 +47,10 @@ index 191689a5a..3a26bc17e 100644
 +                    else:
 +                        raise
  
-             # Track the sent message ts so we can auto-respond to thread
-             # replies without requiring @mention.
-@@ -431,11 +455,23 @@ class SlackAdapter(BasePlatformAdapter):
-             existing_thread = (metadata or {}).get("thread_id") or (metadata or {}).get("thread_ts")
+             # Clear Slack Assistant status as soon as the final message is posted.
+             if thread_ts:
+@@ -1289,11 +1313,23 @@ class SlackAdapter(BasePlatformAdapter):
+                 existing_thread = None
              return existing_thread or None
  
 +        # LOCAL PATCH (remove once Hermes v0.12+ ships upstream commit 4b5a88d71):
@@ -77,7 +77,7 @@ index 191689a5a..3a26bc17e 100644
          return reply_to
  
      async def _upload_file(
-@@ -486,6 +522,18 @@ class SlackAdapter(BasePlatformAdapter):
+@@ -1523,6 +1559,18 @@ class SlackAdapter(BasePlatformAdapter):
  
          text = content
  
@@ -95,4 +95,4 @@ index 191689a5a..3a26bc17e 100644
 +
          # 1) Protect fenced code blocks (``` ... ```)
          text = re.sub(
-             r'(```(?:[^\n]*\n)?[\s\S]*?```)',
+             r"(```(?:[^\n]*\n)?[\s\S]*?```)",

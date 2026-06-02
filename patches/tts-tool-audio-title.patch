@@ -1,8 +1,8 @@
 diff --git a/tools/tts_tool.py b/tools/tts_tool.py
-index 1ea3ba21c..314f9c564 100644
+index cab2cc584..4a566e3dd 100644
 --- a/tools/tts_tool.py
 +++ b/tools/tts_tool.py
-@@ -842,7 +842,32 @@ def _generate_elevenlabs(text: str, output_path: str, tts_config: Dict[str, Any]
+@@ -977,7 +977,32 @@ def _generate_elevenlabs(text: str, output_path: str, tts_config: Dict[str, Any]
  # ===========================================================================
  # Provider: OpenAI TTS
  # ===========================================================================
@@ -36,7 +36,7 @@ index 1ea3ba21c..314f9c564 100644
      """
      Generate audio using OpenAI TTS.
  
-@@ -852,8 +877,13 @@ def _generate_openai_tts(text: str, output_path: str, tts_config: Dict[str, Any]
+@@ -987,8 +1012,13 @@ def _generate_openai_tts(text: str, output_path: str, tts_config: Dict[str, Any]
          tts_config: TTS config dict.
  
      Returns:
@@ -51,7 +51,7 @@ index 1ea3ba21c..314f9c564 100644
      api_key, base_url = _resolve_openai_audio_client_config()
  
      oai_config = tts_config.get("openai", {})
-@@ -880,10 +910,14 @@ def _generate_openai_tts(text: str, output_path: str, tts_config: Dict[str, Any]
+@@ -1015,10 +1045,14 @@ def _generate_openai_tts(text: str, output_path: str, tts_config: Dict[str, Any]
          }
          if speed != 1.0:
              create_kwargs["speed"] = max(0.25, min(4.0, speed))
@@ -70,7 +70,7 @@ index 1ea3ba21c..314f9c564 100644
      finally:
          close = getattr(client, "close", None)
          if callable(close):
-@@ -1643,6 +1677,9 @@ def text_to_speech_tool(
+@@ -1930,6 +1964,9 @@ def text_to_speech_tool(
      # Ensure parent directory exists
      file_path.parent.mkdir(parents=True, exist_ok=True)
      file_str = str(file_path)
@@ -80,7 +80,7 @@ index 1ea3ba21c..314f9c564 100644
  
      try:
          # Generate audio with the configured provider
-@@ -1674,7 +1711,7 @@ def text_to_speech_tool(
+@@ -1976,7 +2013,7 @@ def text_to_speech_tool(
                      "error": "OpenAI provider selected but 'openai' package not installed."
                  }, ensure_ascii=False)
              logger.info("Generating speech with OpenAI TTS...")
@@ -89,9 +89,9 @@ index 1ea3ba21c..314f9c564 100644
  
          elif provider == "minimax":
              logger.info("Generating speech with MiniMax TTS...")
-@@ -1798,6 +1835,15 @@ def text_to_speech_tool(
+@@ -2113,6 +2150,15 @@ def text_to_speech_tool(
          elif provider in {"elevenlabs", "openai", "mistral", "gemini"}:
-             voice_compatible = file_str.endswith(".ogg")
+             voice_compatible = want_opus and file_str.endswith(".ogg")
  
 +        # LOCAL MODIFICATION: rename the auto-named tts_<timestamp> file to the
 +        # audio-proxy title so the Slack attachment shows a real name. Only when

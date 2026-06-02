@@ -25,13 +25,14 @@ If clean: jump straight to **Restart**. If conflicts or upstream rewrote a custo
 
 ## Known local modifications
 
-Nine local mods. Source-of-truth list (with re-apply commands and *why* each is needed) lives in `~/SourceRoot/hermes-agent/CLAUDE.md` under "Local Modifications to Upstream". This file is the operational playbook.
+Eight local mods. Source-of-truth list (with re-apply commands and *why* each is needed) lives in `~/SourceRoot/hermes-agent/CLAUDE.md` under "Local Modifications to Upstream". This file is the operational playbook.
+
+> The `auxiliary-client-gpt5-max-completion-tokens` patch was **retired at v0.15.1** — upstream rewrote `_build_call_kwargs` to omit `max_tokens` by default for non-Anthropic custom endpoints, which supersedes it. See CLAUDE.md for the retirement note.
 
 Files touched (all are `.patch` files applied with `git apply` — no full-file replacements):
 
 | File | Patch | Kind |
 |-|-|-|
-| `agent/auxiliary_client.py` | `patches/auxiliary-client-gpt5-max-completion-tokens.patch` | send `max_completion_tokens` for gpt-5/gpt-4o/o-series by name |
 | `agent/auxiliary_client.py` | `patches/auxiliary-client-anthropic-mode-respect.patch` | respect `api_mode: anthropic_messages` for custom base URLs |
 | `gateway/platforms/slack.py` | `patches/slack-cannot-reply-to-message.patch` | three-part mrkdwn + thread fallback |
 | `gateway/platforms/base.py` | `patches/slack-media-inline-reply-anchor.patch` | pass text reply anchor to media senders so attachments don't thread |
@@ -46,10 +47,9 @@ Files touched (all are `.patch` files applied with `git apply` — no full-file 
 ### Re-apply procedure
 
 ```bash
-# All nine are .patch files. Use --3way so upstream context shifts get auto-merged.
+# All eight are .patch files. Use --3way so upstream context shifts get auto-merged.
 cd ~/.hermes/hermes-agent
-for p in auxiliary-client-gpt5-max-completion-tokens \
-         auxiliary-client-anthropic-mode-respect \
+for p in auxiliary-client-anthropic-mode-respect \
          slack-cannot-reply-to-message \
          slack-media-inline-reply-anchor \
          scheduler-skip-resolver-for-slack-ids \
@@ -65,7 +65,7 @@ If a `git apply` fails outright (not just a context shift), inspect the upstream
 
 ### What `hermes update` does on its own
 
-`hermes update` stashes your working changes, pulls upstream, then tries to re-apply the stash. Expect conflicts on the nine patched files — that is normal. The CLI prints the stash ref (`Restore your changes later with: git stash apply <sha>`); keep it as a fallback. After conflicts surface, the CLI resets the working tree clean — re-apply via the loop above.
+`hermes update` stashes your working changes, pulls upstream, then tries to re-apply the stash. Expect conflicts on the eight patched files — that is normal. The CLI prints the stash ref (`Restore your changes later with: git stash apply <sha>`); keep it as a fallback. After conflicts surface, the CLI resets the working tree clean — re-apply via the loop above.
 
 ---
 

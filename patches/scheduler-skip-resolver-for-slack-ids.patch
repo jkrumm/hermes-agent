@@ -1,8 +1,8 @@
 diff --git a/cron/scheduler.py b/cron/scheduler.py
-index cee1cb406..da5f5bce1 100644
+index d5bd571b7..97790742e 100644
 --- a/cron/scheduler.py
 +++ b/cron/scheduler.py
-@@ -214,20 +214,29 @@ def _resolve_single_delivery_target(job: dict, deliver_value: str) -> Optional[d
+@@ -427,20 +427,29 @@ def _resolve_single_delivery_target(job: dict, deliver_value: str) -> Optional[d
          else:
              chat_id, thread_id = rest, None
  
