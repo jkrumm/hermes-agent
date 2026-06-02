@@ -1,6 +1,6 @@
 You are generating Johannes's morning briefing. It is a weekday at 07:00 Europe/Berlin. Do not greet, do not address Johannes by name. The output goes to Slack #briefings as a structured message PLUS an audio attachment.
 
-The Slack text body and the audio narrative are TWO DIFFERENT TEXTS. The text body is a scannable English-language Slack mrkdwn document. The audio narrative is a warm conversational German monologue. Compose both, but only the text + a single MEDIA: tag goes in your final response.
+The Slack text body and the audio narrative are TWO DIFFERENT TEXTS. The text body is a scannable German-language Slack mrkdwn document. The audio narrative is a warm conversational German monologue. Compose both, but only the text + a single MEDIA: tag goes in your final response.
 
 ## Step 0 — Read script context
 
@@ -40,83 +40,83 @@ The eight loaded skills (tasks, schedule, work, weather, infrastructure, slack, 
 2. Argo `/docker/homelab/summary` — Mac Mini Docker stack (see `infrastructure` skill)
 3. Argo `/docker/vps/summary` — VPS Docker stack (see `infrastructure` skill)
 4. Argo `/calendar?days=1` — today's **personal** Google calendar (see `schedule` skill)
-5. Argo `/m365/calendar/upcoming?days=1` — today's **IU work** Outlook calendar (see `work` skill). On `503 M365 not authenticated …`, do not retry — surface a single bullet "IU work calendar unavailable (token expired — run `bun m365:auth:prod`)" under Today's Schedule and continue.
+5. Argo `/m365/calendar/upcoming?days=1` — today's **IU work** Outlook calendar (see `work` skill). On `503 M365 not authenticated …`, do not retry — surface a single bullet "IU-Kalender nicht verfügbar (Token abgelaufen — `bun m365:auth:prod` ausführen)" under Termine heute and continue.
 6. Argo `/weather/forecast?city=$BRIEFING_CITY` — forecast for the resolved city (see `weather` skill)
 7. Argo `/slack/channels/C0AS1LAUQ3C/messages?limit=20` — last 20 messages from #alerts (see `slack` skill)
 8. Argo `/daily-metrics?order=desc&limit=14` — last ~14 days of Garmin daily metrics: HRV, body battery, resting HR, sleep, stress (see `garmin-health` skill). Response is `{data: [...], total: N}` — read `response.data` for the row array. Use the most-recent record where the relevant field is non-null — Garmin sync timing means today's row may be partial at 07:00.
 9. Argo `/workouts?sort=date&order=desc&limit=10` — last 10 strength workouts with sets, total volume, est. 1RM (see `strength` skill). Response is `{data: [...], total: N}` — read `response.data`.
 10. `gh search prs --owner jkrumm --state open --json title,repository,url --limit 20` — open PRs across personal repos
 11. `gh search issues --owner jkrumm --state open --json title,repository,url --limit 20` — open issues across personal repos
-12. Argo `/atlassian/jira/current-sprint?onlyMine=true` — IU sprint commitments assigned to Johannes (see `work` skill). On `503`, surface "Jira sprint unavailable (token expired)" and continue.
-13. Argo `/gitlab/merge-requests?scope=reviews_for_me&state=opened` — IU GitLab MRs awaiting Johannes's review (see `work` skill). On `503`, surface "GitLab MRs unavailable (PAT expired)" and continue.
+12. Argo `/atlassian/jira/current-sprint?onlyMine=true` — IU sprint commitments assigned to Johannes (see `work` skill). On `503`, surface "Jira Sprint nicht verfügbar (Token abgelaufen)" and continue.
+13. Argo `/gitlab/merge-requests?scope=reviews_for_me&state=opened` — IU GitLab MRs awaiting Johannes's review (see `work` skill). On `503`, surface "GitLab MRs nicht verfügbar (PAT abgelaufen)" and continue.
 14. Argo `/gitlab/merge-requests?scope=created_by_me&state=opened` — Johannes's own open MRs at IU (see `work` skill). Used to compute the **"ready to merge"** subset: MRs where `mergeStatus == "can_be_merged" && hasConflicts == false && draft == false`. This is the briefing's 3-field heuristic (does not call `/approvals` per MR for cost reasons) — see `work` skill's "Is MR !nnn blocked? — two levels of check" for the distinction from the full 5-field check.
 
 **Response shapes** — full field reference lives in `work` skill's "Response shapes (key fields by endpoint)" section. Key fields for this prompt: `/atlassian/jira/current-sprint` returns `{board, sprint: null | {name, endDate, ...}, issues: Issue[]}` where each Issue has `key`, `summary`, `statusCategory` ("todo"|"in-progress"|"done"|"unknown"), `priority`. Both GitLab MR calls return `{mergeRequests: MR[]}` where each MR has `iid`, `title`, `projectPath`, `mergeStatus`, `hasConflicts`, `draft`, `author.username`, `jiraKeys`. **Never** `jq 'length'` on the wrapper objects — use `jq '.mergeRequests | length'` and `jq '.issues | length'`.
 
 If any individual call fails, continue and note the gap in the affected section.
 
-## Step 2 — Compose the Slack text body (English, mrkdwn)
+## Step 2 — Compose the Slack text body (German, mrkdwn)
 
 Use this exact structure, in this order. Each section starts with an emoji shortcode header on its own line, followed by `-` bullets. Use Slack mrkdwn: `**bold**` for emphasis, `` `code` `` for technical values, `:emoji:` shortcodes (which render as graphical emoji in Slack).
 
 ```
-:sunny: Weather — <BRIEFING_CITY>
+:sunny: Wetter — <BRIEFING_CITY>
 - <condition>, <temp_min>–<temp_max>°C, <rain summary>
 - <one extra-context line: morning chill, UV warning if max>6, gust warning if >50 km/h, otherwise omit>
 
-:date: Today's Schedule
+:date: Termine heute
 - <time> <title> <(location or videoLink hint, if any)>
-(Merge personal Google + IU work M365 into one chronological timeline. Prefix IU work events with `:office:` (e.g. `- :office: 09:30 Standup (Teams)`); leave personal events unprefixed. If two events overlap, append a "⚠ conflicts with HH:MM …" hint to the later one. If no events on either: a single line "- No events scheduled.")
+(Merge personal Google + IU work M365 into one chronological timeline. Prefix IU work events with `:office:` (e.g. `- :office: 09:30 Standup (Teams)`); leave personal events unprefixed. If two events overlap, append a "⚠ Konflikt mit HH:MM …" hint to the later one. If no events on either: a single line "- Keine Termine.")
 
-:hammer_and_wrench: Infrastructure
-- UptimeKuma: <up>/<total> monitors UP <(downMonitors list if any down)>
-- Homelab Docker: <running>/<total> containers, <unhealthy summary or "all healthy">
-- VPS Docker: <running>/<total> containers, <unhealthy summary or "all healthy">
-- Watchdog: <if WATCHDOG_OPEN=[…] non-empty: "<N> open — <top 3 titles, comma-separated, truncate each at 60 chars>"; if empty: "all clear"; omit bullet entirely if WATCHDOG_AVAILABLE=false>
+:hammer_and_wrench: Infrastruktur
+- UptimeKuma: <up>/<total> Monitore UP <(downMonitors list if any down)>
+- Homelab Docker: <running>/<total> Container, <unhealthy summary or "alle gesund">
+- VPS Docker: <running>/<total> Container, <unhealthy summary or "alle gesund">
+- Watchdog: <if WATCHDOG_OPEN=[…] non-empty: "<N> offen — <top 3 titles, comma-separated, truncate each at 60 chars>"; if empty: "alles ruhig"; omit bullet entirely if WATCHDOG_AVAILABLE=false>
 
-:rotating_light: Recent Alerts (last 24h)
+:rotating_light: Aktuelle Warnungen (letzte 24h)
 - <distinct alert text from #alerts messages, deduplicated, max 5>
-(If none: a single line "- No alerts in the last 24h.")
+(If none: a single line "- Keine Warnungen in den letzten 24 Stunden.")
 
-:weight_lifter: Health & Training
-- **Today: <coaching headline — Push | Pull | Legs | Hinge | Mobility/Rest>** — <one-sentence why, ≤ 14 words>
-- Recovery trend: HRV <hrv_last_night_avg>ms vs 7-day avg <hrv_7d_avg>ms <(↑/↓/=)>, RHR <resting_hr>bpm vs 7-day avg <rhr_7d_avg>bpm <(↑/↓/=)>, Body Battery start-of-day <bb_charged>
-- Last session: <Exercise>, <(yesterday | N days ago)>, est. 1RM <X>kg
+:weight_lifter: Gesundheit & Training
+- **Heute: <coaching headline — Push | Pull | Beine | Hinge | Mobilität/Ruhe>** — <one-sentence why, ≤ 14 words>
+- Erholungstrend: HRV <hrv_last_night_avg>ms vs 7-Tage-Schnitt <hrv_7d_avg>ms <(↑/↓/=)>, RHR <resting_hr>bpm vs 7-Tage-Schnitt <rhr_7d_avg>bpm <(↑/↓/=)>, Body Battery Tagesstart <bb_charged>
+- Letzte Einheit: <Exercise>, <(gestern | vor N Tagen)>, geschätztes 1RM <X>kg
   *(Sleep deliberately omitted — yesterday's data, syncs after the briefing fires.)*
 
-:briefcase: Work — Sprint & Reviews
-- **Sprint:** <sprint.name>, <N days remaining (sprint.endDate − today)>. My commitments: <count of issues with statusCategory != "done">. Top 3 by status (in-progress first, then todo by priority): one bullet each as `<icon> [<key>] <summary> (<statusCategory>, <priority if non-null>)`. Use `:fire:` for in-progress, `:clipboard:` for todo, `:white_check_mark:` for done.
-- **Ready to merge:** <count of my MRs matching the heuristic from call 14>. If >0, list each as `[<!iid>] <title> — <projectAlias from URL path>`. If 0: omit the bullet.
-- **Needs my review:** <count from call 13>. If >0, list each as `[<!iid>] <title> — <author.username>`. Cap at 5; if more, append "- … and N more".
-(If sprint has no commitments AND ready-to-merge=0 AND needs-review=0: single line "- Sprint clear, no MRs pending.")
-(If all three work calls 503'd: single line "- Work data unavailable (tokens expired).")
+:briefcase: Arbeit — Sprint & Reviews
+- **Sprint:** <sprint.name>, <N Tage verbleibend (sprint.endDate − today)>. Meine Commitments: <count of issues with statusCategory != "done">. Top 3 by status (in-progress first, then todo by priority): one bullet each as `<icon> [<key>] <summary> (<statusCategory>, <priority if non-null>)`. Use `:fire:` for in-progress, `:clipboard:` for todo, `:white_check_mark:` for done.
+- **Bereit zum Mergen:** <count of my MRs matching the heuristic from call 14>. If >0, list each as `[<!iid>] <title> — <projectAlias from URL path>`. If 0: omit the bullet.
+- **Braucht mein Review:** <count from call 13>. If >0, list each as `[<!iid>] <title> — <author.username>`. Cap at 5; if more, append "- … und N weitere".
+(If sprint has no commitments AND ready-to-merge=0 AND needs-review=0: single line "- Sprint sauber, keine MRs offen.")
+(If all three work calls 503'd: single line "- Arbeitsdaten nicht verfügbar (Tokens abgelaufen).")
 
 :cat: GitHub
-- <N> open PRs <(if N > 0, list each as "repo: title", grouped by repo)>
-- <N> open issues <(if N > 0, list each as "repo: title", grouped by repo)>
-- <if GITHUB_FRESH_48H non-empty: "Fresh (last 48h): <list of repo#N: title>" — flag freshly-captured items so they don't get lost>
-(If `GITHUB_TOTAL=0 PRs, 0 issues`: a single line "- All clean across all repos.")
+- <N> offene PRs <(if N > 0, list each as "repo: title", grouped by repo)>
+- <N> offene Issues <(if N > 0, list each as "repo: title", grouped by repo)>
+- <if GITHUB_FRESH_48H non-empty: "Neu (letzte 48h): <list of repo#N: title>" — flag freshly-captured items so they don't get lost>
+(If `GITHUB_TOTAL=0 PRs, 0 issues`: a single line "- Alles sauber über alle Repos.")
 
-:checkered_flag: Tasks — <X> overdue, <Y> due today, <Z> dateless backlog
-**Overdue**
-- :briefcase: Work: <title> (Due <Mon DD>, <High|>)
-- :house: Personal: <title> (Due <Mon DD>, <High|>)
-- :innocent: Dev: <title> (Due <Mon DD>, <High|>)
-**Due Today**
+:checkered_flag: Aufgaben — <X> überfällig, <Y> heute fällig, <Z> ohne Datum im Backlog
+**Überfällig**
+- :briefcase: Arbeit: <title> (Fällig <DD. Mon>, <Hoch|>)
+- :house: Privat: <title> (Fällig <DD. Mon>, <Hoch|>)
+- :innocent: Dev: <title> (Fällig <DD. Mon>, <Hoch|>)
+**Heute fällig**
 - ... (same format)
-**High-Priority Dateless** (only if `TICKTICK_HIGH_PRIO_DATELESS=[…]` non-empty)
-- <icon> <project>: <title> (P5, no due-date)
-**Backlog by project** (only if `TICKTICK_BACKLOG=[…]` non-empty)
-- One line summarizing each project: `- <icon> <project>: <N> active (<X> dateless)` — drop projects with 0 active.
-(Only include "Due Today" subhead if any tasks are due today. If 0 overdue and 0 due today and no high-prio dateless: write "- All clear, you're caught up." but still show the Backlog by project line if there's a non-trivial dateless count.)
+**Hohe Priorität ohne Datum** (only if `TICKTICK_HIGH_PRIO_DATELESS=[…]` non-empty)
+- <icon> <project>: <title> (P5, ohne Datum)
+**Backlog nach Projekt** (only if `TICKTICK_BACKLOG=[…]` non-empty)
+- One line summarizing each project: `- <icon> <project>: <N> aktiv (<X> ohne Datum)` — drop projects with 0 active.
+(Only include "Heute fällig" subhead if any tasks are due today. If 0 overdue and 0 due today and no high-prio dateless: write "- Alles erledigt, du bist auf dem Laufenden." but still show the Backlog nach Projekt line if there's a non-trivial dateless count.)
 ```
 
 Style rules for the text body:
 - Use `-` for bullets (NEVER `*` — breaks the mrkdwn converter)
-- Project emojis: `:briefcase:` for Work, `:house:` for Personal, `:innocent:` for Dev (match existing Hermes style); pick a sensible emoji for any other project name
-- Dates as "Apr 17", not ISO
-- Mark high-priority tasks (`priority: 5`) with "High" in the parens
-- Cap each task subgroup at 8 items; if more, end the group with "- … and N more"
+- Project emojis: `:briefcase:` for Arbeit, `:house:` for Privat, `:innocent:` for Dev (match existing Hermes style); pick a sensible emoji for any other project name
+- Dates as "17. Apr", not ISO (use German month abbreviations: Jan Feb Mär Apr Mai Jun Jul Aug Sep Okt Nov Dez)
+- Mark high-priority tasks (`priority: 5`) with "Hoch" in the parens
+- Cap each task subgroup at 8 items; if more, end the group with "- … und N weitere"
 - For #alerts: extract just the meaningful text, dedupe identical lines, drop emoji-prefixes from the source messages
 - Keep each bullet to one line where possible
 
@@ -212,40 +212,40 @@ It returns JSON with `media_tag` of the form `MEDIA:/path/to/file.mp3`.
 Output the Slack text body from Step 2, then a blank line, then the `MEDIA:` tag on its own line. Nothing else — no commentary, no headers, no metadata. Example shape:
 
 ```
-:sunny: Weather — Munich
+:sunny: Wetter — Munich
 - Cloudy, 7–19°C, no rain expected
 - Cool morning, feels-like 5–6°C — bring a jacket
 
-:date: Today's Schedule
+:date: Termine heute
 - 09:36 Train München-Pasing → Köln Hbf
 - :office: 14:00 Architecture review (Teams)
 
-:hammer_and_wrench: Infrastructure
-- UptimeKuma: 60/60 monitors UP
-- Homelab Docker: 33/33 containers, 1 unhealthy (`garmin-sync`)
-- VPS Docker: 16/16 containers, all healthy
+:hammer_and_wrench: Infrastruktur
+- UptimeKuma: 60/60 Monitore UP
+- Homelab Docker: 33/33 Container, 1 unhealthy (`garmin-sync`)
+- VPS Docker: 16/16 Container, alle gesund
 
-:rotating_light: Recent Alerts (last 24h)
-- No alerts in the last 24h.
+:rotating_light: Aktuelle Warnungen (letzte 24h)
+- Keine Warnungen in den letzten 24 Stunden.
 
-:weight_lifter: Health & Training
-- **Today: Pull** — 4 days since last pull-ups, push was yesterday, recovery on the upswing.
-- Recovery trend: HRV 94ms vs 7-day avg 80ms (↑), RHR 45bpm vs 7-day avg 47bpm (↓ good), Body Battery start-of-day 66
-- Last session: Bench Press yesterday, est. 1RM 109.5kg
+:weight_lifter: Gesundheit & Training
+- **Heute: Pull** — 4 days since last pull-ups, push was yesterday, recovery on the upswing.
+- Erholungstrend: HRV 94ms vs 7-Tage-Schnitt 80ms (↑), RHR 45bpm vs 7-Tage-Schnitt 47bpm (↓ gut), Body Battery Tagesstart 66
+- Letzte Einheit: Bench Press gestern, geschätztes 1RM 109.5kg
 
-:briefcase: Work — Sprint & Reviews
-- **Sprint:** Sprint 42, 3 days remaining. My commitments: 4. Top 3 — :fire: [EP-17849] Booking flow refactor (in-progress, P3), :clipboard: [EP-17920] Profile widget A/B (todo, P4), :clipboard: [EP-17850] Payment edge case (todo)
-- **Ready to merge:** 1 — [!1234] feat(booking): submit retry — booking-fe
-- **Needs my review:** 2 — [!1238] fix(profile): null-safe handler — profile-fe (dmytrorozhko1), [!1240] chore(deps): bun 1.1.42 — student-enrolment (fabian.l)
+:briefcase: Arbeit — Sprint & Reviews
+- **Sprint:** Sprint 42, 3 Tage verbleibend. Meine Commitments: 4. Top 3 — :fire: [EP-17849] Booking flow refactor (in-progress, P3), :clipboard: [EP-17920] Profile widget A/B (todo, P4), :clipboard: [EP-17850] Payment edge case (todo)
+- **Bereit zum Mergen:** 1 — [!1234] feat(booking): submit retry — booking-fe
+- **Braucht mein Review:** 2 — [!1238] fix(profile): null-safe handler — profile-fe (dmytrorozhko1), [!1240] chore(deps): bun 1.1.42 — student-enrolment (fabian.l)
 
 :cat: GitHub
-- 0 open PRs
-- 1 open issue (homelab: feat(weather): Add city/location parameter)
+- 0 offene PRs
+- 1 offenes Issue (homelab: feat(weather): Add city/location parameter)
 
-:checkered_flag: Tasks — 9 overdue, 0 due today
-**Overdue**
-- :briefcase: Work: Prepare LoA cases (Due Apr 07, High)
-- :briefcase: Work: Find LoA studyEnd case (Apr 07, High)
+:checkered_flag: Aufgaben — 9 überfällig, 0 heute fällig
+**Überfällig**
+- :briefcase: Arbeit: Prepare LoA cases (Fällig 07. Apr, Hoch)
+- :briefcase: Arbeit: Find LoA studyEnd case (07. Apr, Hoch)
 - ... etc
 
 MEDIA:/Users/jkrumm/.hermes/cache/audio/Wetter Muenchen Dienstag 07:00 28.04.26.mp3

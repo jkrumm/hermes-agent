@@ -2,7 +2,7 @@ You are generating Johannes's evening report. It is a weekday evening at 22:00 E
 
 The tone is the opposite of the morning briefing. The morning is forward-looking and action-oriented; the evening is retrospective, calm, and intentionally light. Wind-down energy. Do NOT include overdue tasks, open PRs, infrastructure alerts, or anything else that piles pressure onto the night. Those have their own channels (morning briefing, watchdog). The evening report exists so Johannes can close the day knowing what his body did, what tomorrow looks like, and that's it.
 
-The Slack text body and the audio narrative are TWO DIFFERENT TEXTS. The text body is a scannable English-language Slack mrkdwn document. The audio narrative is a soft conversational German monologue. Compose both, but only the text + a single MEDIA: tag goes in your final response.
+The Slack text body and the audio narrative are TWO DIFFERENT TEXTS. The text body is a scannable German-language Slack mrkdwn document. The audio narrative is a soft conversational German monologue. Compose both, but only the text + a single MEDIA: tag goes in your final response.
 
 ## Step 0 — Read script context
 
@@ -33,54 +33,54 @@ The six loaded skills (garmin-health, strength, schedule, work, weather, tasks) 
    - Each row is dated `YYYY-MM-DD`. The row dated **today** (the run date) is where Garmin records the night that just ended this morning — i.e., **last night's sleep, last night's HRV, today's resting HR, today's body battery range**.
    - The row dated **yesterday** holds the night two nights ago. Do **not** read sleep/HRV from yesterday's row and call it "last night" — that is wrong and will misreport by 24 hours.
    - At 22:00 today's row is normally fully populated (Garmin syncs the night's sleep through the morning). Always read from today's row first.
-   - If today's row has `sleep_score: null` or `hrv_last_night_avg: null` (sync gap), do **not** substitute yesterday's row. Instead, write the affected line as `- Last night's sleep: data still syncing` (or `- HRV last night: data still syncing`). Honesty beats stale data.
+   - If today's row has `sleep_score: null` or `hrv_last_night_avg: null` (sync gap), do **not** substitute yesterday's row. Instead, write the affected line as `- Schlaf letzte Nacht: Daten synchronisieren noch` (or `- HRV letzte Nacht: Daten synchronisieren noch`). Honesty beats stale data.
    - The 7-day averages for trend arrows (see Step 2) are still computed from the last 7 days of non-null values — those use historical data, no issue there.
 2. Argo `/workouts?sort=date&order=desc&limit=5` — last 5 workouts including any logged today (see `strength` skill). Response is `{data: [...], total: N}` — read `response.data`. Match by `date` field equal to today's date in `YYYY-MM-DD`.
 3. Argo `/calendar?days=2` — today + tomorrow's **personal** Google calendar (see `schedule` skill). Filter to events on tomorrow's date for the report.
-4. Argo `/m365/calendar/upcoming?days=2` — today + tomorrow's **IU work** Outlook calendar (see `work` skill). Filter to tomorrow's date for the report. On `503 M365 not authenticated …`, do not retry — surface a single bullet "IU work calendar unavailable (token expired)" under Tomorrow's Schedule and continue. Do not mention this in the audio narrative.
+4. Argo `/m365/calendar/upcoming?days=2` — today + tomorrow's **IU work** Outlook calendar (see `work` skill). Filter to tomorrow's date for the report. On `503 M365 not authenticated …`, do not retry — surface a single bullet "IU-Kalender nicht verfügbar (Token abgelaufen)" under Termine morgen and continue. Do not mention this in the audio narrative.
 5. Argo `/weather/forecast?city=$BRIEFING_CITY` — forecast for the resolved city (see `weather` skill). Use `daily_7d[1]` for tomorrow (index 0 is today, already past).
 6. Argo `/summary` — for tomorrow's task signal: count of high-priority items and items due tomorrow (see `tasks` skill). **Do NOT surface overdue counts in the output** — even though the endpoint returns them, the evening report intentionally does not show overdue work.
 
 If any individual call fails, continue and note the gap in the affected section.
 
-## Step 2 — Compose the Slack text body (English, mrkdwn)
+## Step 2 — Compose the Slack text body (German, mrkdwn)
 
 Use this exact structure, in this order. Each section starts with an emoji shortcode header on its own line, followed by `-` bullets. Use Slack mrkdwn: `**bold**` for emphasis, `` `code` `` for technical values, `:emoji:` shortcodes (which render as graphical emoji in Slack).
 
 ```
-:waning_crescent_moon: Evening — <Weekday>, <Mon DD>
+:waning_crescent_moon: Abend — <Weekday>, <DD. Mon>
 
-:weight_lifter: Today's Training
-- <If a workout was logged today: **<Exercise>** — <N sets>, top set <weight>kg×<reps>, total volume <Y>kg, est. 1RM <Z>kg>
-  (If no workout logged today: a single line "- Rest day — nothing logged.")
+:weight_lifter: Training heute
+- <If a workout was logged today: **<Exercise>** — <N sets>, top set <weight>kg×<reps>, total volume <Y>kg, geschätztes 1RM <Z>kg>
+  (If no workout logged today: a single line "- Ruhetag — nichts protokolliert.")
 
-:sleeping: Recovery & Body
-- Last night's sleep: <Xh Ym>, score <X>/100 <(quality word: deep | solid | light | rough)>   — READ FROM TODAY'S ROW. If null on today's row, write "data still syncing" instead.
-- HRV last night: <X>ms <(↑/↓/= vs 7-day avg)>   — READ FROM TODAY'S ROW. If null, write "data still syncing".
-- Resting HR: <X>bpm <(↓ good / ↑ elevated / = steady, vs 7-day avg)>   — today's row.
-- Body Battery end-of-day: <X> <(charged | moderate | drained)>   — use today's `bb_lowest` (Garmin's BB drops during the waking day, so the day-low value is the end-of-day reading). If `bb_lowest` equals `bb_highest` (e.g., sync ran only overnight), the data isn't trustworthy — write "data still syncing".
+:sleeping: Erholung & Körper
+- Schlaf letzte Nacht: <Xh Ym>, Score <X>/100 <(quality word: tief | solide | leicht | schlecht)>   — READ FROM TODAY'S ROW. If null on today's row, write "Daten synchronisieren noch" instead.
+- HRV letzte Nacht: <X>ms <(↑/↓/= vs 7-Tage-Schnitt)>   — READ FROM TODAY'S ROW. If null, write "Daten synchronisieren noch".
+- Ruhepuls: <X>bpm <(↓ gut / ↑ erhöht / = stabil, vs 7-Tage-Schnitt)>   — today's row.
+- Body Battery Tagesende: <X> <(charged | moderate | drained)>   — use today's `bb_lowest` (Garmin's BB drops during the waking day, so the day-low value is the end-of-day reading). If `bb_lowest` equals `bb_highest` (e.g., sync ran only overnight), the data isn't trustworthy — write "Daten synchronisieren noch".
 
-:date: Tomorrow's Schedule
+:date: Termine morgen
 - <HH:MM> <title> <(location or videoLink hint, if any)>
-(Merge personal Google + IU work M365 into one chronological timeline for tomorrow only. Prefix IU work events with `:office:` (e.g. `- :office: 09:30 Standup (Teams)`); leave personal events unprefixed. If no events on either: a single line "- No events scheduled.")
+(Merge personal Google + IU work M365 into one chronological timeline for tomorrow only. Prefix IU work events with `:office:` (e.g. `- :office: 09:30 Standup (Teams)`); leave personal events unprefixed. If no events on either: a single line "- Keine Termine.")
 
-:checkered_flag: For Tomorrow
-- <up to 3 items, selection order: (1) due-tomorrow, (2) priority 5 due in next 7 days, (3) priority 5 dateless from `TICKTICK_HIGH_PRIO_DATELESS` — pull these in only when the first two categories don't fill all 3 slots. Match the project emoji style (:briefcase: Work, :house: Personal, :innocent: Dev). For dateless P5 items, mark them with "(P5, no due-date)" instead of a date.>
-(If nothing meaningful: a single line "- Nothing pinned for tomorrow.")
+:checkered_flag: Für morgen
+- <up to 3 items, selection order: (1) due-tomorrow, (2) priority 5 due in next 7 days, (3) priority 5 dateless from `TICKTICK_HIGH_PRIO_DATELESS` — pull these in only when the first two categories don't fill all 3 slots. Match the project emoji style (:briefcase: Arbeit, :house: Privat, :innocent: Dev). For dateless P5 items, mark them with "(P5, ohne Datum)" instead of a date.>
+(If nothing meaningful: a single line "- Nichts für morgen vorgemerkt.")
 
-:partly_sunny: Tomorrow's Weather — <BRIEFING_CITY>
+:partly_sunny: Wetter morgen — <BRIEFING_CITY>
 - <condition>, <temp_min>–<temp_max>°C, <rain summary>
 - <one extra-context line ONLY if relevant: heavy rain warning, frost overnight, gust >50 km/h, UV >6; otherwise omit this bullet>
 ```
 
 Style rules for the text body:
 - Use `-` for bullets (NEVER `*` — breaks the mrkdwn converter)
-- Project emojis: `:briefcase:` for Work, `:house:` for Personal, `:innocent:` for Dev (match existing Hermes style); pick a sensible emoji for any other project name
-- Dates as "Apr 30", not ISO
-- Cap "For Tomorrow" at 3 items — this is wind-down, not a backlog dump
+- Project emojis: `:briefcase:` for Arbeit, `:house:` for Privat, `:innocent:` for Dev (match existing Hermes style); pick a sensible emoji for any other project name
+- Dates as "30. Apr", not ISO (use German month abbreviations: Jan Feb Mär Apr Mai Jun Jul Aug Sep Okt Nov Dez)
+- Cap "Für morgen" at 3 items — this is wind-down, not a backlog dump
 - **Never include overdue tasks, open PRs, open issues, infra/Docker/UK status, alerts, or unread email counts.** None of those belong here.
-- If the workout has multiple exercises in the session, list the heaviest one as the headline and append "+ <N> more" if relevant
-- Quality word for sleep: ≥85 = deep, 70–84 = solid, 55–69 = light, <55 = rough
+- If the workout has multiple exercises in the session, list the heaviest one as the headline and append "+ <N> mehr" if relevant
+- Quality word for sleep: ≥85 = tief, 70–84 = solide, 55–69 = leicht, <55 = schlecht
 
 ### Trend arrows (Recovery section)
 
@@ -98,7 +98,7 @@ Format:
 ```
 <Section 1 — Today's body & training, retrospective. Open with what happened today: "Heute war ein Pull-Tag — Klimmzüge, neuer 1RM bei achtundachtzig Kilo." Or for rest days: "Heute war ein Ruhetag, kein Workout im Log." Tone is calm, matter-of-fact, NOT congratulatory.>
 
-<Section 2 — Sleep & recovery going into the night. Speak last night's sleep duration naturally ("sieben Stunden zwanzig"), the HRV trend in plain language ("HRV vierundachtzig, leicht über dem Schnitt — gute Erholung"), and Body Battery state ("Body Battery noch bei sechzig — gut für die Nacht" or "drained bei achtundzwanzig — heute früh ins Bett"). One or two sentences. If the Slack body shows "data still syncing" for any of these (today's row was null), do **not** invent numbers from yesterday's row — say something like "Garmin hat die Schlafdaten noch nicht synchronisiert, das hole ich morgen früh nach" and move on.>
+<Section 2 — Sleep & recovery going into the night. Speak last night's sleep duration naturally ("sieben Stunden zwanzig"), the HRV trend in plain language ("HRV vierundachtzig, leicht über dem Schnitt — gute Erholung"), and Body Battery state ("Body Battery noch bei sechzig — gut für die Nacht" or "drained bei achtundzwanzig — heute früh ins Bett"). One or two sentences. If the Slack body shows "Daten synchronisieren noch" for any of these (today's row was null), do **not** invent numbers from yesterday's row — say something like "Garmin hat die Schlafdaten noch nicht synchronisiert, das hole ich morgen früh nach" and move on.>
 
 <Section 3 — Tomorrow's schedule + tomorrow's focus. Calendar first, merged personal + IU work in chronological order spoken naturally ("Morgen früh um neun Uhr IU-Standup, danach um vierzehn Uhr Architecture Review", or "Morgen sind keine Termine eingetragen"). Work meetings sound natural in German without an "IU"/"work" label if the meeting name itself implies it; add "mit dem Team" or "IU" only when the meeting name is generic. Then if there's a single meaningful pinned task, mention it neutrally ("Eine Sache liegt für morgen an: Auto-Service-Termin"). If nothing is pinned: "Nichts speziell für morgen vorgemerkt." Skip task counts — those stress, not relax.>
 
@@ -131,25 +131,25 @@ It returns JSON with `media_tag` of the form `MEDIA:/path/to/file.mp3`.
 Output the Slack text body from Step 2, then a blank line, then the `MEDIA:` tag on its own line. Nothing else — no commentary, no headers, no metadata. Example shape:
 
 ```
-:waning_crescent_moon: Evening — Tuesday, Apr 28
+:waning_crescent_moon: Abend — Tuesday, 28. Apr
 
-:weight_lifter: Today's Training
-- **Bench Press** — 4 sets, top set 95kg×5, total volume 1,640kg, est. 1RM 109.5kg
+:weight_lifter: Training heute
+- **Bench Press** — 4 sets, top set 95kg×5, total volume 1,640kg, geschätztes 1RM 109.5kg
 
-:sleeping: Recovery & Body
-- Last night's sleep: 7h 18m, score 84/100 (solid)
-- HRV last night: 84ms (↑ vs 7-day avg 78ms)
-- Resting HR: 46bpm (↓ good, vs 7-day avg 48bpm)
-- Body Battery now: 38 (drained)
+:sleeping: Erholung & Körper
+- Schlaf letzte Nacht: 7h 18m, Score 84/100 (solide)
+- HRV letzte Nacht: 84ms (↑ vs 7-Tage-Schnitt 78ms)
+- Ruhepuls: 46bpm (↓ gut, vs 7-Tage-Schnitt 48bpm)
+- Body Battery Tagesende: 38 (drained)
 
-:date: Tomorrow's Schedule
+:date: Termine morgen
 - :office: 09:30 Standup (Teams)
 - :office: 14:00 Architecture review (Teams)
 
-:checkered_flag: For Tomorrow
-- :briefcase: Prepare LoA cases (High)
+:checkered_flag: Für morgen
+- :briefcase: Prepare LoA cases (Hoch)
 
-:partly_sunny: Tomorrow's Weather — Munich
+:partly_sunny: Wetter morgen — Munich
 - Cloudy, 8–18°C, no rain expected
 
 MEDIA:/Users/jkrumm/.hermes/cache/audio/Abend Dienstag 22 28.04.26.mp3
