@@ -43,10 +43,13 @@ GITHUB_TOKEN=op://hermes/github/token
 # (env var name HOMELAB_API_KEY kept for shell/cron compatibility)
 HOMELAB_API_KEY=op://common/api/SECRET
 
-# UptimeKuma push URLs — consumed by hermes/scripts/{hermes-liveness,hermes-backup}.sh
-# Push monitors created manually in UK UI; URLs stored in 1Password after creation.
+# UptimeKuma push URLs — pinged on success by hermes-liveness.sh, hermes-backup.sh,
+# and watchdog-slack.py. Push monitors created manually in UK UI; URLs stored in
+# 1Password after creation. Watchdog monitor interval ~2700s (45 min) — 30 min cron
+# + grace, so one missed run alerts without flapping.
 UPTIME_PUSH_HERMES=op://hermes/uptime-kuma/agent-push-url
 UPTIME_PUSH_BACKUP=op://hermes/uptime-kuma/backup-push-url
+UPTIME_PUSH_WATCHDOG=op://hermes/uptime-kuma/watchdog-push-url
 
 # Cron job idle timeout — hermes-agent/cron/scheduler.py kills any cron job that goes idle
 # (no tool activity / agent thinking) for this long. Default 600s is too tight for the

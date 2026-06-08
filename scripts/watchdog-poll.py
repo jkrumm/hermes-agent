@@ -43,6 +43,13 @@ GITHUB_STALE_DAYS = 3
 SLACK_FLAP_THRESHOLD = 3
 SLACK_REEMIT_COOLDOWN_HOURS = 24
 
+# Grouped sources are recorded via upsert_grouped (append-only) — reconcile()'s
+# disappearance-based resolution never runs for them, so open rows accrue forever
+# (and stale hermes_log rows pollute the morning briefing's open list). Sweep any
+# open grouped event idle for longer than this.
+GROUPED_SOURCES = ("slack_alert", "slack_update", "hermes_log")
+GROUPED_TTL_DAYS = 7
+
 REM_HOURS = {
     "uk": 6,
     "docker_homelab": 6,
@@ -58,7 +65,7 @@ HERMES_LOG_FILES = [
     ("hermes_gw_error_log_offset", "logs/gateway.error.log"),
 ]
 LOG_LEVEL_RE = re.compile(r"\s(ERROR|CRITICAL)\s")
-LOG_PARSE_RE = re.compile(r"^\S+\s+\S+\s+(ERROR|CRITICAL)\s+([\w\.]+)\s*:\s*(.+)$")
+LOG_PARSE_RE = re.compile(r"^\S+\s+\S+\s+(ERROR|CRITICAL)\s+(?:\[[^\]]*\]\s+)?([\w\.]+)\s*:\s*(.+)$")
 LOG_TS_RE = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})")
 LOG_RECENT_HOURS = 6  # log lines older than this are ignored even on first run
 
@@ -371,6 +378,10 @@ def poll_hermes_logs(conn: sqlite3.Connection, now: dt.datetime, now_iso: str) -
             m = LOG_PARSE_RE.match(line)
             if m:
                 level, module, msg = m.group(1), m.group(2), m.group(3)
+                # Drop Hermes's structured-metadata tail (" | provider=… tokens=~6,455"),
+                # whose per-line counters would otherwise split one recurring error into
+                # a fresh signature every poll (the cron "API call failed" flood).
+                msg = msg.split(" | ", 1)[0].rstrip()
                 sig_text = f"{module}: {msg[:120]}"
             else:
                 sig_text = line[:160]
@@ -581,6 +592,26 @@ def upsert_grouped(conn: sqlite3.Connection, source: str, groups: list[dict[str,
     return out
 
 
+def sweep_stale_grouped(conn: sqlite3.Connection, now: dt.datetime,
+                        ttl_days: int = GROUPED_TTL_DAYS) -> int:
+    """Silently resolve open grouped-source events idle for > ttl_days.
+
+    Resolution is silent (no 'Resolved' emission) — sweeping months-old slack/log
+    rows shouldn't trigger a notification burst; it's housekeeping, not an event.
+    Idle anchor is the last activity: last_reminder_at → notified_at → first_seen.
+    Returns the number of rows resolved.
+    """
+    cutoff = (now - dt.timedelta(days=ttl_days)).isoformat()
+    placeholders = ",".join("?" for _ in GROUPED_SOURCES)
+    cur = conn.execute(
+        f"UPDATE events SET resolved_at=? "
+        f"WHERE resolved_at IS NULL AND source IN ({placeholders}) "
+        f"AND COALESCE(last_reminder_at, notified_at, first_seen) < ?",
+        (now.isoformat(), *GROUPED_SOURCES, cutoff),
+    )
+    return cur.rowcount
+
+
 SOURCE_EMOJI = {
     "uk": ":satellite_antenna:",
     "docker_homelab": ":whale:",
@@ -745,6 +776,8 @@ def _run_poll(conn: sqlite3.Connection, now: dt.datetime, env: dict[str, str],
             all_new += upsert_grouped(conn, src, groups, now)
         if latest and latest != since:
             cursor_set(conn, cur_key, latest, now_iso)
+
+    sweep_stale_grouped(conn, now)
 
     return all_new, all_rem, all_res
 

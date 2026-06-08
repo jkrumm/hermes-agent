@@ -204,6 +204,7 @@ refs = {
     'HOMELAB_API_KEY': 'op://common/api/SECRET',
     'UPTIME_PUSH_HERMES': 'op://hermes/uptime-kuma/agent-push-url',
     'UPTIME_PUSH_BACKUP': 'op://hermes/uptime-kuma/backup-push-url',
+    'UPTIME_PUSH_WATCHDOG': 'op://hermes/uptime-kuma/watchdog-push-url',
 }
 resolved = {}
 for key, ref in refs.items():
@@ -233,7 +234,7 @@ Both installed by `make setup`. Both ping UptimeKuma push monitors.
 | `*/5 * * * *` | `scripts/hermes-liveness.sh` | Read `~/.hermes/gateway_state.json`. If `gateway_state == "running"` AND `platforms.slack.state == "connected"` AND PID alive → curl `$UPTIME_PUSH_HERMES`. UK monitor `Hermes Agent - Push` (interval 360s). |
 | `0 3 * * *` | `scripts/hermes-backup.sh` | rsync `~/.hermes/` → `homelab:/mnt/hdd/backups/hermes/` (excludes `audio_cache/`, `image_cache/`, `cache/`, `sandboxes/`, `sessions/`, `hermes-agent/`, `*.lock`, `*.pid`). On success → curl `$UPTIME_PUSH_BACKUP`. UK monitor `Hermes Backup - Push` (interval 25h). |
 
-**Push URLs** are stored in 1Password (`op://hermes/uptime-kuma/{agent,backup}-push-url`) and resolved into `~/.hermes/.env` by the rebuild script below. Scripts no-op silently if the URL is missing — UK alerts on the missing heartbeat.
+**Push URLs** are stored in 1Password (`op://hermes/uptime-kuma/{agent,backup,watchdog}-push-url`) and resolved into `~/.hermes/.env` by the rebuild script below. Scripts no-op silently if the URL is missing — UK alerts on the missing heartbeat. The watchdog heartbeat (`UPTIME_PUSH_WATCHDOG`) is pinged by `scripts/watchdog-slack.py` on a clean 30-min poll; UK monitor `Hermes Watchdog - Push` (interval ~2700s).
 
 **Push monitors** are created manually in the UK UI per existing convention (uptime-kuma-api 1.2.1 doesn't support UK 2.x push creation). Monitor specs are documented declaratively in `homelab/uptime-kuma/monitors.yaml` under the Infrastructure subgroup.
 
