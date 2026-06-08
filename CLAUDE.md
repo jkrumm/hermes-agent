@@ -30,6 +30,8 @@ an OpenAI-compatible LaunchAgent on `127.0.0.1:7716` installed by dotfiles
 | `skills/{name}/` | `~/.hermes/skills/{name}/` | symlink per skill (argo-api, infrastructure, tasks, capture, schedule, work, weather, slack, garmin-health, strength) |
 | `USER.md` | `~/.hermes/memories/USER.md` | copied — Hermes writes to it |
 
+> **Skill trust (v0.16.0+).** Skills are symlinked into `~/.hermes/skills/`, but v0.16.0's skill-security check resolves each skill's *realpath* and warns — and may later **block** — when it lands outside a trusted dir (our symlink targets do). `config.yaml` therefore sets `skills.external_dirs: [~/SourceRoot/hermes-agent/skills]` so the resolved realpath is trusted. The symlink and the external entry resolve to the same path, which `skills_tool` dedups (by realpath on load, by name on listing) — no duplicate-skill collisions. If a future update reintroduces the "skill file is outside the trusted skills directory" warning, confirm this key is still populated.
+
 **Claude Code per-repo skills** (committed at `.claude/skills/`, not symlinked — auto-loaded by Claude Code when started inside this repo):
 - `/hermes-validate` — slash command to test Hermes routing + fix SOUL.md / SKILL.md
 - `/hermes-update` — slash command to pull upstream Hermes, re-apply local patches, restart the gateway

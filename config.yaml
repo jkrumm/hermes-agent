@@ -372,7 +372,14 @@ prefill_messages_file: ''
 goals:
   max_turns: 20
 skills:
-  external_dirs: []
+  # Our domain skills live in this repo and are symlinked into ~/.hermes/skills/.
+  # v0.16.0's skill-security check resolves a skill's realpath and warns (and may
+  # later block) when it lands outside a trusted dir — symlink targets do. Trust
+  # the repo skills dir here so the resolved realpath is recognised. The symlink
+  # in ~/.hermes/skills/ and this external entry resolve to the same path, which
+  # skills_tool dedups (by realpath on load, by name on listing) — no duplicates.
+  external_dirs:
+  - ~/SourceRoot/hermes-agent/skills
   template_vars: true
   inline_shell: false
   inline_shell_timeout: 10
