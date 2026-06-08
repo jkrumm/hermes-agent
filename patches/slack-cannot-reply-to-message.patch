@@ -1,5 +1,5 @@
 diff --git a/gateway/platforms/slack.py b/gateway/platforms/slack.py
-index 13564f1e6..9c4550df4 100644
+index 0e1b055ea..c8974699d 100644
 --- a/gateway/platforms/slack.py
 +++ b/gateway/platforms/slack.py
 @@ -21,6 +21,7 @@ from typing import Dict, Optional, Any, Tuple, List
@@ -18,7 +18,7 @@ index 13564f1e6..9c4550df4 100644
  
  import sys
  from pathlib import Path as _Path
-@@ -1103,7 +1105,29 @@ class SlackAdapter(BasePlatformAdapter):
+@@ -1104,7 +1106,29 @@ class SlackAdapter(BasePlatformAdapter):
                      if broadcast and i == 0:
                          kwargs["reply_broadcast"] = True
  
@@ -49,7 +49,7 @@ index 13564f1e6..9c4550df4 100644
  
              # Clear Slack Assistant status as soon as the final message is posted.
              if thread_ts:
-@@ -1289,11 +1313,23 @@ class SlackAdapter(BasePlatformAdapter):
+@@ -1290,11 +1314,23 @@ class SlackAdapter(BasePlatformAdapter):
                  existing_thread = None
              return existing_thread or None
  
@@ -77,7 +77,7 @@ index 13564f1e6..9c4550df4 100644
          return reply_to
  
      async def _upload_file(
-@@ -1523,6 +1559,18 @@ class SlackAdapter(BasePlatformAdapter):
+@@ -1524,6 +1560,18 @@ class SlackAdapter(BasePlatformAdapter):
  
          text = content
  

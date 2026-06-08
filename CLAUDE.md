@@ -68,7 +68,7 @@ The skill is **personal-orientation only** — read-only across every system, ne
 
 ## Local Modifications to Upstream
 
-Re-apply after `hermes update`: **eight `.patch` files** (each applied with `git apply --3way`; `/hermes-update` carries the loop). All eight are regenerated against the current upstream baseline (**v0.15.1**) so they re-apply cleanly on minor upstream bumps; only a structural rewrite of a touched function needs a hand-rewrite.
+Re-apply after `hermes update`: **eight `.patch` files** (each applied with `git apply --3way`; `/hermes-update` carries the loop). All eight are regenerated against the current upstream baseline (**v0.16.0**) so they re-apply cleanly on minor upstream bumps; only a structural rewrite of a touched function needs a hand-rewrite.
 
 > **Retired patch — `auxiliary-client-gpt5-max-completion-tokens` (dropped at v0.15.1).** It forced `max_completion_tokens` for `gpt-5*`/`gpt-4o`/`o-series` models by name in `_build_call_kwargs`. v0.15.1 rewrote that function to **omit `max_tokens` entirely** for non-Anthropic custom endpoints (it only sets it for Anthropic-compat endpoints, where it's mandatory) — so the patch's target block no longer exists, and its defensive goal (never send `max_tokens` to a gpt-5 aux on the IU endpoint → HTTP 503) is now achieved by upstream's omit-by-default behavior. The direct-OpenAI `max_completion_tokens` case is handled by upstream's separate `auxiliary_max_tokens_param` helper. The current config (DeepSeek-V4-Flash auxiliaries, `chat_completions`) never hit this path regardless. Patch file deleted from `patches/`.
 

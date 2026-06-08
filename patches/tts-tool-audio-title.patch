@@ -1,5 +1,5 @@
 diff --git a/tools/tts_tool.py b/tools/tts_tool.py
-index cab2cc584..4a566e3dd 100644
+index e1d20df3f..bd6fa12ec 100644
 --- a/tools/tts_tool.py
 +++ b/tools/tts_tool.py
 @@ -977,7 +977,32 @@ def _generate_elevenlabs(text: str, output_path: str, tts_config: Dict[str, Any]
@@ -70,7 +70,7 @@ index cab2cc584..4a566e3dd 100644
      finally:
          close = getattr(client, "close", None)
          if callable(close):
-@@ -1930,6 +1964,9 @@ def text_to_speech_tool(
+@@ -1931,6 +1965,9 @@ def text_to_speech_tool(
      # Ensure parent directory exists
      file_path.parent.mkdir(parents=True, exist_ok=True)
      file_str = str(file_path)
@@ -80,7 +80,7 @@ index cab2cc584..4a566e3dd 100644
  
      try:
          # Generate audio with the configured provider
-@@ -1976,7 +2013,7 @@ def text_to_speech_tool(
+@@ -1977,7 +2014,7 @@ def text_to_speech_tool(
                      "error": "OpenAI provider selected but 'openai' package not installed."
                  }, ensure_ascii=False)
              logger.info("Generating speech with OpenAI TTS...")
@@ -89,7 +89,7 @@ index cab2cc584..4a566e3dd 100644
  
          elif provider == "minimax":
              logger.info("Generating speech with MiniMax TTS...")
-@@ -2113,6 +2150,15 @@ def text_to_speech_tool(
+@@ -2114,6 +2151,15 @@ def text_to_speech_tool(
          elif provider in {"elevenlabs", "openai", "mistral", "gemini"}:
              voice_compatible = want_opus and file_str.endswith(".ogg")
  
