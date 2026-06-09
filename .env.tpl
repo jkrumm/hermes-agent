@@ -2,6 +2,18 @@
 # Resolved via: op run --account tkrumm --env-file=.env.tpl -- hermes gateway start
 # Copy to ~/.hermes/.env.tpl on Mac Mini
 
+# API server (gateway HTTP surface) — exposes the gateway on the tailnet so the
+# argo VPS dashboard chat can reach it (argo: HERMES_BASE_URL=http://<host>:8642/v1).
+# HOST is the Mac Mini's Tailscale IP (tailnet-only bind, no LAN listener); a
+# Tailscale ACL grants tag:vps → tag:mac on tcp:8642. KEY auth-gates every request
+# (even loopback) and MUST equal argo's HERMES_API_KEY (op://vps/argo/HERMES_API_KEY)
+# — this op item is the canonical source. HOST is an op:// ref too, to keep the
+# Tailscale IP out of git (security rule).
+API_SERVER_ENABLED=true
+API_SERVER_HOST=op://hermes/gateway/host
+API_SERVER_PORT=8642
+API_SERVER_KEY=op://hermes/gateway/api-server-key
+
 # Slack (create app via manifest: hermes/slack-app-manifest.json)
 SLACK_BOT_TOKEN=op://hermes/slack/bot-token
 SLACK_APP_TOKEN=op://hermes/slack/app-token

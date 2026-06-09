@@ -205,6 +205,9 @@ refs = {
     'UPTIME_PUSH_HERMES': 'op://hermes/uptime-kuma/agent-push-url',
     'UPTIME_PUSH_BACKUP': 'op://hermes/uptime-kuma/backup-push-url',
     'UPTIME_PUSH_WATCHDOG': 'op://hermes/uptime-kuma/watchdog-push-url',
+    # API server — gateway HTTP surface (tailnet) for the argo VPS dashboard chat
+    'API_SERVER_HOST': 'op://hermes/gateway/host',
+    'API_SERVER_KEY': 'op://hermes/gateway/api-server-key',
 }
 resolved = {}
 for key, ref in refs.items():
@@ -214,7 +217,10 @@ for key, ref in refs.items():
 # the op://common/anthropic/OPENAI_BASE_URL field is stale (retired host).
 resolved['OPENAI_BASE_URL'] = resolved['ANTHROPIC_BASE_URL'].replace('/anthropic', '/openai/v1')
 # Static env vars (not from 1Password)
-static = {}
+static = {
+    'API_SERVER_ENABLED': 'true',
+    'API_SERVER_PORT': '8642',
+}
 lines = [f'{key}={val}' for key, val in resolved.items()]
 for key, val in static.items():
     lines.append(f'{key}={val}')
