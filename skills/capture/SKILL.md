@@ -5,7 +5,7 @@ version: 1.0.0
 metadata:
   hermes:
     tags: [capture, todo, reminder, issue, ticktick, github, routing]
-    related_skills: [tasks, argo-api]
+    related_skills: [tasks, argo-api, karakeep, obsidian]
 ---
 
 # Capture (TickTick + GitHub Issues)
@@ -31,6 +31,12 @@ You decide where it lands. No double-tracking — one item, one home.
 | "Evaluate Z for our use case" | TickTick | Human judgment |
 
 **Hard override:** anything IU / International University / work / colleague names → TickTick `💼Work`. **Never** GitHub, even if it's an engineering task.
+
+**Not a task at all? Redirect — don't force it into TickTick/GitHub:**
+- A **link/article/video to read or keep later**, or a snippet to re-find → the `karakeep` skill (read-later bucket).
+- A **durable idea / knowledge note** to develop → the `obsidian` skill (the vault).
+
+Capture owns *actionable* items (do-this) and *concrete code changes*. "Keep / read later" is reference; "note this idea" is knowledge — both have their own skills.
 
 ---
 
