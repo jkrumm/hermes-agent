@@ -5,7 +5,7 @@ version: 1.0.0
 metadata:
   hermes:
     tags: [obsidian, vault, notes, note, second-brain, pkm, knowledge, daily, inbox, search, backlinks, dataview, wikilink, markdown, capture, resource, inspiration]
-    related_skills: [capture, karakeep, tasks, argo-api]
+    related_skills: [capture, karakeep, argo-api]
 ---
 
 # Obsidian
@@ -190,7 +190,7 @@ The `capture` skill routes; this is the shared model:
 
 - **Obsidian** (this skill) — a durable thought, idea, or piece of knowledge to develop; a reference note you'll edit/link.
 - **KaraKeep** (`karakeep` skill) — a link/article to read or keep later (let it crawl + AI-tag). Reference you consume, not author.
-- **TickTick** (`capture`→`tasks`) — something a human must do.
+- **TickTick** (via `capture`) — something a human must do.
 - **GitHub** (`capture`) — a concrete code change.
 
 ## Guardrails

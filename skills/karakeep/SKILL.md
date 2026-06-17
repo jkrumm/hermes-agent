@@ -5,7 +5,7 @@ version: 1.0.0
 metadata:
   hermes:
     tags: [karakeep, bookmark, bookmarks, read-later, readlater, save, link, links, article, reading, search, lists, tags, highlights, rss, hoarder]
-    related_skills: [capture, obsidian, tasks, argo-api]
+    related_skills: [capture, obsidian, argo-api]
 ---
 
 # KaraKeep
@@ -146,7 +146,7 @@ KaraKeep is one of four capture destinations. The mental model (`capture` skill 
 |-|-|
 | **KaraKeep** (this skill) | A link/article/video to **read or keep** later; a text snippet worth re-finding. Reference, not action. |
 | **Obsidian** (`obsidian` skill) | Durable **knowledge / an idea / a note** that belongs in the second brain. |
-| **TickTick** (`capture`→`tasks`) | Something a **human must do** (errand, decision, research-to-do, appointment). |
+| **TickTick** (via `capture`) | Something a **human must do** (errand, decision, research-to-do, appointment). |
 | **GitHub** (`capture`) | A concrete **code change** a coding agent can execute. |
 
 Rule of thumb: *"I want to read/remember this"* → KaraKeep. *"I need to act on this"* → TickTick/GitHub. *"This is a thought I want to develop"* → Obsidian. A social/media link the user wants to read later → KaraKeep (let KaraKeep crawl + tag it); the `capture` social-media-extraction path is for items destined for TickTick/GitHub.

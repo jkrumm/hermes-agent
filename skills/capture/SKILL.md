@@ -5,7 +5,7 @@ version: 1.0.0
 metadata:
   hermes:
     tags: [capture, todo, reminder, issue, ticktick, github, routing]
-    related_skills: [tasks, argo-api, karakeep, obsidian]
+    related_skills: [argo-api, karakeep, obsidian]
 ---
 
 # Capture (TickTick + GitHub Issues)
@@ -147,7 +147,7 @@ rm -f "$TMP"
 
 ### TickTick (Personal / Work / Shopping / Inbox)
 
-Use the `tasks` skill's POST. Resolve project name → ID via the cache.
+POST to the argo TickTick endpoint (`argo-api` → `references/tasks.md` has the field semantics). Resolve project name → ID via the cache.
 
 ```bash
 # Resolve project ID (cache hit expected)
