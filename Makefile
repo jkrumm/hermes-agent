@@ -4,7 +4,7 @@ HERMES_DIR    := $(HOME)/.hermes
 # schedule, slack, tasks, weather, garmin-health and strength skills were
 # consolidated into argo-api/references/*.md (commit 3087645) — they are no longer
 # separate dirs, so listing them here only created dead symlinks.
-HERMES_SKILLS := capture argo-api work karakeep
+HERMES_SKILLS := capture argo-api work karakeep obsidian
 
 # TTS/STT is served by audio-proxy (:7716), a separate LaunchAgent installed by
 # dotfiles `make setup` — Hermes only points its native openai TTS/STT providers

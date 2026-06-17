@@ -27,7 +27,7 @@ an OpenAI-compatible LaunchAgent on `127.0.0.1:7716` installed by dotfiles
 | `cron/` | `~/.hermes/cron/` | symlink — Hermes-driven (LLM) cron jobs |
 | `scripts/` | `~/.hermes/scripts/` | symlink — Hermes cron pre-run scripts (security check requires they live under `HERMES_HOME/scripts/`). Also holds host-level shell scripts. |
 | `hooks/` | `~/.hermes/hooks/` | symlink — add hooks here |
-| `skills/{name}/` | `~/.hermes/skills/{name}/` | symlink per skill — actual dirs are `capture`, `argo-api`, `work`, `karakeep` (the former infrastructure/schedule/slack/tasks/weather/garmin-health/strength skills were consolidated into `argo-api/references/*.md`; they are no longer separate dirs and were dropped from `HERMES_SKILLS`) |
+| `skills/{name}/` | `~/.hermes/skills/{name}/` | symlink per skill — actual dirs are `capture`, `argo-api`, `work`, `karakeep`, `obsidian` (the former infrastructure/schedule/slack/tasks/weather/garmin-health/strength skills were consolidated into `argo-api/references/*.md`; they are no longer separate dirs and were dropped from `HERMES_SKILLS`) |
 | `USER.md` | `~/.hermes/memories/USER.md` | copied — Hermes writes to it |
 
 > **Skill trust (v0.16.0+).** Skills are symlinked into `~/.hermes/skills/`, but v0.16.0's skill-security check resolves each skill's *realpath* and warns — and may later **block** — when it lands outside a trusted dir (our symlink targets do). `config.yaml` therefore sets `skills.external_dirs: [~/SourceRoot/hermes-agent/skills]` so the resolved realpath is trusted. The symlink and the external entry resolve to the same path, which `skills_tool` dedups (by realpath on load, by name on listing) — no duplicate-skill collisions. If a future update reintroduces the "skill file is outside the trusted skills directory" warning, confirm this key is still populated.
@@ -97,6 +97,19 @@ The skill is **personal-orientation only** — read-only across every system, ne
 **Split: garmin-health vs strength.** Garmin Health owns passive measurements (`/daily-metrics`, `/recovery`, `/training-load`, `/fitness-direction`, `/activities`, `/weight-log`, `/user-profile`). Strength owns active lifting (`/workouts`, `/workout-sets`, `/exercises`) plus the 13-endpoint `/workouts/summary/*` analytics suite (e1RM, INOL, ACWR per-exercise, MEV/MAV/MRV landmarks, deload-signal, readiness). The cross-skill bridge is `/workouts/summary/readiness` — it joins Garmin recovery + strength fatigue debt and lives in `strength`. Note `weight-log` + `user-profile` are tagged Garmin Health in the live OpenAPI even though they're physically distinct from daily metrics; respect that grouping in cross-references.
 
 **API secret:** `op://common/api/SECRET` (account `tkrumm`) — wired in `.env.tpl`.
+
+## Second Brain (Obsidian + KaraKeep)
+
+Two skills make Hermes the front door to Johannes's second brain. Roles are deliberately distinct (don't blur them):
+
+- **`obsidian`** — the **source of truth**: read/search/write the PARA vault at `~/Obsidian/Vault/`. **CLI-first** (`/usr/local/bin/obsidian` → `obsidian-cli`; Obsidian.app runs on this Mac Mini, so the CLI goes through Obsidian's live API — metadata cache, backlinks, Dataview, LiveSync-clean), with a **filesystem fallback** when Obsidian isn't running. No secret. Encodes the *real* vault conventions (actual folders `00_Inbox`/`01_Journal`/`02_Daily`/`03_Projects`/`04_Areas`/`05_Resources`/`09_Templates`, `YYYY-MM-DD` naming, `#topic/subtopic` tags, per-type frontmatter). The vault's own `CLAUDE.md` is ~50% drifted (lists folders/plugins that don't exist, incl. a dead Local REST API token) — trust the skill, not that file. **Does not write `01_Journal/`** (the parked journal subsystem owns it).
+- **`karakeep`** — the **read-later / everything bucket**: REST against `https://karakeep.jkrumm.com/api/v1` (Bearer `$KARAKEEP_API_KEY` → `op://hermes/karakeep/api-key`, Tailscale-only). Save links/text, full-text search (Meili — no semantic search in 0.32.0), lists incl. smart lists, tags, highlights. AI auto-tagging is async (DeepSeek-V4-Flash via IU). State cache (`skills/karakeep/state.json`, gitignored, seeded by `make setup`) holds lists+tags, refresh-on-miss.
+
+**Routing model** (the `capture` skill is the router): KaraKeep = reference/reading you consume · Obsidian = durable knowledge you author · TickTick = human action · GitHub = code change.
+
+**Bundled-skill collision (obsidian).** Upstream ships a stock bundled `obsidian` skill (generic, filesystem-first) listed in `.bundled_manifest`. Our local `obsidian` (symlinked from this repo) has the same name; the stock one was removed from `~/.hermes/skills/note-taking/obsidian/` so ours is canonical. It **re-seeds on `hermes update`** — `/hermes-update` carries the `rm -rf ~/.hermes/skills/note-taking/obsidian` reconciliation step. In `hermes skills list` ours may show source `builtin` (name is in the manifest) — cosmetic; an empty *category* column confirms the top-level symlink (ours) is loaded.
+
+**Kobo / e-reader (planned, Phase 4).** Reading selected vault notes on the Kobo via KOReader will use **Readeck** (single Go binary; `iceyear/readeck.koplugin` does bidirectional highlight + progress sync; OPDS at `/opds`) as a dedicated reading surface — *not* KaraKeep (its koplugin is save-only) and *not* Wallabag (no highlight sync-back). Hermes will push curated Obsidian/KaraKeep content into Readeck and pull highlights back to Obsidian. Not built yet.
 
 ## Local Modifications to Upstream
 

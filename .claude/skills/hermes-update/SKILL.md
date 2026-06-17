@@ -67,6 +67,21 @@ If a `git apply` fails outright (not just a context shift), inspect the upstream
 
 `hermes update` stashes your working changes, pulls upstream, then tries to re-apply the stash. Expect conflicts on the eight patched files — that is normal. The CLI prints the stash ref (`Restore your changes later with: git stash apply <sha>`); keep it as a fallback. After conflicts surface, the CLI resets the working tree clean — re-apply via the loop above.
 
+### Bundled-skill reconciliation
+
+Upstream ships a **stock bundled `obsidian` skill** (generic, filesystem-first) in the `.bundled_manifest`. Our repo provides a tailored local `obsidian` skill (CLI-first, real vault conventions) symlinked into `~/.hermes/skills/obsidian`. Same name → on an update the stock one re-seeds to `~/.hermes/skills/note-taking/obsidian/` and shadows ours. Remove it so our local skill is the only `obsidian`:
+
+```bash
+rm -rf ~/.hermes/skills/note-taking/obsidian
+# verify ours is active (resolves to the repo, not note-taking/):
+readlink ~/.hermes/skills/obsidian   # → ~/SourceRoot/hermes-agent/skills/obsidian
+hermes skills list | grep obsidian   # source label may read "builtin" (name is in the
+                                      # bundled manifest) — cosmetic; an empty category
+                                      # column means the top-level symlink (ours) is loaded
+```
+
+(`karakeep` has a unique name, so it never collides.)
+
 ---
 
 ## Restart
