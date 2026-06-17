@@ -86,15 +86,22 @@ hermes skills list | grep obsidian   # source label may read "builtin" (name is 
 
 ## Restart
 
+SOUL.md / config.yaml changes need a gateway restart (skills are symlinked, so SKILL.md edits are already live).
+
 ```bash
-launchctl unload ~/Library/LaunchAgents/ai.hermes.gateway.plist
-sleep 2
-launchctl load ~/Library/LaunchAgents/ai.hermes.gateway.plist
+hermes gateway restart
 ```
+
+> On this macOS, launchd can't bootstrap the `ai.hermes.gateway` LaunchAgent
+> (`Bootstrap failed: 5: I/O error`); `hermes gateway restart` falls back to a healthy
+> bare `run --replace` background process (no auto-restart on crash / login — the
+> liveness cron + UptimeKuma heartbeat are the safety net). Do **not** `launchctl
+> load` a `.plist` by hand — it fails the same way.
 
 Verify it came up:
 
 ```bash
+curl -s http://$(awk -F= '/^API_SERVER_HOST=/{print $2}' ~/.hermes/.env):8642/health
 tail -20 ~/.hermes/logs/gateway.log
 ```
 

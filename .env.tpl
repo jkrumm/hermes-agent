@@ -24,7 +24,7 @@ SLACK_CHANNEL_HERMES=op://hermes/slack/channel-hermes
 SLACK_HOME_CHANNEL=op://hermes/slack/channel-hermes
 SLACK_CHANNEL_INBOX=op://hermes/slack/channel-inbox
 
-# Kimi brain (default) — IU unified endpoint, OpenAI-compatible transport.
+# DeepSeek-V4-Pro brain (default) — IU unified endpoint, OpenAI-compatible transport.
 # Same key as ANTHROPIC_*; the base is the OpenAI-compat surface (…/openai/v1),
 # DERIVED from BASE_URL (…/anthropic → …/openai/v1). NOTE: the runtime reads the
 # resolved ~/.hermes/.env (rebuilt by the Python builder in README.md, which

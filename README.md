@@ -1,6 +1,6 @@
 # Hermes Agent — Mac Mini M2 Pro
 
-Personal AI assistant running 24/7 on Mac Mini. Slack as interface, Kimi K2.6 as brain (EU; `claude-sonnet-4-6-eu` failover), seven skill domains.
+Personal AI assistant running 24/7 on Mac Mini. Slack as interface, DeepSeek-V4-Pro as brain (EU; `claude-sonnet-4-6-eu` failover), seven skill domains.
 
 **Hermes docs**: https://hermes-agent.nousresearch.com/docs/
 
@@ -16,7 +16,7 @@ Mac Mini M2 Pro — Hermes Agent (always-on)
   │     STT: gpt-4o-transcribe (German/English steered).
   ├→ Homelab — Docker containers, CouchDB, backups (via Tailscale)
   ├→ VPS — Production apps, ClickStack (via Tailscale)
-  └→ IU unified endpoint — Kimi K2.6 (primary, OpenAI-compat, EU; claude-sonnet-4-6-eu failover), gpt-5-mini (auxiliary), Gemini Flash (vision)
+  └→ IU unified endpoint — DeepSeek-V4-Pro (primary, OpenAI-compat, EU; claude-sonnet-4-6-eu failover), DeepSeek-V4-Flash (auxiliaries), gemini-2.5-flash (vision)
 ```
 
 ## Channel Architecture
@@ -139,42 +139,36 @@ unrelated entries are preserved.
 hermes setup  # interactive — confirm LLM provider, voice, Slack
 ```
 
-### 8. Start Gateway (LaunchAgent)
-
-Create `~/Library/LaunchAgents/com.hermes.gateway.plist`:
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.hermes.gateway</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/bin/zsh</string>
-        <string>-c</string>
-        <string>op run --account tkrumm --env-file=$HOME/.hermes/.env.tpl -- hermes gateway start</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>/tmp/hermes-gateway.log</string>
-    <key>StandardErrorPath</key>
-    <string>/tmp/hermes-gateway.err</string>
-</dict>
-</plist>
-```
+### 8. Start the Gateway
 
 ```bash
-launchctl load ~/Library/LaunchAgents/com.hermes.gateway.plist
-tail -f /tmp/hermes-gateway.log  # watch for successful Slack connection
+hermes gateway install   # registers the LaunchAgent (label: ai.hermes.gateway) and starts the gateway
+```
+
+> **launchd caveat (this macOS).** `hermes gateway install` (and `restart`) cannot
+> bootstrap the user-domain LaunchAgent here — it fails with
+> `Bootstrap failed: 5: I/O error` and the CLI automatically falls back to a healthy
+> bare background process (`hermes gateway run --replace`). Consequence: **no
+> auto-restart on crash and no start-at-login.** The safety net is the liveness cron
+> (every 5 min, §"Cron — Liveness + Backup") → UptimeKuma push monitor
+> `Hermes Agent - Push`, which alerts on a missing heartbeat if the gateway dies.
+
+(Re)start manually with:
+
+```bash
+hermes gateway restart   # falls back to a bare `run --replace` process on this macOS
+```
+
+Verify it's up:
+
+```bash
+curl -s http://$(awk -F= '/^API_SERVER_HOST=/{print $2}' ~/.hermes/.env):8642/health
+tail -20 ~/.hermes/logs/gateway.log  # watch for successful Slack connection
 ```
 
 ### 9. Verify
 
-- [x] Send message in `#hermes` on Slack — get response via Kimi K2.6
+- [x] Send message in `#hermes` on Slack — get response via DeepSeek-V4-Pro
 - [x] Send voice memo in Slack — get transcribed via audio-gateway (`gpt-4o-transcribe`)
 - [x] TTS audio generation — Gemini Charon via audio-gateway, MP3 output
 - [x] Backup cron — daily 03:00 rsync to `homelab:/mnt/hdd/backups/hermes/`, pings UK
@@ -182,7 +176,7 @@ tail -f /tmp/hermes-gateway.log  # watch for successful Slack connection
 
 ### Known Issues / TODOs
 
-- **Gateway launchd**: `hermes gateway restart` sometimes doesn't reload. Use `hermes gateway stop && hermes gateway start` as workaround.
+- **Gateway launchd**: this macOS can't bootstrap the user LaunchAgent (`Bootstrap failed: 5: I/O error`), so `hermes gateway install`/`restart` fall back to a bare `run --replace` background process — no auto-restart on crash, no start-at-login. The liveness cron + UptimeKuma heartbeat are the safety net (see §8).
 - **`.env` rebuild**: API keys with `=` chars break shell splitting. Use the Python builder script (see below) instead of `op run ... env > .env`.
 
 ```bash
@@ -214,7 +208,7 @@ refs = {
 resolved = {}
 for key, ref in refs.items():
     resolved[key] = subprocess.check_output(['op', 'read', ref, '--account', 'tkrumm'], text=True).strip()
-# Default brain is Kimi-K2.6 on the IU OpenAI-compat transport. Derive its base
+# Default brain is DeepSeek-V4-Pro on the IU OpenAI-compat transport. Derive its base
 # from BASE_URL (…/anthropic → …/openai/v1) — never read a stored OpenAI base,
 # the op://common/anthropic/OPENAI_BASE_URL field is stale (retired host).
 resolved['OPENAI_BASE_URL'] = resolved['ANTHROPIC_BASE_URL'].replace('/anthropic', '/openai/v1')
