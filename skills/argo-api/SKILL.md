@@ -5,7 +5,7 @@ version: 1.4.0
 metadata:
   hermes:
     tags: [ticktick, tasks, gmail, calendar, docker, uptime, slack, weather, garmin, strength, workouts, weight, profile, sql, homelab, api]
-    related_skills: [garmin-health, strength, infrastructure, tasks, capture, schedule, slack, weather]
+    related_skills: [capture, work, karakeep, obsidian]
 ---
 
 # Argo API
@@ -130,7 +130,7 @@ The OpenAPI surface is grouped into exactly 6 tags. Use these names verbatim whe
 | GET | `/oauth/google/callback` | OAuth callback handler |
 
 ### Garmin Health — daily metrics, activities, recovery, weight, profile
-*For focused guidance + field semantics use the `garmin-health` skill.*
+*For focused guidance + field semantics load `references/garmin-health.md`.*
 
 | Method | Path | Key params | Description |
 |-|-|-|-|
@@ -154,7 +154,7 @@ The OpenAPI surface is grouped into exactly 6 tags. Use these names verbatim whe
 | PUT | `/user-profile` | `height_cm?`, `birth_date?`, `gender?`, `goal_weight_kg?` | Update profile fields |
 
 ### Strength — workouts, sets, exercises, analytics
-*For focused guidance, set-type semantics, and the full analytics suite use the `strength` skill.*
+*For focused guidance, set-type semantics, and the full analytics suite load `references/strength.md`.*
 
 | Method | Path | Key params | Description |
 |-|-|-|-|

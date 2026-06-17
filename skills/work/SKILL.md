@@ -5,7 +5,7 @@ version: 1.4.0
 metadata:
   hermes:
     tags: [work, iu, calendar, teams, outlook, jira, jira-create, jira-update, sprint, confluence, gitlab, mr, review, ticket]
-    related_skills: [schedule, capture, argo-api]
+    related_skills: [capture, argo-api]
 ---
 
 # Work (IU)
@@ -527,7 +527,7 @@ Offset-paginated (`start` is 0-based) — **not** cursor-paginated like Jira `/s
 
 **"Wann hab ich Zeit diese Woche?"**
 
-1. `/m365/calendar/upcoming?days=7` (work) + personal `GET /calendar?days=7` via the `schedule` skill.
+1. `/m365/calendar/upcoming?days=7` (work) + personal `GET /calendar` via `argo-api` (`references/schedule.md`).
 2. Merge timelines, prefix work events with `:office:`, find gaps ≥30 min.
 
 **"Find the Confluence page about X"**
