@@ -1,13 +1,3 @@
----
-name: tasks
-description: Manage TickTick tasks — list projects, view tasks, create, update, and complete tasks via homelab API with curl
-version: 1.0.0
-metadata:
-  hermes:
-    tags: [ticktick, tasks, todo, projects, productivity]
-    related_skills: [argo-api]
----
-
 # Task Management (TickTick)
 
 Query, create, update, and complete tasks in TickTick.

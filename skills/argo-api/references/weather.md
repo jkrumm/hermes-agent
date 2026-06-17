@@ -1,13 +1,3 @@
----
-name: weather
-description: Get weather forecast for any city (default Munich) — current conditions, 48h hourly detail, 7-day daily overview with rain, clouds, temperature, UV index, and wind
-version: 1.1.0
-metadata:
-  hermes:
-    tags: [weather, forecast, rain, temperature, uv, wind, clouds]
-    related_skills: [argo-api]
----
-
 # Weather
 
 Weather forecast for any city via the homelab API. Defaults to Munich. Data sourced from Open-Meteo (DWD/ECMWF models).
@@ -15,8 +5,6 @@ Weather forecast for any city via the homelab API. Defaults to Munich. Data sour
 **Endpoint:** `GET https://argo.jkrumm.com/api/weather/forecast`
 **Query:** `?city=<name>` (optional, default `Munich`) — any city name; geocoded via Open-Meteo
 **Auth:** `Authorization: Bearer $HOMELAB_API_KEY`
-
-Use this skill when Johannes asks about weather, temperature, rain, whether to bring an umbrella, UV protection, wind conditions, or weekend plans that depend on weather — for Munich or any other city.
 
 ---
 
@@ -55,7 +43,7 @@ Response includes resolved `city` and `country` so you can confirm the geocoder 
 ## Notes
 
 - Default location is Munich — pass `?city=<name>` for anywhere else (e.g. `Salzburg`, `Berlin`, `Hamburg`)
-- Geocoding handles fuzzy matches and accents; pick the more specific name if multiple cities share a name (e.g. `Frankfurt am Main` vs `Frankfurt an der Oder`)
+- Geocoding handles fuzzy matches and accents; pick the more specific name if multiple cities share a name
 - Temperatures in °C, wind in km/h, precipitation in mm
 - `today` is in the resolved city's local timezone, not always Europe/Berlin
 - `condition` field is already human-readable (translated from WMO weather codes)

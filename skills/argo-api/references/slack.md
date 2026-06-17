@@ -1,13 +1,3 @@
----
-name: slack
-description: Search Slack messages, check unreads, read channel history, and send messages — use curl with Bearer $HOMELAB_API_KEY
-version: 1.0.0
-metadata:
-  hermes:
-    tags: [slack, messages, search, unreads, channels, threads]
-    related_skills: [argo-api]
----
-
 # Slack
 
 Search messages, check unread channels, read history, and send messages via the homelab API.

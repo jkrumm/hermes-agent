@@ -1,13 +1,3 @@
----
-name: schedule
-description: Check Google Calendar events and Gmail inbox — upcoming meetings, today's schedule, important emails, and email search via homelab API
-version: 1.0.0
-metadata:
-  hermes:
-    tags: [calendar, gmail, email, schedule, meetings, events]
-    related_skills: [argo-api]
----
-
 # Schedule & Email (Google Calendar + Gmail)
 
 Check upcoming events across all personal calendars and query the Gmail inbox.
@@ -52,7 +42,7 @@ curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api
 → Events include `start`, `end`, `isAllDay`, `location`, `videoLink`, `attendees`
 
 **"What's my schedule this week?"**
-→ Combine `/calendar?days=7` with tasks from the `tasks` skill for a full picture
+→ Combine `/calendar?days=7` with tasks from the tasks reference for a full picture
 
 **"Any new emails?" / "Check my inbox"**
 → Call `/gmail/emails?unread=true&days=3`

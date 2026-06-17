@@ -213,17 +213,17 @@ curl -s -X POST -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: ap
 
 ## Notes
 
-- This is the **full endpoint reference** — use domain-specific skills for focused guidance:
-  - `infrastructure` — UptimeKuma + Docker (decision trees, field semantics, formatting)
-  - `tasks` — TickTick (CRUD workflows, priority/date semantics)
-  - `capture` — TickTick + GitHub Issue routing for new captures
-  - `schedule` — Calendar + Gmail (search syntax, event formatting)
-  - `weather` — forecast for any city, default Munich (thresholds, response formatting)
-  - `slack` — Slack search, unreads, channel history, messaging
-  - `garmin-health` — daily metrics, recovery, training-load, fitness-direction, weight log, user profile
-  - `strength` — workouts, sets, exercises, full `/workouts/summary/*` analytics suite (incl. readiness, deload-signal)
-- Endpoint groups without a domain skill yet: `/query` (SQL escape hatch), `/health`, `/oauth/*`. Call them via this skill.
-- Only load this skill when no domain skill matches, or you need the complete endpoint list
+- This is the **full endpoint reference** — load domain-specific references for focused guidance (decision trees, field semantics, response formatting):
+  - `references/infrastructure.md` — UptimeKuma + Docker health checks and field semantics
+  - `references/tasks.md` — TickTick CRUD workflows, priority/date codes, project resolution
+  - `references/schedule.md` — Calendar + Gmail search syntax, event/email formatting
+  - `references/weather.md` — Forecast thresholds, geocoding, response guidance
+  - `references/slack.md` — Search operators, known channel IDs, response formatting
+  - `references/garmin-health.md` — Daily metrics, recovery, training-load, fitness-direction, weight log, user profile (field semantics, trend arrows, null handling)
+  - `references/strength.md` — Workouts, sets, full `/workouts/summary/*` analytics suite (e1RM, INOL, ACWR, volume landmarks, readiness, deload-signal)
+- The `capture` skill provides TickTick + GitHub Issue routing for new captures (standalone — has its own state cache and routing logic)
+- Endpoint groups without a domain reference yet: `/query` (SQL escape hatch), `/health`, `/oauth/*`. Call them via this skill.
+- Only load this skill when no domain reference matches, or you need the complete endpoint list
 - `/summary` is the most efficient first call for morning briefings or status checks
 - Slack search supports Slack operator syntax (`in:#hermes`, `from:@johannes`) + optional `sort`, `sortDir`, `count`, `page` paging params
 - `/query` accepts arbitrary read-only SQL (JSON body: `{"sql": "SELECT …"}`). Use sparingly — prefer named endpoints when one exists.

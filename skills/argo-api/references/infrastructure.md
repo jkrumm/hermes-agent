@@ -1,13 +1,3 @@
----
-name: infrastructure
-description: Check service uptime, Docker container health, resource usage, and logs across homelab and VPS — use curl with Bearer $HOMELAB_API_KEY
-version: 1.0.0
-metadata:
-  hermes:
-    tags: [uptime, docker, containers, homelab, vps, infrastructure, monitoring, health]
-    related_skills: [argo-api]
----
-
 # Infrastructure Status
 
 Monitor service uptime (UptimeKuma) and Docker container health across homelab and VPS.
@@ -55,7 +45,7 @@ curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api
 
 **"Any alerts?" / "What happened?" / "Recent warnings?"**
 → Call `/summary` for current status AND check the #alerts Slack channel (`C0AS1LAUQ3C`) for recent automated alerts
-→ Use `skill_view('slack')` to search: `curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/slack/channels/C0AS1LAUQ3C/messages?limit=20"`
+→ Use the slack reference: `curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/slack/channels/C0AS1LAUQ3C/messages?limit=20"`
 
 **"Is X down?" / "What's the uptime?"**
 → Call `/uptime-kuma/status` first (3 numbers: up/down/total)

@@ -1,17 +1,7 @@
----
-name: garmin-health
-description: Garmin-derived health signals — daily metrics (HRV, sleep, RHR, body battery, stress), activities, recovery score, training-load (ACWR), fitness direction, weight log, and user profile. Use for recovery, body, and passive-measurement questions
-version: 1.0.0
-metadata:
-  hermes:
-    tags: [garmin, hrv, recovery, sleep, rhr, body-battery, stress, training-load, acwr, fitness-direction, weight, profile, health]
-    related_skills: [strength, argo-api]
----
-
 # Garmin Health
 
 Daily Garmin metrics, derived recovery signals, weight log, and user profile.
-For lifting sessions, strength sets, and the Strength analytics suite (`/workouts/summary/*`), use the `strength` skill.
+For lifting sessions, strength sets, and the Strength analytics suite (`/workouts/summary/*`), use the `strength` reference.
 
 **Base URL:** `https://argo.jkrumm.com/api`
 **Auth:** `Authorization: Bearer $HOMELAB_API_KEY`
@@ -67,48 +57,6 @@ curl -s -X PUT -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: app
 
 ---
 
-## Endpoint Reference
-
-### Daily metrics (HRV, sleep, RHR, body battery, stress)
-| Method | Path | Key params | Description |
-|-|-|-|-|
-| GET | `/daily-metrics` | `dateFrom?`, `dateTo?`, `order?`, `page?`, `limit?` | Daily Garmin rows, newest first when `order=desc` |
-| GET | `/daily-metrics/summary` | — | Latest-day snapshot |
-| GET | `/daily-metrics/series` | `dateFrom?`, `dateTo?` | Time-series across the date range |
-| GET | `/daily-metrics/sync-status` | — | Garmin-sync state (queued / in-progress / last success) |
-| POST | `/daily-metrics/refresh` | — | Trigger an on-demand Garmin sync |
-
-### Activities (Garmin-recorded sessions, not strength workouts)
-| Method | Path | Key params | Description |
-|-|-|-|-|
-| GET | `/activities` | `dateFrom?`, `dateTo?`, `order?`, `sort?` (`start_time_local`/`date`/`duration_sec`/`calories`), `page?`, `limit?` | Activity list |
-| GET | `/activities/summary` | — | Rolled-up activity counts + duration |
-
-### Derived recovery signals
-| Method | Path | Description |
-|-|-|-|
-| GET | `/recovery` | Composite recovery score for most recent date. **Weights:** HRV 40% + Sleep 35% + RHR 25%, minus strain-debt penalty from yesterday's activity score |
-| GET | `/recovery/series` | Recovery score time-series (params: `dateFrom?`, `dateTo?`) |
-| GET | `/training-load` | Daily activity score → EWMA acute (~7d) + chronic (~28d), ACWR + zones |
-| GET | `/fitness-direction` | 3-level signal from 14-day RHR + HRV linear regression |
-
-### Weight log
-| Method | Path | Key params | Description |
-|-|-|-|-|
-| GET | `/weight-log` | `order?` | All weight entries |
-| GET | `/weight-log/summary` | — | Current + ma7 + ma30 + trend + phase + intensity |
-| GET | `/weight-log/series` | `dateFrom?`, `dateTo?` | Time-series for a range |
-| POST | `/weight-log` | `date!`, `weight_kg!` | Add entry |
-| DELETE | `/weight-log/{id}` | — | Delete entry |
-
-### User profile
-| Method | Path | Key body | Description |
-|-|-|-|-|
-| GET | `/user-profile` | — | Single row (height, birth, gender, goal weight) — auto-created on first access |
-| PUT | `/user-profile` | `height_cm?`, `birth_date?`, `gender?`, `goal_weight_kg?` | Update profile fields |
-
----
-
 ## Decision Tree
 
 **"How did I sleep?" / "HRV trend?" / "Resting HR?" / "Body battery?"**
@@ -132,7 +80,7 @@ curl -s -X PUT -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: app
 → Series for charts: `/weight-log/series?dateFrom=...`
 
 **"Ready to train hard today?" — cross-skill**
-→ This belongs in the `strength` skill: `/workouts/summary/readiness` combines `/recovery` with fatigue debt from recent lifting sessions. See `strength`.
+→ This belongs in the `strength` reference: `/workouts/summary/readiness` combines `/recovery` with fatigue debt from recent lifting sessions.
 
 ---
 
@@ -140,7 +88,7 @@ curl -s -X PUT -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: app
 
 `/daily-metrics`, `/activities`, and `/weight-log` (the GET-list forms) return `{data: [...], total: N}`. Always read `response.data` for the row array; `response.total` is the un-paginated row count.
 
-Detail / aggregate / summary endpoints — `/daily-metrics/{summary,series,sync-status}`, `/activities/summary`, `/weight-log/{summary,series,{id}}`, `/recovery`, `/recovery/series`, `/training-load`, `/fitness-direction`, `/user-profile` — return bare objects (their own per-endpoint shapes, see below).
+Detail / aggregate / summary endpoints — `/daily-metrics/{summary,series,sync-status}`, `/activities/summary`, `/weight-log/{summary,series,{id}}`, `/recovery`, `/recovery/series`, `/training-load`, `/fitness-direction`, `/user-profile` — return bare objects (their own per-endpoint shapes).
 
 ## Field Semantics
 
@@ -205,5 +153,5 @@ RHR slope < −0.05 bpm/day → improving (RHR dropping); HRV slope > +0.10 ms/d
 
 - Today's metrics finalize through the morning — at 07:00 expect HRV + sleep populated, RHR + body battery partial.
 - All Garmin Health endpoints are read-only except `/daily-metrics/refresh`, `/weight-log` (POST/DELETE), and `/user-profile` (PUT).
-- For ad-hoc analytics not in a named endpoint, fall back to the `/query` SQL endpoint via `argo-api` skill.
+- For ad-hoc analytics not in a named endpoint, fall back to the `/query` SQL endpoint via the `argo-api` skill.
 - Query-param convention is camelCase (`dateFrom`, `dateTo`, `order`); legacy json-server forms (`_order`, `_start`, `_end`) still work as aliases.
