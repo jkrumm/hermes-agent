@@ -285,17 +285,17 @@ tts:
     voice_id: pNInz6obpgDQGcFmaJgB
     model_id: eleven_multilingual_v2
   openai:
-    # Gemini 3.1 Flash TTS (voice "Charon", EU-resident via IU) served by
-    # audio-proxy on :7716. audio-proxy runs GPT-5.4-mini text-prep (chunking +
-    # DE/EN expression tags) → native Gemini generateContent → MP3. The native
-    # Hermes openai TTS provider just POSTs /v1/audio/speech; audio-proxy routes
+    # Gemini 3.1 Flash TTS (voice "Charon", EU-resident via IU) served by the
+    # audio-gateway (VPS, tailnet-only). The gateway runs LLM text-prep (chunking
+    # + DE/EN expression tags) → native Gemini generateContent → MP3. The native
+    # Hermes openai TTS provider just POSTs /v1/audio/speech; the gateway routes
     # any model matching /gemini.*tts/ to the Gemini synth pipeline.
     model: gemini-3.1-flash-tts-preview
     voice: Charon
-    base_url: http://127.0.0.1:7716/v1
+    base_url: https://audio-gateway.jkrumm.com/v1
     api_key: not-needed
     speed: 1.0
-    # Do NOT pre-truncate — audio-proxy chunks longform itself (briefings would
+    # Do NOT pre-truncate — the gateway chunks longform itself (briefings would
     # otherwise be cut at the OpenAI default 4096 cap).
     max_text_length: 32000
   xai:
@@ -320,11 +320,11 @@ stt:
     model: base
     language: ''
   openai:
-    # gpt-4o-transcribe (DE/EN steering) served by audio-proxy on :7716.
-    # audio-proxy injects the German-or-English STT_PROMPT bias when the client
-    # sends none, and downgrades the upstream response_format to json.
+    # gpt-4o-transcribe (DE/EN steering) served by the audio-gateway (VPS,
+    # tailnet-only). The gateway injects the German-or-English STT prompt bias
+    # when the client sends none, and downgrades the upstream response_format to json.
     model: gpt-4o-transcribe
-    base_url: http://127.0.0.1:7716/v1
+    base_url: https://audio-gateway.jkrumm.com/v1
     api_key: not-needed
   mistral:
     model: voxtral-mini-latest
