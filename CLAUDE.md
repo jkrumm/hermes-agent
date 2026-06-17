@@ -6,12 +6,14 @@ VCS source of truth for Johannes's Hermes Agent setup. Mac Mini-only deployment.
 Everything in this repo is symlinked into `~/.hermes/` — edit at either end,
 git always sees the change here.
 
-Audio (TTS + STT) is served by the **`audio-proxy`** repo (`~/SourceRoot/audio-proxy`),
-an OpenAI-compatible LaunchAgent on `127.0.0.1:7716` installed by dotfiles
-`make setup`. Hermes only points its native `openai` TTS/STT providers at it in
-`config.yaml` — this repo no longer installs or patches any audio service, and
-`make setup` here has no `dotfiles` dependency. TTS = Gemini 3.1 Flash (voice
-"Charon"), STT = `gpt-4o-transcribe`, both EU-resident via IU.
+Audio (TTS + STT) is served by the **`audio-gateway`** service (`~/SourceRoot/audio-gateway`),
+an OpenAI-compatible VPS Docker container at `https://audio-gateway.jkrumm.com/v1` reached
+over the tailnet (Cloudflare grey-cloud DNS → VPS over Tailscale). Hermes only points its
+native `openai` TTS/STT providers at it in `config.yaml` — this repo no longer installs or
+patches any audio service, and `make setup` here has no `dotfiles` dependency. TTS = Gemini
+3.1 Flash (voice "Charon"), STT = `gpt-4o-transcribe`, both EU-resident via IU. There is no
+local audio service to start; Hermes depends on the remote gateway being reachable over the
+tailnet.
 
 **After any edit: commit here.**
 
@@ -135,12 +137,12 @@ Re-apply after `hermes update`: **nine `.patch` files** (each applied with `git 
 
 ```bash
 make setup        # idempotent — symlinks, cron, CC skills
-make status       # verify everything is in place (incl. audio-proxy :7716 health)
+make status       # verify everything is in place (incl. audio-gateway remote health)
 ```
 
 Prerequisites:
 1. `hermes` CLI installed (see README.md §2)
-2. `audio-proxy` running on `:7716` (from `~/SourceRoot/audio-proxy`, installed by dotfiles `make setup`) — for TTS/STT
+2. `audio-gateway` reachable at `https://audio-gateway.jkrumm.com/health` (VPS Docker container over the tailnet) — for TTS/STT
 3. 1Password CLI authenticated as `tkrumm`
 
 ## Editing Rules

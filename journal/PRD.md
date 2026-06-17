@@ -40,7 +40,7 @@ Build a voice-first journaling system on top of the existing Hermes Agent + Obsi
 | Component | Where | Status |
 |-|-|-|
 | Hermes Agent | `~/SourceRoot/hermes-agent` symlinked into `~/.hermes` | Running |
-| audio-proxy (STT + TTS) | `127.0.0.1:7716/v1` (OpenAI-compatible, EU-resident via IU) | Running — STT `gpt-4o-transcribe` (DE/EN steered), TTS Gemini 3.1 Flash "Charon" |
+| audio-gateway (STT + TTS) | `https://audio-gateway.jkrumm.com/v1` (OpenAI-compatible, EU-resident via IU) | Running — STT `gpt-4o-transcribe` (DE/EN steered), TTS Gemini 3.1 Flash "Charon" |
 | Slack platform | Hermes built-in | Wired, `#journal` channel exists |
 | LiveSync (CouchDB) | Self-hosted via vrtmrz/obsidian-livesync | Running, syncs vault to iPhone + other Macs |
 | Restic → Backblaze B2 | Existing cron | Running — confirm `~/Obsidian/Vault` is in includes |
@@ -63,7 +63,7 @@ Numbered for reference. Don't relitigate without flagging.
 5. **Privacy**: IU Anthropic endpoint is the only LLM path. No Gemini, no OpenAI for analysis. (gpt-image-2 is OK for cover art — that's not psychological content.)
 6. **Models**:
    - **Analysis**: Claude Opus 4.7 via IU. Reasoning: Constitutional AI training is the only published anti-sycophancy intervention; best EN↔DE LQA evidence; DPA already covered. Sonnet 4.6 not used in v1 — start with Opus only, add routing later if cost matters.
-   - **STT**: `gpt-4o-transcribe` via audio-proxy (`127.0.0.1:7716`, EU-resident via IU, German/English steered), always. Apple `tsrp` atom transcripts dropped entirely. One transcription path. **⚠ Privacy posture change (was: local on-device Parakeet):** the localai stack was retired, so transcription now leaves the device for the IU/EU cloud proxy instead of running fully local. Audio stays within the DPA-covered IU boundary, but this is no longer on-device — flagged here per the "don't relitigate without flagging" rule; revisit if journal audio must stay local.
+   - **STT**: `gpt-4o-transcribe` via audio-gateway (`https://audio-gateway.jkrumm.com/v1`, EU-resident via IU, German/English steered), always. Apple `tsrp` atom transcripts dropped entirely. One transcription path. **⚠ Privacy posture change (was: local on-device Parakeet):** the localai stack was retired, so transcription now leaves the device for the IU/EU cloud gateway instead of running fully local. Audio stays within the DPA-covered IU boundary, but this is no longer on-device — flagged here per the "don't relitigate without flagging" rule; revisit if journal audio must stay local.
    - **Image gen**: gpt-image-2 (OpenAI), medium quality, ~$0.05/cover.
    - **Judge LLM** (eval only): Sonnet 4.6 via IU. Different model than analyzer, blind comparison.
 7. **Storage**: in-vault `Journal/_assets/{audio,covers}/`. No external S3, no imgproxy.
@@ -93,7 +93,7 @@ Numbered for reference. Don't relitigate without flagging.
             ▼                    │   └── JOURNAL.md     │
        Hermes journal-ingest ────► (writes here)
             │                    └──────────┬───────────┘
-            ├─► audio-proxy (STT)          │
+            ├─► audio-gateway (STT)        │
             ├─► ffmpeg (Opus encode)        │ LiveSync
             ├─► Opus 4.7 (analysis)         │ (CouchDB)
             ├─► gpt-image-2 (cover)         ▼
@@ -365,7 +365,7 @@ Hermes Slack platform fires `file_shared` event in `#journal`. Two cases:
 
 1. Download the audio file from Slack to `~/Downloads/journal-tmp/<slack-ts>.m4a`.
 2. Compress to Opus: `ffmpeg -i <in> -c:a libopus -b:a 24k -ac 1 -ar 16000 raw/audio/<YYYY-MM-DD>-NNN.opus`.
-3. Transcribe via audio-proxy (`POST 127.0.0.1:7716/v1/audio/transcriptions`, model `gpt-4o-transcribe`).
+3. Transcribe via audio-gateway (`POST https://audio-gateway.jkrumm.com/v1/audio/transcriptions`, model `gpt-4o-transcribe`).
 4. Build initial entry with placeholder frontmatter; transcript only, no analysis yet.
 5. Run analysis: load JOURNAL.md + active prompt variant + transcript → Opus 4.7 → structured German output.
 6. Parse analyzer output, populate frontmatter (mood, emotions, people, places, themes, slug).
@@ -508,15 +508,15 @@ The deliverable that proves the system works *before* it goes live.
 
 ### 13.2 Two-axis scoring
 
-**Axis 1 — Transcript quality** (`gpt-4o-transcribe` via audio-proxy vs Mindsera STT):
-- Run `gpt-4o-transcribe` (audio-proxy) on each voice memo.
-- Compute character-level edit distance + semantic similarity (small model embedding cosine) between the audio-proxy output and Mindsera's `entry.md`.
+**Axis 1 — Transcript quality** (`gpt-4o-transcribe` via audio-gateway vs Mindsera STT):
+- Run `gpt-4o-transcribe` (audio-gateway) on each voice memo.
+- Compute character-level edit distance + semantic similarity (small model embedding cosine) between the audio-gateway output and Mindsera's `entry.md`.
 - Aggregate stats per entry: `stt_wer_vs_mindsera`, `stt_semantic_cos`.
 
 **Axis 2 — Analysis quality** (Hermes Opus vs Mindsera analyzer):
 Two sub-conditions to disentangle:
 - **Held-input**: run Hermes analyzer on Mindsera's `entry.md` (their text). Compare to Mindsera's `analysis.md`. Isolates analysis-prompt quality.
-- **Full-pipeline**: run Hermes analyzer on the audio-proxy (`gpt-4o-transcribe`) transcript. Compare to Mindsera's `analysis.md`. Measures joint pipeline win.
+- **Full-pipeline**: run Hermes analyzer on the audio-gateway (`gpt-4o-transcribe`) transcript. Compare to Mindsera's `analysis.md`. Measures joint pipeline win.
 
 ### 13.3 Judge LLM
 
@@ -668,7 +668,7 @@ Decisions locked. See §5.
 **Deliverables:**
 - Hermes cron job: first Sunday of month, 18:00 Europe/Berlin.
 - Pre-run script `journal-month-context.py` aggregates last month's entries + frontmatter.
-- Cron prompt produces `analysis/monthly/<YYYY-MM>.md` + Slack `#journal` post (audio via Gemini Charon DE narration through audio-proxy, optional).
+- Cron prompt produces `analysis/monthly/<YYYY-MM>.md` + Slack `#journal` post (audio via Gemini Charon DE narration through the audio-gateway, optional).
 
 **Acceptance:** runs cleanly on first Sunday after launch. Produces the file. Posts to Slack.
 
@@ -716,7 +716,7 @@ Done before any code was written. Captures what `~/Downloads/entries/` actually 
 | 1 | Voice memo recon (after path given) | format report, mtime sanity-check |
 | 2 | `match_voice_memos.py` | `eval/pairs.json` (`<mindsera-id>` → `<voice-memo-path>`) + conflict report (orphan memos, orphan entries) |
 | 3 | `compress_audio.sh` | one-liner Opus encoder, callable from matcher + ingest |
-| 4 | audio-proxy STT batch (`gpt-4o-transcribe`) | `eval/transcripts/<mindsera-id>.txt` per paired entry |
+| 4 | audio-gateway STT batch (`gpt-4o-transcribe`) | `eval/transcripts/<mindsera-id>.txt` per paired entry |
 | 5 | `run.py` skeleton | resumable harness with checkpoint state, `claude -p` subprocess pool |
 | 6 | Tighten judge.md (section-absent calibration per §15a-2.4) | small edit |
 | 7 | Execute eval matrix | `runs/<iso>--<variant>--<condition>/` per run |
@@ -758,7 +758,7 @@ When Phase 2 resumes:
 - **gpt-image-2 docs**: https://developers.openai.com/api/docs/models/gpt-image-2
 - **Obsidian Bases**: https://help.obsidian.md/bases (core feature since Aug 2025)
 - **Obsidian LiveSync**: https://github.com/vrtmrz/obsidian-livesync
-- **audio-proxy** (STT/TTS): `~/SourceRoot/audio-proxy` (OpenAI-compatible, `:7716`)
+- **audio-gateway** (STT/TTS): `~/SourceRoot/audio-gateway` (OpenAI-compatible, `https://audio-gateway.jkrumm.com/v1`; VPS Docker container over the tailnet)
 - **Hermes Agent docs**: this repo's README.md and `~/.hermes/` runtime
 - **Mindsera export**: `~/Downloads/entries/`
 

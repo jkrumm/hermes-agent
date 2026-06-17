@@ -145,7 +145,7 @@ Trends matter more than absolutes — a single low HRV reading isn't the signal,
 
 ## Step 3 — Compose the audio narrative (German, ~140–180 words)
 
-A separate text — only fed to text_to_speech. **Five or six short sections separated by blank lines (paragraph breaks).** audio-proxy (Gemini Charon) chunks the text at sentence boundaries and gives each section its own natural beat, so prosody doesn't drift across topic changes — you don't pass any pause or chunking arguments. **Do not** add `[long pause]` or any other inline pause markers. Just write five (or six, if Arbeit is non-empty — see rules below) clean paragraphs.
+A separate text — only fed to text_to_speech. **Five or six short sections separated by blank lines (paragraph breaks).** audio-gateway (Gemini Charon) chunks the text at sentence boundaries and gives each section its own natural beat, so prosody doesn't drift across topic changes — you don't pass any pause or chunking arguments. **Do not** add `[long pause]` or any other inline pause markers. Just write five (or six, if Arbeit is non-empty — see rules below) clean paragraphs.
 
 Format the narrative as:
 
@@ -203,7 +203,7 @@ Call `text_to_speech` with a single argument:
 
 - `text` — the Step 3 narrative only (NOT the Slack body)
 
-audio-proxy (Gemini Charon) prepares and chunks the text itself, breaking at sentence boundaries with natural section beats — you do not pass pause or chunking arguments. Just hand it the clean blank-line-separated paragraphs from Step 3.
+audio-gateway (Gemini Charon) prepares and chunks the text itself, breaking at sentence boundaries with natural section beats — you do not pass pause or chunking arguments. Just hand it the clean blank-line-separated paragraphs from Step 3.
 
 It returns JSON with `media_tag` of the form `MEDIA:/path/to/file.mp3`.
 

@@ -10,7 +10,8 @@ Personal AI assistant running 24/7 on Mac Mini. Slack as interface, Kimi K2.6 as
 Slack (Socket Mode)
   ↓
 Mac Mini M2 Pro — Hermes Agent (always-on)
-  ├→ audio-proxy (127.0.0.1:7716) — OpenAI-compatible audio, EU-resident via IU.
+  ├→ audio-gateway (https://audio-gateway.jkrumm.com/v1) — OpenAI-compatible audio, EU-resident via IU.
+  │     VPS Docker container, reached over the tailnet. No local audio service.
   │     TTS: Gemini 3.1 Flash, voice "Charon" (prep + chunk + MP3 internally).
   │     STT: gpt-4o-transcribe (German/English steered).
   ├→ Homelab — Docker containers, CouchDB, backups (via Tailscale)
@@ -71,8 +72,8 @@ Mac Mini M2 Pro — Hermes Agent (always-on)
 # Prevent sleep (always-on agent host)
 sudo pmset -a sleep 0 displaysleep 0 disksleep 0
 
-# Verify audio-proxy — should be running locally (LaunchAgent, installed by dotfiles `make setup`)
-curl -s http://127.0.0.1:7716/health
+# Verify audio-gateway — VPS Docker container, reached over the tailnet
+curl -s https://audio-gateway.jkrumm.com/health
 ```
 
 ### 2. Install Hermes
@@ -119,9 +120,9 @@ Create these channels and invite the Hermes bot:
 
 ```bash
 # Mac Mini-only — symlinks all hermes config files and registers the
-# liveness + backup crons. TTS/STT is served by audio-proxy (:7716), a separate
-# LaunchAgent installed by dotfiles `make setup` — Hermes just points its native
-# openai TTS/STT providers at it (see config.yaml).
+# liveness + backup crons. TTS/STT is served by the audio-gateway
+# (https://audio-gateway.jkrumm.com/v1), a VPS Docker container reached over the
+# tailnet — Hermes just points its native openai TTS/STT providers at it (see config.yaml).
 cd ~/SourceRoot/hermes-agent && make setup
 
 # Verify
@@ -174,8 +175,8 @@ tail -f /tmp/hermes-gateway.log  # watch for successful Slack connection
 ### 9. Verify
 
 - [x] Send message in `#hermes` on Slack — get response via Kimi K2.6
-- [x] Send voice memo in Slack — get transcribed via audio-proxy (`gpt-4o-transcribe`)
-- [x] TTS audio generation — Gemini Charon via audio-proxy, MP3 output
+- [x] Send voice memo in Slack — get transcribed via audio-gateway (`gpt-4o-transcribe`)
+- [x] TTS audio generation — Gemini Charon via audio-gateway, MP3 output
 - [x] Backup cron — daily 03:00 rsync to `homelab:/mnt/hdd/backups/hermes/`, pings UK
 - [x] Liveness cron — every 5 min, pings UK if gateway running + Slack connected
 

@@ -40,9 +40,9 @@ Files touched (all are `.patch` files applied with `git apply` — no full-file 
 | `run_agent.py` | `patches/run-agent-third-party-endpoint-token-refresh.patch` | broaden third-party endpoint skip to all non-anthropic.com hosts |
 | `tools/tirith_security.py` | `patches/tirith-allowlist-argo-pipes.patch` | allowlist argo-only pipelines past tirith |
 | `tools/cronjob_tools.py` | `patches/cronjob-tools-allowlist-argo-bearer.patch` | allowlist argo bearer curls past the cron-prompt scanner |
-| `tools/tts_tool.py` | `patches/tts-tool-audio-title.patch` | name the audio file from audio-proxy's `X-Audio-Title` header (gpt-5.4-mini title) instead of `tts_<timestamp>` |
+| `tools/tts_tool.py` | `patches/tts-tool-audio-title.patch` | name the audio file from the audio-gateway's `X-Audio-Title` header (gpt-5.4-mini title) instead of `tts_<timestamp>` |
 
-> **STT is not patched.** `tools/transcription_tools.py` (native `openai` STT → `gpt-4o-transcribe`) is pointed at audio-proxy (`:7716`) purely via `config.yaml`. TTS uses the stock native `openai` provider (→ Gemini Charon via `:7716`) plus the one small `tts-tool-audio-title` patch above for the filename. After an update, confirm `config.yaml`'s `tts.openai` / `stt.openai` `base_url` still reads `http://127.0.0.1:7716/v1`.
+> **STT is not patched.** `tools/transcription_tools.py` (native `openai` STT → `gpt-4o-transcribe`) is pointed at the audio-gateway purely via `config.yaml`. TTS uses the stock native `openai` provider (→ Gemini Charon via the audio-gateway) plus the one small `tts-tool-audio-title` patch above for the filename. After an update, confirm `config.yaml`'s `tts.openai` / `stt.openai` `base_url` still reads `https://audio-gateway.jkrumm.com/v1`.
 
 ### Re-apply procedure
 
@@ -100,4 +100,4 @@ tail -20 ~/.hermes/logs/gateway.log
 
 ## Verify
 
-Send a message in `#hermes` on Slack and confirm a response. To verify TTS, ask for a voice memo (e.g. "speak this") and check `~/.hermes/audio_cache/` for an MP3 named after a gpt-5.4-mini title (not `tts_<timestamp>`) — it's Gemini Charon via audio-proxy (`:7716`). Test a German message too: Charon should pronounce German natively (no translation to English), and the audio attachment should land **inline** in the channel, not in a thread.
+Send a message in `#hermes` on Slack and confirm a response. To verify TTS, ask for a voice memo (e.g. "speak this") and check `~/.hermes/audio_cache/` for an MP3 named after a gpt-5.4-mini title (not `tts_<timestamp>`) — it's Gemini Charon via the audio-gateway (`https://audio-gateway.jkrumm.com/v1`). Test a German message too: Charon should pronounce German natively (no translation to English), and the audio attachment should land **inline** in the channel, not in a thread.

@@ -6,9 +6,9 @@ HERMES_DIR    := $(HOME)/.hermes
 # separate dirs, so listing them here only created dead symlinks.
 HERMES_SKILLS := capture argo-api work karakeep obsidian
 
-# TTS/STT is served by audio-proxy (:7716), a separate LaunchAgent installed by
-# dotfiles `make setup` — Hermes only points its native openai TTS/STT providers
-# at it in config.yaml. This repo no longer installs or owns any audio service.
+# TTS/STT is served by the audio-gateway (https://audio-gateway.jkrumm.com/v1),
+# a VPS Docker container reached over the tailnet — Hermes only points its native
+# openai TTS/STT providers at it in config.yaml. No local audio service to install.
 
 # ============================================================================
 # Setup — Mac Mini-only. Symlinks config + skills into ~/.hermes/, installs
@@ -124,9 +124,9 @@ status:
 	@[ -f "$(HERMES_DIR)/.env" ] \
 		&& echo "    ✓ .env (rebuilt from 1Password)" \
 		|| echo "    ✗ .env [missing — see README.md \"Rebuild .env\"]"
-	@curl -fsS http://127.0.0.1:7716/health >/dev/null 2>&1 \
-		&& echo "    ✓ audio-proxy (:7716 TTS/STT)" \
-		|| echo "    ✗ audio-proxy [:7716 not responding — installed by dotfiles make setup]"
+	@curl -fsS https://audio-gateway.jkrumm.com/health >/dev/null 2>&1 \
+		&& echo "    ✓ audio-gateway (TTS/STT)" \
+		|| echo "    ✗ audio-gateway [not reachable — VPS Docker container over tailnet]"
 	@crontab -l 2>/dev/null | grep -q "hermes-liveness.sh" \
 		&& echo "    ✓ liveness cron" \
 		|| echo "    ✗ liveness cron [missing — run make setup]"
@@ -191,5 +191,5 @@ help:
 	@echo "  hermes-agent"
 	@echo ""
 	@echo "  make setup    Mac Mini-only — config symlinks, cron, CC skills"
-	@echo "  make status   Verify symlinks, audio-proxy, crontab, CC skills"
+	@echo "  make status   Verify symlinks, audio-gateway, crontab, CC skills"
 	@echo ""
