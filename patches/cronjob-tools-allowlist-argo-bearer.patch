@@ -1,8 +1,8 @@
 diff --git a/tools/cronjob_tools.py b/tools/cronjob_tools.py
-index 3b1c46ec3..761ec04fc 100644
+index 3b1c46ec3..a76e2be3f 100644
 --- a/tools/cronjob_tools.py
 +++ b/tools/cronjob_tools.py
-@@ -153,21 +153,59 @@ def _strip_legitimate_emoji_zwj(prompt: str) -> str:
+@@ -153,21 +153,63 @@ def _strip_legitimate_emoji_zwj(prompt: str) -> str:
  
  
  def _strip_cron_safe_constructs(prompt: str) -> str:
@@ -12,11 +12,13 @@ index 3b1c46ec3..761ec04fc 100644
 +    curl-auth-header exfil rule:
  
 -    Allows the bundled GitHub skill fallback without opening a blanket
+-    exemption for arbitrary Authorization-header exfiltration.
 +    - the GitHub `Authorization: token $GITHUB_TOKEN` fallback (api.github.com)
-+    - argo.jkrumm.com bearer curls (this deployment's trusted personal API)
++    - argo.jkrumm.com / karakeep.jkrumm.com bearer curls (this deployment's
++      trusted personal APIs)
 +
-+    Allows the bundled GitHub + argo skill fallbacks without opening a blanket
-     exemption for arbitrary Authorization-header exfiltration.
++    Allows the bundled GitHub + argo + karakeep skill fallbacks without opening
++    a blanket exemption for arbitrary Authorization-header exfiltration.
      """
 +    result = prompt
      github_auth_header = re.search(
@@ -32,35 +34,38 @@ index 3b1c46ec3..761ec04fc 100644
 +        result = result.replace(github_auth_header.group(0), "curl https://api.github.com/user")
 +
 +    # Local patch (Hermes-agent local mod, see ~/SourceRoot/hermes-agent/patches/):
-+    # Argo (argo.jkrumm.com) is this deployment's trusted personal API gateway.
-+    # Every bundled skill uses the same curl shape with `Authorization: Bearer
-+    # $HOMELAB_API_KEY` against argo — GET and POST (including multi-line shell
-+    # continuations with embedded JSON). The upstream `exfil_curl_*` patterns
-+    # flag these because they're indistinguishable from real exfil at the regex
-+    # level. Strategy: replace any bash code fence (``` ... ```) whose body
-+    # references argo.jkrumm.com with a sanitized placeholder, then also strip
-+    # single-line argo curls outside fences. Real exfil to a non-argo host
-+    # remains flagged because it would either live outside an argo-only fence
-+    # or appear on a non-argo line.
-+    def _sanitize_argo_fence(match):
++    # argo.jkrumm.com and karakeep.jkrumm.com are this deployment's trusted
++    # personal APIs. Bundled skills curl them with `Authorization: Bearer
++    # $HOMELAB_API_KEY` / `$KARAKEEP_API_KEY` — GET and POST (including
++    # multi-line shell continuations with embedded JSON). The upstream
++    # `exfil_curl_*` patterns flag these because they're indistinguishable from
++    # real exfil at the regex level. Strategy: replace any bash code fence
++    # (``` ... ```) whose only http(s) host(s) are allowlisted with a sanitized
++    # placeholder, then also strip single-line allowlisted curls outside fences.
++    # Real exfil to a non-allowlisted host stays flagged: it lives either
++    # outside a clean fence or on a line carrying a foreign host.
++    _trusted_api_host = r'(?:argo|karakeep)\.jkrumm\.com'
++    _trusted_api_suffixes = ('argo.jkrumm.com', 'karakeep.jkrumm.com')
++
++    def _sanitize_trusted_api_fence(match):
 +        body = match.group(0)
-+        if not re.search(r'https?://argo\.jkrumm\.com\b', body, re.IGNORECASE):
++        if not re.search(rf'https?://{_trusted_api_host}\b', body, re.IGNORECASE):
 +            return body
-+        # Only sanitize fences where argo.jkrumm.com is the ONLY http(s) host —
-+        # if any other host appears alongside, leave the fence intact so the
++        # Only sanitize fences where EVERY http(s) host is allowlisted — if any
++        # foreign host appears alongside, leave the fence intact so the
 +        # downstream exfil patterns can flag a co-located evil curl.
 +        other_hosts = re.findall(r'https?://([^\s"\'`/]+)', body, re.IGNORECASE)
-+        if any(not h.lower().endswith('argo.jkrumm.com') for h in other_hosts):
++        if any(not h.lower().endswith(_trusted_api_suffixes) for h in other_hosts):
 +            return body
-+        return '```\n# [argo bash fence — sanitized by local allowlist]\n```'
++        return '```\n# [trusted API bash fence — sanitized by local allowlist]\n```'
 +    result = re.sub(
 +        r'```[a-zA-Z0-9_-]*\n[\s\S]*?\n```',
-+        _sanitize_argo_fence,
++        _sanitize_trusted_api_fence,
 +        result,
 +    )
 +    result = re.sub(
-+        r'^.*\bcurl\b[^\n]*\bhttps?://argo\.jkrumm\.com\b[^\n]*$',
-+        '# [argo curl — sanitized by local allowlist]',
++        rf'^.*\bcurl\b[^\n]*\bhttps?://{_trusted_api_host}\b[^\n]*$',
++        '# [trusted API curl — sanitized by local allowlist]',
 +        result,
 +        flags=re.IGNORECASE | re.MULTILINE,
 +    )

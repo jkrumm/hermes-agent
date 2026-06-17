@@ -1,5 +1,5 @@
 diff --git a/tools/tirith_security.py b/tools/tirith_security.py
-index f40da60e5..a02b61d35 100644
+index f40da60e5..86c087fe0 100644
 --- a/tools/tirith_security.py
 +++ b/tools/tirith_security.py
 @@ -25,6 +25,8 @@ import json
@@ -11,26 +11,27 @@ index f40da60e5..a02b61d35 100644
  import shutil
  import stat
  import subprocess
-@@ -685,6 +687,93 @@ def ensure_installed(*, log_failures: bool = True):
+@@ -685,6 +687,95 @@ def ensure_installed(*, log_failures: bool = True):
      return None  # Not available yet; commands will fail-open until ready
  
  
 +# ---------------------------------------------------------------------------
-+# Local allowlist — argo.jkrumm.com pipelines
++# Local allowlist — trusted personal API pipelines (argo + karakeep)
 +# ---------------------------------------------------------------------------
 +#
-+# Tirith's "Pipe to interpreter" rule fires on any `curl | python3` shape,
-+# regardless of host trust. For argo.jkrumm.com (Johannes's personal API,
-+# bearer-authenticated) the rule is a constant false positive: the response
-+# is JSON parsed as data, not code downloaded for execution. We bypass tirith
-+# only when (a) every URL in the command is on argo, (b) every pipeline stage
-+# runs a known-safe text tool, and (c) there are no shell escape hatches that
-+# could smuggle in code from outside the visible command.
++# Tirith's "Pipe to interpreter" rule fires on any `curl | python3` (or `| jq`)
++# shape, regardless of host trust. For Johannes's bearer-authenticated personal
++# APIs (argo.jkrumm.com, karakeep.jkrumm.com) the rule is a constant false
++# positive: the response is JSON parsed as data, not code downloaded for
++# execution. We bypass tirith only when (a) every URL in the command is on an
++# allowlisted host, (b) every pipeline stage runs a known-safe text tool, and
++# (c) there are no shell escape hatches that could smuggle in code from outside
++# the visible command.
 +#
 +# Mirrors the cron-scanner allowlist (patches/cronjob-tools-allowlist-argo-
 +# bearer.patch). Any foreign host or shell metaprogramming → fall through.
 +
-+_ARGO_HOST = "argo.jkrumm.com"
++_ALLOWED_PIPELINE_HOSTS = frozenset({"argo.jkrumm.com", "karakeep.jkrumm.com"})
 +
 +_ARGO_PIPELINE_SAFE_PROGRAMS = frozenset({
 +    "curl", "jq", "python3", "python",
@@ -58,13 +59,14 @@ index f40da60e5..a02b61d35 100644
 +
 +
 +def _is_argo_only_pipeline(command: str) -> bool:
-+    """Return True if the command is a safe argo-only pipeline.
++    """Return True if the command is a safe pipeline against an allowlisted
++    personal API host (argo.jkrumm.com / karakeep.jkrumm.com).
 +
 +    Conservative parser: any unparseable shell, foreign host, shell escape
 +    hatch, or unfamiliar program → False (defer to tirith).
 +    """
 +    hosts = _URL_HOST_RE.findall(command)
-+    if not hosts or any(host != _ARGO_HOST for host in hosts):
++    if not hosts or any(host not in _ALLOWED_PIPELINE_HOSTS for host in hosts):
 +        return False
 +
 +    try:
@@ -105,12 +107,12 @@ index f40da60e5..a02b61d35 100644
  # ---------------------------------------------------------------------------
  # Main API
  # ---------------------------------------------------------------------------
-@@ -708,6 +797,9 @@ def check_command_security(command: str) -> dict:
+@@ -708,6 +799,9 @@ def check_command_security(command: str) -> dict:
      if not cfg["tirith_enabled"]:
          return {"action": "allow", "findings": [], "summary": ""}
  
 +    if _is_argo_only_pipeline(command):
-+        return {"action": "allow", "findings": [], "summary": "argo-only pipeline (tirith bypassed)"}
++        return {"action": "allow", "findings": [], "summary": "trusted personal API pipeline (tirith bypassed)"}
 +
      # Unsupported platform (Windows etc.) — tirith has no binary here and
      # never will. Skip the resolver entirely so we don't even try to spawn.

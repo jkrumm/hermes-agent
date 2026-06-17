@@ -55,6 +55,12 @@ GITHUB_TOKEN=op://hermes/github/token
 # (env var name HOMELAB_API_KEY kept for shell/cron compatibility)
 HOMELAB_API_KEY=op://common/api/SECRET
 
+# KaraKeep (self-hosted read-later / bookmark "everything bucket", Tailscale-only at
+# karakeep.jkrumm.com). Dedicated, independently-revocable API key for the karakeep
+# skill — generate in KaraKeep UI (Settings → API Keys), store at op://hermes/karakeep.
+# Base URL https://karakeep.jkrumm.com/api/v1 is hardcoded in the skill (like argo).
+KARAKEEP_API_KEY=op://hermes/karakeep/api-key
+
 # UptimeKuma push URLs — pinged on success by hermes-liveness.sh, hermes-backup.sh,
 # and watchdog-slack.py. Push monitors created manually in UK UI; URLs stored in
 # 1Password after creation. Watchdog monitor interval ~2700s (45 min) — 30 min cron

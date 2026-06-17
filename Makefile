@@ -1,6 +1,10 @@
 HERMES_REPO   := $(shell pwd)
 HERMES_DIR    := $(HOME)/.hermes
-HERMES_SKILLS := capture argo-api infrastructure schedule slack tasks weather garmin-health strength work
+# Standalone skills symlinked into ~/.hermes/skills/. The former infrastructure,
+# schedule, slack, tasks, weather, garmin-health and strength skills were
+# consolidated into argo-api/references/*.md (commit 3087645) — they are no longer
+# separate dirs, so listing them here only created dead symlinks.
+HERMES_SKILLS := capture argo-api work karakeep
 
 # TTS/STT is served by audio-proxy (:7716), a separate LaunchAgent installed by
 # dotfiles `make setup` — Hermes only points its native openai TTS/STT providers
@@ -80,6 +84,11 @@ _symlinks:
 		echo "  Seeding capture/state.json from .example..."; \
 		cp "$(HERMES_REPO)/skills/capture/state.example.json" \
 			"$(HERMES_REPO)/skills/capture/state.json"; \
+	fi
+	@if [[ ! -f "$(HERMES_REPO)/skills/karakeep/state.json" ]]; then \
+		echo "  Seeding karakeep/state.json from .example..."; \
+		cp "$(HERMES_REPO)/skills/karakeep/state.example.json" \
+			"$(HERMES_REPO)/skills/karakeep/state.json"; \
 	fi
 
 .PHONY: _cron

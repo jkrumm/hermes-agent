@@ -13,6 +13,10 @@ scripts/briefing-state.json
 # Local-only runtime cache; template lives next to it as state.example.json.
 skills/capture/state.json
 
+# Hermes karakeep skill cache — lists + tags, refreshed on miss.
+# Local-only runtime cache; template lives next to it as state.example.json.
+skills/karakeep/state.json
+
 # Claude Code runtime state (but keep committed skills)
 .claude/*
 !.claude/skills/
