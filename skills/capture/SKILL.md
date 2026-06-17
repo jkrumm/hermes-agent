@@ -211,6 +211,7 @@ If you asked first and the user confirmed, no need to repeat the title — just 
 - **`gh` not authenticated:** if `gh issue create` fails with auth error, surface the error verbatim and tell Johannes to run `gh auth status` on the Mac Mini.
 - **Cross-cutting items:** never create both. If the item is repo work *and* something Johannes needs to remember, GitHub wins (the watchdog/briefing reads issues anyway).
 - **Multiple items in one message** ("remind me to X and also open an issue for Y"): split, route each independently, return one confirmation line per item.
+- **Social media link capture** (Instagram, TikTok, etc.): the user is asking for the thing *behind* the link, not the link itself. Extract full content before writing the item. For Instagram: the caption is visible even behind the login wall — extract the entity name from the snapshot, then web-search for the canonical source (e.g. `filmsimrecipes.com` for Fujifilm recipes). See `references/social-media-extraction.md` for the full escalation path.
 - **Not a capture:** if the message is a question or status check, don't capture — route normally.
 
 ---
