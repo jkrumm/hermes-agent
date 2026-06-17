@@ -12,20 +12,34 @@ Run this when adding a new skill, after changing SOUL.md/SKILL.md, or when Herme
 
 ## Send a Test Message
 
-Messages sent via the homelab Slack API arrive as the HomeLab bot (`allow_bots: all` + `SLACK_ALLOW_ALL_USERS=true`).
+Two ways to drive Hermes. **Prefer the gateway API** — it hits the same agent + skills + SOUL routing with no Slack-auth dependency and returns the response synchronously. The full tool-call trace still lands in the session JSONL (read it below) for routing verification.
+
+> **Key extraction:** always `cut -d= -f2-` (not `-f2`). The argo/API keys contain `=` chars; `-f2` silently truncates them → 401.
+
+### A. Gateway API (recommended — no Slack dependency)
 
 ```bash
-HOMELAB_API_KEY=$(grep HOMELAB_API_KEY ~/.hermes/.env | cut -d= -f2)
-CHANNEL=$(grep SLACK_CHANNEL_HERMES ~/.hermes/.env | cut -d= -f2)
-
-curl -s -X POST \
-  -H "Authorization: Bearer $HOMELAB_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"text":"your test prompt here"}' \
-  "https://argo.jkrumm.com/api/slack/channels/$CHANNEL/messages"
+HOST=$(awk -F= '/^API_SERVER_HOST=/{print $2}' ~/.hermes/.env)
+KEY=$(grep '^API_SERVER_KEY=' ~/.hermes/.env | cut -d= -f2-)
+curl -s -X POST "http://$HOST:8642/v1/chat/completions" \
+  -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" --max-time 180 \
+  -d '{"model":"hermes-agent","messages":[{"role":"user","content":"your test prompt here"}]}' \
+  | python3 -c "import json,sys; print(json.load(sys.stdin)['choices'][0]['message']['content'])"
 ```
 
-Wait for a response:
+### B. Slack API (arrives in #hermes as the HomeLab bot)
+
+```bash
+HK=$(grep '^HOMELAB_API_KEY=' ~/.hermes/.env | cut -d= -f2-)
+CH=$(grep '^SLACK_CHANNEL_HERMES=' ~/.hermes/.env | cut -d= -f2-)
+curl -s -X POST -H "Authorization: Bearer $HK" -H "Content-Type: application/json" \
+  -d '{"text":"your test prompt here"}' \
+  "https://argo.jkrumm.com/api/slack/channels/$CH/messages"
+```
+
+> **Caveat:** the HomeLab synthetic sender can be rejected with `Unauthorized user: U… (HomeLab) on slack` in `agent.log` (the `allow_bots`/`SLACK_ALLOW_ALL_USERS` path isn't always honoured for it). If that line appears, no session is created — use method A.
+
+Wait for a response (method B):
 ```bash
 until tail -1 ~/.hermes/logs/agent.log | grep -q "response ready"; do sleep 5; done
 tail -3 ~/.hermes/logs/agent.log
@@ -151,6 +165,8 @@ Then re-send the same test message and compare `api_calls` and `time` in `agent.
 | Capture: Ambiguous (look into morning briefing) | `capture` | 2 | ~9s | Working — asks clarifying question, no write |
 | Capture: Multi-item (Tailscale cert + watchdog issue) | `capture` | 2 | ~10s | Working — TickTick Personal + GitHub dotfiles in one response |
 | Capture: Cache miss + refresh (snow-finder) | `capture` | 6 | ~27s | Working — read empty cache, ran `gh repo list jkrumm`, confirmed repo, routed |
+| KaraKeep: keep a link (karakeep repo) | `karakeep` | ~2 | — | Working — POST /bookmarks, returns ID, flags async crawl/AI-tag (verified: tags applied) |
+| Obsidian: search vault (north-star) | `obsidian` | ~2 | — | Working — `obsidian` CLI search+read, summarised the real note content |
 
 Update this table after each validation run.
 
