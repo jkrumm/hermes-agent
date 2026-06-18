@@ -1,11 +1,11 @@
 ---
 name: argo-api
-description: Call the argo REST API (https://argo.jkrumm.com/api) for TickTick tasks, Gmail, Calendar, Docker (homelab + VPS), UptimeKuma, Slack, weather, Garmin Health, Strength tracking, user profile, and read-only SQL — use curl with Bearer $HOMELAB_API_KEY
-version: 1.4.0
+description: Call the argo REST API (https://argo.jkrumm.com/api) for TickTick tasks, Gmail, Calendar, Docker (homelab + VPS), UptimeKuma, Slack, weather, Garmin Health, Strength tracking, WalkingPad treadmill stats, AI usage/cost, user profile, and read-only SQL — use curl with Bearer $HOMELAB_API_KEY
+version: 1.5.0
 metadata:
   hermes:
-    tags: [ticktick, tasks, gmail, calendar, docker, uptime, slack, weather, garmin, strength, workouts, weight, profile, sql, homelab, api]
-    related_skills: [capture, work, karakeep, obsidian]
+    tags: [ticktick, tasks, gmail, calendar, docker, uptime, slack, weather, garmin, strength, workouts, weight, profile, walking-pad, walkingpad, treadmill, steps, usage, cost, spend, tokens, sql, homelab, api]
+    related_skills: [capture, work, karakeep, obsidian, reading, research-gateway]
 ---
 
 # Argo API
@@ -36,18 +36,31 @@ Always read `response.data` for the array and `response.total` for the row count
 - `/daily-metrics/{summary,series,sync-status}`, `/weight-log/{summary,series}`, `/activities/summary`
 - `/uptime-kuma/{status,monitors}`, `/docker/*/{summary,stats,containers}`
 
-## Tag taxonomy (6 groups)
+## Tag taxonomy (14 tags — what this skill covers)
 
-The OpenAPI surface is grouped into exactly 6 tags. Use these names verbatim when referencing groups in agent reasoning:
+The live OpenAPI surface has **14 tags**. They split three ways: this skill (`argo-api`)
+owns the **personal** domains; IU-work domains live in the separate `work` skill; two
+tags are infrastructure Hermes deliberately does **not** call.
 
-| Tag | Covers |
-|-|-|
-| **Garmin Health** | `/daily-metrics/*`, `/activities/*`, `/recovery/*`, `/training-load`, `/fitness-direction`, `/weight-log/*`, `/user-profile` |
-| **Strength** | `/workouts/*` (incl. all 13 `/workouts/summary/*` analytics), `/workout-sets/*`, `/exercises` |
-| **Productivity** | `/ticktick/*`, `/gmail/*`, `/calendar`, `/slack/*` |
-| **Infrastructure** | `/docker/*`, `/uptime-kuma/*` |
-| **External Data** | `/weather/*` |
-| **System** | `/`, `/health`, `/summary`, `/query`, `/openapi`, `/openapi/json`, `/oauth/google/*` |
+**Personal — this skill (`argo-api`):**
+
+| Tag | Covers | Focused guidance |
+|-|-|-|
+| **Garmin Health** | `/daily-metrics/*`, `/activities/*`, `/recovery/*`, `/training-load`, `/fitness-direction`, `/weight-log/*`, `/user-profile` | `references/garmin-health.md` |
+| **Strength** | `/workouts/*` (incl. all 13 `/workouts/summary/*` analytics), `/workout-sets/*`, `/exercises` | `references/strength.md` |
+| **WalkingPad** | `/walking-pad/*` — treadmill sessions, live snapshot, achievements, analytics | `references/walking-pad.md` |
+| **Productivity** | `/ticktick/*`, `/gmail/*`, `/calendar`, `/slack/*` | `references/{tasks,schedule,slack}.md` |
+| **Infrastructure** | `/docker/*`, `/uptime-kuma/*` | `references/infrastructure.md` |
+| **External Data** | `/weather/*` | `references/weather.md` |
+| **Reading** | `/reading/*` — Hardcover shelf (ratings, genres, statuses, want-to-read) | **`reading` skill** (top-level) |
+| **Usage Tracking** | `/usage/*` — AI token/cost KPIs across all sources | group below |
+| **System** | `/`, `/health`, `/summary`, `/query`, `/openapi/json`, `/oauth/google/*` | this file |
+
+**Work — the `work` skill (NOT here):** **M365** (`/m365/*`), **Atlassian** (`/atlassian/jira/*` + `/confluence/*`), **GitLab** (`/gitlab/*`). Route IU-work questions there.
+
+**Not agent-facing (Hermes does NOT call these):**
+- **Hermes Chat** (`/hermes/*`) — the *argo dashboard → Hermes* path (argo calls Hermes here). Calling it from Hermes would be talking to itself.
+- **AI Gateway** (`/ai/v1/*`) — OpenAI-compatible model + audio proxy. Hermes reaches its brain and the **audio-gateway directly** (`config.yaml`), not through Argo's `/ai` hop. Never route TTS/STT/chat through `/ai/v1/*`.
 
 ---
 
@@ -182,6 +195,37 @@ The OpenAPI surface is grouped into exactly 6 tags. Use these names verbatim whe
 | GET | `/workouts/summary/deload-signal` | — | Verdict ∈ {`progress`, `monitor`, `deload`} + active signal list |
 | GET | `/workouts/summary/readiness` | — | Per-day strength readiness from Garmin recovery + fatigue debt (48h lookback); the cross-skill "ready to train hard today?" endpoint |
 
+### WalkingPad — treadmill sessions, live state, analytics
+*For field semantics + response formatting load `references/walking-pad.md`.*
+
+| Method | Path | Key params | Description |
+|-|-|-|-|
+| GET | `/walking-pad/sessions/summary` | `dateFrom?`, `dateTo?` | Totals over a window: `sessions`, `duration_s`, `distance_m`, `steps`, `kcal`, `avg_session_min`. **Start here for "how much did I walk?"** |
+| GET | `/walking-pad/sessions` | `dateFrom?`, `dateTo?`, `order?`, `page?`, `limit?` | List sessions |
+| GET | `/walking-pad/sessions/series` | `dateFrom?`, `dateTo?`, `bucket?` | Time-bucketed series for charts |
+| GET | `/walking-pad/sessions/heroes` | — | Hero stats: total volume, pace, streak |
+| GET | `/walking-pad/sessions/hour-of-day` | — | Hour-of-day × day-of-week matrix |
+| GET | `/walking-pad/sessions/length-histogram` | — | Session-length distribution |
+| GET | `/walking-pad/live` | — | Current live session snapshot (null if idle) |
+| GET | `/walking-pad/achievements` | — | Unlocked achievements |
+
+*Write endpoints (`POST /walking-pad/{live,sessions}`, `DELETE …/sessions/{uuid}`) are device-ingest only — Hermes reads, doesn't push sessions.*
+
+### Usage Tracking — AI token/cost telemetry
+| Method | Path | Key params | Description |
+|-|-|-|-|
+| GET | `/usage/headline` | — | KPI snapshot: `costUsd30d`, `costUsd7d`, `tokens30d`, `errorRate30d`, `cacheHitRatio30d`, `sourcesActive`. **Start here for "what have I spent on AI?"** |
+| GET | `/usage/summary` | `dateFrom?`, `dateTo?` | Aggregated record summary over a window |
+| GET | `/usage/breakdown` | `by?` (source/model) | Cost/token breakdown by dimension |
+| GET | `/usage/timeseries` | `dateFrom?`, `dateTo?`, `bucket?` | Cost/token series for charts |
+
+*`POST /usage/records` is collector-ingest only — not agent-facing.*
+
+### Reading — Hardcover shelf
+The Reading tag (`/reading/*`) is owned by the dedicated **`reading` skill** (book
+recommendations + Hardcover shelf). For a bare taste pull use `GET /api/reading`
+(summary + shelf); for recommendations, freshness sync, and want-to-read, load that skill.
+
 ---
 
 ## Usage Pattern
@@ -221,6 +265,8 @@ curl -s -X POST -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: ap
   - `references/slack.md` — Search operators, known channel IDs, response formatting
   - `references/garmin-health.md` — Daily metrics, recovery, training-load, fitness-direction, weight log, user profile (field semantics, trend arrows, null handling)
   - `references/strength.md` — Workouts, sets, full `/workouts/summary/*` analytics suite (e1RM, INOL, ACWR, volume landmarks, readiness, deload-signal)
+  - `references/walking-pad.md` — WalkingPad treadmill sessions, live snapshot, achievements, analytics (field semantics, response formatting)
+- The `reading` skill owns `/reading/*` (Hardcover shelf + book recommendations); the `research-gateway` skill owns deep cited web research (the research-gateway service, not Argo).
 - The `capture` skill provides TickTick + GitHub Issue routing for new captures (standalone — has its own state cache and routing logic)
 - Endpoint groups without a domain reference yet: `/query` (SQL escape hatch), `/health`, `/oauth/*`. Call them via this skill.
 - Only load this skill when no domain reference matches, or you need the complete endpoint list
@@ -230,4 +276,4 @@ curl -s -X POST -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: ap
 - **Query param convention:** canonical names are camelCase (`dateFrom`, `dateTo`, `workoutId`, `sortDir`) and json-server-style underscored aliases (`_order`, `_sort`, `_start`, `_end`, `date_from`) still work as backwards-compat. Prefer canonical names in new code; keep legacy in the morning-briefing cron prompt for stability.
 - **Request body fields** are snake_case where the schema says so (`exercise_id`, `weight_kg`, `set_number`, `set_type`, `birth_date`, `height_cm`, `goal_weight_kg`); response field naming is unchanged from each endpoint's source.
 - **Trailing slashes** are tolerated but not preferred — use `/workouts`, not `/workouts/`.
-- This skill is auto-regenerated from the live OpenAPI spec (`https://argo.jkrumm.com/api/openapi/json`) — run `/docs` in the homelab project after API route changes. The regen pass will rewrite this file using the 6-tag taxonomy above.
+- This skill is auto-regenerated from the live OpenAPI spec (`https://argo.jkrumm.com/api/openapi/json`) — run `/docs` in the homelab project after API route changes. The regen pass rewrites this file using the **14-tag taxonomy** above: keep the personal / work / not-agent-facing split (don't fold M365/Atlassian/GitLab in here — they're the `work` skill — and never add `/hermes/*` or `/ai/v1/*`).

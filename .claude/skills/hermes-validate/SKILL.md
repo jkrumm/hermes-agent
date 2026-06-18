@@ -167,8 +167,16 @@ Then re-send the same test message and compare `api_calls` and `time` in `agent.
 | Capture: Cache miss + refresh (snow-finder) | `capture` | 6 | ~27s | Working — read empty cache, ran `gh repo list jkrumm`, confirmed repo, routed |
 | KaraKeep: keep a link (karakeep repo) | `karakeep` | ~2 | — | Working — POST /bookmarks, returns ID, flags async crawl/AI-tag (verified: tags applied) |
 | Obsidian: search vault (north-star) | `obsidian` | ~2 | — | Working — `obsidian` CLI search+read, summarised the real note content |
+| Reading: "was soll ich lesen" | `reading` | — | ~34s | Working — pulled `/api/reading` shelf, German rec grounded in the real shelf (Tress / Bad Karma / Iron Flame) |
+| WalkingPad: weekly distance | `argo-api` (walking-pad) | — | ~26s | Working — `/walking-pad/sessions/summary` + heroes; 33.7 km / 12 sessions / streak / +30.5% wk, all correct |
+| Usage: monthly AI spend | `argo-api` (usage) | — | ~64s | Working — `/usage/headline` + breakdown, per-source + per-model, honest about fixed 7/30/90d windows |
+| Research: latest Bun version | `research-gateway` | — | ~54s | Working — submit+poll to research-gateway, cited answer (Bun v1.3.14); tirith allowlist let `curl research… \| jq` through with no approval gate |
 
 Update this table after each validation run.
+
+> **Method-A trace note:** gateway-API (`/v1/chat/completions`) runs do **not** land in
+> `~/.hermes/sessions/*.jsonl` (that store is the Slack path). Verify method-A routing from
+> the response content + `gateway.log`, not the sessions dir.
 
 ---
 

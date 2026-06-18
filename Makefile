@@ -4,7 +4,7 @@ HERMES_DIR    := $(HOME)/.hermes
 # schedule, slack, tasks, weather, garmin-health and strength skills were
 # consolidated into argo-api/references/*.md (commit 3087645) — they are no longer
 # separate dirs, so listing them here only created dead symlinks.
-HERMES_SKILLS := capture argo-api work karakeep obsidian
+HERMES_SKILLS := capture argo-api work karakeep obsidian reading research-gateway
 
 # TTS/STT is served by the audio-gateway (https://audio-gateway.jkrumm.com/v1),
 # a VPS Docker container reached over the tailnet — Hermes only points its native

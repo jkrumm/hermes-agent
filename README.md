@@ -198,6 +198,7 @@ refs = {
     'GITHUB_TOKEN': 'op://hermes/github/token',
     'HOMELAB_API_KEY': 'op://common/api/SECRET',
     'KARAKEEP_API_KEY': 'op://hermes/karakeep/api-key',
+    'RESEARCH_API_KEY': 'op://vps/research-gateway/API_SECRET',
     'UPTIME_PUSH_HERMES': 'op://hermes/uptime-kuma/agent-push-url',
     'UPTIME_PUSH_BACKUP': 'op://hermes/uptime-kuma/backup-push-url',
     'UPTIME_PUSH_WATCHDOG': 'op://hermes/uptime-kuma/watchdog-push-url',

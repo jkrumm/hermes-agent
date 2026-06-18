@@ -61,6 +61,12 @@ HOMELAB_API_KEY=op://common/api/SECRET
 # Base URL https://karakeep.jkrumm.com/api/v1 is hardcoded in the skill (like argo).
 KARAKEEP_API_KEY=op://hermes/karakeep/api-key
 
+# research-gateway (agentic cited research, Tailscale-only at research.jkrumm.com,
+# on the VPS). Bearer for the `research-gateway` skill — canonical secret is the
+# gateway's own API_SECRET (shared with the /research Claude Code skill). Base URL
+# https://research.jkrumm.com is hardcoded in the skill (like argo / karakeep).
+RESEARCH_API_KEY=op://vps/research-gateway/API_SECRET
+
 # UptimeKuma push URLs — pinged on success by hermes-liveness.sh, hermes-backup.sh,
 # and watchdog-slack.py. Push monitors created manually in UK UI; URLs stored in
 # 1Password after creation. Watchdog monitor interval ~2700s (45 min) — 30 min cron

@@ -35,6 +35,7 @@ You decide where it lands. No double-tracking — one item, one home.
 **Not a task at all? Redirect — don't force it into TickTick/GitHub:**
 - A **link/article/video to read or keep later**, or a snippet to re-find → the `karakeep` skill (read-later bucket).
 - A **durable idea / knowledge note** to develop → the `obsidian` skill (the vault).
+- A request to **research something now and report back** (not a task to remember) → the `research-gateway` skill (cited answer from the research-gateway). Note the split: "research X" / "recherchier mal" = answer now → `research-gateway`; **"remind me to research X / look into Y later"** = a task to track → TickTick (the `Research Z` row above).
 
 Capture owns *actionable* items (do-this) and *concrete code changes*. "Keep / read later" is reference; "note this idea" is knowledge — both have their own skills.
 

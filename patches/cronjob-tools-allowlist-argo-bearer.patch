@@ -1,8 +1,8 @@
 diff --git a/tools/cronjob_tools.py b/tools/cronjob_tools.py
-index 3b1c46ec3..a76e2be3f 100644
+index 3b1c46ec3..57fd2c44d 100644
 --- a/tools/cronjob_tools.py
 +++ b/tools/cronjob_tools.py
-@@ -153,21 +153,63 @@ def _strip_legitimate_emoji_zwj(prompt: str) -> str:
+@@ -153,21 +153,65 @@ def _strip_legitimate_emoji_zwj(prompt: str) -> str:
  
  
  def _strip_cron_safe_constructs(prompt: str) -> str:
@@ -14,11 +14,12 @@ index 3b1c46ec3..a76e2be3f 100644
 -    Allows the bundled GitHub skill fallback without opening a blanket
 -    exemption for arbitrary Authorization-header exfiltration.
 +    - the GitHub `Authorization: token $GITHUB_TOKEN` fallback (api.github.com)
-+    - argo.jkrumm.com / karakeep.jkrumm.com bearer curls (this deployment's
-+      trusted personal APIs)
++    - argo.jkrumm.com / karakeep.jkrumm.com / research.jkrumm.com bearer curls
++      (this deployment's trusted personal APIs)
 +
-+    Allows the bundled GitHub + argo + karakeep skill fallbacks without opening
-+    a blanket exemption for arbitrary Authorization-header exfiltration.
++    Allows the bundled GitHub + argo + karakeep + research skill fallbacks
++    without opening a blanket exemption for arbitrary Authorization-header
++    exfiltration.
      """
 +    result = prompt
      github_auth_header = re.search(
@@ -34,18 +35,19 @@ index 3b1c46ec3..a76e2be3f 100644
 +        result = result.replace(github_auth_header.group(0), "curl https://api.github.com/user")
 +
 +    # Local patch (Hermes-agent local mod, see ~/SourceRoot/hermes-agent/patches/):
-+    # argo.jkrumm.com and karakeep.jkrumm.com are this deployment's trusted
-+    # personal APIs. Bundled skills curl them with `Authorization: Bearer
-+    # $HOMELAB_API_KEY` / `$KARAKEEP_API_KEY` — GET and POST (including
-+    # multi-line shell continuations with embedded JSON). The upstream
-+    # `exfil_curl_*` patterns flag these because they're indistinguishable from
-+    # real exfil at the regex level. Strategy: replace any bash code fence
-+    # (``` ... ```) whose only http(s) host(s) are allowlisted with a sanitized
-+    # placeholder, then also strip single-line allowlisted curls outside fences.
-+    # Real exfil to a non-allowlisted host stays flagged: it lives either
-+    # outside a clean fence or on a line carrying a foreign host.
-+    _trusted_api_host = r'(?:argo|karakeep)\.jkrumm\.com'
-+    _trusted_api_suffixes = ('argo.jkrumm.com', 'karakeep.jkrumm.com')
++    # argo.jkrumm.com, karakeep.jkrumm.com and research.jkrumm.com are this
++    # deployment's trusted personal APIs. Bundled skills curl them with
++    # `Authorization: Bearer $HOMELAB_API_KEY` / `$KARAKEEP_API_KEY` /
++    # `$RESEARCH_API_KEY` — GET and POST (including multi-line shell
++    # continuations with embedded JSON). The upstream `exfil_curl_*` patterns
++    # flag these because they're indistinguishable from real exfil at the regex
++    # level. Strategy: replace any bash code fence (``` ... ```) whose only
++    # http(s) host(s) are allowlisted with a sanitized placeholder, then also
++    # strip single-line allowlisted curls outside fences. Real exfil to a
++    # non-allowlisted host stays flagged: it lives either outside a clean fence
++    # or on a line carrying a foreign host.
++    _trusted_api_host = r'(?:argo|karakeep|research)\.jkrumm\.com'
++    _trusted_api_suffixes = ('argo.jkrumm.com', 'karakeep.jkrumm.com', 'research.jkrumm.com')
 +
 +    def _sanitize_trusted_api_fence(match):
 +        body = match.group(0)
