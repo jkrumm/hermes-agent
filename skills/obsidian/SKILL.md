@@ -1,6 +1,6 @@
 ---
 name: obsidian
-description: Read, search, and write Johannes's Obsidian vault (the PARA second brain at ~/Obsidian/Vault) via the Obsidian CLI (metadata-aware — backlinks, tags, Dataview) with a filesystem fallback. Capture notes to the inbox, append to today's daily note, create resource/inspiration notes with the right frontmatter, search by text/tag/backlink.
+description: Read, search, and write Johannes's Obsidian vault (the PARA second brain at ~/SourceRoot/brain) via the Obsidian CLI (metadata-aware — backlinks, tags, Dataview) with a filesystem fallback. Capture notes to the inbox, append to today's daily note, create resource/inspiration notes with the right frontmatter, search by text/tag/backlink.
 version: 1.0.0
 metadata:
   hermes:
@@ -10,9 +10,9 @@ metadata:
 
 # Obsidian
 
-Johannes's personal knowledge vault — plain-markdown, PARA-organised, the **source of truth** of the second brain. Capture lands here; durable knowledge lives here. Synced across devices by self-hosted LiveSync (CouchDB over Tailscale).
+Johannes's personal knowledge vault — plain-markdown, PARA-organised, the **source of truth** of the second brain. Capture lands here; durable knowledge lives here. Synced across devices by self-hosted LiveSync (CouchDB over Tailscale). The vault is also a **git repo** at `~/SourceRoot/brain`, shared with Claude Code (its `/brain` skill) — LiveSync stays the continuous cross-device backup, git is the deliberate `git diff` review + history gate. The shared machine-facing contract both agents follow is `~/SourceRoot/brain/AGENTS.md` — read it for anything this skill doesn't cover.
 
-**Vault root:** `~/Obsidian/Vault/`
+**Vault root:** `~/SourceRoot/brain/`
 **Access:** Obsidian.app runs on this Mac Mini, so prefer the **Obsidian CLI** — it goes through Obsidian's live API (metadata cache, backlinks, Dataview) and LiveSync picks up the change cleanly. Fall back to the **filesystem** only when the CLI is unavailable.
 
 Use the terminal. Don't say you lack access to the vault — reading and writing it is this skill.
@@ -24,7 +24,7 @@ Use the terminal. Don't say you lack access to the vault — reading and writing
 - Quote values with spaces: `name="My Note"`. Use `\n` for newlines in `content=`.
 - Confirm it's live with `obsidian version`. If that errors (Obsidian not running), use the filesystem fallback.
 
-**Fallback — filesystem** (`~/Obsidian/Vault/**/*.md`): raw markdown read/write. Works always, but no metadata cache, no backlink/Dataview resolution, and the running Obsidian only notices on its next file-watch tick. Use only when the CLI is down.
+**Fallback — filesystem** (`~/SourceRoot/brain/**/*.md`): raw markdown read/write. Works always, but no metadata cache, no backlink/Dataview resolution, and the running Obsidian only notices on its next file-watch tick. Use only when the CLI is down.
 
 ## Vault structure (actual on disk — trust this, not older docs)
 
@@ -37,8 +37,9 @@ Use the terminal. Don't say you lack access to the vault — reading and writing
 | `04_Areas/` | Ongoing areas (`Engineering`, `Health/Peptide`) | — |
 | `05_Resources/` | Reference material (articles, YouTube, books) | — |
 | `09_Templates/` | Note templates (Templater syntax — see note below) | — |
+| `wiki/` | **Agentic knowledge** — atomic English concept notes agents grow by traversal, domain-organized (`wiki/health/peptides/`) + per-level `index.md` MOC | — |
 
-The vault's own `CLAUDE.md` also lists `06_Tasks/`, `99_Archive/`, `_attachments/` and a Local REST API plugin — **none of those exist / are installed**; ignore them. Tasks live in TickTick, not the vault.
+The vault's own `CLAUDE.md` also lists `06_Tasks/`, `99_Archive/`, `_attachments/` and a Local REST API plugin — **none of those exist / are installed**; ignore them. Tasks live in TickTick, not the vault. For the authoritative traversal + write contract shared with Claude Code, see `~/SourceRoot/brain/AGENTS.md`.
 
 ## Conventions (real, in active use)
 
@@ -48,6 +49,15 @@ The vault's own `CLAUDE.md` also lists `06_Tasks/`, `99_Archive/`, `_attachments
 - **Dates** are `YYYY-MM-DD` everywhere. Resolve "today" before writing (the CLI has no Templater — see below).
 - **Never write to the vault root.** Unclassified content → `00_Inbox/`.
 - **Templates use Templater (`<% tp ... %>`) but Templater is NOT installed** — so do not rely on `template=`/`templates`. Build the full frontmatter + body yourself (resolve `tp.date.now` → the real date, `tp.file.title` → the title) and pass it via `content=`.
+
+## Durable knowledge — two layers, shared discipline with Claude Code
+
+Durable knowledge splits into two physical trees, shared with Claude Code's `/brain` skill against the same repo. Full contract: `~/SourceRoot/brain/AGENTS.md`. `00_Inbox/`, `01_Journal/`, `02_Daily/`, and `09_Templates/` keep the loose capture schema above (`title`/`date`/`tags`) — no `type`/`description`/MOC discipline.
+
+- **Agentic knowledge — `wiki/`.** The terse, structured, **English**, cross-linked concept notes agents grow by traversal, domain-organized (e.g. `wiki/health/peptides/`). **Strict:** required frontmatter beyond the universal keys is `type` (free string, e.g. `Reference`, `Playbook`, `Concept`) + `description` (one sentence); `[[wikilinks]]` must resolve; each domain level has an `index.md` MOC.
+- **Curated human surface — `03_Projects/`, `04_Areas/`, `05_Resources/`.** The pages Johannes reads and writes — Area/Project folder notes (`{name}.md`, Folder Notes plugin) as overviews, plus human pages. Any language, **light** discipline: no forced `type`/`description`, `status` is his free field, and they link *down* into `wiki/` for depth rather than duplicating it. A page may be distilled from `wiki/` via Claude Code's `/distill` skill; the voice pass and publish decision are always human, never automated.
+- Link notes with `[[wikilinks]]` — the knowledge graph, not decoration.
+- Before a write to `wiki/` or the curated surface counts as done, a human reviews the `git diff` and `node scripts/vault-lint.mjs` passes (0 errors) — necessary, not sufficient; judgment stays human.
 
 ## Frontmatter schemas by note type
 
