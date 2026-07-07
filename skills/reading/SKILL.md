@@ -19,7 +19,7 @@ Two signals, joined here:
   read through **Argo** (`GET /api/reading`). Hardcover is the "Letterboxd for books."
 - **Profile** — durable, qualitative preferences ratings can't capture (genre
   likes/dislikes, reading language, density tolerance), kept in Obsidian at
-  `05_Resources/Books/Reading Profile.md`.
+  `04_Areas/Reading/Reading Profile.md`.
 
 **The recommendation brain is this skill, not Argo.** Argo is only the taste
 read-model (`GET /api/reading`) — never ask it to recommend. Discovery,
@@ -101,8 +101,8 @@ Extract:
 
 Then read the durable profile (qualitative taste ratings miss):
 ```bash
-obsidian read path="05_Resources/Books/Reading Profile.md"
-obsidian read path="05_Resources/Books/Reading List.md"   # prior picks = memory
+obsidian read path="04_Areas/Reading/Reading Profile.md"
+obsidian read path="04_Areas/Reading/Reading List.md"   # prior picks = memory
 ```
 The **Reading List** is the skill's memory: skip anything already captured;
 treat captured-then-read as accepted taste, untouched picks as a softer signal,
@@ -179,17 +179,17 @@ not just a menu (he's not a heavy reader; choice overload loses him).
 
 ### Step 5 — Capture (offer, don't auto-run)
 
-- **Remember the picks** — append to `05_Resources/Books/Reading List.md`
+- **Remember the picks** — append to `04_Areas/Reading/Reading List.md`
   (create it if missing) so the next run learns. One line each:
   `- [ ] German title (English) — Author · why · (suggested YYYY-MM-DD)`.
   Mark passed-over candidates `~~…~~ passed: <reason>` so the memory learns the
   dislikes too.
   ```bash
-  obsidian append path="05_Resources/Books/Reading List.md" \
+  obsidian append path="04_Areas/Reading/Reading List.md" \
     content="\n- [ ] Weit über der smaragdgrünen See (Tress of the Emerald Sea) — Brandon Sanderson · standalone, light, no romance · (suggested $(date +%F))"
   ```
 - **Update the Profile** when he reveals a durable new like/dislike (not a
-  one-off mood) — append to `05_Resources/Books/Reading Profile.md`.
+  one-off mood) — append to `04_Areas/Reading/Reading Profile.md`.
 - **Mark Want to Read on Hardcover** — `POST /api/reading/want-to-read` is live.
   Offer to queue an accepted pick straight onto the Hardcover shelf so it shows up
   and feeds the next run. Body is `{title, author?}` — pass the **English** title +

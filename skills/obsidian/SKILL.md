@@ -34,12 +34,11 @@ Use the terminal. Don't say you lack access to the vault — reading and writing
 | `01_Journal/` | Journal entries — **owned by the (parked) journal subsystem; do not write here** | `YYYY/YYYY-MM-DD.md` |
 | `02_Daily/` | Work-focused daily notes | `YYYY-MM-DD.md` |
 | `03_Projects/` | Active projects (`basalt-ui`, `iu`, `open-news`) — folder-note `{name}.md` + optional `notes/`, `specs/` | — |
-| `04_Areas/` | Ongoing areas (`Engineering`, `Health/Peptide`) | — |
-| `05_Resources/` | Reference material (articles, YouTube, books) | — |
+| `04_Areas/` | Ongoing areas (`Engineering`, `Health/Peptide`, `Photography`, `Reading`) | — |
 | `09_Templates/` | Note templates (Templater syntax — see note below) | — |
 | `wiki/` | **Agentic knowledge** — atomic English concept notes agents grow by traversal, domain-organized (`wiki/health/peptides/`) + per-level `index.md` MOC | — |
 
-The vault's own `CLAUDE.md` also lists `06_Tasks/`, `99_Archive/`, `_attachments/` and a Local REST API plugin — **none of those exist / are installed**; ignore them. Tasks live in TickTick, not the vault. For the authoritative traversal + write contract shared with Claude Code, see `~/SourceRoot/brain/AGENTS.md`.
+There is **no `05_Resources/` tier** — reference material (articles, videos, books) is a `wiki/` concept note or a page under an Area; raw captures land in `00_Inbox/` and are promoted from there. The vault's own `CLAUDE.md` also lists `06_Tasks/`, `99_Archive/`, `_attachments/` and a Local REST API plugin — **none of those exist / are installed**; ignore them. Tasks live in TickTick, not the vault. For the authoritative traversal + write contract shared with Claude Code, see `~/SourceRoot/brain/AGENTS.md`.
 
 ## Conventions (real, in active use)
 
@@ -55,7 +54,7 @@ The vault's own `CLAUDE.md` also lists `06_Tasks/`, `99_Archive/`, `_attachments
 Durable knowledge splits into two physical trees, shared with Claude Code's `/brain` skill against the same repo. Full contract: `~/SourceRoot/brain/AGENTS.md`. `00_Inbox/`, `01_Journal/`, `02_Daily/`, and `09_Templates/` keep the loose capture schema above (`title`/`date`/`tags`) — no `type`/`description`/MOC discipline.
 
 - **Agentic knowledge — `wiki/`.** The terse, structured, **English**, cross-linked concept notes agents grow by traversal, domain-organized (e.g. `wiki/health/peptides/`). **Strict:** required frontmatter beyond the universal keys is `type` (free string, e.g. `Reference`, `Playbook`, `Concept`) + `description` (one sentence); `[[wikilinks]]` must resolve; each domain level has an `index.md` MOC.
-- **Curated human surface — `03_Projects/`, `04_Areas/`, `05_Resources/`.** The pages Johannes reads and writes — Area/Project folder notes (`{name}.md`, Folder Notes plugin) as overviews, plus human pages. Any language, **light** discipline: no forced `type`/`description`, `status` is his free field, and they link *down* into `wiki/` for depth rather than duplicating it. A page may be distilled from `wiki/` via Claude Code's `/distill` skill; the voice pass and publish decision are always human, never automated.
+- **Curated human surface — `03_Projects/`, `04_Areas/`.** The pages Johannes reads and writes — Area/Project folder notes (`{name}.md`, Folder Notes plugin) as overviews, plus human pages. Any language, **light** discipline: no forced `type`/`description`, `status` is his free field, and they link *down* into `wiki/` for depth rather than duplicating it. A page may be distilled from `wiki/` via Claude Code's `/distill` skill; the voice pass and publish decision are always human, never automated.
 - Link notes with `[[wikilinks]]` — the knowledge graph, not decoration.
 - Before a write to `wiki/` or the curated surface counts as done, a human reviews the `git diff` and `node .scripts/vault-lint.mjs` passes (0 errors) — necessary, not sufficient; judgment stays human.
 
@@ -78,7 +77,7 @@ date: 2026-06-17
 tags: [daily]
 ---
 
-# 05_Resources/<title>.md  — article
+# 00_Inbox/<title>.md  — article (captured; promoted to wiki/ or an Area later)
 ---
 title: "<title>"
 date: 2026-06-17
@@ -87,7 +86,7 @@ url: "https://…"
 author: "<author>"
 ---
 
-# 05_Resources/<title>.md  — YouTube
+# 00_Inbox/<title>.md  — YouTube (captured; promoted later)
 ---
 title: "<title>"
 date: 2026-06-17
@@ -161,8 +160,8 @@ tags: [inbox]
 # Log a line to today's daily note (creates it from the daily template if missing)
 obsidian daily:append content="- <thought / event / meeting note>"
 
-# Save an article as a resource
-obsidian create path="05_Resources/<title>.md" content="---
+# Save an article as a capture (lands in the inbox; promoted later)
+obsidian create path="00_Inbox/<title>.md" content="---
 title: \"<title>\"
 date: $TODAY
 tags: [resource/article]
@@ -187,9 +186,9 @@ obsidian delete path="<path>"        # ask the user first; add `permanent` to sk
 
 ## Workflows
 
-- **"note this / remember this / add to my notes"** → create in `00_Inbox/` (generic frontmatter). Inbox is the trusted dump; processing into Projects/Areas/Resources happens later.
+- **"note this / remember this / add to my notes"** → create in `00_Inbox/` (generic frontmatter). Inbox is the trusted dump; processing into Projects/Areas or `wiki/` happens later.
 - **"log / journal-of-the-day work note"** → `obsidian daily:append` to `02_Daily/`. (This is the *work daily note*, not the personal journal — see guardrails.)
-- **"save this article / video"** → resource note in `05_Resources/` with `url` + `author`/`channel`.
+- **"save this article / video"** → capture note in `00_Inbox/` with `url` + `author`/`channel` (promoted to `wiki/` or an Area later).
 - **"inspiration / competitor / tool for project X"** → `03_Projects/X/notes/inspiration-<slug>.md`.
 - **"what do I have on X" / "find my note about X"** → `search` / `search:context`, then `read` the hit.
 - **"what links to / relates to Y"** → `backlinks` + `links`.
