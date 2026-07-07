@@ -57,7 +57,7 @@ Durable knowledge splits into two physical trees, shared with Claude Code's `/br
 - **Agentic knowledge — `wiki/`.** The terse, structured, **English**, cross-linked concept notes agents grow by traversal, domain-organized (e.g. `wiki/health/peptides/`). **Strict:** required frontmatter beyond the universal keys is `type` (free string, e.g. `Reference`, `Playbook`, `Concept`) + `description` (one sentence); `[[wikilinks]]` must resolve; each domain level has an `index.md` MOC.
 - **Curated human surface — `03_Projects/`, `04_Areas/`, `05_Resources/`.** The pages Johannes reads and writes — Area/Project folder notes (`{name}.md`, Folder Notes plugin) as overviews, plus human pages. Any language, **light** discipline: no forced `type`/`description`, `status` is his free field, and they link *down* into `wiki/` for depth rather than duplicating it. A page may be distilled from `wiki/` via Claude Code's `/distill` skill; the voice pass and publish decision are always human, never automated.
 - Link notes with `[[wikilinks]]` — the knowledge graph, not decoration.
-- Before a write to `wiki/` or the curated surface counts as done, a human reviews the `git diff` and `node scripts/vault-lint.mjs` passes (0 errors) — necessary, not sufficient; judgment stays human.
+- Before a write to `wiki/` or the curated surface counts as done, a human reviews the `git diff` and `node .scripts/vault-lint.mjs` passes (0 errors) — necessary, not sufficient; judgment stays human.
 
 ## Frontmatter schemas by note type
 
