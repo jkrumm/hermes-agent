@@ -33,12 +33,12 @@ Use the terminal. Don't say you lack access to the vault — reading and writing
 | `00_Inbox/` | Unprocessed captures — the default dump for anything unclassified | free |
 | `01_Journal/` | Journal entries — **owned by the (parked) journal subsystem; do not write here** | `YYYY/YYYY-MM-DD.md` |
 | `02_Daily/` | Work-focused daily notes | `YYYY-MM-DD.md` |
-| `03_Projects/` | Active projects (`basalt-ui`, `iu`, `open-news`) — folder-note `{name}.md` + optional `notes/`, `specs/` | — |
+| `03_Projects/` | Active projects (`basalt-ui`, `iu`, `open-news` as folders; `free-planning-poker`, `rollhook` as single notes, no folder yet) — folder-note `{name}.md` + optional `notes/`, `specs/` | — |
 | `04_Areas/` | Ongoing areas (`Engineering`, `Health/Peptide`, `Photography`, `Reading`) | — |
 | `09_Templates/` | Note templates (Templater syntax — see note below) | — |
 | `wiki/` | **Agentic knowledge** — atomic English concept notes agents grow by traversal, domain-organized (`wiki/health/peptides/`) + per-level `index.md` MOC | — |
 
-There is **no `05_Resources/` tier** — reference material (articles, videos, books) is a `wiki/` concept note or a page under an Area; raw captures land in `00_Inbox/` and are promoted from there. The vault's own `CLAUDE.md` also lists `06_Tasks/`, `99_Archive/`, `_attachments/` and a Local REST API plugin — **none of those exist / are installed**; ignore them. Tasks live in TickTick, not the vault. For the authoritative traversal + write contract shared with Claude Code, see `~/SourceRoot/brain/AGENTS.md`.
+There is **no `05_Resources/` tier** — reference material (articles, videos, books) is a `wiki/` concept note or a page under an Area; raw captures land in `00_Inbox/` and are promoted from there. Tasks live in TickTick, not the vault. For the authoritative traversal + write contract shared with Claude Code, see `~/SourceRoot/brain/AGENTS.md`.
 
 ## Conventions (real, in active use)
 
@@ -48,6 +48,7 @@ There is **no `05_Resources/` tier** — reference material (articles, videos, b
 - **Dates** are `YYYY-MM-DD` everywhere. Resolve "today" before writing (the CLI has no Templater — see below).
 - **Never write to the vault root.** Unclassified content → `00_Inbox/`.
 - **Templates use Templater (`<% tp ... %>`) but Templater is NOT installed** — so do not rely on `template=`/`templates`. Build the full frontmatter + body yourself (resolve `tp.date.now` → the real date, `tp.file.title` → the title) and pass it via `content=`.
+- **New subfolder → new folder note.** When adding a subfolder under `03_Projects/<project>/` or `04_Areas/<area>/` that will hold more than one note, create its folder note (`{foldername}.md`) in the same write rather than leaving it for the linter to flag — see `AGENTS.md` → Reserved filenames. A pure attachment/spec bucket already covered by the parent's folder note doesn't need one.
 
 ## Durable knowledge — two layers, shared discipline with Claude Code
 
@@ -112,7 +113,8 @@ project: "[[<project>]]"
 ---
 title: "<name>"
 type: project
-status: active   # active | paused | completed
+status: personal
+lifecycle: active   # active | paused | completed — the 03_Projects dashboard Dataview filters on this key, not status
 tags: [project]
 dateCreated: 2026-06-17
 repo: ""
