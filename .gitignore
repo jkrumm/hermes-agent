@@ -3,6 +3,9 @@
 # Hermes runtime state — cron jobs registry + per-run output
 cron/jobs.json
 cron/output/
+cron/.jobs.lock
+cron/ticker_heartbeat
+cron/ticker_last_success
 
 # Hermes briefing state — local-only city + vacation flag.
 # Edits (vacation_until before a trip, city when remote) shouldn't pollute

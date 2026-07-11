@@ -63,11 +63,55 @@ for p in auxiliary-client-anthropic-mode-respect \
 done
 ```
 
-If a `git apply` fails outright (not just a context shift), inspect the upstream file by hand — the patch was written for a specific surrounding shape and may need a new version. The original purpose of each patch is documented in `CLAUDE.md`; rewrite the patch against current upstream and commit the new `.patch` file back to `patches/`.
+If a `git apply` fails outright (not just a context shift), figure out **which** of three things happened before touching anything — they need different fixes:
+
+1. **File moved/renamed (upstream restructure).** `error: <file> ist nicht im Index` / "not in index" means the target path no longer exists — not a diff mismatch. Don't hand-edit the patch's path and retry blindly. Find where the code went: `grep -rl "<a distinctive function/class name from the patch>" .` (e.g. a class name like `SlackAdapter`, or a helper the patch touches) across the new tree. A major version jump (this repo went v0.16.0 → v0.18.2 in one `hermes update`, 4184 commits) can move whole subsystems — the v0.18.x jump moved every built-in chat platform from `gateway/platforms/*.py` into a `plugins/platforms/<name>/adapter.py` plugin layout. Once you've found the new home, read both the old file (recoverable from the pre-update stash — see below) and the new one, then hand-port each patch hunk into the new structure and update the patch's file path in its own `diff --git a/... b/...` header. Update the path in this skill's table + reapply loop too.
+2. **File exists, hunk conflicts (`git apply --3way` leaves `<<<<<<< ours` / `>>>>>>> theirs` markers).** This is a real 3-way merge conflict — see *Resolving 3-way conflict markers* below.
+3. **The patch's *purpose* is now upstream's own behavior.** Before spending time on either of the above, check whether upstream independently fixed the same bug or added the same feature — see *Is this patch even still needed?* below. A patch whose target is superseded should be retired, not repaired.
+
+**Recovering the pre-update file for comparison:** `hermes update`'s stash-conflict-reset (see below) leaves a stash ref and prints "Stash ref: `<sha>`" — that ref/commit still has the fully-patched pre-update file even after the working tree resets clean:
+```bash
+git show <stash-sha>:path/to/old-file.py > /tmp/old-file.py
+```
+Diff `/tmp/old-file.py` against the new file's likely counterpart to see what upstream changed structurally, independent of your own patch hunks.
+
+### Is this patch even still needed?
+
+Before rewriting a failing patch, check whether upstream has since fixed the same underlying bug or shipped the same feature natively — rewriting a patch whose job upstream now does *better* just creates maintenance debt. Grep the new file for the symptom your patch works around (e.g. the buggy line your patch replaces, or a keyword from the bug description) and read what's there now. This happened at v0.18.2: `slack-audio-mime-ext.patch` mapped Slack audio MIME types to extensions to fix a `.ogg`-forced-on-MP4 bug — upstream had, independently, added its own `_resolve_slack_audio_ext()` helper doing the same job more thoroughly (filename-extension-first, then a mimetype map, `.m4a` fallback instead of `.ogg`, plus a bonus video-mislabeled-as-audio rerouter). The patch's target was fully superseded — retire it (delete from `patches/`, add a retirement note to `CLAUDE.md` like the existing ones), don't rewrite it. Conversely, if the check-fn/logic your patch depends on is gone with nothing to replace it, the patch is still needed — rewrite it against the new location/shape.
+
+### Resolving 3-way conflict markers
+
+Every conflict encountered so far (three, at the v0.18.2 jump) was **not** a logic disagreement — it was upstream adding its own independent feature or renaming a variable at the exact insertion point our patch also touches. The tell: `ours` (current file) and `theirs` (patch's target) both look reasonable in isolation, and neither is "wrong." Resolution pattern: **keep both additions, prefer the file's current identifier names over the patch's stale ones.**
+- *Adjacent independent early-return* (`tools/tirith_security.py`): upstream added its own circuit-breaker early-return at the same spot our argo-pipeline bypass inserts. Fix: keep both `if` blocks, order doesn't matter since both just return early.
+- *Renamed variable* (`gateway/platforms/base.py`): upstream renamed `_thread_metadata` → `_final_thread_metadata` (via a `_mark_notify_metadata()` wrap) at the same call sites our patch adds `reply_to=` to. Fix: grep the surrounding unconflicted code for which name is actually used elsewhere in the function — that's the one to keep — and combine it with the patch's added kwarg.
+- *Added return value* (`tools/tts_tool.py`): upstream independently grew a 2-tuple return into a 3-tuple (`api_key, base_url, is_managed`) on a function our patch also touches (to add an `unquote` import). Fix: keep upstream's tuple shape (grep the function's current definition to confirm the real signature) *and* the patch's own addition — they're unrelated changes to the same lines, not alternatives.
+
+After resolving, always sanity-check: `grep -rn "^<<<<<<<\|^=======$\|^>>>>>>>"` across the touched files (loosely — grep `======` alone also matches legitimate RST-style section underlines in docstrings/tests, so eyeball hits before assuming they're conflict markers) and `python3 -c "import ast; ast.parse(open('<file>').read())"` per file to catch syntax breaks before moving on.
+
+### Regenerating patch files after resolving
+
+Once every local mod is re-applied/hand-ported and the working tree is correct, regenerate the canonical `.patch` files instead of hand-diffing. `hermes update`'s stash-conflict-reset leaves `HEAD` in `~/.hermes/hermes-agent` sitting exactly on the clean, freshly-pulled upstream commit (confirm with `git log -1` and `git diff HEAD --stat` — the stat should list exactly the locally-modified files, nothing else):
+```bash
+cd ~/.hermes/hermes-agent
+git diff HEAD -- <file> > /tmp/new-patches/<patch-name>.patch   # once per touched file
+```
+Before overwriting the canonical copies in `~/SourceRoot/hermes-agent/patches/`, verify each regenerated patch actually applies cleanly against that same baseline using a scratch worktree (cheap, disposable, doesn't touch the live checkout):
+```bash
+git worktree add /tmp/hermes-verify HEAD --detach
+cd /tmp/hermes-verify && git apply --check /tmp/new-patches/<patch-name>.patch   # repeat per patch
+cd .. && git -C ~/.hermes/hermes-agent worktree remove /tmp/hermes-verify --force
+```
+Only then `cp /tmp/new-patches/*.patch ~/SourceRoot/hermes-agent/patches/`, delete any retired patch file, and commit in `~/SourceRoot/hermes-agent` (this repo is direct-to-master).
+
+### config.yaml loses hand-written comments on config-format migration
+
+`hermes update` may print `Updating config format (vN → vM)…` — this re-serializes `config.yaml` through the live symlink and silently **strips comments**, even though it preserves all values. After the update, check `git diff config.yaml` in `~/SourceRoot/hermes-agent` — new default keys are expected and fine, but if any hand-written explanatory comment (the ones documenting *why*, e.g. the audio-gateway routing rationale or the skills-trust `external_dirs` note) got dropped, restore it manually before committing. This is not a patch-tracked file, so there's no `.patch` to re-apply here — just a manual comment restore each time the config version bumps.
 
 ### What `hermes update` does on its own
 
 `hermes update` stashes your working changes, pulls upstream, then tries to re-apply the stash. Expect conflicts on the eight patched files — that is normal. The CLI prints the stash ref (`Restore your changes later with: git stash apply <sha>`); keep it as a fallback. After conflicts surface, the CLI resets the working tree clean — re-apply via the loop above.
+
+**Lazy-backend refresh warnings are often benign.** After pulling, `hermes update` refreshes "lazy backends" (optional provider/platform plugins) and may print import warnings for some of them (e.g. `provider.vertex`, `platform.matrix`, `platform.feishu`, `platform.teams`, `tool.trace_upload` failed with a transient import error at the v0.18.2 jump). Before investigating, check whether the affected backend is actually active in `~/.hermes/config.yaml` (search for its provider/platform name under an *enabled* section, not just present as a stock default block — every platform gets a default config block whether used or not). If it's not part of this deployment (this repo only runs the Slack platform + OpenAI-provider TTS/STT via the audio-gateway), the warning is inert and doesn't block the update or the gateway.
 
 ### Bundled-skill reconciliation
 
@@ -109,4 +153,14 @@ tail -20 ~/.hermes/logs/gateway.log
 
 ## Verify
 
-Send a message in `#hermes` on Slack and confirm a response. To verify TTS, ask for a voice memo (e.g. "speak this") and check `~/.hermes/audio_cache/` for an MP3 named after a gpt-5.4-mini title (not `tts_<timestamp>`) — it's Gemini Charon via the audio-gateway (`https://audio-gateway.jkrumm.com/v1`). Test a German message too: Charon should pronounce German natively (no translation to English), and the audio attachment should land **inline** in the channel, not in a thread.
+A basic "send a message and see a reply" check doesn't exercise most of the patched code paths — they only fire under specific conditions (a real Slack round-trip, a TTS request, an argo curl). After any update, run through these; each targets a specific patch. Use the `hermes-validate` skill's gateway-API (method A) and Slack-API (method B) send recipes to drive them, and confirm results by reading `~/.hermes/logs/agent.log` / `gateway.log` for the relevant timestamp (not just eyeballing the Slack reply) — that's what actually proves which code path ran.
+
+| Check | Drives | Confirms | What to look for |
+|-|-|-|-|
+| General question (method A, e.g. "what's on my TickTick") | Core agent loop, unaffected by any patch | Update didn't break routing/skills at all | Clean 200 response, `Turn ended: reason=text_response` in `agent.log` |
+| Infra/argo question that triggers a `curl \| jq`/`python3` pipe (method A, e.g. "infra status") | `tirith-allowlist-argo-pipes.patch` | Argo pipelines still bypass tirith | `tool terminal completed` in `agent.log`, **zero** hits for `grep -i "approval\|blocked" gateway.log` around that timestamp — a hit means the patch didn't re-apply |
+| Any request routed through real Slack (method B — HomeLab synthetic sender), containing a raw `*` list marker in the model's likely output | `format_message()` pre-steps in `plugins/platforms/slack/adapter.py` | mrkdwn normalization ported to the new adapter path | Fetch the posted message (`GET /api/slack/channels/:id/messages` via argo) — bullets render as `-`, not `*` |
+| "Say/speak X out loud" (method B) | `tts-tool-audio-title.patch` + `slack-media-inline-reply-anchor.patch` (base.py) | Title-naming and inline media threading both still work | `agent.log` line `tools.tts_tool: TTS audio saved: .../<Human Title>.mp3` (not `tts_<timestamp>.mp3`); no errors after `[Slack] Sending response`; fetched message has `thread_ts: null` (inline, not threaded) |
+| A German-language message (method B) | Config only (`tts.openai.model` = Gemini TTS), not a patch | Charon still pronounces German natively, no translation | Manual listen — text-based checks above can't verify pronunciation |
+
+Config sanity check (not patch-related, but always confirm after an update): `config.yaml`'s `tts.openai.base_url` / `stt.openai.base_url` still read `https://audio-gateway.jkrumm.com/v1`.
