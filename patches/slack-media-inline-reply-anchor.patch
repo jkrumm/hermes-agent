@@ -1,8 +1,8 @@
 diff --git a/gateway/platforms/base.py b/gateway/platforms/base.py
-index adac5fad2..594ca195a 100644
+index 21ca4af6b..c6433fd08 100644
 --- a/gateway/platforms/base.py
 +++ b/gateway/platforms/base.py
-@@ -4316,6 +4316,13 @@ class BasePlatformAdapter(ABC):
+@@ -5084,6 +5084,13 @@ class BasePlatformAdapter(ABC):
                      except Exception as batch_err:
                          logger.warning("[%s] Error batching images: %s", self.name, batch_err, exc_info=True)
  
@@ -16,40 +16,40 @@ index adac5fad2..594ca195a 100644
                  for media_path, is_voice in _non_image_media:
                      if human_delay > 0:
                          await asyncio.sleep(human_delay)
-@@ -4325,18 +4332,21 @@ class BasePlatformAdapter(ABC):
+@@ -5093,18 +5100,21 @@ class BasePlatformAdapter(ABC):
                              media_result = await self.send_voice(
                                  chat_id=event.source.chat_id,
                                  audio_path=media_path,
 +                                reply_to=_media_reply_anchor,
-                                 metadata=_thread_metadata,
+                                 metadata=_final_thread_metadata,
                              )
                          elif ext in _VIDEO_EXTS:
                              media_result = await self.send_video(
                                  chat_id=event.source.chat_id,
                                  video_path=media_path,
 +                                reply_to=_media_reply_anchor,
-                                 metadata=_thread_metadata,
+                                 metadata=_final_thread_metadata,
                              )
                          else:
                              media_result = await self.send_document(
                                  chat_id=event.source.chat_id,
                                  file_path=media_path,
 +                                reply_to=_media_reply_anchor,
-                                 metadata=_thread_metadata,
+                                 metadata=_final_thread_metadata,
                              )
  
-@@ -4355,12 +4365,14 @@ class BasePlatformAdapter(ABC):
+@@ -5123,12 +5133,14 @@ class BasePlatformAdapter(ABC):
                              await self.send_video(
                                  chat_id=event.source.chat_id,
                                  video_path=file_path,
 +                                reply_to=_media_reply_anchor,
-                                 metadata=_thread_metadata,
+                                 metadata=_final_thread_metadata,
                              )
                          else:
                              await self.send_document(
                                  chat_id=event.source.chat_id,
                                  file_path=file_path,
 +                                reply_to=_media_reply_anchor,
-                                 metadata=_thread_metadata,
+                                 metadata=_final_thread_metadata,
                              )
                      except Exception as file_err:

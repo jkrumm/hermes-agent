@@ -1,7 +1,7 @@
-diff --git a/gateway/platforms/slack.py b/gateway/platforms/slack.py
-index 0e1b055ea..c8974699d 100644
---- a/gateway/platforms/slack.py
-+++ b/gateway/platforms/slack.py
+diff --git a/plugins/platforms/slack/adapter.py b/plugins/platforms/slack/adapter.py
+index 05aeaf56f..03bd43e5c 100644
+--- a/plugins/platforms/slack/adapter.py
++++ b/plugins/platforms/slack/adapter.py
 @@ -21,6 +21,7 @@ from typing import Dict, Optional, Any, Tuple, List
  try:
      from slack_bolt.async_app import AsyncApp
@@ -18,16 +18,14 @@ index 0e1b055ea..c8974699d 100644
  
  import sys
  from pathlib import Path as _Path
-@@ -1104,7 +1106,29 @@ class SlackAdapter(BasePlatformAdapter):
+@@ -1407,7 +1409,27 @@ class SlackAdapter(BasePlatformAdapter):
                      if broadcast and i == 0:
                          kwargs["reply_broadcast"] = True
  
 -                last_result = await self._get_client(chat_id).chat_postMessage(**kwargs)
-+                # LOCAL PATCH (remove once Hermes v0.12+ ships): if Slack
-+                # rejects the thread parent (`cannot_reply_to_message`),
-+                # retry the same chunk as a plain channel message. Mirrors
-+                # the Telegram `Message thread not found` fallback in
-+                # upstream commit 41d9d0807.
++                # LOCAL MODIFICATION (patches/slack-cannot-reply-to-message.patch):
++                # if Slack rejects the thread parent (`cannot_reply_to_message`),
++                # retry the same chunk as a plain channel message.
 +                try:
 +                    last_result = await self._get_client(chat_id).chat_postMessage(**kwargs)
 +                except SlackApiError as _slack_err:
@@ -49,18 +47,18 @@ index 0e1b055ea..c8974699d 100644
  
              # Clear Slack Assistant status as soon as the final message is posted.
              if thread_ts:
-@@ -1290,11 +1314,23 @@ class SlackAdapter(BasePlatformAdapter):
+@@ -1658,11 +1680,23 @@ class SlackAdapter(BasePlatformAdapter):
                  existing_thread = None
              return existing_thread or None
  
-+        # LOCAL PATCH (remove once Hermes v0.12+ ships upstream commit 4b5a88d71):
-+        # _handle_message_event sets metadata.thread_id = event.thread_ts or ts —
-+        # i.e. for top-level messages it synthesizes thread_id from the message's
-+        # own ts purely for session keying. Replying to that synthetic ts hits
-+        # Slack's `cannot_reply_to_message` whenever the message can't host a
-+        # thread (system messages, child replies, deleted, ephemeral). Detect
-+        # the synthetic case (thread_id == reply_to and no real thread_ts field)
-+        # and fall back to a plain channel message.
++        # LOCAL MODIFICATION (patches/slack-cannot-reply-to-message.patch):
++        # metadata.thread_id may be synthesized from the message's own ts
++        # purely for session keying (see the reply_in_thread=False branch
++        # above). Replying to that synthetic ts hits cannot_reply_to_message
++        # whenever the message can't host a thread (system messages, child
++        # replies, deleted, ephemeral). Detect the synthetic case (thread_id
++        # == reply_to and no real thread_ts field) and fall back to a plain
++        # channel message.
          if metadata:
 -            if metadata.get("thread_id"):
 -                return metadata["thread_id"]
@@ -77,10 +75,11 @@ index 0e1b055ea..c8974699d 100644
          return reply_to
  
      async def _upload_file(
-@@ -1524,6 +1560,18 @@ class SlackAdapter(BasePlatformAdapter):
+@@ -1923,6 +1957,19 @@ class SlackAdapter(BasePlatformAdapter):
  
          text = content
  
++        # LOCAL MODIFICATION (patches/slack-cannot-reply-to-message.patch):
 +        # 0a) Normalize * list markers to - (prevents interference with italic)
 +        text = re.sub(r'^(\s*)\* ', r'\1- ', text, flags=re.MULTILINE)
 +

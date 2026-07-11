@@ -1,5 +1,5 @@
 diff --git a/tools/tirith_security.py b/tools/tirith_security.py
-index f40da60e5..fcfeaf970 100644
+index 935096041..d63f40af1 100644
 --- a/tools/tirith_security.py
 +++ b/tools/tirith_security.py
 @@ -25,6 +25,8 @@ import json
@@ -11,7 +11,7 @@ index f40da60e5..fcfeaf970 100644
  import shutil
  import stat
  import subprocess
-@@ -685,6 +687,97 @@ def ensure_installed(*, log_failures: bool = True):
+@@ -719,6 +721,97 @@ def ensure_installed(*, log_failures: bool = True):
      return None  # Not available yet; commands will fail-open until ready
  
  
@@ -109,10 +109,12 @@ index f40da60e5..fcfeaf970 100644
  # ---------------------------------------------------------------------------
  # Main API
  # ---------------------------------------------------------------------------
-@@ -708,6 +801,9 @@ def check_command_security(command: str) -> dict:
-     if not cfg["tirith_enabled"]:
-         return {"action": "allow", "findings": [], "summary": ""}
+@@ -752,6 +845,11 @@ def check_command_security(command: str) -> dict:
+     if _circuit_open:
+         return {"action": "allow", "findings": [], "summary": "tirith disabled (circuit breaker)"}
  
++    # LOCAL MODIFICATION (patches/tirith-allowlist-argo-pipes.patch):
++    # trusted personal API pipelines bypass tirith entirely.
 +    if _is_argo_only_pipeline(command):
 +        return {"action": "allow", "findings": [], "summary": "trusted personal API pipeline (tirith bypassed)"}
 +

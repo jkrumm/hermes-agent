@@ -27,14 +27,16 @@ If clean: jump straight to **Restart**. If conflicts or upstream rewrote a custo
 
 Eight local mods. Source-of-truth list (with re-apply commands and *why* each is needed) lives in `~/SourceRoot/hermes-agent/CLAUDE.md` under "Local Modifications to Upstream". This file is the operational playbook.
 
-> The `auxiliary-client-gpt5-max-completion-tokens` patch was **retired at v0.15.1** — upstream rewrote `_build_call_kwargs` to omit `max_tokens` by default for non-Anthropic custom endpoints, which supersedes it. See CLAUDE.md for the retirement note.
+> The `auxiliary-client-gpt5-max-completion-tokens` patch was **retired at v0.15.1** — upstream rewrote `_build_call_kwargs` to omit `max_tokens` by default for non-Anthropic custom endpoints, which supersedes it. The `slack-audio-mime-ext` patch was **retired at v0.18.2** — upstream's own `_resolve_slack_audio_ext()` helper now does the same MIME→extension mapping more thoroughly. See CLAUDE.md for both retirement notes.
+>
+> **v0.18.x platform rewrite:** upstream moved built-in chat platforms out of `gateway/platforms/` into a plugin system — Slack now lives at `plugins/platforms/slack/adapter.py` (was `gateway/platforms/slack.py`, which no longer exists). Only the Slack-targeting patch's *path* changed; `gateway/platforms/base.py` (shared response-delivery base class) stayed in place.
 
 Files touched (all are `.patch` files applied with `git apply` — no full-file replacements):
 
 | File | Patch | Kind |
 |-|-|-|
 | `agent/auxiliary_client.py` | `patches/auxiliary-client-anthropic-mode-respect.patch` | respect `api_mode: anthropic_messages` for custom base URLs |
-| `gateway/platforms/slack.py` | `patches/slack-cannot-reply-to-message.patch` | three-part mrkdwn + thread fallback |
+| `plugins/platforms/slack/adapter.py` | `patches/slack-cannot-reply-to-message.patch` | three-part mrkdwn + thread fallback |
 | `gateway/platforms/base.py` | `patches/slack-media-inline-reply-anchor.patch` | pass text reply anchor to media senders so attachments don't thread |
 | `cron/scheduler.py` | `patches/scheduler-skip-resolver-for-slack-ids.patch` | skip channel resolver for raw `C…` IDs |
 | `run_agent.py` | `patches/run-agent-third-party-endpoint-token-refresh.patch` | broaden third-party endpoint skip to all non-anthropic.com hosts |

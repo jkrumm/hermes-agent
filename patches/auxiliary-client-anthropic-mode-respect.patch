@@ -1,10 +1,10 @@
 diff --git a/agent/auxiliary_client.py b/agent/auxiliary_client.py
-index 252a0b882..53b17fc83 100644
+index 585db9940..d1d6c7f86 100644
 --- a/agent/auxiliary_client.py
 +++ b/agent/auxiliary_client.py
-@@ -3547,7 +3547,17 @@ def resolve_provider_client(
-     # ── Custom endpoint (OPENAI_BASE_URL + OPENAI_API_KEY) ───────────
-     if provider == "custom":
+@@ -4633,7 +4633,17 @@ def resolve_provider_client(
+         custom_base = ""
+         custom_key = ""
          if explicit_base_url:
 -            custom_base = _to_openai_base_url(explicit_base_url).strip()
 +            # Respect api_mode=anthropic_messages: without this guard the
