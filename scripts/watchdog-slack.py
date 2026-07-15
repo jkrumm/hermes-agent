@@ -32,7 +32,9 @@ rc = _mod.main(["--slack-body"])
 # a crash, hang, or non-zero exit trips the "Watchdog last successful run" alert.
 # Best-effort and stdout-silent (any output would corrupt the no_agent Slack body).
 if rc == 0:
-    push_url = _mod.load_env().get("UPTIME_PUSH_WATCHDOG")
+    # Resolve just the heartbeat URL (main() already resolved the full env once) — it
+    # survives the gateway subprocess sanitizer, so this is normally a plain env read.
+    push_url = _mod.resolve_secret("UPTIME_PUSH_WATCHDOG")
     if push_url:
         # uptime.jkrumm.com sits behind Cloudflare, which 403s the default
         # Python-urllib User-Agent — send a curl-like UA so the heartbeat lands.

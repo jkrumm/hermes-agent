@@ -5,16 +5,20 @@
 
 set -u
 
-ENV_FILE="$HOME/.hermes/.env"
+SECRETS_RUN="$HOME/.local/bin/secrets-run"
 SRC="$HOME/.hermes/"
 DEST="homelab:/mnt/hdd/backups/hermes/"
+# cron runs with a minimal PATH; prepend Homebrew so secrets-run finds sops+jq (its
+# cache backend) and `timeout` resolves. Prepend (not replace) to preserve cron's PATH.
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
-if [[ ! -f "$ENV_FILE" ]]; then
-  echo "[hermes-backup] $ENV_FILE missing — aborting" >&2
-  exit 1
-fi
-
-PUSH_URL=$(grep -E '^UPTIME_PUSH_BACKUP=' "$ENV_FILE" | cut -d= -f2-)
+# Resolve the UptimeKuma push URL from op://hermes/uptime-kuma/backup-push-url via
+# `secrets-run read` (encrypted cache on the mini, biometric op on the MacBook), bounded
+# by `timeout`. A resolution failure is non-fatal: the backup still runs and exits with
+# rsync's code; only the success ping is skipped, so UptimeKuma alerts on the missing
+# heartbeat. A failed ping never overrides rsync's exit code (RC is captured before it).
+PUSH_URL=""
+[[ -x "$SECRETS_RUN" ]] && PUSH_URL=$(timeout 10 "$SECRETS_RUN" read op://hermes/uptime-kuma/backup-push-url 2>/dev/null)
 
 /usr/bin/rsync -az --delete \
   --exclude='audio_cache/' \

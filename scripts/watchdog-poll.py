@@ -73,17 +73,64 @@ QUIET_START_H = 0
 QUIET_END_H = 7
 
 
+# op:// refs the watchdog needs. When it runs inside the gateway, the cron
+# scheduler's subprocess sanitizer (tools/environments/local.py) strips high-value
+# secrets such as GITHUB_TOKEN from the inherited env, and there is no plaintext
+# ~/.hermes/.env anymore — so any of these missing from os.environ is resolved on
+# demand from the encrypted cache via `secrets-run read` (the drop-in op shim:
+# cache backend on the mini, biometric op on the MacBook). Mirrors ~/.hermes/.env.tpl.
+SECRETS_RUN = Path.home() / ".local" / "bin" / "secrets-run"
+_CACHE_REFS: dict[str, str] = {
+    "GITHUB_TOKEN": "op://hermes/github/token",
+    "HOMELAB_API_KEY": "op://common/api/SECRET",
+    "UPTIME_PUSH_WATCHDOG": "op://hermes/uptime-kuma/watchdog-push-url",
+}
+
+
+def _resolve_ref(ref: str) -> str:
+    """Resolve one op:// ref via the secrets-run shim; '' on any failure."""
+    env = os.environ.copy()
+    # secrets-run's cache backend needs sops+jq (Homebrew); ensure they resolve even
+    # under a minimal PATH (the gateway spawns cron scripts with a sanitized env).
+    env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + env.get("PATH", "/usr/bin:/bin")
+    try:
+        r = subprocess.run(
+            [str(SECRETS_RUN), "read", ref],
+            capture_output=True, text=True, timeout=15, env=env,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def resolve_secret(key: str) -> str:
+    """Resolve one needed secret: the inherited process env (the gateway exports
+    cache-resolved secrets; some survive the cron subprocess sanitizer) first, else
+    the encrypted cache via secrets-run. Warns to stderr on total failure so a broken
+    cache surfaces in cron output instead of a silently degraded (but rc=0) poll."""
+    val = os.environ.get(key, "")
+    if val:
+        return val
+    ref = _CACHE_REFS.get(key, "")
+    val = _resolve_ref(ref) if ref else ""
+    if not val:
+        print(
+            f"watchdog: secret {key} unresolved (process env and secrets cache both "
+            f"empty) — poll data for its source may be incomplete this cycle",
+            file=sys.stderr,
+        )
+    return val
+
+
 def load_env() -> dict[str, str]:
-    env: dict[str, str] = {}
-    p = HERMES_HOME / ".env"
-    if not p.exists():
-        return env
-    for line in p.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, v = line.split("=", 1)
-        env[k.strip()] = v.strip().strip('"').strip("'")
+    # Inherited process env plus any needed secret backfilled from the cache. Failures
+    # to backfill are logged (resolve_secret) rather than silent. No plaintext .env.
+    env: dict[str, str] = dict(os.environ)
+    for key in _CACHE_REFS:
+        if not env.get(key):
+            val = resolve_secret(key)
+            if val:
+                env[key] = val
     return env
 
 
