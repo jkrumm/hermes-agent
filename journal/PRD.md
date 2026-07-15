@@ -43,11 +43,11 @@ Build a voice-first journaling system on top of the existing Hermes Agent + Obsi
 | audio-gateway (STT + TTS) | `https://audio-gateway.jkrumm.com/v1` (OpenAI-compatible, EU-resident via IU) | Running — STT `gpt-4o-transcribe` (DE/EN steered), TTS Gemini 3.1 Flash "Charon" |
 | Slack platform | Hermes built-in | Wired, `#journal` channel exists |
 | LiveSync (CouchDB) | Self-hosted via vrtmrz/obsidian-livesync | Running, syncs vault to iPhone + other Macs |
-| Restic → Backblaze B2 | Existing cron | Running — confirm `~/Obsidian/Vault` is in includes |
+| Restic → Backblaze B2 | Existing cron | Running — confirm `~/SourceRoot/brain` is in includes |
 | IU Anthropic endpoint | `${ANTHROPIC_BASE_URL}` (DPA covered, free for Johannes) | Wired in `.env` |
 | Claude Sonnet 4.6 / Opus 4.7 | via IU | Available via `auxiliary` and `model` config |
 | Gemini 2.5 Flash (vision) | direct API | Wired for vision only |
-| `~/Obsidian/Vault/` | LiveSync target | The single shared Obsidian vault |
+| `~/SourceRoot/brain/` | LiveSync target | The single shared Obsidian vault |
 | Hermes cron | runs `morning-briefing`, `watchdog`, `evening-report` via pre-run scripts | Pattern to copy for monthly roll-up |
 
 ---
@@ -56,7 +56,7 @@ Build a voice-first journaling system on top of the existing Hermes Agent + Obsi
 
 Numbered for reference. Don't relitigate without flagging.
 
-1. **Vault**: single existing `~/Obsidian/Vault/`. Journal is a `Journal/` subtree inside it. **No second vault.**
+1. **Vault**: single existing `~/SourceRoot/brain/`. Journal is a `Journal/` subtree inside it. **No second vault.**
 2. **Channel**: `#journal` (Slack channel exists). Top-level message = new entry. Thread reply = continuation of that entry.
 3. **Language**: All German throughout — entries, analysis, reflections, Slack acks. Entity note titles in German (`entities/people/Anna.md`, `entities/places/München.md`, `entities/emotions/Angst.md`). Meta-rules in JOURNAL.md may be English where they're rules-about-the-rules.
 4. **Tone**: honest + warm + contrarian. **Anti-sycophancy is a hard requirement** — see §9 for exact forbidden phrases and required behaviors. Hard floor: no diagnosis, no escalation, defer crisis to canned message.
@@ -70,7 +70,7 @@ Numbered for reference. Don't relitigate without flagging.
 8. **Audio codec**: Opus @ 24 kbps, mono, 16 kHz. ~180 KB/min. ffmpeg: `ffmpeg -i in.m4a -c:a libopus -b:a 24k -ac 1 -ar 16000 out.opus`.
 9. **Image codec**: AVIF @ q=70. ~100 KB per 1024². Native Obsidian rendering since 2024.
 10. **Sync**: LiveSync (CouchDB) for both `.md` and binaries. Volume (~80 MB/month) is well within LiveSync's working envelope. **No Syncthing**, **no Obsidian Sync**, **no iCloud**.
-11. **Backup**: existing restic → Backblaze B2 covers the vault. Verify `~/Obsidian/Vault` is in restic includes. Additionally, extend `scripts/hermes-backup.sh` to rsync vault to `homelab:/mnt/hdd/Dokumente/Obsidian/`.
+11. **Backup**: existing restic → Backblaze B2 covers the vault. Verify `~/SourceRoot/brain` is in restic includes. Additionally, extend `scripts/hermes-backup.sh` to rsync vault to `homelab:/mnt/hdd/Dokumente/Obsidian/`.
 12. **Eval execution**: `claude -p` against the user's Claude subscription (independent fresh-context calls, fits subscription model). Direct Anthropic SDK against IU is the alternative if subscription limits bite — same code, swap auth.
 13. **Mindsera backfill structure**: honor Mindsera's per-entry split. 4 entries on 2025-09-27 in their export → 4 of our entries. Don't merge same-day Mindsera entries.
 14. **Live multi-memo per day**: top-level Slack message = new entry. Thread reply = continuation. Hermes concatenates all transcripts in a thread chronologically into one entry body.
@@ -83,7 +83,7 @@ Numbered for reference. Don't relitigate without flagging.
 
 ```
                                  ┌──────────────────────┐
-       iPhone Voice Memos        │   ~/Obsidian/Vault/  │
+       iPhone Voice Memos        │   ~/SourceRoot/brain/  │
             │                    │   Journal/           │
             │ share              │   ├── entries/       │
             ▼                    │   ├── entities/      │
@@ -110,7 +110,7 @@ Every component is already standing except the Hermes `journal-ingest` skill and
 ### Vault (the data)
 
 ```
-~/Obsidian/Vault/
+~/SourceRoot/brain/
 └── Journal/
     ├── JOURNAL.md                    # tone/structure rules, read by Hermes on every ingest
     ├── log.md                        # append-only ingest log: ## [YYYY-MM-DD HH:MM] <slug> | <action>
@@ -572,7 +572,7 @@ If subscription rate-limits, fallback: same code with `ANTHROPIC_BASE_URL=$IU_BA
 
 ### 14.1 Storage
 
-- All journal data (text + binaries) under `~/Obsidian/Vault/Journal/`.
+- All journal data (text + binaries) under `~/SourceRoot/brain/Journal/`.
 - Audio: Opus, ~180 KB/min, ~50 entries/year × 5 min = ~45 MB/year audio.
 - Covers: AVIF, ~100 KB each, ~50/year = ~5 MB/year.
 - Text: trivial.
@@ -580,7 +580,7 @@ If subscription rate-limits, fallback: same code with `ANTHROPIC_BASE_URL=$IU_BA
 
 ### 14.2 Sync (LiveSync)
 
-Existing CouchDB Self-hosted LiveSync handles all of `~/Obsidian/Vault/`. No config changes needed for journal data — it's already inside the vault.
+Existing CouchDB Self-hosted LiveSync handles all of `~/SourceRoot/brain/`. No config changes needed for journal data — it's already inside the vault.
 
 **Recommended LiveSync settings to verify before launch:**
 - Settings → Sync Settings → "Sync attachments" enabled
@@ -592,10 +592,10 @@ Existing CouchDB Self-hosted LiveSync handles all of `~/Obsidian/Vault/`. No con
 
 Two layers:
 
-1. **Restic → Backblaze B2** (existing): verify `~/Obsidian/Vault` is in restic includes. Add it if not.
+1. **Restic → Backblaze B2** (existing): verify `~/SourceRoot/brain` is in restic includes. Add it if not.
 2. **rsync → homelab** (new): extend `~/SourceRoot/hermes-agent/scripts/hermes-backup.sh` with:
    ```bash
-   rsync -avz --delete ~/Obsidian/Vault/ homelab:/mnt/hdd/Dokumente/Obsidian/
+   rsync -avz --delete ~/SourceRoot/brain/ homelab:/mnt/hdd/Dokumente/Obsidian/
    ```
    Confirm the homelab destination path exists; create if not.
 
@@ -616,8 +616,8 @@ Decisions locked. See §5.
 **Status:** DONE 2026-05-05 (artifacts only — vault skeleton deferred to Phase 3).
 
 **Deliverables:**
-- ~~Create `~/Obsidian/Vault/Journal/` with the §7 directory structure (empty `entries/`, `entities/`, etc.).~~ **Postponed to Phase 3** — no point creating the vault tree before the eval has picked a winning prompt variant. Path also changed: target is `~/Obsidian/Vault/01_Journal/` to fit existing PARA structure (empty `01_Journal/` already exists).
-- ~~Write `JOURNAL.md`~~ — DONE at `journal/JOURNAL.md` (repo). Moves to `~/Obsidian/Vault/01_Journal/JOURNAL.md` on Phase 3 cutover.
+- ~~Create `~/SourceRoot/brain/Journal/` with the §7 directory structure (empty `entries/`, `entities/`, etc.).~~ **Postponed to Phase 3** — no point creating the vault tree before the eval has picked a winning prompt variant. Path also changed: target is `~/SourceRoot/brain/01_Journal/` to fit existing PARA structure (empty `01_Journal/` already exists).
+- ~~Write `JOURNAL.md`~~ — DONE at `journal/JOURNAL.md` (repo). Moves to `~/SourceRoot/brain/01_Journal/JOURNAL.md` on Phase 3 cutover.
 - ~~Write `prompts/v1-baseline.md`, `v2-anti-sycophancy.md`, `v3-with-cbt-frame.md`~~ — DONE under `journal/eval/prompts/`.
 - ~~Write `judge.md`~~ — DONE at `journal/eval/judge.md`.
 

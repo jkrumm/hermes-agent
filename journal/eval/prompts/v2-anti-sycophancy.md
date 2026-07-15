@@ -9,7 +9,7 @@
 
 ## SYSTEM
 
-(loaded from `~/Obsidian/Vault/01_Journal/JOURNAL.md`)
+(loaded from `~/SourceRoot/brain/01_Journal/JOURNAL.md`)
 
 ## USER
 

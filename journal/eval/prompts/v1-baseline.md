@@ -14,7 +14,7 @@
 
 ## SYSTEM
 
-(loaded from `~/Obsidian/Vault/01_Journal/JOURNAL.md` — see that file)
+(loaded from `~/SourceRoot/brain/01_Journal/JOURNAL.md` — see that file)
 
 ## USER
 
