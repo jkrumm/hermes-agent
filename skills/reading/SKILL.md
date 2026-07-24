@@ -208,8 +208,8 @@ not just a menu (he's not a heavy reader; choice overload loses him).
 ## Constraints & notes
 
 - **Auth** — `Authorization: Bearer $HOMELAB_API_KEY` (same `op://common/api/SECRET`
-  value, already in `~/.hermes/.env`). Never run `op` at runtime; never print the
-  bearer.
+  value, already in the environment — resolved at gateway startup). Never run `op` at
+  runtime; never print the bearer.
 - **Argo is the read-model only.** All recommending happens here via web research
   — Hardcover has no recommendations API to proxy.
 - **Acquisition is out of scope** — recommend and remember; Johannes acquires the
@@ -217,6 +217,6 @@ not just a menu (he's not a heavy reader; choice overload loses him).
 - **The skill doesn't rewrite itself.** It improves through DATA: every Hardcover
   rating sharpens `GET /api/reading`; the Profile + Reading List are its memory.
   If the *method* should change, edit this SKILL.md deliberately.
-- **Errors** — Argo `401` = stale/missing bearer (check `~/.hermes/.env`); `5xx`
+- **Errors** — Argo `401` = stale/missing bearer (report it; don't try to fix it); `5xx`
   = Argo may be redeploying, retry shortly. Don't recommend blind without the
   taste pull.

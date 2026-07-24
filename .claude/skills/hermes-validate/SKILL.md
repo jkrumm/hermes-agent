@@ -12,7 +12,16 @@ Run this when adding a new skill, after changing SOUL.md/SKILL.md, or when Herme
 
 ## Send a Test Message
 
-Two ways to drive Hermes. **Prefer the gateway API** — it hits the same agent + skills + SOUL routing with no Slack-auth dependency and returns the response synchronously. The full tool-call trace still lands in the session JSONL (read it below) for routing verification.
+Two ways to drive Hermes. Pick by **what you're testing**, not by convenience:
+
+| Testing | Use | Why |
+|-|-|-|
+| Routing, skills, SOUL, answer quality | **A — gateway API** | Synchronous, no Slack-auth dependency, no channel noise |
+| Threading, session keying, mrkdwn, TTS/media delivery | **B — Slack API** | The only path that exercises the Slack adapter at all |
+
+> Method A runs do **not** write `~/.hermes/sessions/*.jsonl` — that store is the Slack
+> path. Verify method-A routing from the response content plus `gateway.log`/`agent.log`,
+> not the sessions dir.
 
 > **Where secrets come from (v0.19.0+):** there is **no `~/.hermes/.env`** any more — it was
 > retired when Hermes moved to native `secrets.command` resolution. Read values directly from
@@ -36,12 +45,24 @@ curl -s -X POST "http://$HOST:8642/v1/chat/completions" \
 ```bash
 HK=$(secrets-run read op://common/api/SECRET)
 CH=$(secrets-run read op://hermes/slack/channel-hermes)
+
+# New thread (fresh context window) — returns {"ts": "...", "channel": "..."}
 curl -s -X POST -H "Authorization: Bearer $HK" -H "Content-Type: application/json" \
   -d '{"text":"your test prompt here"}' \
   "https://argo.jkrumm.com/api/slack/channels/$CH/messages"
+
+# Continue that thread (same session) — TS is the ts returned above
+curl -s -X POST -H "Authorization: Bearer $HK" -H "Content-Type: application/json" \
+  -d '{"text":"your follow-up here"}' \
+  "https://argo.jkrumm.com/api/slack/channels/$CH/messages/$TS/reply"
 ```
 
-> **Caveat:** the HomeLab synthetic sender can be rejected with `Unauthorized user: U… (HomeLab) on slack` in `agent.log` (the `allow_bots`/`SLACK_ALLOW_ALL_USERS` path isn't always honoured for it). If that line appears, no session is created — use method A.
+> **Caveat:** the HomeLab synthetic sender can be rejected with `Unauthorized user: U… (HomeLab) on slack` in `agent.log` (the `allow_bots`/`SLACK_ALLOW_ALL_USERS` path isn't always honoured for it). If that line appears, no session is created — use method A. *(Worked fine at v0.19.0 with `allow_bots: all`.)*
+>
+> Method B is the **only** way to exercise the real Slack path: threading, `format_message()`
+> mrkdwn normalization, media/TTS attachment delivery, and session keying. Method A bypasses
+> all of it. The response POST returns the message `ts` — keep it; it is the thread root you
+> look for in `state.db` and the anchor for a continuation reply.
 
 Wait for a response (method B):
 ```bash
@@ -51,28 +72,70 @@ tail -3 ~/.hermes/logs/agent.log
 
 ---
 
-## Read the Session Trace
+## Sessions are thread-scoped (v0.19.0+)
 
-Every conversation is stored as a JSONL session file:
+`platforms.slack.reply_in_thread` is **`true`**, so **one Slack thread == one session ==
+one context window**. `build_session_key()` appends the thread ts whenever
+`source.thread_id` is set, and the Slack adapter sets it to the message's own ts for
+top-level messages. Consequences when validating:
+
+- A **top-level** test message opens its own thread and gets a **fresh context window**.
+  That is the clean-slate case — use it when you want routing tested without carryover.
+- To test *continuation* (memory, follow-ups, compression), reply **inside** the thread.
+  A second top-level message is a different session and will not remember the first.
+- Expect `thread_ts == ts` on your own message. `thread_ts: null` now means something
+  went wrong; before the v0.19.0 flip it meant the opposite.
+- The key carries **no per-user component** in a thread — `isolate_user` is forced off
+  whenever a thread is present, so `group_sessions_per_user: true` doesn't apply here.
+
+Confirm the session your message actually created:
 
 ```bash
-# Find the latest session
-ls -t ~/.hermes/sessions/*.jsonl | head -3
-
-# Read the full tool call trace
-python3 << 'EOF'
-import json, glob
-latest = sorted(glob.glob('/Users/jkrumm/.hermes/sessions/*.jsonl'))[-1]
-print('Session:', latest)
-for i, line in enumerate(open(latest).readlines()):
-    o = json.loads(line)
-    role, content = o.get('role',''), o.get('content','')
-    reasoning = o.get('reasoning','')
-    if reasoning: print(f'[{i}] THINK: {reasoning[:150]}')
-    if isinstance(content, str) and content:
-        print(f'[{i}] {role}: {content[:250]}')
-EOF
+sqlite3 -header -column ~/.hermes/state.db \
+  "SELECT substr(session_key,1,66) k, thread_id, message_count mc,
+          datetime(started_at,'unixepoch','localtime') started
+   FROM sessions WHERE session_key LIKE '%slack%'
+   ORDER BY started_at DESC LIMIT 3;"
 ```
+
+A healthy post-flip key looks like `agent:main:slack:group:<team>:<C…>:<ts>` with
+`thread_id` populated. A key ending at the channel ID is a pre-flip (or misrouted)
+channel-wide session.
+
+---
+
+## Read the Session Trace
+
+Traces live in **`~/.hermes/state.db`** (`messages` joined to `sessions`).
+
+> **`~/.hermes/sessions/*.jsonl` is dead — do not read it.** It stopped being written on
+> **2026-06-02** and the 155 files there are frozen history. Sorting that directory and
+> taking the newest file silently hands you a seven-week-old conversation that looks
+> current. Verify with `ls -t ~/.hermes/sessions/*.jsonl | head -1` before ever trusting it.
+
+By thread (the useful form — pass the thread root ts you got back from method B):
+
+```bash
+sqlite3 ~/.hermes/state.db "
+SELECT m.role, COALESCE(m.tool_name,''), substr(REPLACE(COALESCE(m.content,''),char(10),' '),1,150)
+FROM messages m JOIN sessions s ON s.id = m.session_id
+WHERE s.session_key LIKE '%<thread_ts>%'
+ORDER BY m.timestamp;"
+```
+
+Most recent turn regardless of thread:
+
+```bash
+sqlite3 ~/.hermes/state.db "
+SELECT m.role, COALESCE(m.tool_name,''), substr(REPLACE(COALESCE(m.content,''),char(10),' '),1,150)
+FROM messages m
+WHERE m.session_id = (SELECT id FROM sessions ORDER BY started_at DESC LIMIT 1)
+ORDER BY m.timestamp;"
+```
+
+Reasoning is in the `reasoning` / `reasoning_content` columns; tool arguments in
+`tool_calls`. A continuation reply arrives prefixed `[Replying to: "…"]`, which is how you
+confirm the parent message was threaded onto the right session.
 
 ---
 
@@ -87,22 +150,30 @@ response ready: platform=slack chat=... time=51.7s api_calls=3 response=751 char
 | `api_calls` | ≤5 | >8 |
 | `time` | <90s | >150s |
 
-**From session JSONL — healthy pattern:**
+**Healthy trace pattern** (verified 2026-07-24, 3 api_calls, 21.3s):
 ```
-[1] user: question
-[2] THINK: knows to use skill_view('argo-api')...
-[3] tool: {"success": true, "name": "argo-api", ...}   ← skill_view hit directly
-[4] THINK: read the endpoints, forming curl command
-[5] tool: {"status": "success", "output": "..."}          ← terminal/curl result
-[6] assistant: clean answer
+user       |            | [U… | Slack user <@U…>] wie viele offene Watchdog-Items …
+assistant  |            |
+tool       | skill_view | {"success": true, "name": "argo-api", …}          ← skill hit directly
+tool       | skill_view | {"file": "references/infrastructure.md", …}       ← drilled to the reference
+tool       | terminal   | {"output": "{\"generatedAt\":…}"}                 ← one curl, not many
+assistant  |            | Es gibt aktuell 12 offene Watchdog-Items …        ← clean answer
 ```
+
+Two `skill_view` calls in a row is **normal now**, not a red flag: `argo-api` is a hub
+skill and the second call opens the right `references/*.md`. What matters is that neither
+is a `skills_list`.
 
 **Red flags in the trace:**
 - `skills_list` appearing twice before `skill_view` → skill not mentioned in SOUL.md by name
 - `execute_code` with Python requests → SOUL.md needs to say "use terminal, not execute_code"
 - `find skills/argo-api/reference.md` → dead file path in SOUL.md (rename to skill name)
 - 404 on guessed API paths → skill SKILL.md missing or not loaded
-- `gpt-4o-mini not found` → session summarization auxiliary failure, non-blocking
+- An auxiliary model 404/`not found` (title generation, compression) → non-blocking, but
+  check the model name in `config.yaml` still exists on the endpoint. Auxiliaries are
+  `DeepSeek-V4-Flash`; any log line naming a `gpt-*` auxiliary is stale config, not a bug.
+- `Command Approval Required` / `blocked` on a routine argo curl → a tirith patch didn't
+  re-apply; see the `hermes-update` skill.
 
 ---
 
@@ -138,19 +209,30 @@ response ready: platform=slack chat=... time=51.7s api_calls=3 response=751 char
 ## After Fixing SOUL.md or a SKILL.md
 
 Skills are symlinked so SKILL.md changes are live immediately.
-SOUL.md changes require a gateway restart:
+**SOUL.md, `config.yaml`, and any patched Python module** require a gateway restart —
+Python modules are imported once at startup, so an edited `tirith_security.py` (or any
+other patched file) is inert in the running process until you restart, no matter what a
+direct in-process test reports.
 
 ```bash
-hermes gateway stop && hermes gateway start
-# Wait for connection
-until grep -q "Bolt app is running" ~/.hermes/logs/agent.log; do sleep 2; done
+hermes gateway restart          # launchd-supervised; drains in-flight runs (up to 180s)
+# Wait for Slack to reconnect — poll the state file, not the log
+until [[ "$(jq -r '.platforms.slack.state' ~/.hermes/gateway_state.json)" == "connected" ]]; do sleep 2; done
+jq -r '"pid=\(.pid) gateway=\(.gateway_state) slack=\(.platforms.slack.state)"' ~/.hermes/gateway_state.json
 ```
+
+> Don't wait on `grep -q "Bolt app is running" ~/.hermes/logs/agent.log` — the log is
+> append-only, so it matches a *previous* startup instantly and the loop exits before the
+> new process is up. Poll `gateway_state.json` instead.
+
+A restart posts a `⚠️ Gateway shutting down` notice into Slack. That's expected, not a
+fault — but it means restarts are user-visible, so batch them.
 
 Then re-send the same test message and compare `api_calls` and `time` in `agent.log`.
 
 ---
 
-## Validated Capabilities (as of Phase 0)
+## Validated Capabilities
 
 | Query type | Skill used | Calls | Time | Status |
 |-|-|-|-|-|
@@ -177,14 +259,18 @@ Then re-send the same test message and compare `api_calls` and `time` in `agent.
 | Research: latest Bun version | `research-gateway` | — | ~54s | Working — submit+poll to research-gateway, cited answer (Bun v1.3.14); tirith allowlist let `curl research… \| jq` through with no approval gate |
 | Post-update (v0.16.0→v0.18.2) TickTick overdue check | `tasks` (method A) | 4 | ~26s | Working — general agent loop intact after platform-plugin rewrite |
 | Post-update infra status (homelab+vps) | `infrastructure` (method A) | 4 | ~16s | Working — 2× terminal/curl tool calls, zero tirith approval gates (confirms `tirith-argo-allowlist-and-download-guard.patch` re-applied correctly) |
-| Post-update Slack formatting check (`*` bullet) | — (method B, real Slack path) | 1 | 5.2s | Working — response posted with `-` bullets (confirms `format_message()` pre-steps ported to `plugins/platforms/slack/adapter.py`), `thread_ts: null` (top-level, not mis-threaded) |
+| Post-update Slack formatting check (`*` bullet) | — (method B, real Slack path) | 1 | 5.2s | Working — response posted with `-` bullets (confirms `format_message()` pre-steps ported to `plugins/platforms/slack/adapter.py`). *Recorded `thread_ts: null` — correct then (`reply_in_thread: false`), and the opposite of correct now; see the threading note below.* |
 | Post-update TTS title check ("say out loud") | — (method B, real Slack path) | 2 | 16.2s | Working — `tools.tts_tool: TTS audio saved: .../Update Verification Successful.mp3` (confirms `tts-tool-audio-title.patch` re-applied correctly post-conflict, not `tts_<timestamp>.mp3`); media send via patched `base.py` completed with no errors |
-
 | Post-audit infra status (method A) | `argo-api` (infrastructure) | 3 | 15.4s | Working — Homelab 36/36 + VPS 29/29, zero approval gates (argo allowlist intact after the tirith rewrite) |
 | Post-audit download-guard block (method A) | `tirith_security` hardening | — | — | Working — `wget -qO /tmp/f URL && chmod +x … && /tmp/f` **blocked** end-to-end, no file created. This shape was a *bypass* before the restart, so it proves the running process carries the hardened guard, not just the file on disk |
 | Post-audit Slack round-trip (method B) | `reply_in_thread: true` | 3 | 21.3s | Working — session key `agent:main:slack:group:<team>:<C…>:<ts>` carries the message ts, reply threaded under it. First live confirmation that one thread == one session == one context window |
+| Post-audit thread continuation (method B, `/reply`) | `reply_in_thread: true` | 1 | 3.9s | Working — reply into the thread **reused** the same session (message_count 8→10, no new session) and correctly recalled the first question. Confirms context carries within a thread; inbound arrives prefixed `[Replying to: "…"]` |
 
-Update this table after each validation run.
+Update this table after each validation run. **Rows are historical, not current spec** —
+they record what was true on the day. The `Skill used` column on pre-2026-06 rows names
+domain skills (`infrastructure`, `tasks`, `schedule`, `weather`, `slack`) that no longer
+exist as directories; those endpoints now live in `argo-api/references/*.md` and route
+through the `argo-api` skill. Don't "fix" an old row to match today — add a new one.
 
 > **Verifying a security control needs a shape that only the NEW code catches.** A block
 > that the old code also blocked proves nothing about which version is loaded. Pick a case
@@ -192,23 +278,28 @@ Update this table after each validation run.
 > downloaded file must not exist). Python modules are imported once at gateway start — an
 > in-process test result says nothing about the running process.
 
-> **Method-A trace note:** gateway-API (`/v1/chat/completions`) runs do **not** land in
-> `~/.hermes/sessions/*.jsonl` (that store is the Slack path). Verify method-A routing from
-> the response content + `gateway.log`, not the sessions dir.
 
 ---
 
 ## Key Files
 
+All paths are relative to `~/SourceRoot/hermes-agent/` unless noted. The skill set is
+whatever `HERMES_SKILLS` in the `Makefile` lists — check there rather than trusting this
+table, which has gone stale before.
+
 | File | Purpose |
 |-|-|
-| `hermes/SOUL.md` | System prompt — skill routing table lives here |
-| `hermes/skills/argo-api/SKILL.md` | Full endpoint reference (fallback when no domain skill matches) |
-| `hermes/skills/infrastructure/SKILL.md` | UptimeKuma + Docker behavioral guidance |
-| `hermes/skills/tasks/SKILL.md` | TickTick task management behavioral guidance |
-| `hermes/skills/schedule/SKILL.md` | Calendar + Gmail behavioral guidance |
-| `hermes/skills/weather/SKILL.md` | Weather forecast behavioral guidance |
-| `hermes/skills/slack/SKILL.md` | Slack messages, search, unreads behavioral guidance |
+| `SOUL.md` | System prompt — skill routing table lives here |
+| `config.yaml` | Model, platform (`reply_in_thread`), secrets, tirith settings |
+| `skills/argo-api/SKILL.md` | Full endpoint reference + `references/*.md` per domain (infrastructure, tasks, schedule, weather, slack, garmin-health, strength, walking-pad, usage) |
+| `skills/capture/SKILL.md` | Router: KaraKeep vs Obsidian vs TickTick vs GitHub |
+| `skills/work/SKILL.md` | IU surface — M365, Jira, Confluence, GitLab |
+| `skills/karakeep/SKILL.md` · `skills/obsidian/SKILL.md` | Read-later bucket · second brain |
+| `skills/reading/SKILL.md` · `skills/research-gateway/SKILL.md` | Book shelf · deep cited research |
+| `skills/image-delivery/SKILL.md` | `imgcli share`/`publish` — private by default |
+| `tests/test_download_guard.py` | Regression suite for the local tirith hardening |
 | `~/.hermes/logs/agent.log` | Structured run log (api_calls, time, inbound messages) |
-| `~/.hermes/sessions/*.jsonl` | Full turn-by-turn session traces |
 | `~/.hermes/logs/gateway.log` | Gateway stdout (startup, tool progress bars) |
+| `~/.hermes/sessions/*.jsonl` | Turn-by-turn traces — **Slack path only** (see method-A note) |
+| `~/.hermes/state.db` | `sessions` table — session keys, thread ids, message counts |
+| `~/.hermes/gateway_state.json` | Live pid + gateway/Slack connection state |
