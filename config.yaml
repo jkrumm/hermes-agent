@@ -580,9 +580,10 @@ homelab_api:
   api_key: ${HOMELAB_API_KEY}
 terminal_backend: local
 platform_toolsets:
-  # image_gen routes to FAL.ai; no FAL_KEY/Nous credential is configured, so the
-  # tool can only error. Disabled until image generation moves to the image-gen
-  # gateway (image-gateway.jkrumm.com) instead.
+  # image_gen (FAL.ai) is intentionally absent — image generation is pending a
+  # wiring to the image-gen gateway (image-gateway.jkrumm.com). Image delivery
+  # (persisting/sharing an image already in hand) is live via the
+  # image-delivery skill.
   cli:
     - browser
     - clarify
