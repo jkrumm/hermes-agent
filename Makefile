@@ -31,7 +31,8 @@ setup:
 	@echo "    2. Store push URLs:"
 	@echo "         op item create --account tkrumm --vault hermes --category login \\"
 	@echo "           --title uptime-kuma agent-push-url=<url> backup-push-url=<url>"
-	@echo "    3. Rebuild ~/.hermes/.env (see README.md \"Rebuild .env\")"
+	@echo "    3. Confirm secrets resolve: 'make status' shows '✓ secrets (N refs …)'"
+	@echo "       (no ~/.hermes/.env — config.yaml 'secrets.command' reads the secrets-run cache)"
 	@echo ""
 
 .PHONY: _precheck
@@ -121,9 +122,15 @@ status:
 	@for skill in $(HERMES_SKILLS); do \
 		$(MAKE) --no-print-directory _check DST="$(HERMES_DIR)/skills/$$skill"; \
 	done
-	@[ -f "$(HERMES_DIR)/.env" ] \
-		&& echo "    ✓ .env (rebuilt from 1Password)" \
-		|| echo "    ✗ .env [missing — see README.md \"Rebuild .env\"]"
+	@# Secrets resolve natively via config.yaml `secrets.command` -> the dotfiles
+	@# secrets-run cache. There is deliberately no ~/.hermes/.env any more, so this
+	@# asserts the helper actually renders refs rather than checking for a file.
+	@n=$$($(HOME)/.local/bin/secrets-run export --env-file="$(HERMES_DIR)/.env.tpl" 2>/dev/null | grep -c '^export ' || true); \
+	if [ "$${n:-0}" -gt 0 ]; then \
+		echo "    ✓ secrets ($$n refs via secrets-run cache)"; \
+	else \
+		echo "    ✗ secrets [secrets-run resolved nothing — gateway would start credential-less]"; \
+	fi
 	@curl -fsS https://audio-gateway.jkrumm.com/health >/dev/null 2>&1 \
 		&& echo "    ✓ audio-gateway (TTS/STT)" \
 		|| echo "    ✗ audio-gateway [not reachable — VPS Docker container over tailnet]"

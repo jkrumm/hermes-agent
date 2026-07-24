@@ -106,8 +106,8 @@ warning, so a broken cache yields a gateway that starts and then fails to connec
 
 The gateway runs an OpenAI-compatible HTTP API alongside Slack, so the **argo VPS
 dashboard chat** can talk to Hermes. Controlled by four env vars (framework keys in
-`hermes_cli/config.py`), materialized into `~/.hermes/.env` and surfaced in `.env.tpl`
-+ the README `.env` builder so a rebuild never silently drops the exposure:
+`hermes_cli/config.py`), resolved at startup from `.env.tpl` via `secrets.command`
+(see "Secrets" above) so a rebuild never silently drops the exposure:
 
 - `API_SERVER_ENABLED=true`, `API_SERVER_PORT=8642` — literals.
 - `API_SERVER_HOST` — the Mac Mini's Tailscale IP, **tailnet-only bind** (no LAN

@@ -152,7 +152,7 @@ hermes gateway restart
 Verify it came up:
 
 ```bash
-curl -s http://$(awk -F= '/^API_SERVER_HOST=/{print $2}' ~/.hermes/.env):8642/health
+curl -s "http://$(secrets-run read op://hermes/gateway/host):8642/health"
 tail -20 ~/.hermes/logs/gateway.log
 ```
 

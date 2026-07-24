@@ -156,13 +156,13 @@ hermes gateway install   # registers the LaunchAgent (label: ai.hermes.gateway) 
 (Re)start manually with:
 
 ```bash
-hermes gateway restart   # falls back to a bare `run --replace` process on this macOS
+hermes gateway restart   # launchd-supervised (auto-restart on crash, start at login)
 ```
 
 Verify it's up:
 
 ```bash
-curl -s http://$(awk -F= '/^API_SERVER_HOST=/{print $2}' ~/.hermes/.env):8642/health
+curl -s "http://$(secrets-run read op://hermes/gateway/host):8642/health"
 tail -20 ~/.hermes/logs/gateway.log  # watch for successful Slack connection
 ```
 
@@ -176,57 +176,33 @@ tail -20 ~/.hermes/logs/gateway.log  # watch for successful Slack connection
 
 ### Known Issues / TODOs
 
-- **Gateway launchd**: this macOS can't bootstrap the user LaunchAgent (`Bootstrap failed: 5: I/O error`), so `hermes gateway install`/`restart` fall back to a bare `run --replace` background process — no auto-restart on crash, no start-at-login. The liveness cron + UptimeKuma heartbeat are the safety net (see §8).
-- **`.env` rebuild**: API keys with `=` chars break shell splitting. Use the Python builder script (see below) instead of `op run ... env > .env`.
+- **`hermes gateway install` prints `Bootstrap failed: 5: Input/output error`** several times while repairing the service definition. That message is **noise** — it finishes with `✓ Service definition updated`, and `hermes gateway status` then reports `✓ Gateway is supervised by launchd`. Auto-start at login and auto-restart on crash do work. Check `gateway status` for the real state; never `launchctl load` the plist by hand.
+- **Secrets fail soft, not closed.** If `secrets.command` can't resolve, the gateway still starts — just credential-less — so treat `Command helper: applied N secrets` as a required check after any secrets change (see below).
+
+### Secrets — no `.env`, no wrapper
+
+There is deliberately **no `~/.hermes/.env`** and no launch wrapper. Hermes resolves its own
+secrets at startup via v0.19's `SecretSource` interface (`config.yaml` → `secrets.command`),
+which shells out to the dotfiles `secrets-run` shim — the drop-in `op` replacement backed by
+an age-encrypted offline cache on this headless Mac mini (a direct `op read` here would hang
+on the biometric prompt). `.env.tpl` remains the single list of `KEY=op://…` refs; it is now
+consumed by that source rather than by an `op run` wrapper.
+
+This also means **every** hermes invocation gets secrets — gateway, CLI, and cron alike —
+so ad-hoc debugging works without hand-wrapping commands.
 
 ```bash
-# Rebuild ~/.hermes/.env from 1Password (handles keys with = chars)
-python3 -c "
-import subprocess, os
-refs = {
-    'SLACK_BOT_TOKEN': 'op://hermes/slack/bot-token',
-    'SLACK_APP_TOKEN': 'op://hermes/slack/app-token',
-    'SLACK_ALLOWED_USERS': 'op://hermes/slack/allowed-user-id',
-    'SLACK_CHANNEL_HERMES': 'op://hermes/slack/channel-hermes',
-    'SLACK_HOME_CHANNEL': 'op://hermes/slack/channel-hermes',
-    'SLACK_CHANNEL_INBOX': 'op://hermes/slack/channel-inbox',
-    'OPENAI_API_KEY': 'op://common/anthropic/API_KEY',
-    'ANTHROPIC_API_KEY': 'op://common/anthropic/API_KEY',
-    'ANTHROPIC_BASE_URL': 'op://common/anthropic/BASE_URL',
-    'GEMINI_API_KEY': 'op://hermes/google-ai-studio/api-key',
-    'TAVILY_API_KEY': 'op://hermes/tavily/API_KEY',
-    'GITHUB_TOKEN': 'op://hermes/github/token',
-    'HOMELAB_API_KEY': 'op://common/api/SECRET',
-    'KARAKEEP_API_KEY': 'op://hermes/karakeep/api-key',
-    'RESEARCH_API_KEY': 'op://vps/research-gateway/API_SECRET',
-    'UPTIME_PUSH_HERMES': 'op://hermes/uptime-kuma/agent-push-url',
-    'UPTIME_PUSH_BACKUP': 'op://hermes/uptime-kuma/backup-push-url',
-    'UPTIME_PUSH_WATCHDOG': 'op://hermes/uptime-kuma/watchdog-push-url',
-    # API server — gateway HTTP surface (tailnet) for the argo VPS dashboard chat
-    'API_SERVER_HOST': 'op://hermes/gateway/host',
-    'API_SERVER_KEY': 'op://hermes/gateway/api-server-key',
-}
-resolved = {}
-for key, ref in refs.items():
-    resolved[key] = subprocess.check_output(['op', 'read', ref, '--account', 'tkrumm'], text=True).strip()
-# Default brain is DeepSeek-V4-Pro on the IU OpenAI-compat transport. Derive its base
-# from BASE_URL (…/anthropic → …/openai/v1) — never read a stored OpenAI base,
-# the op://common/anthropic/OPENAI_BASE_URL field is stale (retired host).
-resolved['OPENAI_BASE_URL'] = resolved['ANTHROPIC_BASE_URL'].replace('/anthropic', '/openai/v1')
-# Static env vars (not from 1Password)
-static = {
-    'API_SERVER_ENABLED': 'true',
-    'API_SERVER_PORT': '8642',
-}
-lines = [f'{key}={val}' for key, val in resolved.items()]
-for key, val in static.items():
-    lines.append(f'{key}={val}')
-with open(os.path.expanduser('~/.hermes/.env'), 'w') as f:
-    f.write('\n'.join(lines) + '\n')
-os.chmod(os.path.expanduser('~/.hermes/.env'), 0o600)
-print(f'Written {len(lines)} secrets')
-"
+make status                       # → ✓ secrets (26 refs via secrets-run cache)
+hermes gateway status             # → Command helper: applied 26 secrets
+
+# If either is missing, test the helper in isolation:
+secrets-run export --env-file=~/.hermes/.env.tpl | sed 's/^export //' | wc -l
 ```
+
+To add a secret: add the `KEY=op://vault/item/field` line to `.env.tpl`, add the same
+`op://` ref to `dotfiles-private/headless.refs`, then re-seed the cache (`make secrets-seed`
+— biometric, must run with a human present). A ref absent from `headless.refs` will never
+resolve on the mini; that allowlist *is* the security boundary.
 
 ## Cron — Liveness + Backup
 

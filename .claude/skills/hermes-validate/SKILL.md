@@ -14,13 +14,17 @@ Run this when adding a new skill, after changing SOUL.md/SKILL.md, or when Herme
 
 Two ways to drive Hermes. **Prefer the gateway API** — it hits the same agent + skills + SOUL routing with no Slack-auth dependency and returns the response synchronously. The full tool-call trace still lands in the session JSONL (read it below) for routing verification.
 
-> **Key extraction:** always `cut -d= -f2-` (not `-f2`). The argo/API keys contain `=` chars; `-f2` silently truncates them → 401.
+> **Where secrets come from (v0.19.0+):** there is **no `~/.hermes/.env`** any more — it was
+> retired when Hermes moved to native `secrets.command` resolution. Read values directly from
+> the cache with `secrets-run read op://…` (the drop-in `op` shim; works headless on the mini).
+> This also sidesteps the old `cut -d= -f2-` footgun, since nothing is being parsed out of a
+> dotenv line: `secrets-run read` returns the raw value, `=` chars and all.
 
 ### A. Gateway API (recommended — no Slack dependency)
 
 ```bash
-HOST=$(awk -F= '/^API_SERVER_HOST=/{print $2}' ~/.hermes/.env)
-KEY=$(grep '^API_SERVER_KEY=' ~/.hermes/.env | cut -d= -f2-)
+HOST=$(secrets-run read op://hermes/gateway/host)
+KEY=$(secrets-run read op://hermes/gateway/api-server-key)
 curl -s -X POST "http://$HOST:8642/v1/chat/completions" \
   -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" --max-time 180 \
   -d '{"model":"hermes-agent","messages":[{"role":"user","content":"your test prompt here"}]}' \
@@ -30,8 +34,8 @@ curl -s -X POST "http://$HOST:8642/v1/chat/completions" \
 ### B. Slack API (arrives in #hermes as the HomeLab bot)
 
 ```bash
-HK=$(grep '^HOMELAB_API_KEY=' ~/.hermes/.env | cut -d= -f2-)
-CH=$(grep '^SLACK_CHANNEL_HERMES=' ~/.hermes/.env | cut -d= -f2-)
+HK=$(secrets-run read op://common/api/SECRET)
+CH=$(secrets-run read op://hermes/slack/channel-hermes)
 curl -s -X POST -H "Authorization: Bearer $HK" -H "Content-Type: application/json" \
   -d '{"text":"your test prompt here"}' \
   "https://argo.jkrumm.com/api/slack/channels/$CH/messages"
