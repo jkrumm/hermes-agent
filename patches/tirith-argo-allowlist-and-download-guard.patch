@@ -1,5 +1,5 @@
 diff --git a/tools/tirith_security.py b/tools/tirith_security.py
-index 935096041..db64c650e 100644
+index 935096041..5095bbaf5 100644
 --- a/tools/tirith_security.py
 +++ b/tools/tirith_security.py
 @@ -25,6 +25,8 @@ import json
@@ -11,7 +11,7 @@ index 935096041..db64c650e 100644
  import shutil
  import stat
  import subprocess
-@@ -719,6 +721,245 @@ def ensure_installed(*, log_failures: bool = True):
+@@ -719,6 +721,361 @@ def ensure_installed(*, log_failures: bool = True):
      return None  # Not available yet; commands will fail-open until ready
  
  
@@ -35,7 +35,7 @@ index 935096041..db64c650e 100644
 +    "argo.jkrumm.com", "karakeep.jkrumm.com", "research.jkrumm.com",
 +})
 +
-+# LOCAL MODIFICATION (patches/tirith-block-download-then-execute.patch):
++# LOCAL MODIFICATION (patches/tirith-argo-allowlist-and-download-guard.patch):
 +# ---------------------------------------------------------------------------
 +# tirith blocks `curl URL | sh` (rule curl_pipe_shell, MITRE T1059.004) but
 +# NOT the trivially equivalent two-step form. Verified against the tirith
@@ -52,11 +52,21 @@ index 935096041..db64c650e 100644
 +# before tirith is consulted. It is deliberately a `block`, not a `warn`:
 +# there is no legitimate reason for this agent to fetch a file and execute it.
 +#
-+# Scoped tightly to keep false positives near zero — it only fires when the
-+# SAME literal path is both written by a downloader and later executed (or
-+# chmod +x'd, or sourced), or when an interpreter is fed an inline
-+# `$(curl …)` / `<(curl …)` substitution. Downloading data (no execution) and
-+# executing local files (no download) both stay allowed.
++# Scoped to keep false positives near zero — it fires only when a path written
++# by a downloader is later executed / sourced / chmod +x'd / fed to an
++# interpreter on stdin, or when an interpreter is fed an inline `$(curl …)` /
++# `<(curl …)` substitution. Downloading data (no execution) and executing local
++# files (no download) both stay allowed.
++#
++# KNOWN LIMITS (deliberate — this raises the cost of the shape, it does not
++# eliminate the class; see the test matrix in the repo's hermes-update skill):
++#   * Cross-call: download in one terminal call, execute in the next. Per-command
++#     scanning cannot see this, and no rule here will.
++#   * Value indirection where the written and executed spellings differ, e.g.
++#     `F=/tmp/f; curl -o $F URL; sh /tmp/f` (matching spellings ARE caught).
++#   * Opaque decode hops: `base64 -d f | sh` is caught by the stdin-exec rule,
++#     but an arbitrary transformer chain is not.
++#   * `xargs`-mediated execution, where the path arrives via stdin.
 +
 +_DOWNLOAD_PROGRAMS = frozenset({
 +    "curl", "wget", "fetch", "aria2c", "axel", "http", "httpie",
@@ -67,11 +77,30 @@ index 935096041..db64c650e 100644
 +    "php", "lua", "Rscript", "osascript", "env",
 +})
 +_SOURCE_BUILTINS = frozenset({"source", "."})
-+_SEGMENT_SPLIT_RE = re.compile(r"\s*(?:\|\||&&|[;|&])\s*")
++# Prefixes that just wrap the real command — strip before inspecting it.
++_EXEC_WRAPPERS = frozenset({"exec", "command", "builtin", "nohup", "time"})
++# Programs that copy a file, propagating "downloaded" taint to the destination.
++_COPY_PROGRAMS = frozenset({"cp", "mv", "install", "ln", "rsync"})
++# Newlines separate commands exactly like `;` does — a multi-line command block
++# is the single most common spelling the LLM produces, so it MUST split here.
++_SEGMENT_SPLIT_RE = re.compile(r"\s*(?:\|\||&&|[;|&\n\r])\s*")
 +# `$(curl …)`, `<(curl …)`, or a backticked download feeding an interpreter.
 +_INLINE_DOWNLOAD_SUBST_RE = re.compile(
 +    r"(?:\$\(|<\(|`)\s*(?:" + "|".join(sorted(_DOWNLOAD_PROGRAMS)) + r")\b"
 +)
++# A token that is (or starts) an output redirect: `>f`, `>>f`, `2>f`, `&>f`.
++_REDIRECT_OUT_RE = re.compile(r"^(?:[0-9]*&?)?(>>?)(.*)$")
++
++
++def _dte_norm(path: str) -> str:
++    """Normalise a path for identity comparison across spellings.
++
++    ``os.path.normpath`` deliberately preserves a leading ``//`` (POSIX
++    implementation-defined), which would let `//tmp//f` and `/tmp/f` name the
++    same file yet compare unequal — so collapse that too.
++    """
++    normalised = os.path.normpath(path)
++    return re.sub(r"^//+", "/", normalised)
 +
 +
 +def _download_then_execute_reason(command: str) -> str:
@@ -84,104 +113,191 @@ index 935096041..db64c650e 100644
 +    if not command or not any(p in command for p in _DOWNLOAD_PROGRAMS):
 +        return ""
 +
-+    segments = [s for s in _SEGMENT_SPLIT_RE.split(command) if s.strip()]
++    raw_segments = [s for s in _SEGMENT_SPLIT_RE.split(command) if s.strip()]
++    segments = []
++    for seg in raw_segments:
++        try:
++            segments.append((seg, shlex.split(seg)))
++        except ValueError:
++            segments.append((seg, []))  # unparseable → structural passes skip it
++
++    def _unwrap(tokens):
++        """Drop `exec` / `nohup` / `command` … prefixes that just wrap a command."""
++        i = 0
++        while i < len(tokens) and os.path.basename(tokens[i]) in _EXEC_WRAPPERS:
++            i += 1
++        return tokens[i:]
 +
 +    # Shape A: an interpreter fed an inline download substitution, e.g.
 +    # `sh -c "$(curl …)"` or `bash <(curl …)`.
-+    for seg in segments:
-+        try:
-+            tokens = shlex.split(seg)
-+        except ValueError:
-+            continue
-+        if not tokens:
-+            continue
-+        if os.path.basename(tokens[0]) in _EXEC_INTERPRETERS and \
++    for seg, tokens in segments:
++        tokens = _unwrap(tokens)
++        if tokens and os.path.basename(tokens[0]) in _EXEC_INTERPRETERS and \
 +                _INLINE_DOWNLOAD_SUBST_RE.search(seg):
 +            return (
 +                "an interpreter is being fed the output of a download "
 +                "substitution (equivalent to `curl … | sh`)"
 +            )
 +
-+    # Shape B: same literal path downloaded, then executed.
++    # Shape B, pass 1: collect every path a downloader writes.
++    #
++    # Output-flag semantics differ per program and getting them wrong either
++    # misses the write or taints an unrelated path:
++    #   curl:  -o/--output take a path; -O/--remote-name saves as basename(URL)
++    #   wget:  -O/--output-document take a path (-o is a LOGfile); with no -O it
++    #          defaults to basename(URL)
 +    downloaded: set[str] = set()
-+    for seg in segments:
-+        try:
-+            tokens = shlex.split(seg)
-+        except ValueError:
-+            return ""  # unparseable → defer to tirith rather than guess
++    for _seg, tokens in segments:
++        tokens = _unwrap(tokens)
 +        if not tokens:
 +            continue
 +        prog = os.path.basename(tokens[0])
++        args = tokens[1:]
 +
 +        if prog in _DOWNLOAD_PROGRAMS:
++            if prog == "curl":
++                arg_flags, glued, remote_flags, remote_letter, default_remote = \
++                    ("-o", "--output"), "o", ("-O", "--remote-name"), "O", False
++            elif prog == "wget":
++                arg_flags, glued, remote_flags, remote_letter, default_remote = \
++                    ("-O", "--output-document"), "O", (), None, True
++            else:
++                arg_flags, glued, remote_flags, remote_letter, default_remote = \
++                    ("-o", "-O", "--output", "--output-document"), "oO", (), None, False
++
 +            explicit_out = False
-+            for i, tok in enumerate(tokens[1:], start=1):
-+                # -o/-O/--output PATH  (curl -o, wget -O)
-+                if tok in ("-o", "-O", "--output", "--output-document") and i + 1 < len(tokens):
-+                    downloaded.add(os.path.normpath(tokens[i + 1]))
++            skip = False
++            for i, tok in enumerate(args):
++                if skip:
++                    skip = False
++                    continue
++                if tok in arg_flags:
++                    if i + 1 < len(args):
++                        explicit_out, skip = True, True
++                        if args[i + 1] != "-":
++                            downloaded.add(_dte_norm(args[i + 1]))
++                    continue
++                if "=" in tok and tok.split("=", 1)[0] in arg_flags:
++                    val = tok.split("=", 1)[1]
 +                    explicit_out = True
-+                # -oPATH / -OPATH  (glued short form, e.g. wget -qO/tmp/f)
-+                elif len(tok) > 2 and tok[0] == "-" and tok[1] != "-" and \
-+                        ("o" in tok[1:] or "O" in tok[1:]):
-+                    idx = max(tok.rfind("o"), tok.rfind("O"))
++                    if val and val != "-":
++                        downloaded.add(_dte_norm(val))
++                    continue
++                # Glued short cluster ending in the output letter: -oPATH,
++                # -qO/tmp/f, `-qO PATH` (path in the NEXT token), -qO- (stdout).
++                if len(tok) > 1 and tok[0] == "-" and tok[1] != "-" and \
++                        any(c in tok[1:] for c in glued):
++                    idx = max(tok.rfind(c) for c in glued if c in tok[1:])
 +                    rest = tok[idx + 1:]
-+                    if rest and (rest.startswith(("/", ".", "~")) or "/" in rest):
-+                        downloaded.add(os.path.normpath(rest))
-+                        explicit_out = True
-+            # Save-as-remote-name: `curl -O URL` (explicit flag) and plain
-+            # `wget URL` (its default) both drop basename(URL) into the cwd,
-+            # which is then executed as `./name` or `python3 name`.
-+            remote_name = any(
-+                t in ("-O", "--remote-name") or
-+                (len(t) > 1 and t[0] == "-" and t[1] != "-" and "O" in t[1:]
-+                 and not t[t.rfind("O") + 1:])
-+                for t in tokens[1:]
-+            )
-+            if remote_name or (prog == "wget" and not explicit_out):
-+                for t in tokens[1:]:
++                    explicit_out = True
++                    if rest == "-":
++                        pass  # write to stdout — no file created
++                    elif rest:
++                        downloaded.add(_dte_norm(rest))
++                    elif i + 1 < len(args) and "://" not in args[i + 1]:
++                        downloaded.add(_dte_norm(args[i + 1]))
++                        skip = True
++                    continue
++
++            uses_remote_name = any(t in remote_flags for t in args) or (
++                remote_letter is not None
++                and any(len(t) > 1 and t[0] == "-" and t[1] != "-"
++                        and remote_letter in t[1:] for t in args)
++            ) or (default_remote and not explicit_out)
++            if uses_remote_name:
++                for t in args:
 +                    if "://" in t:
 +                        base = os.path.basename(t.split("?", 1)[0].rstrip("/"))
 +                        if base:
-+                            downloaded.add(os.path.normpath(base))
-+        # `>` / `>>` redirect anywhere in the segment, when the segment downloads.
-+        if prog in _DOWNLOAD_PROGRAMS:
++                            downloaded.add(_dte_norm(base))
++
++            # `>` / `>>` redirect, glued (`>/tmp/f`) or spaced (`> /tmp/f`).
 +            for i, tok in enumerate(tokens):
-+                if tok in (">", ">>") and i + 1 < len(tokens):
-+                    downloaded.add(os.path.normpath(tokens[i + 1]))
++                match = _REDIRECT_OUT_RE.match(tok)
++                if not match:
++                    continue
++                target = match.group(2)
++                if target:
++                    downloaded.add(_dte_norm(target))
++                elif i + 1 < len(tokens):
++                    downloaded.add(_dte_norm(tokens[i + 1]))
++
++        # Taint propagation across a copy hop: `curl -o /tmp/a …; cp /tmp/a /tmp/b`.
++        elif prog in _COPY_PROGRAMS:
++            positional = [t for t in args if not t.startswith("-")]
++            if len(positional) >= 2 and any(
++                    _dte_norm(a) in downloaded for a in positional[:-1]):
++                downloaded.add(_dte_norm(positional[-1]))
 +
 +    if not downloaded:
 +        return ""
 +
-+    for seg in segments:
-+        try:
-+            tokens = shlex.split(seg)
-+        except ValueError:
-+            continue
++    # Shape B, pass 2: is any of those paths executed?
++    stdin_executors: list[str] = []
++    references_download = False
++    for _seg, tokens in segments:
++        tokens = _unwrap(tokens)
 +        if not tokens:
 +            continue
 +        prog_raw, args = tokens[0], tokens[1:]
 +        prog = os.path.basename(prog_raw)
 +
++        if any(_dte_norm(a) in downloaded for a in args):
++            references_download = True
++
 +        # Executed directly:  /tmp/f   or   ./f
-+        if os.path.normpath(prog_raw) in downloaded:
++        if _dte_norm(prog_raw) in downloaded:
 +            return f"a downloaded file ({prog_raw}) is executed directly"
-+        # Handed to an interpreter:  sh /tmp/f
++
 +        if prog in _EXEC_INTERPRETERS:
-+            for a in args:
-+                if os.path.normpath(a) in downloaded:
-+                    return f"a downloaded file ({a}) is executed via {prog}"
++            script_args = []
++            for i, arg in enumerate(args):
++                # stdin redirect:  sh </tmp/f   or   sh < /tmp/f
++                target = None
++                if arg.startswith("<") and len(arg) > 1 and not arg.startswith("<("):
++                    target = arg[1:]
++                elif arg == "<" and i + 1 < len(args):
++                    target = args[i + 1]
++                if target:
++                    if _dte_norm(target) in downloaded:
++                        return f"a downloaded file ({target}) is fed to {prog} on stdin"
++                    continue
++                if _dte_norm(arg) in downloaded:
++                    return f"a downloaded file ({arg}) is executed via {prog}"
++                script_args.append(arg)
++            # A bare interpreter (no script, no -c) executes whatever reaches it
++            # on stdin — remember it and decide once the whole command is known.
++            if not any(not a.startswith("-") for a in script_args) and \
++                    not any(a in ("-c", "-e", "-m", "--command") for a in script_args):
++                stdin_executors.append(prog)
++
 +        # Sourced into the current shell:  . /tmp/f
 +        if prog_raw in _SOURCE_BUILTINS:
-+            for a in args:
-+                if os.path.normpath(a) in downloaded:
-+                    return f"a downloaded file ({a}) is sourced"
++            for arg in args:
++                if _dte_norm(arg) in downloaded:
++                    return f"a downloaded file ({arg}) is sourced"
++
 +        # Made executable — the classic third step of the pattern.
-+        if prog == "chmod" and any("x" in a for a in args if a.startswith(("+", "u", "a", "0", "7"))):
-+            for a in args:
-+                if os.path.normpath(a) in downloaded:
-+                    return f"a downloaded file ({a}) is being made executable"
++        if prog == "chmod" and any(
++                "x" in a for a in args if a.startswith(("+", "u", "a", "0", "7"))):
++            for arg in args:
++                if _dte_norm(arg) in downloaded:
++                    return f"a downloaded file ({arg}) is being made executable"
++
++        # Command substitution smuggling the file's contents into a shell:
++        # `eval "$(cat /tmp/f)"`, `sh -c "$(< /tmp/f)"`.
++        for arg in args + [prog_raw]:
++            if ("$(" in arg or "`" in arg) and any(d in arg for d in downloaded):
++                return "a downloaded file's contents are expanded into a command"
++
++    if stdin_executors and references_download:
++        return (
++            f"a downloaded file is piped into {stdin_executors[0]}, which "
++            "executes whatever it reads on stdin"
++        )
 +
 +    return ""
++
 +
 +_ARGO_PIPELINE_SAFE_PROGRAMS = frozenset({
 +    "curl", "jq", "python3", "python",
@@ -257,11 +373,11 @@ index 935096041..db64c650e 100644
  # ---------------------------------------------------------------------------
  # Main API
  # ---------------------------------------------------------------------------
-@@ -744,6 +985,34 @@ def check_command_security(command: str) -> dict:
+@@ -744,6 +1101,34 @@ def check_command_security(command: str) -> dict:
      if not cfg["tirith_enabled"]:
          return {"action": "allow", "findings": [], "summary": ""}
  
-+    # LOCAL MODIFICATION (patches/tirith-block-download-then-execute.patch):
++    # LOCAL MODIFICATION (patches/tirith-argo-allowlist-and-download-guard.patch):
 +    # close tirith's download-then-execute gap. Deliberately placed BEFORE the
 +    # circuit breaker and the argo allowlist, so it still holds when tirith is
 +    # unavailable/fail-open and can never be bypassed by an allowlisted host.
@@ -292,11 +408,11 @@ index 935096041..db64c650e 100644
      # Circuit breaker: if tirith has crashed _CRASH_LIMIT times in a row,
      # stop trying for the rest of the process.  Without this, a corrupted
      # or missing binary causes every tool call to hit the same spawn failure
-@@ -752,6 +1021,11 @@ def check_command_security(command: str) -> dict:
+@@ -752,6 +1137,11 @@ def check_command_security(command: str) -> dict:
      if _circuit_open:
          return {"action": "allow", "findings": [], "summary": "tirith disabled (circuit breaker)"}
  
-+    # LOCAL MODIFICATION (patches/tirith-allowlist-argo-pipes.patch):
++    # LOCAL MODIFICATION (patches/tirith-argo-allowlist-and-download-guard.patch):
 +    # trusted personal API pipelines bypass tirith entirely.
 +    if _is_argo_only_pipeline(command):
 +        return {"action": "allow", "findings": [], "summary": "trusted personal API pipeline (tirith bypassed)"}

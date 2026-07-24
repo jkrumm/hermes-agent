@@ -35,11 +35,22 @@ PUSH_URL=$(timeout 10 "$SECRETS_RUN" read op://hermes/uptime-kuma/agent-push-url
 # tokens render while HOMELAB_API_KEY doesn't — would otherwise ping a healthy
 # heartbeat while every argo call 401s. Assert the cache renders every ref the
 # template asks for; a shortfall skips the ping and UK alerts.
+#
+# Retried once: this decrypts every ref 288×/day, so a single transient failure
+# (lock contention, a slow disk) must not suppress the heartbeat and page us for
+# a healthy gateway. A real shortfall fails both attempts.
 TPL="$HOME/.hermes/.env.tpl"
 if [[ -f "$TPL" ]]; then
   WANT=$(/usr/bin/grep -cE '^[A-Za-z_][A-Za-z0-9_]*=' "$TPL")
-  GOT=$(timeout 15 "$SECRETS_RUN" export --env-file="$TPL" 2>/dev/null | /usr/bin/grep -c '^export ')
-  [[ -z "$GOT" || "$GOT" -lt "$WANT" ]] && exit 0
+  render_count() {
+    timeout 15 "$SECRETS_RUN" export --env-file="$TPL" 2>/dev/null | /usr/bin/grep -c '^export '
+  }
+  GOT=$(render_count)
+  if [[ -z "$GOT" || "$GOT" -lt "$WANT" ]]; then
+    sleep 2
+    GOT=$(render_count)
+    [[ -z "$GOT" || "$GOT" -lt "$WANT" ]] && exit 0
+  fi
 fi
 
 GATEWAY_STATE=$(/usr/bin/jq -r '.gateway_state // ""' "$STATE")

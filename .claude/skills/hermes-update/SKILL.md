@@ -71,6 +71,39 @@ git diff HEAD --stat          # the real picture: your local mods vs upstream
 git diff HEAD --name-only     # should be exactly the patched files, nothing more
 ```
 
+**Finish the merge: `UU` must not survive the session.** Hand-resolving a `--3way`
+conflict edits the *file*; the **index** still records the conflict until you `git add`
+it. The tree then looks perfectly healthy — no markers, valid syntax, correct behaviour —
+while `git status --short` quietly shows `UU`. The bill comes due at the *next*
+`hermes update`, whose first step is a stash: **`git stash` refuses to run on an unmerged
+index** (`needs merge` / `cannot save the current index state`), so the update aborts
+before it pulls anything. This was found by audit one update later, not by anything that
+failed at the time. Always end with:
+
+```bash
+git ls-files -u        # MUST be empty
+git status --short     # every patched file `M `, never `UU`
+```
+
+**The definitive check is a byte-compare, not a diffstat.** Reconstruct the tree from the
+patch files alone in a scratch worktree and compare it to the live checkout — this proves
+both "every local change is captured in a patch" and "no patch drifted from what's live":
+
+```bash
+git worktree add /tmp/hermes-verify HEAD --detach
+cd /tmp/hermes-verify && for p in ~/SourceRoot/hermes-agent/patches/*.patch; do git apply "$p"; done
+for f in $(git diff --name-only); do
+  diff -q "$f" "$HOME/.hermes/hermes-agent/$f" || echo "DRIFT: $f"
+done
+cd - && git -C ~/.hermes/hermes-agent worktree remove /tmp/hermes-verify --force
+```
+
+Watch the worktree's own state while doing this: once you've applied the patches into it,
+it is no longer pristine, so any "what does upstream look like?" read from it is
+**tainted**. Use `git show HEAD:<path>` or `git checkout -- .` first. (An audit briefly
+concluded upstream had adopted one of our patches, having read it back out of the
+worktree it had just patched.)
+
 If a `git apply` fails outright (not just a context shift), figure out **which** of three things happened before touching anything — they need different fixes:
 
 1. **File moved/renamed (upstream restructure).** `error: <file> ist nicht im Index` / "not in index" means the target path no longer exists — not a diff mismatch. Don't hand-edit the patch's path and retry blindly. Find where the code went: `grep -rl "<a distinctive function/class name from the patch>" .` (e.g. a class name like `SlackAdapter`, or a helper the patch touches) across the new tree. A major version jump (this repo went v0.16.0 → v0.18.2 in one `hermes update`, 4184 commits) can move whole subsystems — the v0.18.x jump moved every built-in chat platform from `gateway/platforms/*.py` into a `plugins/platforms/<name>/adapter.py` plugin layout. Once you've found the new home, read both the old file (recoverable from the pre-update stash — see below) and the new one, then hand-port each patch hunk into the new structure and update the patch's file path in its own `diff --git a/... b/...` header. Update the path in this skill's table + reapply loop too.
@@ -120,6 +153,40 @@ returns before it. It was retired, not repaired. Read the *enclosing* control fl
 just the hunk — and check the config value the branch keys off, rather than trusting a
 doc's claim about it (CLAUDE.md asserted `reply_in_thread: true`; it had been `false`
 since `1e753e9`, which inverted the whole analysis).
+
+**"Dormant" is a legitimate third verdict** — distinct from both "needed" and "retire".
+Two patches are unreachable under the *current* config but become load-bearing again if
+the config moves back:
+
+| Patch | Gate that makes it unreachable today |
+|-|-|
+| `run-agent-third-party-endpoint-token-refresh` | `self.api_mode != "anthropic_messages"` → returns before the patched line (live: `chat_completions`); `self.provider != "anthropic"` would too (live: `custom`) |
+| `auxiliary-client-anthropic-mode-respect` | same `api_mode` branch is never entered |
+
+Both were genuinely live until `0e17b0d` (2026-05-21) moved the brain off
+`provider: anthropic` + the IU `/anthropic` base URL. Keep them, but say *dormant* in
+CLAUDE.md — a present-tense "without this, every call 401s" reads as a live dependency
+and stops the next reader from questioning it. To decide: read the guards **above** the
+hunk, then check the live `config.yaml` value each one keys off.
+
+Fastest way to settle "is this still load-bearing" for a scanner/validator patch is to
+run it both ways in-process rather than reason about it — import the function from the
+live tree and from a pristine worktree and feed it the same inputs:
+
+```bash
+PY=~/.hermes/hermes-agent/venv/bin/python3   # NOT ~/.hermes/venv — that path doesn't exist
+for d in ~/.hermes/hermes-agent /tmp/hermes-verify; do (cd $d && $PY /tmp/scan_test.py $d); done
+```
+
+That is how the cron-scanner allowlist was confirmed at v0.19.0: identical inputs, argo
+curls `OK` in the live tree and `Blocked` in pristine, while evil-host and mixed-fence
+curls stayed `Blocked` in both.
+
+**Renaming a patch file? Grep the code for its old name.** Patched hunks carry
+`# LOCAL MODIFICATION (patches/<name>.patch)` headers pointing at their own source file.
+The v0.19.0 rename left two of those stale inside `tirith_security.py`, aiming the next
+reader at files that don't exist: `grep -rn "patches/" ~/.hermes/hermes-agent --include=*.py`
+and reconcile against `ls ~/SourceRoot/hermes-agent/patches/`.
 
 ### Is this patch even still needed?
 
@@ -233,6 +300,39 @@ tail -20 ~/.hermes/logs/gateway.log
 ```
 
 ## Verify
+
+**Touching `tools/tirith_security.py` needs a gateway restart** — the module is imported
+once at startup, so an edited guard is inert in the running process no matter what a
+direct in-process test says. Test the function standalone first, restart second, then
+re-run the live checks below.
+
+**Security rules get a regression suite, not a spot-check.** The download-then-execute
+guard passed a hand-written check at v0.19.0 and an adversarial audit one day later found
+**11 bypasses** in it, including a shape CLAUDE.md's own table claimed was blocked. What
+a suite has to cover, in this order:
+
+1. **Attack shapes** — every spelling of the thing you're blocking. The misses clustered
+   in *tokenisation*, not logic: newline separators, glued `>/tmp/f`, a flag whose value
+   is the next token (`-qO /tmp/f`), `//tmp//f` vs `/tmp/f` (`os.path.normpath` keeps a
+   leading `//`), and `exec`-style prefixes.
+2. **Legitimate shapes** — pull real commands from the skills Hermes actually uses
+   (argo-api, karakeep, research-gateway, capture, obsidian, reading). A false positive
+   here is a Slack approval gate on every routine call, which is worse than the gap.
+3. **Fuzz** — a few thousand random token soups asserting only "never raises". These
+   helpers run before tirith on *every* command; an exception is an outage.
+4. **The premise itself** — confirm the gap is really upstream's before patching around
+   it: `~/.hermes/bin/tirith check --json --non-interactive --shell posix -- '<cmd>'`.
+
+The suite lives at `tests/test_download_guard.py` — run it after every update that
+touches `tirith_security.py`, before restarting the gateway:
+
+```bash
+~/.hermes/hermes-agent/venv/bin/python3 tests/test_download_guard.py
+```
+
+It also asserts the documented gaps are *still* gaps, so a change that happens to close
+one gets flagged instead of silently drifting from CLAUDE.md. Keep the verdict counts in
+CLAUDE.md in sync; a stale "tested against N shapes" is how a false claim survives.
 
 A basic "send a message and see a reply" check doesn't exercise most of the patched code paths — they only fire under specific conditions (a real Slack round-trip, a TTS request, an argo curl). After any update, run through these; each targets a specific patch. Use the `hermes-validate` skill's gateway-API (method A) and Slack-API (method B) send recipes to drive them, and confirm results by reading `~/.hermes/logs/agent.log` / `gateway.log` for the relevant timestamp (not just eyeballing the Slack reply) — that's what actually proves which code path ran.
 
