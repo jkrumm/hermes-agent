@@ -16,7 +16,8 @@ Mac Mini M2 Pro — Hermes Agent (always-on)
   │     STT: gpt-4o-transcribe (German/English steered).
   ├→ Homelab — Docker containers, CouchDB, backups (via Tailscale)
   ├→ VPS — Production apps, ClickStack (via Tailscale)
-  └→ IU unified endpoint — DeepSeek-V4-Pro (primary, OpenAI-compat, EU; claude-sonnet-4-6-eu failover), DeepSeek-V4-Flash (auxiliaries), gemini-2.5-flash (vision)
+  ├→ IU unified endpoint — DeepSeek-V4-Pro (primary, OpenAI-compat, EU; claude-sonnet-4-6-eu failover), DeepSeek-V4-Flash (auxiliaries)
+  └→ Google AI Studio (direct, own key) — gemini-2.5-flash (vision)
 ```
 
 ## Channel Architecture

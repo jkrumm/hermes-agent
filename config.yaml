@@ -580,6 +580,9 @@ homelab_api:
   api_key: ${HOMELAB_API_KEY}
 terminal_backend: local
 platform_toolsets:
+  # image_gen routes to FAL.ai; no FAL_KEY/Nous credential is configured, so the
+  # tool can only error. Disabled until image generation moves to the image-gen
+  # gateway (image-gateway.jkrumm.com) instead.
   cli:
     - browser
     - clarify
@@ -587,7 +590,6 @@ platform_toolsets:
     - cronjob
     - delegation
     - file
-    - image_gen
     - kanban
     - memory
     - messaging
@@ -605,7 +607,6 @@ platform_toolsets:
     - cronjob
     - delegation
     - file
-    - image_gen
     - kanban
     - memory
     - messaging
