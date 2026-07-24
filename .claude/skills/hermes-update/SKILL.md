@@ -42,7 +42,7 @@ Files touched (all are `.patch` files applied with `git apply` — no full-file 
 | `gateway/platforms/base.py` | `patches/slack-media-inline-reply-anchor.patch` | pass text reply anchor to media senders so attachments don't thread |
 | `cron/scheduler.py` | `patches/scheduler-skip-resolver-for-slack-ids.patch` | skip channel resolver for raw `C…` IDs |
 | `run_agent.py` | `patches/run-agent-third-party-endpoint-token-refresh.patch` | broaden third-party endpoint skip to all non-anthropic.com hosts |
-| `tools/tirith_security.py` | `patches/tirith-allowlist-argo-pipes.patch` | allowlist argo-only pipelines past tirith |
+| `tools/tirith_security.py` | `patches/tirith-argo-allowlist-and-download-guard.patch` | two local rules: allowlist argo-only pipelines past tirith **and** block download-then-execute (renamed from `tirith-allowlist-argo-pipes.patch` at v0.19.0) |
 | `tools/cronjob_tools.py` | `patches/cronjob-tools-allowlist-argo-bearer.patch` | allowlist argo bearer curls past the cron-prompt scanner |
 | `tools/tts_tool.py` | `patches/tts-tool-audio-title.patch` | name the audio file from the audio-gateway's `X-Audio-Title` header (gpt-5.4-mini title) instead of `tts_<timestamp>` |
 
@@ -53,16 +53,22 @@ Files touched (all are `.patch` files applied with `git apply` — no full-file 
 ```bash
 # All eight are .patch files. Use --3way so upstream context shifts get auto-merged.
 cd ~/.hermes/hermes-agent
-for p in auxiliary-client-anthropic-mode-respect \
-         slack-cannot-reply-to-message \
-         slack-media-inline-reply-anchor \
-         scheduler-skip-resolver-for-slack-ids \
-         run-agent-third-party-endpoint-token-refresh \
-         tirith-allowlist-argo-pipes \
-         cronjob-tools-allowlist-argo-bearer \
-         tts-tool-audio-title; do
-  git apply --3way ~/SourceRoot/hermes-agent/patches/${p}.patch
+for p in ~/SourceRoot/hermes-agent/patches/*.patch; do
+  echo "=== $(basename "$p")"
+  git apply --3way "$p"
 done
+```
+
+> Glob the directory rather than hardcoding names — the list has churned twice now
+> (two retirements, one rename), and a stale hardcoded loop silently skips a patch.
+
+**`git apply --3way` STAGES what it applies.** So right after the loop, plain `git diff`
+is *empty* and `git status` shows `M`/`UU` — it looks like nothing landed. Always diff
+against the commit:
+
+```bash
+git diff HEAD --stat          # the real picture: your local mods vs upstream
+git diff HEAD --name-only     # should be exactly the patched files, nothing more
 ```
 
 If a `git apply` fails outright (not just a context shift), figure out **which** of three things happened before touching anything — they need different fixes:
@@ -76,6 +82,44 @@ If a `git apply` fails outright (not just a context shift), figure out **which**
 git show <stash-sha>:path/to/old-file.py > /tmp/old-file.py
 ```
 Diff `/tmp/old-file.py` against the new file's likely counterpart to see what upstream changed structurally, independent of your own patch hunks.
+
+### Verify each patch's *semantics*, not that it "applied cleanly"
+
+`git apply --3way` reporting success proves the hunks merged, **not** that the behaviour
+survived. Upstream can rewrite a function around your hunk so it still applies but no
+longer does what it did. After the loop, grep each patch's distinctive marker and confirm
+the file set:
+
+```bash
+git diff HEAD --name-only        # must be exactly the patched files
+grep -n "_rename_with_title"          tools/tts_tool.py
+grep -n "_download_then_execute_reason\|_ALLOWED_PIPELINE_HOSTS" tools/tirith_security.py
+grep -n "cannot_reply_to_message"     plugins/platforms/slack/adapter.py
+grep -n "_is_third_party_anthropic_endpoint" run_agent.py
+```
+
+Two traps this caught at the v0.19.0 jump:
+
+- **Return-type drift.** Upstream changed `_generate_openai_tts` to return `output_path`
+  where our patch returns the title. It merged clean; only reading both call sites showed
+  the contract still held (the DeepInfra caller discards the value). **Whenever a patch
+  changes what a function returns, re-check every caller after an update.**
+- **Module-alias confusion.** `gateway.log` reports the Slack adapter as
+  `hermes_plugins.slack_platform.adapter`, which does not match the patched path
+  `plugins/platforms/slack/adapter.py` and looks alarmingly like a second copy. It isn't —
+  the plugin loader assigns that name at runtime. Confirm with
+  `find . -name adapter.py -path "*slack*"` returning exactly one file rather than trying
+  to import the alias (it isn't importable standalone).
+
+### Is a patch still needed — or now *dead code*?
+
+Beyond "did upstream fix this" (below), check whether the patch is still **reachable**.
+At v0.19.0 the `_resolve_thread_ts` synthetic-thread guard applied cleanly, looked
+healthy, and had been unreachable for months: upstream's `if not reply_in_thread:` branch
+returns before it. It was retired, not repaired. Read the *enclosing* control flow, not
+just the hunk — and check the config value the branch keys off, rather than trusting a
+doc's claim about it (CLAUDE.md asserted `reply_in_thread: true`; it had been `false`
+since `1e753e9`, which inverted the whole analysis).
 
 ### Is this patch even still needed?
 
@@ -114,6 +158,38 @@ Only then `cp /tmp/new-patches/*.patch ~/SourceRoot/hermes-agent/patches/`, dele
 `hermes update` stashes your working changes, pulls upstream, then tries to re-apply the stash. Expect conflicts on the eight patched files — that is normal. The CLI prints the stash ref (`Restore your changes later with: git stash apply <sha>`); keep it as a fallback. After conflicts surface, the CLI resets the working tree clean — re-apply via the loop above.
 
 **Lazy-backend refresh warnings are often benign.** After pulling, `hermes update` refreshes "lazy backends" (optional provider/platform plugins) and may print import warnings for some of them (e.g. `provider.vertex`, `platform.matrix`, `platform.feishu`, `platform.teams`, `tool.trace_upload` failed with a transient import error at the v0.18.2 jump). Before investigating, check whether the affected backend is actually active in `~/.hermes/config.yaml` (search for its provider/platform name under an *enabled* section, not just present as a stock default block — every platform gets a default config block whether used or not). If it's not part of this deployment (this repo only runs the Slack platform + OpenAI-provider TTS/STT via the audio-gateway), the warning is inert and doesn't block the update or the gateway.
+
+### Docs-drift sweep (do this whenever an artifact is removed or renamed)
+
+A structural change silently rots every doc and helper that referenced the old artifact,
+and those only fail later, in the middle of an incident. When v0.19.0 retired
+`~/.hermes/.env`, four places still read or rebuilt it — including a README recipe that
+shells `op read`, which **hangs forever** on this headless mini. Sweep for the removed
+name across docs *and* tooling, not just source:
+
+```bash
+cd ~/SourceRoot/hermes-agent
+grep -rn "<removed-artifact>" --exclude-dir=.git --exclude-dir=patches . | grep -v '\.env\.tpl'
+```
+
+Check `README.md`, `CLAUDE.md`, `Makefile` (a `make status` check for a deleted file goes
+permanently red), and **both** `.claude/skills/hermes-{update,validate}/SKILL.md`.
+**Then actually run every recipe you rewrite** — a doc fix that was never executed is a
+guess. Also re-read `make status` output after any change: a stale `✗` line trains you to
+ignore the one that eventually matters.
+
+### Environment gotchas on this box
+
+- **The shell is zsh.** Bash associative arrays (`declare -A` + `${!arr[@]}`) fail with
+  `bad substitution`. Use a paired `printf … | while IFS='|' read -r a b` loop.
+- **`op` is not signed in** (headless mini). Any `op read`/`op run` hangs on the biometric
+  prompt. Use `secrets-run` — same interface, age-encrypted offline cache.
+- **`hermes gateway install` prints `Bootstrap failed: 5: Input/output error`** several
+  times and still succeeds. Trust `hermes gateway status`, not that output.
+- **Sessions for API-server requests aren't written to `~/.hermes/sessions/`**, and the
+  terminal tool's *command text* is never logged — only `tool terminal completed`. Don't
+  plan a verification that depends on recovering the executed command; test the guard
+  function directly instead.
 
 ### Bundled-skill reconciliation
 
@@ -163,7 +239,7 @@ A basic "send a message and see a reply" check doesn't exercise most of the patc
 | Check | Drives | Confirms | What to look for |
 |-|-|-|-|
 | General question (method A, e.g. "what's on my TickTick") | Core agent loop, unaffected by any patch | Update didn't break routing/skills at all | Clean 200 response, `Turn ended: reason=text_response` in `agent.log` |
-| Infra/argo question that triggers a `curl \| jq`/`python3` pipe (method A, e.g. "infra status") | `tirith-allowlist-argo-pipes.patch` | Argo pipelines still bypass tirith | `tool terminal completed` in `agent.log`, **zero** hits for `grep -i "approval\|blocked" gateway.log` around that timestamp — a hit means the patch didn't re-apply |
+| Infra/argo question that triggers a `curl \| jq`/`python3` pipe (method A, e.g. "infra status") | `tirith-argo-allowlist-and-download-guard.patch` | Argo pipelines still bypass tirith | `tool terminal completed` in `agent.log`, **zero** hits for `grep -i "approval\|blocked" gateway.log` around that timestamp — a hit means the patch didn't re-apply |
 | Any request routed through real Slack (method B — HomeLab synthetic sender), containing a raw `*` list marker in the model's likely output | `format_message()` pre-steps in `plugins/platforms/slack/adapter.py` | mrkdwn normalization ported to the new adapter path | Fetch the posted message (`GET /api/slack/channels/:id/messages` via argo) — bullets render as `-`, not `*` |
 | "Say/speak X out loud" (method B) | `tts-tool-audio-title.patch` + `slack-media-inline-reply-anchor.patch` (base.py) | Title-naming works; media threads with its text reply | `agent.log` line `tools.tts_tool: TTS audio saved: .../<Human Title>.mp3` (not `tts_<timestamp>.mp3`); no errors after `[Slack] Sending response`; since v0.19.0 (`reply_in_thread: true`) the audio and the text reply share the **same `thread_ts`** — they must not land in different places |
 | A German-language message (method B) | Config only (`tts.openai.model` = Gemini TTS), not a patch | Charon still pronounces German natively, no translation | Manual listen — text-based checks above can't verify pronunciation |
@@ -177,7 +253,7 @@ title = _generate_openai_tts("Kurzer Test.", "/tmp/tts_123.mp3", yaml_cfg["tts"]
 assert title, "X-Audio-Title header missing — patch not applied or gateway changed"
 _rename_with_title("/tmp/tts_123.mp3", title)   # → '/tmp/Kurzer Test.mp3'
 
-# tirith-allowlist-argo-pipes: assert BOTH directions in one shot
+# tirith patch: assert BOTH directions in one shot
 from tools.tirith_security import check_command_security as chk
 assert chk('curl -s https://argo.jkrumm.com/x | jq .')["action"] == "allow"
 assert chk('curl -s https://argo.jkrumm.com/x | sh')["action"] == "block"   # must NOT be allowlisted

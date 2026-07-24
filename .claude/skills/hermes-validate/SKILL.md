@@ -176,7 +176,7 @@ Then re-send the same test message and compare `api_calls` and `time` in `agent.
 | Usage: monthly AI spend | `argo-api` (usage) | — | ~64s | Working — `/usage/headline` + breakdown, per-source + per-model, honest about fixed 7/30/90d windows |
 | Research: latest Bun version | `research-gateway` | — | ~54s | Working — submit+poll to research-gateway, cited answer (Bun v1.3.14); tirith allowlist let `curl research… \| jq` through with no approval gate |
 | Post-update (v0.16.0→v0.18.2) TickTick overdue check | `tasks` (method A) | 4 | ~26s | Working — general agent loop intact after platform-plugin rewrite |
-| Post-update infra status (homelab+vps) | `infrastructure` (method A) | 4 | ~16s | Working — 2× terminal/curl tool calls, zero tirith approval gates (confirms `tirith-allowlist-argo-pipes.patch` re-applied correctly) |
+| Post-update infra status (homelab+vps) | `infrastructure` (method A) | 4 | ~16s | Working — 2× terminal/curl tool calls, zero tirith approval gates (confirms `tirith-argo-allowlist-and-download-guard.patch` re-applied correctly) |
 | Post-update Slack formatting check (`*` bullet) | — (method B, real Slack path) | 1 | 5.2s | Working — response posted with `-` bullets (confirms `format_message()` pre-steps ported to `plugins/platforms/slack/adapter.py`), `thread_ts: null` (top-level, not mis-threaded) |
 | Post-update TTS title check ("say out loud") | — (method B, real Slack path) | 2 | 16.2s | Working — `tools.tts_tool: TTS audio saved: .../Update Verification Successful.mp3` (confirms `tts-tool-audio-title.patch` re-applied correctly post-conflict, not `tts_<timestamp>.mp3`); media send via patched `base.py` completed with no errors |
 
