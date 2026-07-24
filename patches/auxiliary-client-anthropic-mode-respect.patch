@@ -1,8 +1,8 @@
 diff --git a/agent/auxiliary_client.py b/agent/auxiliary_client.py
-index 585db9940..d1d6c7f86 100644
+index dc5c2648f..0b95af3de 100644
 --- a/agent/auxiliary_client.py
 +++ b/agent/auxiliary_client.py
-@@ -4633,7 +4633,17 @@ def resolve_provider_client(
+@@ -5023,7 +5023,17 @@ def resolve_provider_client(
          custom_base = ""
          custom_key = ""
          if explicit_base_url:

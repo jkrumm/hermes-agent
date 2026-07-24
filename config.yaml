@@ -1,6 +1,5 @@
 model:
   provider: custom
-  model: DeepSeek-V4-Pro
   default: DeepSeek-V4-Pro
   api_key: ${OPENAI_API_KEY}
   base_url: ${OPENAI_BASE_URL}
@@ -8,17 +7,15 @@ model:
   context_length: 256000
   reasoning_effort: medium
   tool_use_enforcement: true
-providers: {}
 fallback_providers:
-- provider: custom
-  model: claude-sonnet-4-6-eu
-  base_url: ${OPENAI_BASE_URL}
-  api_key: ${OPENAI_API_KEY}
-  api_mode: chat_completions
-  context_length: 200000
-credential_pool_strategies: {}
+  - provider: custom
+    model: claude-sonnet-4-6-eu
+    base_url: ${OPENAI_BASE_URL}
+    api_key: ${OPENAI_API_KEY}
+    api_mode: chat_completions
+    context_length: 200000
 toolsets:
-- hermes-cli
+  - hermes-cli
 agent:
   max_turns: 90
   gateway_timeout: 1800
@@ -35,6 +32,7 @@ agent:
   gateway_auto_continue_freshness: 3600
   image_input_mode: auto
   disabled_toolsets: []
+  verify_on_stop: false
 terminal:
   backend: local
   modal_mode: auto
@@ -45,7 +43,6 @@ terminal:
   auto_source_bashrc: true
   docker_image: nikolaik/python-nodejs:python3.11-nodejs20
   docker_forward_env: []
-  docker_env: {}
   singularity_image: docker://nikolaik/python-nodejs:python3.11-nodejs20
   modal_image: nikolaik/python-nodejs:python3.11-nodejs20
   daytona_image: nikolaik/python-nodejs:python3.11-nodejs20
@@ -138,7 +135,6 @@ auxiliary:
     base_url: ''
     api_key: ${GEMINI_API_KEY}
     timeout: 120
-    extra_body: {}
     download_timeout: 30
   web_extract:
     provider: custom
@@ -146,7 +142,6 @@ auxiliary:
     base_url: ${OPENAI_BASE_URL}
     api_key: ${OPENAI_API_KEY}
     timeout: 360
-    extra_body: {}
     context_length: 200000
   compression:
     provider: custom
@@ -154,7 +149,6 @@ auxiliary:
     base_url: ${OPENAI_BASE_URL}
     api_key: ${OPENAI_API_KEY}
     timeout: 120
-    extra_body: {}
     api_mode: chat_completions
     context_length: 200000
   skills_hub:
@@ -163,14 +157,12 @@ auxiliary:
     base_url: ''
     api_key: ''
     timeout: 30
-    extra_body: {}
   approval:
     provider: custom
     model: DeepSeek-V4-Flash
     base_url: ${OPENAI_BASE_URL}
     api_key: ${OPENAI_API_KEY}
     timeout: 30
-    extra_body: {}
     api_mode: chat_completions
     context_length: 200000
   mcp:
@@ -179,14 +171,12 @@ auxiliary:
     base_url: ''
     api_key: ''
     timeout: 30
-    extra_body: {}
   title_generation:
     provider: custom
     model: DeepSeek-V4-Flash
     base_url: ${OPENAI_BASE_URL}
     api_key: ${OPENAI_API_KEY}
     timeout: 30
-    extra_body: {}
     api_mode: chat_completions
     context_length: 200000
   triage_specifier:
@@ -195,28 +185,24 @@ auxiliary:
     base_url: ''
     api_key: ''
     timeout: 120
-    extra_body: {}
   kanban_decomposer:
     provider: auto
     model: ''
     base_url: ''
     api_key: ''
     timeout: 180
-    extra_body: {}
   profile_describer:
     provider: auto
     model: ''
     base_url: ''
     api_key: ''
     timeout: 60
-    extra_body: {}
   curator:
     provider: auto
     model: ''
     base_url: ''
     api_key: ''
     timeout: 600
-    extra_body: {}
   session_search:
     provider: auto
     model: ''
@@ -269,9 +255,9 @@ display:
   runtime_footer:
     enabled: false
     fields:
-    - model
-    - context_pct
-    - cwd
+      - model
+      - context_pct
+      - cwd
   copy_shortcut: auto
   tool_progress: new
 dashboard:
@@ -391,7 +377,7 @@ skills:
   # in ~/.hermes/skills/ and this external entry resolve to the same path, which
   # skills_tool dedups (by realpath on load, by name on listing) — no duplicates.
   external_dirs:
-  - ~/SourceRoot/hermes-agent/skills
+    - ~/SourceRoot/hermes-agent/skills
   template_vars: true
   inline_shell: false
   inline_shell_timeout: 10
@@ -406,18 +392,23 @@ curator:
   backup:
     enabled: true
     keep: 5
-honcho: {}
 timezone: ''
 slack:
   require_mention: false
   free_response_channels: ''
   allowed_channels: ''
-  channel_prompts: {}
   enabled: true
   bot_token: ${SLACK_BOT_TOKEN}
   app_token: ${SLACK_APP_TOKEN}
   allow_bots: all
-  reply_in_thread: false
+  # Upstream default (every read site is .get("reply_in_thread", True)). One
+  # Slack thread per conversation == one session/context window: build_session_key
+  # appends thread_ts to the key, so each top-level message opens a thread with a
+  # fresh, bounded window. With `false` every top-level message instead collapsed
+  # into ONE never-resetting channel-wide session (observed: 213 messages over
+  # 6 days) while thread replies got isolated windows — no visual cue which you
+  # were in. Continuing a topic now means replying inside its thread.
+  reply_in_thread: true
   reply_broadcast: false
   group_sessions_per_user: true
   stt_enabled: true
@@ -431,7 +422,6 @@ discord:
   history_backfill: true
   history_backfill_limit: 50
   reactions: true
-  channel_prompts: {}
   dm_role_auth_guild: ''
   server_actions: ''
   allow_any_attachment: false
@@ -445,21 +435,18 @@ discord:
     speech_gain: 1.0
     ack_enabled: true
     ack_phrases:
-    - Let me look into that.
-    - One moment.
-    - Checking on that now.
-    - Give me a sec.
-    - On it.
-whatsapp: {}
+      - Let me look into that.
+      - One moment.
+      - Checking on that now.
+      - Give me a sec.
+      - On it.
 telegram:
   reactions: false
-  channel_prompts: {}
   allowed_chats: ''
 mattermost:
   require_mention: true
   free_response_channels: ''
   allowed_channels: ''
-  channel_prompts: {}
 matrix:
   require_mention: true
   free_response_rooms: ''
@@ -471,11 +458,8 @@ approvals:
   mcp_reload_confirm: true
   destructive_slash_confirm: true
 command_allowlist:
-- script execution via -e/-c flag
-quick_commands: {}
-hooks: {}
+  - script execution via -e/-c flag
 hooks_auto_accept: false
-personalities: {}
 security:
   allow_private_urls: false
   redact_secrets: false
@@ -493,7 +477,6 @@ security:
   smart_approval: smart
 cron:
   wrap_response: false
-  max_parallel_jobs: null
 kanban:
   dispatch_in_gateway: true
   dispatch_interval_seconds: 60
@@ -502,7 +485,6 @@ kanban:
   worker_log_backup_count: 1
   orchestrator_profile: ''
   default_assignee: ''
-  max_in_progress_per_profile: null
   auto_decompose: true
   auto_decompose_per_tick: 3
   dispatch_stale_timeout_seconds: 14400
@@ -522,7 +504,6 @@ model_catalog:
   enabled: true
   url: https://hermes-agent.nousresearch.com/docs/api/model-catalog.json
   ttl_hours: 1
-  providers: {}
 network:
   force_ipv4: false
 gateway:
@@ -535,7 +516,7 @@ streaming:
   transport: auto
   edit_interval: 0.8
   buffer_threshold: 24
-  cursor: " \u2589"
+  cursor: ' ▉'
   fresh_final_after_seconds: 60.0
 sessions:
   auto_prune: false
@@ -556,12 +537,32 @@ lsp:
   wait_mode: document
   wait_timeout: 5.0
   install_strategy: auto
-  servers: {}
 x_search:
   model: grok-4.20-reasoning
   timeout_seconds: 180
   retries: 2
 secrets:
+  # Headless secret injection (v0.19 SecretSource interface). This Mac mini has
+  # no interactive `op` session — a direct `op read` would hang on the biometric
+  # prompt — so secrets resolve from the age-encrypted offline cache through the
+  # dotfiles `secrets-run` shim. `secrets.onepassword` is deliberately NOT used:
+  # it needs either interactive `op` (hangs headless) or a standing
+  # OP_SERVICE_ACCOUNT_TOKEN, which is a live credential with continuous vault
+  # read access — strictly weaker than a sealed cache whose contents are the
+  # explicit `dotfiles-private/headless.refs` allowlist (T0/T1 only,
+  # op://Private/* refused at seed time).
+  #
+  # `secrets-run export` emits `export K='V'`; the bulk parser wants bare
+  # `K=V` (it strips one layer of quotes itself), hence the sed. Measured
+  # 0.29s for 26 refs — helper_timeout_seconds is headroom over the 3s default.
+  # This replaces scripts/gateway-cache-launch.sh: secrets now resolve for EVERY
+  # hermes invocation (gateway, CLI, cron), not just the launchd-started gateway.
+  command:
+    enabled: true
+    command: "$HOME/.local/bin/secrets-run export --env-file=$HOME/.hermes/.env.tpl | sed 's/^export //'"
+    helper_timeout_seconds: 15
+    # Cache is the source of truth — a rotated ref wins over a stale inherited env.
+    override_existing: true
   bitwarden:
     enabled: false
     access_token_env: BWS_ACCESS_TOKEN
@@ -573,51 +574,51 @@ secrets:
 paste_collapse_threshold: 5
 paste_collapse_threshold_fallback: 5
 paste_collapse_char_threshold: 2000
-_config_version: 28
+_config_version: 33
 homelab_api:
   base_url: https://argo.jkrumm.com/api
   api_key: ${HOMELAB_API_KEY}
 terminal_backend: local
 platform_toolsets:
   cli:
-  - browser
-  - clarify
-  - code_execution
-  - cronjob
-  - delegation
-  - file
-  - image_gen
-  - kanban
-  - memory
-  - messaging
-  - session_search
-  - skills
-  - terminal
-  - todo
-  - tts
-  - vision
-  - web
+    - browser
+    - clarify
+    - code_execution
+    - cronjob
+    - delegation
+    - file
+    - image_gen
+    - kanban
+    - memory
+    - messaging
+    - session_search
+    - skills
+    - terminal
+    - todo
+    - tts
+    - vision
+    - web
   slack:
-  - browser
-  - clarify
-  - code_execution
-  - cronjob
-  - delegation
-  - file
-  - image_gen
-  - kanban
-  - memory
-  - messaging
-  - session_search
-  - skills
-  - terminal
-  - todo
-  - tts
-  - vision
-  - web
+    - browser
+    - clarify
+    - code_execution
+    - cronjob
+    - delegation
+    - file
+    - image_gen
+    - kanban
+    - memory
+    - messaging
+    - session_search
+    - skills
+    - terminal
+    - todo
+    - tts
+    - vision
+    - web
 known_plugin_toolsets:
   cli:
-  - spotify
+    - spotify
 
 # ── Fallback Model ────────────────────────────────────────────────────
 # Automatic provider failover when primary is unavailable.

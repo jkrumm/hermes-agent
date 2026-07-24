@@ -1,12 +1,11 @@
 diff --git a/tools/tts_tool.py b/tools/tts_tool.py
-index ec7b361b8..afc2e7965 100644
+index 16320974a..816d9f627 100644
 --- a/tools/tts_tool.py
 +++ b/tools/tts_tool.py
-@@ -1012,7 +1012,32 @@ def _generate_elevenlabs(text: str, output_path: str, tts_config: Dict[str, Any]
+@@ -1035,6 +1035,31 @@ def _tts_response_format_from_path(output_path: str) -> str:
+ # Provider: OpenAI TTS (also used by every OpenAI-compatible TTS endpoint —
+ # DeepInfra delegates here via _generate_deepinfra_tts).
  # ===========================================================================
- # Provider: OpenAI TTS
- # ===========================================================================
--def _generate_openai_tts(text: str, output_path: str, tts_config: Dict[str, Any]) -> str:
 +def _rename_with_title(path: str, title: str) -> Optional[str]:
 +    """Rename a generated audio file to a human *title* (from audio-gateway's
 +    X-Audio-Title header) so the Slack attachment shows a real name instead of
@@ -32,12 +31,20 @@ index ec7b361b8..afc2e7965 100644
 +        return None
 +
 +
-+def _generate_openai_tts(text: str, output_path: str, tts_config: Dict[str, Any]) -> Optional[str]:
-     """
-     Generate audio using OpenAI TTS.
+ def _generate_openai_tts(
+     text: str,
+     output_path: str,
+@@ -1045,7 +1070,7 @@ def _generate_openai_tts(
+     model: Optional[str] = None,
+     voice: Optional[str] = None,
+     speed: Optional[float] = None,
+-) -> str:
++) -> Optional[str]:
+     """Generate audio via the OpenAI ``audio.speech.create`` SDK shape.
  
-@@ -1022,8 +1047,13 @@ def _generate_openai_tts(text: str, output_path: str, tts_config: Dict[str, Any]
-         tts_config: TTS config dict.
+     Optional kwargs let OpenAI-compatible backends (DeepInfra etc.) reuse
+@@ -1067,8 +1092,15 @@ def _generate_openai_tts(
+             ``tts.speed``.
  
      Returns:
 -        Path to the saved audio file.
@@ -46,12 +53,14 @@ index ec7b361b8..afc2e7965 100644
 +        prep step), else ``None``. Used by the caller to name the saved file /
 +        Slack attachment. LOCAL MODIFICATION — see patches/tts-tool-audio-title.patch.
      """
++    # LOCAL MODIFICATION (patches/tts-tool-audio-title.patch): decode the
++    # RFC 5987 / percent-encoded X-Audio-Title response header below.
 +    from urllib.parse import unquote as _unquote  # noqa: E402
 +
-     api_key, base_url, is_managed = _resolve_openai_audio_client_config()
- 
-     oai_config = tts_config.get("openai") or {}
-@@ -1065,10 +1095,14 @@ def _generate_openai_tts(text: str, output_path: str, tts_config: Dict[str, Any]
+     # Only resolve the OpenAI auth chain when the caller didn't pass explicit
+     # credentials. OpenAI-compatible backends (DeepInfra) pass api_key /
+     # base_url / model / voice through and never hit the managed-gateway path.
+@@ -1128,10 +1160,14 @@ def _generate_openai_tts(
          }
          if speed != 1.0:
              create_kwargs["speed"] = max(0.25, min(4.0, speed))
@@ -70,7 +79,7 @@ index ec7b361b8..afc2e7965 100644
      finally:
          close = getattr(client, "close", None)
          if callable(close):
-@@ -2246,6 +2280,9 @@ def text_to_speech_tool(
+@@ -2380,6 +2416,9 @@ def text_to_speech_tool(
      # Ensure parent directory exists
      file_path.parent.mkdir(parents=True, exist_ok=True)
      file_str = str(file_path)
@@ -80,16 +89,16 @@ index ec7b361b8..afc2e7965 100644
  
      try:
          # Generate audio with the configured provider
-@@ -2292,7 +2329,7 @@ def text_to_speech_tool(
+@@ -2426,7 +2465,7 @@ def text_to_speech_tool(
                      "error": "OpenAI provider selected but 'openai' package not installed."
                  }, ensure_ascii=False)
              logger.info("Generating speech with OpenAI TTS...")
 -            _generate_openai_tts(text, file_str, tts_config)
 +            audio_title = _generate_openai_tts(text, file_str, tts_config)
  
-         elif provider == "minimax":
-             logger.info("Generating speech with MiniMax TTS...")
-@@ -2429,6 +2466,15 @@ def text_to_speech_tool(
+         elif provider == "deepinfra":
+             try:
+@@ -2574,6 +2613,15 @@ def text_to_speech_tool(
          elif provider in {"elevenlabs", "openai", "mistral", "gemini"}:
              voice_compatible = want_opus and file_str.endswith(".ogg")
  

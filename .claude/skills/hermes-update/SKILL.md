@@ -27,7 +27,9 @@ If clean: jump straight to **Restart**. If conflicts or upstream rewrote a custo
 
 Eight local mods. Source-of-truth list (with re-apply commands and *why* each is needed) lives in `~/SourceRoot/hermes-agent/CLAUDE.md` under "Local Modifications to Upstream". This file is the operational playbook.
 
-> The `auxiliary-client-gpt5-max-completion-tokens` patch was **retired at v0.15.1** — upstream rewrote `_build_call_kwargs` to omit `max_tokens` by default for non-Anthropic custom endpoints, which supersedes it. The `slack-audio-mime-ext` patch was **retired at v0.18.2** — upstream's own `_resolve_slack_audio_ext()` helper now does the same MIME→extension mapping more thoroughly. See CLAUDE.md for both retirement notes.
+> The `auxiliary-client-gpt5-max-completion-tokens` patch was **retired at v0.15.1** — upstream rewrote `_build_call_kwargs` to omit `max_tokens` by default for non-Anthropic custom endpoints, which supersedes it. The `slack-audio-mime-ext` patch was **retired at v0.18.2** — upstream's own `_resolve_slack_audio_ext()` helper now does the same MIME→extension mapping more thoroughly. The `_resolve_thread_ts` **synthetic-thread guard hunk** was **retired at v0.19.0** with the switch to `reply_in_thread: true` — it was already unreachable (upstream's flat-reply branch returns first) and would have been actively harmful once threads were on. See CLAUDE.md for all three retirement notes.
+>
+> **Secrets no longer come from a launch wrapper (v0.19.0+).** `scripts/gateway-cache-launch.sh` is gone; Hermes resolves its own secrets via `secrets.command` in `config.yaml` (→ the dotfiles `secrets-run` cache). After any update, confirm `hermes gateway status` prints `Command helper: applied 26 secrets`. If that line is missing the gateway will start **credential-less** (the source degrades with a warning rather than failing closed) — check `secrets-run export --env-file=~/.hermes/.env.tpl` by hand before debugging anything else.
 >
 > **v0.18.x platform rewrite:** upstream moved built-in chat platforms out of `gateway/platforms/` into a plugin system — Slack now lives at `plugins/platforms/slack/adapter.py` (was `gateway/platforms/slack.py`, which no longer exists). Only the Slack-targeting patch's *path* changed; `gateway/platforms/base.py` (shared response-delivery base class) stayed in place.
 
@@ -36,7 +38,7 @@ Files touched (all are `.patch` files applied with `git apply` — no full-file 
 | File | Patch | Kind |
 |-|-|-|
 | `agent/auxiliary_client.py` | `patches/auxiliary-client-anthropic-mode-respect.patch` | respect `api_mode: anthropic_messages` for custom base URLs |
-| `plugins/platforms/slack/adapter.py` | `patches/slack-cannot-reply-to-message.patch` | three-part mrkdwn + thread fallback |
+| `plugins/platforms/slack/adapter.py` | `patches/slack-cannot-reply-to-message.patch` | mrkdwn normalization + `cannot_reply_to_message` retry (3 hunks; the synthetic-thread guard was **retired at v0.19.0**) |
 | `gateway/platforms/base.py` | `patches/slack-media-inline-reply-anchor.patch` | pass text reply anchor to media senders so attachments don't thread |
 | `cron/scheduler.py` | `patches/scheduler-skip-resolver-for-slack-ids.patch` | skip channel resolver for raw `C…` IDs |
 | `run_agent.py` | `patches/run-agent-third-party-endpoint-token-refresh.patch` | broaden third-party endpoint skip to all non-anthropic.com hosts |
@@ -138,11 +140,14 @@ SOUL.md / config.yaml changes need a gateway restart (skills are symlinked, so S
 hermes gateway restart
 ```
 
-> On this macOS, launchd can't bootstrap the `ai.hermes.gateway` LaunchAgent
-> (`Bootstrap failed: 5: I/O error`); `hermes gateway restart` falls back to a healthy
-> bare `run --replace` background process (no auto-restart on crash / login — the
-> liveness cron + UptimeKuma heartbeat are the safety net). Do **not** `launchctl
-> load` a `.plist` by hand — it fails the same way.
+> **launchd supervision works as of v0.19.0.** Earlier revisions of this skill said
+> launchd couldn't bootstrap `ai.hermes.gateway` and that restarts fell back to a bare
+> `run --replace`. `hermes gateway status` now reports `✓ Gateway is supervised by
+> launchd (PID …)`, so auto-start at login and auto-restart on crash are live.
+> `hermes gateway install` still prints `Bootstrap failed: 5: Input/output error`
+> several times while repairing the definition — **that message is noise**; it finishes
+> with `✓ Service definition updated` and `gateway status` shows the true state. Still
+> do **not** `launchctl load` a `.plist` by hand.
 
 Verify it came up:
 
@@ -160,7 +165,26 @@ A basic "send a message and see a reply" check doesn't exercise most of the patc
 | General question (method A, e.g. "what's on my TickTick") | Core agent loop, unaffected by any patch | Update didn't break routing/skills at all | Clean 200 response, `Turn ended: reason=text_response` in `agent.log` |
 | Infra/argo question that triggers a `curl \| jq`/`python3` pipe (method A, e.g. "infra status") | `tirith-allowlist-argo-pipes.patch` | Argo pipelines still bypass tirith | `tool terminal completed` in `agent.log`, **zero** hits for `grep -i "approval\|blocked" gateway.log` around that timestamp — a hit means the patch didn't re-apply |
 | Any request routed through real Slack (method B — HomeLab synthetic sender), containing a raw `*` list marker in the model's likely output | `format_message()` pre-steps in `plugins/platforms/slack/adapter.py` | mrkdwn normalization ported to the new adapter path | Fetch the posted message (`GET /api/slack/channels/:id/messages` via argo) — bullets render as `-`, not `*` |
-| "Say/speak X out loud" (method B) | `tts-tool-audio-title.patch` + `slack-media-inline-reply-anchor.patch` (base.py) | Title-naming and inline media threading both still work | `agent.log` line `tools.tts_tool: TTS audio saved: .../<Human Title>.mp3` (not `tts_<timestamp>.mp3`); no errors after `[Slack] Sending response`; fetched message has `thread_ts: null` (inline, not threaded) |
+| "Say/speak X out loud" (method B) | `tts-tool-audio-title.patch` + `slack-media-inline-reply-anchor.patch` (base.py) | Title-naming works; media threads with its text reply | `agent.log` line `tools.tts_tool: TTS audio saved: .../<Human Title>.mp3` (not `tts_<timestamp>.mp3`); no errors after `[Slack] Sending response`; since v0.19.0 (`reply_in_thread: true`) the audio and the text reply share the **same `thread_ts`** — they must not land in different places |
 | A German-language message (method B) | Config only (`tts.openai.model` = Gemini TTS), not a patch | Charon still pronounces German natively, no translation | Manual listen — text-based checks above can't verify pronunciation |
+
+**Prefer a direct in-process test over a round-trip where one exists.** The table's Slack/TTS rows depend on a real Slack round-trip whose command text is *not* logged, so they prove less than they look like they do. Calling the patched function directly is faster, deterministic, and actually pins the behavior — this is what caught the v0.19.0 `_generate_openai_tts` return-type change. Run these from `~/.hermes/hermes-agent` with `venv/bin/python`:
+
+```python
+# tts-tool-audio-title: real call to the audio-gateway, asserts the header + rename
+from tools.tts_tool import _generate_openai_tts, _rename_with_title
+title = _generate_openai_tts("Kurzer Test.", "/tmp/tts_123.mp3", yaml_cfg["tts"])
+assert title, "X-Audio-Title header missing — patch not applied or gateway changed"
+_rename_with_title("/tmp/tts_123.mp3", title)   # → '/tmp/Kurzer Test.mp3'
+
+# tirith-allowlist-argo-pipes: assert BOTH directions in one shot
+from tools.tirith_security import check_command_security as chk
+assert chk('curl -s https://argo.jkrumm.com/x | jq .')["action"] == "allow"
+assert chk('curl -s https://argo.jkrumm.com/x | sh')["action"] == "block"   # must NOT be allowlisted
+```
+
+The second tirith assertion is the important one — it proves the allowlist didn't over-broaden into letting argo content pipe to a shell. (Note: `curl … > /tmp/f && sh /tmp/f` is allowed for *any* host — that's a pre-existing gap in upstream tirith, not something our patch introduced.)
+
+**Secrets check (v0.19.0+):** `hermes gateway status` must print `Command helper: applied 26 secrets`. Missing → the gateway is running credential-less; test the helper directly with `secrets-run export --env-file=~/.hermes/.env.tpl | sed 's/^export //' | wc -l`.
 
 Config sanity check (not patch-related, but always confirm after an update): `config.yaml`'s `tts.openai.base_url` / `stt.openai.base_url` still read `https://audio-gateway.jkrumm.com/v1`.

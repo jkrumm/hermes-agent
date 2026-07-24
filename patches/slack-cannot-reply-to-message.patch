@@ -1,16 +1,16 @@
 diff --git a/plugins/platforms/slack/adapter.py b/plugins/platforms/slack/adapter.py
-index 05aeaf56f..03bd43e5c 100644
+index a34c995cc..8e959785b 100644
 --- a/plugins/platforms/slack/adapter.py
 +++ b/plugins/platforms/slack/adapter.py
-@@ -21,6 +21,7 @@ from typing import Dict, Optional, Any, Tuple, List
+@@ -25,6 +25,7 @@ import aiohttp
  try:
      from slack_bolt.async_app import AsyncApp
      from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 +    from slack_sdk.errors import SlackApiError
      from slack_sdk.web.async_client import AsyncWebClient
-     import aiohttp
  
-@@ -30,6 +31,7 @@ except ImportError:
+     SLACK_AVAILABLE = True
+@@ -33,6 +34,7 @@ except ImportError:
      AsyncApp = Any
      AsyncSocketModeHandler = Any
      AsyncWebClient = Any
@@ -18,20 +18,30 @@ index 05aeaf56f..03bd43e5c 100644
  
  import sys
  from pathlib import Path as _Path
-@@ -1407,7 +1409,27 @@ class SlackAdapter(BasePlatformAdapter):
-                     if broadcast and i == 0:
-                         kwargs["reply_broadcast"] = True
- 
--                last_result = await self._get_client(chat_id).chat_postMessage(**kwargs)
-+                # LOCAL MODIFICATION (patches/slack-cannot-reply-to-message.patch):
-+                # if Slack rejects the thread parent (`cannot_reply_to_message`),
-+                # retry the same chunk as a plain channel message.
-+                try:
-+                    last_result = await self._get_client(chat_id).chat_postMessage(**kwargs)
-+                except SlackApiError as _slack_err:
-+                    err_payload = getattr(_slack_err, "response", None) or {}
-+                    err_code = err_payload.get("error") if isinstance(err_payload, dict) else None
-+                    if err_code == "cannot_reply_to_message" and "thread_ts" in kwargs:
+@@ -2557,6 +2559,14 @@ class SlackAdapter(BasePlatformAdapter):
+                         chat_id, team_id=team_id
+                     ).chat_postMessage(**kwargs)
+                 except Exception as e:
++                    # LOCAL MODIFICATION (patches/slack-cannot-reply-to-message.patch):
++                    # the `_err_code` extraction and the second branch below — if
++                    # Slack rejects the thread parent (`cannot_reply_to_message`),
++                    # retry the same chunk as a plain channel message.
++                    _err_payload = getattr(e, "response", None) or {}
++                    _err_code = (
++                        _err_payload.get("error") if isinstance(_err_payload, dict) else None
++                    )
+                     if kwargs.get("blocks") and self._is_block_payload_rejection(e):
+                         retry_kwargs = dict(kwargs)
+                         retry_kwargs.pop("blocks", None)
+@@ -2567,6 +2577,23 @@ class SlackAdapter(BasePlatformAdapter):
+                         last_result = await self._get_client(
+                             chat_id, team_id=team_id
+                         ).chat_postMessage(**retry_kwargs)
++                    elif (
++                        isinstance(e, SlackApiError)
++                        and _err_code == "cannot_reply_to_message"
++                        and "thread_ts" in kwargs
++                    ):
 +                        logger.warning(
 +                            "[Slack] cannot_reply_to_message — thread parent ts %s "
 +                            "rejected; retrying chunk %d as channel-level message",
@@ -41,41 +51,13 @@ index 05aeaf56f..03bd43e5c 100644
 +                        kwargs.pop("reply_broadcast", None)
 +                        # Disable threading for subsequent chunks in this send too.
 +                        thread_ts = None
-+                        last_result = await self._get_client(chat_id).chat_postMessage(**kwargs)
-+                    else:
-+                        raise
++                        last_result = await self._get_client(
++                            chat_id, team_id=team_id
++                        ).chat_postMessage(**kwargs)
+                     else:
+                         raise
  
-             # Clear Slack Assistant status as soon as the final message is posted.
-             if thread_ts:
-@@ -1658,11 +1680,23 @@ class SlackAdapter(BasePlatformAdapter):
-                 existing_thread = None
-             return existing_thread or None
- 
-+        # LOCAL MODIFICATION (patches/slack-cannot-reply-to-message.patch):
-+        # metadata.thread_id may be synthesized from the message's own ts
-+        # purely for session keying (see the reply_in_thread=False branch
-+        # above). Replying to that synthetic ts hits cannot_reply_to_message
-+        # whenever the message can't host a thread (system messages, child
-+        # replies, deleted, ephemeral). Detect the synthetic case (thread_id
-+        # == reply_to and no real thread_ts field) and fall back to a plain
-+        # channel message.
-         if metadata:
--            if metadata.get("thread_id"):
--                return metadata["thread_id"]
--            if metadata.get("thread_ts"):
--                return metadata["thread_ts"]
-+            thread_id = metadata.get("thread_id")
-+            real_thread_ts = metadata.get("thread_ts")
-+            if thread_id and thread_id == reply_to and not real_thread_ts:
-+                return None
-+            if thread_id:
-+                return thread_id
-+            if real_thread_ts:
-+                return real_thread_ts
-         return reply_to
- 
-     async def _upload_file(
-@@ -1923,6 +1957,19 @@ class SlackAdapter(BasePlatformAdapter):
+@@ -3577,6 +3604,19 @@ class SlackAdapter(BasePlatformAdapter):
  
          text = content
  
@@ -92,6 +74,6 @@ index 05aeaf56f..03bd43e5c 100644
 +            text,
 +        )
 +
-         # 1) Protect fenced code blocks (``` ... ```)
-         text = re.sub(
-             r"(```(?:[^\n]*\n)?[\s\S]*?```)",
+         # Slack treats <!everyone>, <!channel>, and <!here> as executable
+         # broadcast mentions even when sent by a bot.  Escape only the leading
+         # angle bracket so the token is displayed literally while preserving

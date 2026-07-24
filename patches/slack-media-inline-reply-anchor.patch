@@ -1,8 +1,8 @@
 diff --git a/gateway/platforms/base.py b/gateway/platforms/base.py
-index 21ca4af6b..c6433fd08 100644
+index 51c9f4240..0b8b88de1 100644
 --- a/gateway/platforms/base.py
 +++ b/gateway/platforms/base.py
-@@ -5084,6 +5084,13 @@ class BasePlatformAdapter(ABC):
+@@ -5421,6 +5421,13 @@ class BasePlatformAdapter(ABC):
                      except Exception as batch_err:
                          logger.warning("[%s] Error batching images: %s", self.name, batch_err, exc_info=True)
  
@@ -16,7 +16,7 @@ index 21ca4af6b..c6433fd08 100644
                  for media_path, is_voice in _non_image_media:
                      if human_delay > 0:
                          await asyncio.sleep(human_delay)
-@@ -5093,18 +5100,21 @@ class BasePlatformAdapter(ABC):
+@@ -5430,18 +5437,21 @@ class BasePlatformAdapter(ABC):
                              media_result = await self.send_voice(
                                  chat_id=event.source.chat_id,
                                  audio_path=media_path,
@@ -38,7 +38,7 @@ index 21ca4af6b..c6433fd08 100644
                                  metadata=_final_thread_metadata,
                              )
  
-@@ -5123,12 +5133,14 @@ class BasePlatformAdapter(ABC):
+@@ -5460,12 +5470,14 @@ class BasePlatformAdapter(ABC):
                              await self.send_video(
                                  chat_id=event.source.chat_id,
                                  video_path=file_path,

@@ -6,6 +6,8 @@ cron/output/
 cron/.jobs.lock
 cron/ticker_heartbeat
 cron/ticker_last_success
+# v0.19.0: per-run execution history moved into a SQLite db
+cron/executions.db
 
 # Hermes briefing state — local-only city + vacation flag.
 # Edits (vacation_until before a trip, city when remote) shouldn't pollute

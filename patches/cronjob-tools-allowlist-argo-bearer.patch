@@ -1,5 +1,5 @@
 diff --git a/tools/cronjob_tools.py b/tools/cronjob_tools.py
-index 430cd1dda..a231e9a0c 100644
+index a623d38c6..d311a3116 100644
 --- a/tools/cronjob_tools.py
 +++ b/tools/cronjob_tools.py
 @@ -169,21 +169,65 @@ def _strip_legitimate_emoji_zwj(prompt: str) -> str:
