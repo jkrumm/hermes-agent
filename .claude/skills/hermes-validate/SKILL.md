@@ -180,7 +180,17 @@ Then re-send the same test message and compare `api_calls` and `time` in `agent.
 | Post-update Slack formatting check (`*` bullet) | — (method B, real Slack path) | 1 | 5.2s | Working — response posted with `-` bullets (confirms `format_message()` pre-steps ported to `plugins/platforms/slack/adapter.py`), `thread_ts: null` (top-level, not mis-threaded) |
 | Post-update TTS title check ("say out loud") | — (method B, real Slack path) | 2 | 16.2s | Working — `tools.tts_tool: TTS audio saved: .../Update Verification Successful.mp3` (confirms `tts-tool-audio-title.patch` re-applied correctly post-conflict, not `tts_<timestamp>.mp3`); media send via patched `base.py` completed with no errors |
 
+| Post-audit infra status (method A) | `argo-api` (infrastructure) | 3 | 15.4s | Working — Homelab 36/36 + VPS 29/29, zero approval gates (argo allowlist intact after the tirith rewrite) |
+| Post-audit download-guard block (method A) | `tirith_security` hardening | — | — | Working — `wget -qO /tmp/f URL && chmod +x … && /tmp/f` **blocked** end-to-end, no file created. This shape was a *bypass* before the restart, so it proves the running process carries the hardened guard, not just the file on disk |
+| Post-audit Slack round-trip (method B) | `reply_in_thread: true` | 3 | 21.3s | Working — session key `agent:main:slack:group:<team>:<C…>:<ts>` carries the message ts, reply threaded under it. First live confirmation that one thread == one session == one context window |
+
 Update this table after each validation run.
+
+> **Verifying a security control needs a shape that only the NEW code catches.** A block
+> that the old code also blocked proves nothing about which version is loaded. Pick a case
+> from the regression suite's fix list, and confirm the side effect too (here: the
+> downloaded file must not exist). Python modules are imported once at gateway start — an
+> in-process test result says nothing about the running process.
 
 > **Method-A trace note:** gateway-API (`/v1/chat/completions`) runs do **not** land in
 > `~/.hermes/sessions/*.jsonl` (that store is the Slack path). Verify method-A routing from
