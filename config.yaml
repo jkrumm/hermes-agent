@@ -1,6 +1,6 @@
 model:
   provider: custom
-  default: DeepSeek-V4-Pro
+  default: DeepSeek-V4-Flash
   api_key: ${OPENAI_API_KEY}
   base_url: ${OPENAI_BASE_URL}
   api_mode: chat_completions
