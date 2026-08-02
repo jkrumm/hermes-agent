@@ -68,7 +68,8 @@ def emit_dispatches(conn: sqlite3.Connection, now: dt.datetime) -> None:
         ).fetchall()
         cutoff = (now - dt.timedelta(hours=DISPATCH_RECENT_HOURS)).isoformat()
         recent_rows = conn.execute(
-            "SELECT repo, tier, job_id, status, verdict_json, finished_at FROM dispatches "
+            "SELECT repo, tier, job_id, status, verdict_json, artifact_url, finished_at "
+            "FROM dispatches "
             "WHERE finished_at IS NOT NULL AND finished_at >= ? ORDER BY finished_at DESC",
             (cutoff,),
         ).fetchall()
@@ -90,7 +91,12 @@ def emit_dispatches(conn: sqlite3.Connection, now: dt.datetime) -> None:
         for r in recent_rows:
             age = fmt_age(now, r["finished_at"])
             note = _dispatch_outcome_note(r["status"], r["verdict_json"])
-            print(f"  - {r['repo']} (tier {r['tier']}) — finished {age} ago — {note}")
+            # The artifact is the whole point of the author/implement tiers and the only
+            # line Johannes can act on before coffee. Without it the briefing says a PR
+            # was opened overnight and makes him go find it.
+            artifact = (r["artifact_url"] or "").strip()
+            suffix = f" — {artifact}" if artifact else ""
+            print(f"  - {r['repo']} (tier {r['tier']}) — finished {age} ago — {note}{suffix}")
         print("]")
 
 

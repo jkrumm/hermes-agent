@@ -155,6 +155,15 @@ It may legitimately file nothing — if the episode concludes there is no real
 defect, `artifactUrl` comes back absent and the verdict says why. Report that as
 the result it is, not as a failure.
 
+**Most allowlisted repos are PUBLIC, and an issue there is world-readable and
+permanent.** The episode's issue body is written from the brief plus whatever it
+read in the repo — and your briefs are assembled from Slack messages and log
+lines, which are not public. The tool refuses to publish text matching a
+credential pattern, but that catches shapes, not judgement. So: if the brief
+contains anything you would not post publicly — an internal hostname, a customer
+name, the contents of a private channel — summarize it instead of quoting it, or
+use `investigate` and relay the verdict yourself.
+
 ### `implement` — the only tier that needs Johannes
 
 `implement` writes code. It is bounded hard: an isolated worktree (never the live
@@ -257,14 +266,21 @@ message is only a notification.
 
 | Exit | Meaning | What to say |
 |-|-|-|
-| 64 | usage error — bad repo name, bad flag, empty brief | fix the invocation and retry once |
-| 4 | policy refusal — unbuilt tier, repo ceiling, daily budget | do **not** retry. Explain the limit |
-| 2 | precondition — no checkout, DB unreadable | report it as an infrastructure problem |
+| 64 | usage error — bad repo name, bad flag, empty brief, `implement` without `--why` | fix the invocation and retry once |
+| 4 | policy refusal — repo tier ceiling, daily budget, implement budget, running inside a session | do **not** retry. Explain the limit |
+| 2 | precondition — no checkout, DB unreadable, malformed `maxTier` in the allowlist | report it as an infrastructure problem |
 | 3 | sideclaw unreachable | the job server is down; say so, suggest checking it |
 
 **A daily budget refusal is not a transient error.** Twenty episodes in a UTC day
-is a structural ceiling on unattended spend. If it trips, something is opening
-episodes in a loop — say so rather than retrying.
+is a structural ceiling on unattended spend, and `implement` has its own ceiling
+of five inside that. If either trips, something is opening episodes in a loop —
+say so rather than retrying.
+
+**An episode can also succeed while producing no artifact**, and that is not a
+refusal. The verdict will say why: the episode found nothing worth filing, the
+change was refused for touching CI workflows or exceeding the size ceilings, or
+the artifact text was withheld because it matched a credential pattern. Relay the
+reason; do not re-dispatch to "try again" without changing the brief.
 
 ---
 

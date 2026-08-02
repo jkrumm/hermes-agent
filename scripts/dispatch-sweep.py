@@ -222,7 +222,8 @@ def format_message(*, repo: str, tier: str, job_id: str, status: str,
     """Deterministic Slack mrkdwn body for one terminal dispatch. No LLM —
     every field comes straight from sideclaw's schema-shaped verdict object
     (`{verdict, confidence, evidence[], recommendation, nextAction, summary,
-    degraded?}`) or, for a failed/interrupted job, its `error` string."""
+    degraded?, artifactUrl?, branch?}`) or, for a failed/interrupted job, its
+    `error` string."""
     job_short = job_id[:8]
 
     if status in ("failed", "interrupted"):

@@ -214,12 +214,15 @@ status:
 	@# Dispatch bridge. The allowlist is the whole bounding mechanism for hermes-cc.sh
 	@# — absence from it is a denial — so an unreadable or unparseable one must be loud
 	@# here rather than surfacing as "repo not in the allowlist" on every dispatch.
+	@# Every maxTier is validated here too, not just counted. hermes-cc.sh fails CLOSED on
+	@# an unrecognized ceiling, so a typo turns into "precondition failed" on every dispatch
+	@# to that repo — correct, but it surfaces mid-incident. Catch it at setup instead.
 	@if [ -x "$(HERMES_REPO)/scripts/hermes-cc.sh" ]; then \
-		n=$$(python3 -c 'import json;print(len(json.load(open("$(HERMES_DIR)/config/dispatch-repos.json"))["repos"]))' 2>/dev/null || echo ""); \
-		if [ -n "$$n" ]; then \
-			echo "    ✓ hermes-cc.sh ($$n repos allowlisted)"; \
+		out=$$(python3 -c 'import json,collections,sys; d=json.load(open("$(HERMES_DIR)/config/dispatch-repos.json"))["repos"]; V=("investigate","author","implement"); bad=sorted(k for k,v in d.items() if v.get("maxTier","investigate") not in V); sys.exit("unrecognized maxTier for: "+", ".join(bad)) if bad else None; c=collections.Counter(v.get("maxTier","investigate") for v in d.values()); print("%d repos allowlisted — %d investigate, %d author, %d implement" % (len(d), c["investigate"], c["author"], c["implement"]))' 2>&1); \
+		if [ $$? -eq 0 ]; then \
+			echo "    ✓ hermes-cc.sh ($$out)"; \
 		else \
-			echo "    ✗ hermes-cc.sh [dispatch-repos.json missing or unparseable — every dispatch would be denied]"; \
+			echo "    ✗ hermes-cc.sh [dispatch-repos.json unusable: $$out]"; \
 		fi; \
 	else \
 		echo "    ✗ hermes-cc.sh [missing or not executable]"; \
