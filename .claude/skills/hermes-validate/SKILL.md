@@ -265,6 +265,38 @@ Then re-send the same test message and compare `api_calls` and `time` in `agent.
 | Post-audit download-guard block (method A) | `tirith_security` hardening | — | — | Working — `wget -qO /tmp/f URL && chmod +x … && /tmp/f` **blocked** end-to-end, no file created. This shape was a *bypass* before the restart, so it proves the running process carries the hardened guard, not just the file on disk |
 | Post-audit Slack round-trip (method B) | `reply_in_thread: true` | 3 | 21.3s | Working — session key `agent:main:slack:group:<team>:<C…>:<ts>` carries the message ts, reply threaded under it. First live confirmation that one thread == one session == one context window |
 | Post-audit thread continuation (method B, `/reply`) | `reply_in_thread: true` | 1 | 3.9s | Working — reply into the thread **reused** the same session (message_count 8→10, no new session) and correctly recalled the first question. Confirms context carries within a thread; inbound arrives prefixed `[Replying to: "…"]` |
+| v0.19.1 Slack bullets + threading (method B) | — | 2 | 10.9s | Working — session key `…:C0ASRUD7K1U:1785673823.484699` with `thread_id` set. Note the model happened to emit `-` bullets itself, so the *round-trip alone proved nothing* about the patch — see the in-process recipe below |
+| v0.19.1 `format_message()` pre-steps (in-process) | `slack-cannot-reply-to-message.patch` | — | — | Working — `* ` → `- ` at all nesting levels, and `` `:white_check_mark: …` `` backticks stripped. This is the check that actually pins the patch |
+| v0.19.1 TTS + thread continuation (method B, `/reply`) | `tts-tool-audio-title` + `base.py` anchor | — | ~29s | Working — `TTS audio saved: …/Gateway und Dienste prüfen.mp3` (human title, not `tts_<timestamp>`), `[Slack] Delivering 1 non-image MEDIA attachment(s)` then a clean send, no errors. Same session reused (mc 5→9) |
+| v0.19.1 STT round-trip (in-process) | `stt.openai` → audio-gateway | — | — | Working — fed the TTS mp3 back to `transcribe_audio()`: `gpt-4o-transcribe` returned accurate German with umlauts intact ("Prüfe Gateway und Dienste… keine Fehler in der Gateway-Logdatei"). Closes the loop Gemini Charon → gpt-4o-transcribe |
+| v0.19.1 download-guard (method A + in-process) | `tirith-argo-allowlist-and-download-guard` | 1 | — | Working — the agent's `wget -qO … && chmod +x … && exec` chain was **cut**: the file landed but was never `+x`'d and never ran. In-process verdicts confirm why (chain `block`, bare download `allow`), and the gateway (pid started 14:22:42) postdates the module write (14:17:16) |
+| v0.19.1 cron delivery target (in-process) | `scheduler-skip-resolver-for-slack-ids` | — | — | Working — `slack:C0ASRUD7K1U` resolved to `{'chat_id': 'C0ASRUD7K1U', 'thread_id': None}`, un-mangled by the channel directory |
+
+**In-process recipe for `format_message()`** — worth keeping, because two things block the
+obvious approach: the module uses a relative import (`from .block_kit import …`) that fails
+outside its package, and `SlackAdapter`'s base is abstract. Add the adapter's own directory
+to `sys.path` so the module's `except ImportError` fallback resolves, then subclass to
+satisfy the abstract methods:
+
+```python
+import importlib.util, sys
+sys.path.insert(0, 'plugins/platforms/slack')          # lets `from block_kit import …` resolve
+spec = importlib.util.spec_from_file_location('slack_probe', 'plugins/platforms/slack/adapter.py')
+mod = importlib.util.module_from_spec(spec); sys.modules['slack_probe'] = mod
+spec.loader.exec_module(mod)
+class Stub(mod.SlackAdapter):                          # base is abstract — stub the 4 methods
+    def __init__(self): pass
+    async def connect(self): ...
+    async def disconnect(self): ...
+    async def get_chat_info(self, *a, **k): ...
+    async def send(self, *a, **k): ...
+print(mod.SlackAdapter.__dict__['format_message'](Stub(), '* eins\n* zwei'))
+```
+
+**A Slack round-trip cannot prove a formatting patch.** The model writes whatever markdown
+it likes; if it already emits `-` bullets, the output is identical with or without the
+patch. Drive `format_message()` directly with input that *must* be transformed, and keep
+the round-trip for what only it exercises — threading, session keying, media delivery.
 
 Update this table after each validation run. **Rows are historical, not current spec** —
 they record what was true on the day. The `Skill used` column on pre-2026-06 rows names

@@ -247,18 +247,34 @@ Only then `cp /tmp/new-patches/*.patch ~/SourceRoot/hermes-agent/patches/`, dele
 
 `hermes update` stashes your working changes, pulls upstream, then tries to re-apply the stash. Expect conflicts on the eight patched files — that is normal. The CLI prints the stash ref (`Restore your changes later with: git stash apply <sha>`); keep it as a fallback. After conflicts surface, the CLI resets the working tree clean — re-apply via the loop above.
 
-**The Node half of the update fails on this box, and `hermes update` says so quietly.**
-v0.19.1 raised `package.json`'s engine floor to `node >=22.22.0`; the fnm **default** here is
-v20.20.0, so the update's `npm install` dies with `EBADENGINE` and it prints
-`⚠ Update partially complete — Node.js dependencies for repo root did not refresh` —
-then carries on and restarts the gateway anyway. The gateway itself is pure Python and
-unaffected; what's left stale is the dashboard/TUI/`hermes web`. Repair it by hand under a
-compliant Node (do **not** change the machine-wide fnm default for this):
+**If the Node half of the update fails, check `fnm default` first.** v0.19.1 raised
+`package.json` to `node >=22.22.0` **and** `npm <11.10.0 || >=11.17.0`. When the resolved
+node doesn't satisfy both, `npm install` dies with `EBADENGINE`, the CLI prints
+`⚠ Update partially complete — Node.js dependencies for repo root did not refresh`, and
+then **carries on and restarts the gateway anyway**. The gateway is pure Python and
+unaffected; what goes stale is the dashboard/TUI/`hermes web`.
+
+Fixed on **2026-08-02** by setting the machine-wide default to the version upstream itself
+pins — `fnm default 26.5.1`. Upstream ships a **tracked `.nvmrc` containing `26`**, so the
+repo needs no pin of ours, and `use-on-cd` covers interactive shells. The default matters
+because `hermes update` shells `npm` from a Python subprocess, where the `use-on-cd` hook
+never fires. Blast radius was checked before changing it: only `free-planning-poker`
+(24.11.0), `basalt-ui` (24.11.1) and `sy-serendipity` (18) pin a node version, all via
+`.nvmrc`, so all are unaffected by the default.
+
+> **Do not "fix" a future recurrence by moving to the newest Node 24 LTS.** That npm
+> constraint excludes a *band*, and the current 24 LTS sits inside it — v24.18.1 ships
+> npm 11.16.0, which fails. So does Node 25 (npm 11.12.1). Only npm `<11.10.0` (Node 22
+> LTS, or Node 24 ≤24.14) or `>=11.17.0` (Node 26) qualify, and Node 26 is the branch that
+> stays valid as npm advances. Read `engines` and check the actual bundled npm
+> (`https://nodejs.org/dist/index.json` carries an `npm` field per release) before picking.
+
+Manual repair, if a version mismatch ever recurs:
 
 ```bash
-cd ~/.hermes/hermes-agent && fnm exec --using=22.22.2 -- npm ci --no-audit --no-fund
-cd web && fnm exec --using=22.22.2 -- npm ci --no-audit --no-fund \
-  && fnm exec --using=22.22.2 -- npm run build      # → ../hermes_cli/web_dist
+cd ~/.hermes/hermes-agent && fnm exec --using=26.5.1 -- npm ci --no-audit --no-fund
+cd web && fnm exec --using=26.5.1 -- npm ci --no-audit --no-fund \
+  && fnm exec --using=26.5.1 -- npm run build      # → ../hermes_cli/web_dist
 ```
 
 **`npm ci`, not `npm install`** — `package-lock.json` is upstream-tracked here, and a plain
@@ -266,9 +282,6 @@ cd web && fnm exec --using=22.22.2 -- npm ci --no-audit --no-fund \
 `hermes update`'s autostash and conflicts against a file we have no reason to own. `ci`
 installs exactly the lockfile and leaves the tree clean; verify with
 `git status --short package-lock.json` (must be empty) afterwards.
-
-Expect this every update until the fnm default moves past 22.22.0 — `hermes update` shells
-`npm` from Python, so fnm's `use-on-cd` shell hook never fires for it.
 
 **Lazy-backend refresh warnings are often benign.** After pulling, `hermes update` refreshes "lazy backends" (optional provider/platform plugins) and may print import warnings for some of them (e.g. `provider.vertex`, `platform.matrix`, `platform.feishu`, `platform.teams`, `tool.trace_upload` failed with a transient import error at the v0.18.2 jump). Before investigating, check whether the affected backend is actually active in `~/.hermes/config.yaml` (search for its provider/platform name under an *enabled* section, not just present as a stock default block — every platform gets a default config block whether used or not). If it's not part of this deployment (this repo only runs the Slack platform + OpenAI-provider TTS/STT via the audio-gateway), the warning is inert and doesn't block the update or the gateway.
 
