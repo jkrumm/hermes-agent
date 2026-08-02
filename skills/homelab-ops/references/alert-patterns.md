@@ -165,6 +165,25 @@ Terminated: 15)` and/or `hermes gateway not answering` on its port.
 - **Not the same as:** a genuine crash loop (tracebacks in the gateway error
   log, non-zero exits repeating without a correlated config change) — that's
   an escalation, not "wait for launchd to respawn it".
+- **Settled vs. climbing — verify before closing:** run
+  `devhost-health --why "…" --confirm` for a fresh heartbeat. The output line
+  `no restarts (history: <label>=N)` with N unchanged from the alert means the
+  restart was a one-off: settled, monitor flips UP on the next interval.
+  A fresh `FAIL: <label> restarted (N→M, ...)` with a climbing count means it
+  is still crashing: escalate. Applies to any mini LaunchAgent with a
+  `Terminated: 15` restart signature (e.g. `com.jkrumm.sideclaw`), not only
+  the hermes gateway.
+- **sideclaw restarts are usually planned dev reloads.** The Makefile's
+  `reload` target runs `bun run build` then
+  `launchctl kickstart -k gui/501/com.jkrumm.sideclaw` — kickstart sends
+  SIGTERM and respawns, which the devhost-health monitor reads as a restart
+  (count climbs, `Terminated: 15`). Any burst of sideclaw restarts whose
+  times correlate with edits/builds in `~/SourceRoot/sideclaw` (check `dist/`
+  mtime, `server/` mtime, recent commits) is development activity, not a
+  crash — the log (`~/Library/Logs/sideclaw.err`) stays clean and the process
+  keeps running between SIGTERMs. Close it; no verb needed. Only escalate if
+  restarts happen with no repo activity, or the process dies within seconds
+  (crash loop) instead of after tens of minutes.
 
 ## Mac Mini session teardown — a LaunchAgent vanishes, not crashes
 
@@ -273,6 +292,29 @@ with real history that just had a gap.
   a silent no-op by design ("a monitor must not depend on the thing it
   monitors"), so a missing pusher shows as a red monitor, never a crashed
   script.
+
+---
+
+## RollHook deploy failure — transient 502 on manifest GET
+
+**Trigger:** `:x: Deployment failed: <service>` from RollHook with
+`docker pull failed ... unexpected status from GET request to
+https://rollhook.jkrumm.com/v2/<service>/manifests/sha256:<digest>: 502 Bad Gateway`.
+
+- **Root cause class:** the zot registry (behind Cloudflare) returned a
+  transient 502 while the deploy agent's pull raced a concurrent push — the
+  manifest GET hit mid-write or an origin blip. The deploy agent marks the
+  attempt failed; a retry (RollHook retry or next webhook) usually pulls the
+  final manifest digest fine.
+- **Diagnosis:** `logs vps rollhook` → the 502ed digest is a different sha
+  than the one that later GETs 200; then `containers vps` → the service's
+  container was recreated (fresh `startedAt`, `restartCount: 0`) running the
+  **alert's image tag** — that's the self-resolve signal.
+- **Verb:** none needed once recreated healthy. Verify image tag == alert tag
+  and `restartCount: 0`, then close.
+- **Escalate only if:** the container stays on the old tag after a retry
+  window (~5 min), or the 502 pattern recurs across several deploys (then
+  investigate Cloudflare→origin timeouts / zot storage, don't keep re-deploying).
 
 ---
 

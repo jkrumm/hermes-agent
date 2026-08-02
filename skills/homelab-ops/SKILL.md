@@ -45,6 +45,8 @@ For a named error-string / job-name → root-cause → verb lookup beyond the
 tables below, see `references/alert-patterns.md` — check it before improvising
 a diagnosis for anything that looks like a recurring alert shape. Dev-vhost
 DNS troubleshooting (`mini.jkrumm.com` and friends) is `references/cloudflare-dns.md`.
+A mini LaunchAgent restart alert — reload vs crash, and what a benign restart
+still costs — is `references/launchd-restart-triage.md`.
 
 ## Tier A — diagnosis (free)
 
