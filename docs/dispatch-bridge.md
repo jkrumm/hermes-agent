@@ -65,10 +65,13 @@ Same pipeline, same record, three permission profiles. Not three features.
 |-|-|-|-|-|
 | `investigate` | `readOnly`, `--json-schema` verdict | a verdict object | none | 30s–3min |
 | `author` | `readOnly`; the HANDLER files the issue | GitHub issue | none | 1–4min |
-| `implement` | write, in a handler-managed worktree | branch + **draft PR** | `--why` **and** `--confirm` | 10–40min |
+| `implement` | write | branch + **draft PR** | `--why` **and** `--confirm` | 10–40min |
+
+Every tier runs in a handler-managed worktree, torn down when the episode ends —
+see the third deviation below for why the read tiers need one too.
 
 `investigate` is the tier that fixes the stated pain and it needs no approval
-theatre — a read-only session in a git repo cannot lose anything.
+theatre: it produces nothing outside its own throwaway checkout.
 
 **`implement` always ends in a PR, in every repo, including direct-to-master
 ones.** This deviates from the repo's normal convention on purpose: a human wrote
@@ -76,7 +79,7 @@ the direct-to-master rule for their own commits, not for an unattended agent's.
 The episode never merges and never pushes to a default branch — landing the PR is
 the separate `merge` verb.
 
-### Two deviations from this design, both deliberate (Phase 4, 2026-08-02)
+### Three deviations from this design, all deliberate (Phase 4, 2026-08-02)
 
 **The session never creates the artifact; the handler does.** This design said
 `author` gets `gh issue create` and `implement` pushes its own branch. Built the
@@ -96,6 +99,34 @@ down on every exit path including a throw; `--worktree` hands that lifecycle to
 the CLI. Creating it explicitly also made the isolation claim *testable*, which is
 how it was verified: dirty the worktree, fail the run, watch the live checkout
 stay clean and the worktree, branch and directory all disappear.
+
+**The read tiers get a worktree too.** This design gave one only to `implement`,
+on the reading that a read-only session cannot damage anything. That reading is
+wrong, and the table above used to state it: `readOnly: true` removes Edit and
+Write, not `Bash`. So an `investigate` or `author` episode ran in the **live
+checkout** with a shell, holding a brief assembled from material anyone can write
+— a GitHub issue title reaches the watchdog digest, and a dispatched episode then
+reads the attacker's full body via `gh`. One injected `sed -i` and the edit lands
+in a repo other agents are working in and that deploys to the VPS on push. The
+third-party marking in the digest is instruction-level: it labels the content, it
+does not stop an episode acting on it, and neither does `--confirm`, which these
+two tiers do not have.
+
+They now get `createReadWorktree` — a copy of **HEAD**, deleted in the same
+`finally`. Cut from HEAD rather than the default branch because a read tier is
+answering a question about *this* checkout and has no artifact to rebase; that
+also means no identity, no fetch and no GitHub API, so `investigate` still works
+in a repo whose origin is not GitHub or missing. `DispatchWorktree.pushable`
+marks the difference, because `salvage` pushes whatever a failed session left
+behind and a read tier's leftovers must never become a branch.
+
+Two honest limits. The claim is isolation of the **working tree** only: the
+worktree shares `.git` and nothing confines the session's `Bash` to the
+filesystem below it — what it buys is that the natural spelling of an injected
+write lands somewhere nobody reads. And an episode no longer sees untracked or
+gitignored files (`cron/jobs.json`, `briefing-state.json`, a local `.env`);
+`_common.md` tells it to report that dependency rather than conclude the file is
+missing.
 
 **One thing this design did not anticipate.** `~/.gitconfig` on the mini includes
 `~/.gitconfig-headless`, which points the GitHub credential helper at the offline
@@ -162,6 +193,20 @@ What is genuinely new in sideclaw: write-mode sessions with worktree isolation
 and a git push. `check`/`review` are read-only, so the branch/PR path has no
 precedent there and needs its own care (git identity via `~/.gitconfig-headless`,
 `op://mini/github/token`).
+
+**The push bounds are the handler's, and that includes the secret scan.** Before
+`implement` pushes, `diffRefusalReason` refuses a diff that touches
+`.github/workflows|actions`, exceeds 40 files or 2000 lines, or whose **added
+lines** match `SECRET_PATTERNS`. The last one is not left to the repo's own
+`pre-commit` hook — which is also why the commit is `--no-verify`: a hook is
+repo-controlled code and an implement episode may be running in a repo whose hook
+it just wrote, so a check the audited party supplies is not a check. It scans the
+diff and not only the PR body, because the code is the durable half — a pushed
+branch is permanent and, unlike a description, cannot be edited away. Added lines
+only, so a credential the base already carried does not disable the tier in the
+repo that needs fixing; a secret merely *moved* between files is the limit that
+buys. A refused diff is discarded and the verdict says why: a successful run with
+no artifact, not a failure.
 
 ### hermes-agent — the bounded client
 

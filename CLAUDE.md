@@ -106,8 +106,13 @@ Design: `docs/dispatch-bridge.md`. The episode itself is sideclaw's `dispatch` j
   shell line and expanded *before* the script ran, so a `$(...)` in a Slack message would
   execute. The skill teaches the `<<'BRIEF'` form.
 - **All three tiers are built** (Phase 4). `investigate` read-only → verdict; `author`
-  read-only → verdict + one filed GitHub issue; `implement` → an isolated worktree, a
-  `dispatch/…` branch and a **draft** PR. A tier above a repo's ceiling is refused (exit 4),
+  read-only → verdict + one filed GitHub issue; `implement` → a `dispatch/…` branch and a
+  **draft** PR. **Every tier runs in its own throwaway worktree**, not just `implement` — a
+  read tier's `readOnly: true` removes Edit and Write but not `Bash`, and the brief carries
+  attacker-influenced text, so a read episode in the live checkout was one injected `sed -i`
+  away from editing a repo that deploys on push. It costs no capability; the read tiers get a
+  copy of HEAD needing no identity and no network (`docs/dispatch-bridge.md` § "The read
+  tiers get a worktree too"). A tier above a repo's ceiling is refused (exit 4),
   never downgraded. `config/dispatch-repos.json` sets those ceilings and states its own
   rationale: `defaultTier` is **`implement`**, with a single `investigate` floor for
   `dotfiles`/`vps`/`homelab`, the machine's own control plane. **There is no `implement`
@@ -123,7 +128,10 @@ Design: `docs/dispatch-bridge.md`. The episode itself is sideclaw's `dispatch` j
   PR, `--why` **and** `--confirm` — and nothing reaches a default branch without the
   separate `merge` verb. Worst unattended outcome is a draft PR nobody wanted, which costs
   one click. The handler-side secret scan still *refuses* — never redacts — a brief carrying
-  credentials, and the skill instructs the agent to summarize rather than quote.
+  credentials, and the skill instructs the agent to summarize rather than quote. It now also
+  covers the **diff's added lines**, so an episode cannot inline a credential into the branch
+  it pushes; that check is the handler's and deliberately not the repo's `pre-commit` hook,
+  since the episode may be running in a repo whose hook it just wrote.
 - **`implement` needs `--why` AND `--confirm`.** Without `--confirm` the verb prints its
   exact plan — including a `wouldNeverDo` list — and exits **0** having changed nothing.
   Exit 0 because printing the plan *is* the successful outcome of that request; a non-zero
