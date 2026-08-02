@@ -1,5 +1,5 @@
 diff --git a/tools/tirith_security.py b/tools/tirith_security.py
-index a07d3f817..66d244c58 100644
+index a07d3f817..d8615b89a 100644
 --- a/tools/tirith_security.py
 +++ b/tools/tirith_security.py
 @@ -25,6 +25,8 @@ import json
@@ -11,7 +11,7 @@ index a07d3f817..66d244c58 100644
  import shutil
  import stat
  import subprocess
-@@ -719,6 +721,476 @@ def ensure_installed(*, log_failures: bool = True):
+@@ -719,6 +721,756 @@ def ensure_installed(*, log_failures: bool = True):
      return None  # Not available yet; commands will fail-open until ready
  
  
@@ -35,7 +35,7 @@ index a07d3f817..66d244c58 100644
 +    "argo.jkrumm.com", "karakeep.jkrumm.com", "research.jkrumm.com",
 +})
 +
-+# LOCAL MODIFICATION (patches/tirith-argo-allowlist-and-download-guard.patch):
++# LOCAL MODIFICATION (patches/tirith-hermes-guards.patch):
 +# ---------------------------------------------------------------------------
 +# tirith blocks `curl URL | sh` (rule curl_pipe_shell, MITRE T1059.004) but
 +# NOT the trivially equivalent two-step form. Verified against the tirith
@@ -103,7 +103,7 @@ index a07d3f817..66d244c58 100644
 +    return re.sub(r"^//+", "/", normalised)
 +
 +
-+# LOCAL MODIFICATION (patches/tirith-argo-allowlist-and-download-guard.patch):
++# LOCAL MODIFICATION (patches/tirith-hermes-guards.patch):
 +# Programs that ARE a coding agent. Hermes must never invoke one directly from the
 +# terminal tool — see _raw_agent_invocation_reason for why this is a block and not
 +# a warning.
@@ -216,6 +216,286 @@ index a07d3f817..66d244c58 100644
 +                    if inner:
 +                        return f"{inner} inside `{base} -c`"
 +    return ""
++
++
++# LOCAL MODIFICATION (patches/tirith-hermes-guards.patch):
++# Repo mutation must go through hermes-cc.sh. See _repo_write_reason for why.
++#
++# A DENYLIST of git verbs, not an allowlist of read verbs, because git has ~150
++# subcommands and the read ones are the long tail: blocking what writes leaves
++# `log`, `status`, `diff`, `show`, `blame`, `grep`, `rev-parse`, `for-each-ref`
++# and every other inspection working untouched, which is the whole point — the
++# agent still reads repos freely.
++_GIT_WRITE_VERBS = frozenset({
++    "commit", "push", "merge", "rebase", "reset", "revert", "cherry-pick",
++    "am", "apply", "checkout", "switch", "restore", "clean", "rm", "mv", "add",
++    "worktree", "update-ref", "update-index", "symbolic-ref", "filter-branch",
++    "filter-repo", "gc", "prune", "reflog", "fast-import", "replace", "notes",
++    "submodule", "cherry", "format-patch", "send-email", "daemon",
++    # `clone` and `init` are here for a policy reason, not a safety one: the
++    # dispatch policy DISCOVERS repos under ~/SourceRoot, so creating a checkout
++    # there creates a dispatchable target. That decision is Johannes's.
++    "clone", "init",
++})
++# Verbs that are a read in one spelling and a write in another. Each maps to the
++# argument shapes that are reads; anything else is a write.
++_GIT_DUAL_VERBS = {
++    "branch": None,   # read only while every argument is a listing flag
++    "tag": None,
++    "stash": frozenset({"list", "show"}),
++    "remote": frozenset({"-v", "--verbose", "show", "get-url"}),
++    "config": frozenset({"--get", "--get-all", "--get-regexp", "--list", "-l"}),
++}
++# Listing flags that keep `git branch` / `git tag` a read.
++_GIT_LIST_FLAGS = frozenset({
++    "-a", "--all", "-l", "--list", "-r", "--remotes", "-v", "-vv", "--verbose",
++    "-i", "--ignore-case", "--merged", "--no-merged", "--contains",
++    "--no-contains", "--points-at", "--show-current", "--sort", "--format",
++})
++# Of those, the ones that take a value. Without this the value is read as a bare
++# name — so `git branch --list --contains HEAD` looks like `git branch HEAD`,
++# which is branch creation, and a routine read gets an approval gate.
++_GIT_LIST_FLAGS_WITH_VALUE = frozenset({
++    "--merged", "--no-merged", "--contains", "--no-contains", "--points-at",
++    "--sort", "--format",
++})
++# `gh` subcommands that change something. Same denylist reasoning as git.
++_GH_WRITE_SUBCOMMANDS = frozenset({
++    "create", "merge", "close", "delete", "edit", "comment", "review", "ready",
++    "reopen", "rename", "transfer", "archive", "unarchive", "set", "upload",
++    "run", "sync", "clone", "fork", "add", "remove", "restore", "checkout",
++    "lock", "unlock", "pin", "unpin", "revoke", "disable", "enable", "rerun",
++    "cancel", "approve", "publish", "release",
++})
++_MUTATING_HTTP_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
++_GITHUB_API_HOSTS = ("api.github.com", "uploads.github.com")
++# Commands whose LAST argument is a command line to be run somewhere else.
++_REMOTE_SHELLS = frozenset({"ssh", "mosh"})
++
++# THE ONE EXEMPTION, and it is not a convenience.
++#
++# `~/SourceRoot/brain` is the Obsidian vault. Its skill instructs the agent to
++# commit after writing ("a write isn't durable until it's committed"), because on
++# this machine the sync LaunchAgent pulls and pushes but never commits. And the
++# vault is in the dispatch policy's `deny` list — so for this one repo the guard's
++# whole premise is false: there is no bounded path to redirect to, and the refusal
++# would tell the agent to dispatch into a repo that refuses dispatches. That is a
++# dead end, not a bound.
++#
++# The exemption is deliberately narrow: the command must NAME the vault, either
++# with `git -C <vault>` or by `cd`-ing there in the same command. A bare
++# `git commit` is still blocked, because a bare `git commit` is exactly the shape
++# that landed on dispatch-scratch's master — it inherits a working directory the
++# command never states, so nothing about it can be verified from the command.
++_VAULT_SUFFIX = os.path.join("SourceRoot", "brain")
++
++
++def _is_vault_path(path: str) -> bool:
++    """True when *path* is the brain vault or something inside it."""
++    if not path:
++        return False
++    expanded = os.path.expanduser(path.replace("$HOME", "~"))
++    normalised = _dte_norm(expanded)
++    return normalised.endswith(_VAULT_SUFFIX) or _VAULT_SUFFIX + os.sep in normalised + os.sep
++
++
++def _git_verb_is_write(tokens: list) -> str:
++    """Return the offending git verb when *tokens* (a git argv) writes."""
++    i = 1
++    # Skip git's own global flags. `-C <dir>` and `-c <k=v>` take a value, and
++    # `-C` is exactly how a write reaches a repo the command never `cd`s into.
++    while i < len(tokens):
++        tok = tokens[i]
++        if tok in ("-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path"):
++            i += 2
++            continue
++        if tok.startswith("-"):
++            i += 1
++            continue
++        break
++    if i >= len(tokens):
++        return ""
++    verb = tokens[i]
++    if verb in _GIT_WRITE_VERBS:
++        return verb
++    if verb in _GIT_DUAL_VERBS:
++        args = tokens[i + 1:]
++        if not args:
++            return ""  # bare `git branch` / `git tag` / `git stash` list
++        allowed = _GIT_DUAL_VERBS[verb]
++        if allowed is None:
++            # branch/tag: a read only while EVERY argument is a listing flag (or
++            # the value one of them takes). A bare name is `git tag v1` — which
++            # creates one.
++            expect_value = False
++            for arg in args:
++                if expect_value:
++                    expect_value = False
++                    continue
++                base_flag = arg.split("=", 1)[0]
++                if base_flag not in _GIT_LIST_FLAGS:
++                    return verb
++                expect_value = base_flag in _GIT_LIST_FLAGS_WITH_VALUE and "=" not in arg
++            return ""
++        for arg in args:
++            if arg.split("=", 1)[0] in allowed:
++                return ""
++        return verb
++    return ""
++
++
++def _git_targets_vault(tokens: list, in_vault: bool) -> bool:
++    """True when this git argv is explicitly scoped to the brain vault.
++
++    Either `git -C <vault> …`, or an earlier `cd <vault>` in the same command
++    line. An explicit `-C` elsewhere always wins over the `cd`, so
++    `cd ~/SourceRoot/brain && git -C ~/SourceRoot/argo push` is still a block.
++    """
++    for j, tok in enumerate(tokens):
++        if tok == "-C" and j + 1 < len(tokens):
++            return _is_vault_path(tokens[j + 1])
++        if tok.startswith("--git-dir=") or tok.startswith("--work-tree="):
++            return _is_vault_path(tok.split("=", 1)[1])
++    return in_vault
++
++
++def _gh_is_write(tokens: list) -> str:
++    """Return the offending `gh` shape when *tokens* mutates something.
++
++    An ISSUE is not a repo write and is deliberately allowed. `gh issue create` is
++    the `capture` skill's sanctioned path, `claude-dispatch` routes to it by name
++    ("open an issue for X … do not dispatch"), and the `author` tier files one
++    ungated for the same reason: an issue changes nothing that runs and is closed
++    in two seconds. What this blocks is everything that changes the code or its
++    delivery — pull requests, releases, workflows, repo settings, contents.
++    """
++    args = [t for t in tokens[1:] if not t.startswith("-")]
++    flags = [t for t in tokens[1:] if t.startswith("-")]
++    if args and args[0] == "issue":
++        return ""
++    if args and args[0] == "api":
++        # `gh api` is a GET unless told otherwise. `-f`/`-F`/`--input` imply POST.
++        for j, tok in enumerate(tokens):
++            if tok in ("-X", "--method") and j + 1 < len(tokens):
++                if tokens[j + 1].upper() in _MUTATING_HTTP_METHODS:
++                    return f"gh api -X {tokens[j + 1].upper()}"
++            if tok.startswith("--method="):
++                if tok.split("=", 1)[1].upper() in _MUTATING_HTTP_METHODS:
++                    return f"gh api {tok}"
++        if any(f in ("-f", "-F", "--field", "--raw-field", "--input") for f in flags):
++            return "gh api with a request body"
++        return ""
++    # Only the immediate subcommand — `gh <command> <subcommand>` is gh's grammar.
++    # Scanning every non-flag token would read FLAG VALUES as subcommands, so
++    # `gh pr list --search "add"` would trip on its own search term.
++    if len(args) >= 2 and args[1] in _GH_WRITE_SUBCOMMANDS:
++        return f"gh {args[0]} {args[1]}"
++    return ""
++
++
++def _curl_github_write(tokens: list) -> str:
++    """Return a reason when a curl/wget call writes through the GitHub API."""
++    joined = " ".join(tokens)
++    if not any(host in joined for host in _GITHUB_API_HOSTS):
++        # The GraphQL endpoint is on api.github.com too, so the host test covers
++        # it; github.com itself serves no write API worth guarding here.
++        return ""
++    # Same issue exemption as `gh`, for consistency: filing or commenting on an
++    # issue changes nothing that runs. Note GitHub serves PR comments from the
++    # /issues path too — that is fine, a comment is not a repo write either.
++    if "/issues" in joined:
++        return ""
++    for j, tok in enumerate(tokens):
++        if tok in ("-X", "--request") and j + 1 < len(tokens):
++            if tokens[j + 1].upper() in _MUTATING_HTTP_METHODS:
++                return f"GitHub API {tokens[j + 1].upper()}"
++        if tok.startswith("--request="):
++            if tok.split("=", 1)[1].upper() in _MUTATING_HTTP_METHODS:
++                return "GitHub API " + tok.split("=", 1)[1].upper()
++    # A body implies POST even with no -X.
++    for tok in tokens:
++        base = tok.split("=", 1)[0]
++        if base in ("-d", "--data", "--data-binary", "--data-raw", "--data-urlencode",
++                    "-F", "--form", "-T", "--upload-file", "--post-file"):
++            return "GitHub API call carrying a request body"
++    return ""
++
++
++def _repo_write_reason(command: str, _depth: int = 0) -> str:
++    """Return a human reason when *command* mutates a repo outside the bridge.
++
++    Empty string means "no such shape" — the caller falls through to tirith.
++
++    WHY THIS IS A BLOCK, and why it is unconditional rather than path-scoped.
++    Observed live on 2026-08-02, in the same session that proved the merge verb:
++    asked in Slack to fix a README "implement tier", the agent read the repo, saw
++    the branches two earlier dispatched episodes had left, said in as many words
++    *"I'll put the fix on master directly"*, edited the file with the terminal
++    tool, committed, hit a push rejection because the remote had moved, fetched,
++    rebased, and pushed. Nine turns, no `hermes-cc.sh`, no audit line. Every bound
++    the bridge exists to impose — tier ceilings, worktree isolation, never pushing
++    to a default branch, draft-PR-only, the merge verb's own checks, three daily
++    budgets — was simply not involved. It is the `claude -p` incident one layer
++    down: that one blocked the raw AGENT, this blocks the raw REPO WRITE.
++
++    It is unconditional because it cannot be otherwise. `git commit -m x` names no
++    path; the repo comes from the terminal tool's working directory, which is not
++    in the command string. A path-scoped rule would be trivially evaded by `cd`
++    first — which is exactly what happened here. So every git write is refused and
++    the agent is pointed at the dispatcher, which is the only sanctioned way a repo
++    changes. Reads are untouched: the denylist is verbs that write.
++
++    Never raises: an unparseable command returns "" and defers, exactly like the
++    agent and download guards.
++    """
++    if not command or _depth > 2:
++        return ""
++    if not any(tok in command for tok in ("git", "gh", "github.com")):
++        return ""
++
++    # Tracks whether an earlier segment of THIS command line put us in the vault.
++    # Only a `cd` that names it counts; the terminal tool's inherited working
++    # directory is invisible here and must never be assumed to be anything.
++    in_vault = False
++
++    for tokens in _repo_write_segments(command):
++        tokens = _strip_agent_wrappers(tokens)
++        if not tokens:
++            continue
++        base = os.path.basename(tokens[0])
++        if base == "cd":
++            in_vault = len(tokens) > 1 and _is_vault_path(tokens[1])
++            continue
++        if base == "git":
++            verb = _git_verb_is_write(tokens)
++            if verb and not _git_targets_vault(tokens, in_vault):
++                return f"`git {verb}`"
++        elif base == "gh":
++            shape = _gh_is_write(tokens)
++            if shape:
++                return f"`{shape}`"
++        elif base in _DOWNLOAD_PROGRAMS:
++            shape = _curl_github_write(tokens)
++            if shape:
++                return shape
++        elif base in _AGENT_INTERPRETERS:
++            for j, tok in enumerate(tokens):
++                if tok == "-c" and j + 1 < len(tokens):
++                    inner = _repo_write_reason(tokens[j + 1], _depth + 1)
++                    if inner:
++                        return f"{inner} inside `{base} -c`"
++        elif base in _REMOTE_SHELLS and len(tokens) > 2:
++            # `ssh host "cd ~/SourceRoot/x && git commit"` is the same act with a
++            # hop in front of it. The remote command is the last argument.
++            inner = _repo_write_reason(tokens[-1], _depth + 1)
++            if inner:
++                return f"{inner} over `{base}`"
++    return ""
++
++
++def _repo_write_segments(command: str) -> list:
++    """Split *command* into argv lists, quote-aware. Same shape as _agent_segments."""
++    return _agent_segments(command)
 +
 +
 +def _download_then_execute_reason(command: str) -> str:
@@ -488,11 +768,11 @@ index a07d3f817..66d244c58 100644
  # ---------------------------------------------------------------------------
  # Main API
  # ---------------------------------------------------------------------------
-@@ -744,6 +1216,59 @@ def check_command_security(command: str) -> dict:
+@@ -744,6 +1496,91 @@ def check_command_security(command: str) -> dict:
      if not cfg["tirith_enabled"]:
          return {"action": "allow", "findings": [], "summary": ""}
  
-+    # LOCAL MODIFICATION (patches/tirith-argo-allowlist-and-download-guard.patch):
++    # LOCAL MODIFICATION (patches/tirith-hermes-guards.patch):
 +    # close tirith's download-then-execute gap. Deliberately placed BEFORE the
 +    # circuit breaker and the argo allowlist, so it still holds when tirith is
 +    # unavailable/fail-open and can never be bypassed by an allowlisted host.
@@ -519,6 +799,38 @@ index a07d3f817..66d244c58 100644
 +                              "matched": command[:200]}],
 +            }],
 +            "summary": "raw coding-agent invocation blocked (local hardening)",
++        }
++
++    # Same family as the guard above, one layer down: that one stops the agent
++    # composing its own episode, this one stops it skipping the episode entirely
++    # and writing to the repo itself. Placed before the circuit breaker for the
++    # same reason — a tirith that is down must not open this.
++    _repo_reason = _repo_write_reason(command)
++    if _repo_reason:
++        return {
++            "action": "block",
++            "findings": [{
++                "rule_id": "raw_repo_write",
++                "severity": "HIGH",
++                "title": "Repo mutated outside the dispatch bridge",
++                "description": (
++                    f"Command writes to a repository directly ({_repo_reason}). "
++                    "Repo changes go through the bounded dispatcher instead:\n"
++                    "  ~/.hermes/scripts/hermes-cc.sh dispatch <repo> --tier implement "
++                    "--why \"…\" --confirm\n"
++                    "  ~/.hermes/scripts/hermes-cc.sh merge <job-id> --why \"…\" --confirm\n"
++                    "A direct write bypasses the per-repo tier ceiling, worktree "
++                    "isolation, the never-push-to-a-default-branch rule, the draft-PR "
++                    "gate, the merge checks, the daily budgets and the audit log — the "
++                    "change lands looking fine while nothing that was supposed to bound "
++                    "it ran. Reading repos is unaffected: `git log`, `git diff`, "
++                    "`git status`, `git show` and every other inspection still work."
++                ),
++                "evidence": [{"type": "command_pattern",
++                              "pattern": "repo write outside the dispatch bridge",
++                              "matched": command[:200]}],
++            }],
++            "summary": "raw repo write blocked (local hardening)",
 +        }
 +
 +    _dte_reason = _download_then_execute_reason(command)
@@ -548,11 +860,11 @@ index a07d3f817..66d244c58 100644
      # Circuit breaker: if tirith has crashed _CRASH_LIMIT times in a row,
      # stop trying for the rest of the process.  Without this, a corrupted
      # or missing binary causes every tool call to hit the same spawn failure
-@@ -752,6 +1277,11 @@ def check_command_security(command: str) -> dict:
+@@ -752,6 +1589,11 @@ def check_command_security(command: str) -> dict:
      if _circuit_open:
          return {"action": "allow", "findings": [], "summary": "tirith disabled (circuit breaker)"}
  
-+    # LOCAL MODIFICATION (patches/tirith-argo-allowlist-and-download-guard.patch):
++    # LOCAL MODIFICATION (patches/tirith-hermes-guards.patch):
 +    # trusted personal API pipelines bypass tirith entirely.
 +    if _is_argo_only_pipeline(command):
 +        return {"action": "allow", "findings": [], "summary": "trusted personal API pipeline (tirith bypassed)"}

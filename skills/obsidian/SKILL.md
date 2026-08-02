@@ -196,4 +196,10 @@ The `capture` skill routes; this is the shared model:
 - **The `daily:*` and `template:*`/`templates` CLI verbs are dead.** Their backing core plugins (`daily-notes`, `templates`) are disabled and the `02_Daily/`/`09_Templates/` folders were removed 2026-08-02. Never call them. If asked to "add to my daily note", say daily notes were retired rather than improvising a location.
 - **Confirm before delete, move, or overwrite** an existing note. Prefer `append`/`property:set` over rewriting a whole file.
 - **Sync is git, not automatic.** A LaunchAgent pulls and pushes `~/SourceRoot/brain` every 5 minutes; on this Mac Mini it never auto-commits. A write isn't durable until it's committed — after writing, commit (the human reviews `git diff`).
+- **Always name the vault in the git command — `git -C ~/SourceRoot/brain …`.** A bare `git commit` is **refused** by the local repo-write guard (`raw_repo_write`), which blocks every git write that does not state which repo it is writing to. That guard exists because Hermes was observed committing straight to a code repo's `master` instead of using the dispatch bridge. The vault is the single exemption — it is denied by the dispatch policy, so there is no episode to route through — but the exemption only applies when the command *names* it:
+  ```bash
+  git -C ~/SourceRoot/brain add -A
+  git -C ~/SourceRoot/brain commit -m "note: <what changed>"
+  ```
+  Every other repo under `~/SourceRoot` is off-limits to git writes entirely; those go through `claude-dispatch`.
 - **Reading on the Kobo e-reader** (selected vault notes → KOReader) is a separate, planned surface (Readeck, Phase 4) — not this skill yet.

@@ -3,7 +3,7 @@
 
 Covers `_download_then_execute_reason()` in
 `~/.hermes/hermes-agent/tools/tirith_security.py`, installed by
-`patches/tirith-argo-allowlist-and-download-guard.patch`.
+`patches/tirith-hermes-guards.patch`.
 
 This guard is the only thing standing between a prompt-injected two-step
 `curl … && sh …` and execution — tirith itself blocks the pipe form only.  It

@@ -3,7 +3,7 @@
 
 Covers `_raw_agent_invocation_reason()` in
 `~/.hermes/hermes-agent/tools/tirith_security.py`, installed by
-`patches/tirith-argo-allowlist-and-download-guard.patch`.
+`patches/tirith-hermes-guards.patch`.
 
 WHY THIS GUARD EXISTS. On 2026-08-02, handed the `claude-dispatch` skill, Hermes
 read it, understood the task, and then composed its own prompt and ran `claude -p`

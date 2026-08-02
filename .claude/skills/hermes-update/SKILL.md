@@ -42,7 +42,7 @@ Files touched (all are `.patch` files applied with `git apply` — no full-file 
 | `gateway/platforms/base.py` | `patches/slack-media-inline-reply-anchor.patch` | pass text reply anchor to media senders so attachments don't thread |
 | `cron/scheduler.py` | `patches/scheduler-skip-resolver-for-slack-ids.patch` | skip channel resolver for raw `C…` IDs |
 | `run_agent.py` | `patches/run-agent-third-party-endpoint-token-refresh.patch` | broaden third-party endpoint skip to all non-anthropic.com hosts |
-| `tools/tirith_security.py` | `patches/tirith-argo-allowlist-and-download-guard.patch` | two local rules: allowlist argo-only pipelines past tirith **and** block download-then-execute (renamed from `tirith-allowlist-argo-pipes.patch` at v0.19.0) |
+| `tools/tirith_security.py` | `patches/tirith-hermes-guards.patch` | two local rules: allowlist argo-only pipelines past tirith **and** block download-then-execute (renamed from `tirith-allowlist-argo-pipes.patch` at v0.19.0) |
 | `tools/cronjob_tools.py` | `patches/cronjob-tools-allowlist-argo-bearer.patch` | allowlist argo bearer curls past the cron-prompt scanner |
 | `tools/tts_tool.py` | `patches/tts-tool-audio-title.patch` | name the audio file from the audio-gateway's `X-Audio-Title` header (DeepSeek-V4-Pro title from the gateway's prep step) instead of `tts_<timestamp>` |
 
@@ -398,7 +398,7 @@ A basic "send a message and see a reply" check doesn't exercise most of the patc
 | Check | Drives | Confirms | What to look for |
 |-|-|-|-|
 | General question (method A, e.g. "what's on my TickTick") | Core agent loop, unaffected by any patch | Update didn't break routing/skills at all | Clean 200 response, `Turn ended: reason=text_response` in `agent.log` |
-| Infra/argo question that triggers a `curl \| jq`/`python3` pipe (method A, e.g. "infra status") | `tirith-argo-allowlist-and-download-guard.patch` | Argo pipelines still bypass tirith | `tool terminal completed` in `agent.log`, **zero** hits for `grep -i "approval\|blocked" gateway.log` around that timestamp — a hit means the patch didn't re-apply |
+| Infra/argo question that triggers a `curl \| jq`/`python3` pipe (method A, e.g. "infra status") | `tirith-hermes-guards.patch` | Argo pipelines still bypass tirith | `tool terminal completed` in `agent.log`, **zero** hits for `grep -i "approval\|blocked" gateway.log` around that timestamp — a hit means the patch didn't re-apply |
 | Any request routed through real Slack (method B — HomeLab synthetic sender), containing a raw `*` list marker in the model's likely output | `format_message()` pre-steps in `plugins/platforms/slack/adapter.py` | mrkdwn normalization ported to the new adapter path | Fetch the posted message (`GET /api/slack/channels/:id/messages` via argo) — bullets render as `-`, not `*` |
 | "Say/speak X out loud" (method B) | `tts-tool-audio-title.patch` + `slack-media-inline-reply-anchor.patch` (base.py) | Title-naming works; media threads with its text reply | `agent.log` line `tools.tts_tool: TTS audio saved: .../<Human Title>.mp3` (not `tts_<timestamp>.mp3`); no errors after `[Slack] Sending response`; since v0.19.0 (`reply_in_thread: true`) the audio and the text reply share the **same `thread_ts`** — they must not land in different places |
 | A German-language message (method B) | Config only (`tts.openai.model` = Gemini TTS), not a patch | Charon still pronounces German natively, no translation | Manual listen — text-based checks above can't verify pronunciation |
