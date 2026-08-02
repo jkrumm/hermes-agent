@@ -1,6 +1,6 @@
 # Hermes Agent — Mac Mini M2 Pro
 
-Personal AI assistant running 24/7 on Mac Mini. Slack as interface, DeepSeek-V4-Flash as brain (EU; `claude-sonnet-4-6-eu` failover), nine skill domains.
+Personal AI assistant running 24/7 on Mac Mini. Slack as interface, DeepSeek-V4-Flash as brain (EU; `claude-sonnet-4-6-eu` failover), eleven skill domains (`HERMES_SKILLS` in the Makefile is the count).
 
 **Hermes docs**: https://hermes-agent.nousresearch.com/docs/
 
