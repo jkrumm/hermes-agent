@@ -452,13 +452,97 @@ matrix:
   free_response_rooms: ''
   allowed_rooms: ''
 approvals:
-  mode: manual
-  timeout: 60
+  # Upstream's own default. An auxiliary LLM judges low-risk dangerous-pattern
+  # hits and auto-approves them; it fail-CLOSES to the human prompt whenever the
+  # verdict is ambiguous or the judge call errors, so the worst case is the
+  # `manual` behaviour we had before. Everything below `deny` (and the hardline
+  # floor) is out of the judge's reach entirely.
+  mode: smart
+  # Also the upstream default. Approvals arrive as a Slack message; 60s expired
+  # (= denied) before a phone was reached.
+  timeout: 300
   cron_mode: deny
+  # Unconditional floor, evaluated BEFORE the yolo / mode=off short-circuit and
+  # before smart mode ever runs (check_all_command_guards) — the LLM judge
+  # cannot override an entry here, and neither can /yolo.
+  #
+  # Semantics (tools/approval.py _match_user_deny_rule): case-insensitive
+  # fnmatch globs matched against the WHOLE normalized command, so every entry
+  # needs leading and trailing `*`. Matching runs over the same de-obfuscated
+  # variants the dangerous-pattern detector uses (`her\mes`, `con''fig`,
+  # `${IFS}` separators, `$HOME`/absolute-path folding all normalize first) and
+  # `*` spans newlines and shell operators — unlike command_allowlist, a
+  # compound or piped command does NOT disable the match.
+  #
+  # What normalization does NOT do, and every entry below has to survive:
+  # whitespace runs are never collapsed (`${IFS}` expands to ONE space, and the
+  # backslash-newline strip actively CREATES a double space out of the most
+  # natural long-command spelling), and quotes are only removed when the pair is
+  # empty — `-X 'DELETE'` keeps its quotes. So a literal single space between
+  # two words is a bypass waiting to happen: put `*` or `?` there instead.
+  # A miss here is total fail-open, not a downgrade to the smart judge — none of
+  # these shapes trips a dangerous pattern either.
+  deny:
+    # The path that rewrote this file. `hermes config set` has no approval gate
+    # at all — it is not a filesystem-write shape, so no dangerous pattern sees
+    # it — and it round-trips the YAML through plain PyYAML, destroying every
+    # comment. `set`/`unset`/`edit`/`migrate` are the writing subcommands;
+    # show/get/path/check stay allowed. The `*` before the subcommand (not a
+    # space) is what makes `hermes config  set`, a tab, and the line-continuation
+    # spelling match too; the trailing `set ` is what keeps `hermes config get
+    # model.settings` out.
+    - "*hermes*config*set *"
+    - "*hermes*config*unset *"
+    - "*hermes*config*edit*"
+    - "*hermes*config*migrate*"
+    # This file, by any spelling, read included. The terminal-side dangerous
+    # patterns only know the ~/.hermes/ spelling, so the symlink target
+    # (~/SourceRoot/hermes-agent/config.yaml) and a bare relative `config.yaml`
+    # were ungated. fnmatch has no alternation, so "write verb AND path" cannot
+    # be expressed without enumerating verbs — and any enumeration leaks (a
+    # `python3 -c` one-liner is not in it). One path-only glob is leak-free
+    # instead; the cost is that reading any config.yaml is blocked too, which
+    # no Hermes skill does.
+    - "*config.yaml*"
+    - "*gh repo delete*"
+    # Hermes reads container state through argo, never by driving docker. The
+    # `*` after `docker` covers the modern management-command spelling
+    # (`docker container rm -f`), which Docker's own docs have preferred since
+    # 1.13 and which the legacy-only glob missed entirely.
+    - "*docker*rm -f*"
+    - "*docker*rm --force*"
+    - "*docker rm *$(*"
+    - "*docker stop *$(*"
+    - "*docker*prune*"
+    # NOT here: `curl -X DELETE` / `-X PUT`. A tier of ten globs covering those
+    # was written and then removed, deliberately — record of why, so it does not
+    # get re-added on the next pass:
+    #   1. It broke real, documented flows. Deleting a TickTick task
+    #      (skills/argo-api/references/tasks.md) and PUT /user-profile
+    #      (references/garmin-health.md) are the agent acting on Johannes's own
+    #      data through a bearer-authenticated personal API. A `deny` entry is
+    #      unconditional — the reply is "cannot be executed, not even with
+    #      --yolo, do NOT retry or rephrase" — so there is no human path either.
+    #      A deny that blocks the owner's own routine writes is a bug.
+    #   2. It did not actually close the shape. `curl -sX 'DELETE'` has neither
+    #      an `-x` token nor an `xdelete` run and walked straight through. The
+    #      wider `*-x*delete*` catches it but also fires on `-X GET … jq
+    #      '.output'` and `-X POST … @input.json` (both contain `put` after an
+    #      `-x`), i.e. it trades a bypass for false denials on ordinary reads.
+    # Mutating HTTP against a bearer API is not the failure class this list is
+    # for. `deny` is the unconditional floor for actions with no recovery path
+    # and no legitimate agent use — the entries above. Ordinary API writes stay
+    # with the smart judge, which can escalate to a human.
   mcp_reload_confirm: true
   destructive_slash_confirm: true
-command_allowlist:
-  - script execution via -e/-c flag
+# command_allowlist is deliberately EMPTY — do not let it come back.
+# It held one entry, "script execution via -e/-c flag", which is a risk-REASON
+# label the approval prompt displays, not a command pattern. Persisted as an
+# allowlist entry it blanket-auto-approved every `python3 -c` / `perl -e` /
+# `ruby -e` / `node -e` with no prompt — precisely the classification of the
+# command that rewrote this config. The list is also loaded once at module
+# import and entries are only ever added, never removed, so a bad entry keeps
+# auto-approving inside a running gateway until it is restarted.
 hooks_auto_accept: false
 security:
   allow_private_urls: false
