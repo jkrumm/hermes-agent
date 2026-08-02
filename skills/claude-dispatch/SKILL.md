@@ -135,12 +135,18 @@ Johannes asks you to cancel something; do not imply the work stopped.
 questions are `investigate`. Reach past it only when the artifact is the point.
 
 Every repo also carries a ceiling, and the ceiling always wins over the request.
-`config/dispatch-repos.json` sets them: most repos default to `author`, a few are
-capped at `investigate` (`dotfiles`, `vps`, `homelab` — the machine's own control
-plane), a few permit `implement`, and a few are **denied outright** and cannot be
-dispatched to at any tier. A denial is deliberate, not an oversight — do not offer
+`config/dispatch-repos.json` sets them, and there are only two kinds of exception:
+`dotfiles`, `vps` and `homelab` are capped at `investigate` (the machine's own
+control plane — read-only there is deliberate), and a few repos are **denied
+outright** and cannot be dispatched to at any tier. Everything else permits every
+tier, up to `implement`. A denial is deliberate, not an oversight — do not offer
 to "add it", say it is not dispatchable. Same for a tier above a repo's ceiling:
 report the refusal, do not look for another way to do it.
+
+**A high ceiling is not a reason to reach for a high tier.** `implement` being
+permitted nearly everywhere is what makes the rule above matter more, not less:
+still pick the least powerful tier that produces what is actually wanted, and
+still get Johannes's explicit confirmation before any `implement` run.
 
 Repos are resolved by name under a single root, so a repo Johannes cloned
 yesterday is dispatchable today without anyone editing a list. **You still never

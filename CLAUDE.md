@@ -109,16 +109,21 @@ Design: `docs/dispatch-bridge.md`. The episode itself is sideclaw's `dispatch` j
   read-only → verdict + one filed GitHub issue; `implement` → an isolated worktree, a
   `dispatch/…` branch and a **draft** PR. A tier above a repo's ceiling is refused (exit 4),
   never downgraded. `config/dispatch-repos.json` sets those ceilings and states its own
-  rationale: `defaultTier` is **`author`**, with `implement` only where the bridge itself
-  lives (`hermes-agent`, `sideclaw`) plus `usage-tracker` and the scratch target, and an
-  `investigate` floor for `dotfiles`/`vps`/`homelab`, the machine's own control plane.
-  **`author` as the default means an unattended episode can file a world-readable issue on
-  a public repo with no human gate.** That is an owner decision (2026-08-02), not an
-  oversight: an issue is cheap to delete, and triage that finds a real defect should be able
-  to record it. The handler-side secret scan still *refuses* — never redacts — a brief
-  carrying credentials, and the skill instructs the agent to summarize rather than quote.
-  Revisiting it is one line: set `defaultTier` to `investigate` and list the author repos
-  under `tiers`.
+  rationale: `defaultTier` is **`implement`**, with a single `investigate` floor for
+  `dotfiles`/`vps`/`homelab`, the machine's own control plane. **There is no `implement`
+  allowlist** — there was one for about a day (`hermes-agent`, `sideclaw`, `usage-tracker`,
+  the scratch target) and it went the same way the repo inventory did (owner decision,
+  2026-08-02): a list that must be edited before the tool can do its job is a list that
+  will be stale exactly when it is needed. The point of the bridge is a system that heals
+  itself, and a default that stops short of proposing the fix makes it a system that files
+  tickets.
+  **So an unattended episode can file a world-readable issue, or open a draft PR, on a
+  public repo with no human gate.** Also an owner decision. What bounds `implement` is the
+  shape of the tier rather than this file — isolated worktree, `dispatch/…` branch, draft
+  PR, `--why` **and** `--confirm` — and nothing reaches a default branch without the
+  separate `merge` verb. Worst unattended outcome is a draft PR nobody wanted, which costs
+  one click. The handler-side secret scan still *refuses* — never redacts — a brief carrying
+  credentials, and the skill instructs the agent to summarize rather than quote.
 - **`implement` needs `--why` AND `--confirm`.** Without `--confirm` the verb prints its
   exact plan — including a `wouldNeverDo` list — and exits **0** having changed nothing.
   Exit 0 because printing the plan *is* the successful outcome of that request; a non-zero

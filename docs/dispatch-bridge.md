@@ -73,7 +73,8 @@ theatre — a read-only session in a git repo cannot lose anything.
 **`implement` always ends in a PR, in every repo, including direct-to-master
 ones.** This deviates from the repo's normal convention on purpose: a human wrote
 the direct-to-master rule for their own commits, not for an unattended agent's.
-Never merge, never push to a default branch.
+The episode never merges and never pushes to a default branch — landing the PR is
+the separate `merge` verb.
 
 ### Two deviations from this design, both deliberate (Phase 4, 2026-08-02)
 
@@ -175,7 +176,12 @@ Mirrors `hermes-ops.sh` exactly, because that pattern is already proven here:
   rather than enumerated, because the enumeration rotted — it listed 22 repos
   while 30 sat on disk, and a missing entry was indistinguishable from a
   deliberate denial. `dotfiles-private`, `homelab-private` and `brain` are
-  denied and stay denied.
+  denied and stay denied. `defaultTier` is `implement`; the only override left is
+  an `investigate` floor on `dotfiles`/`vps`/`homelab`. The `implement` allowlist
+  that briefly sat beside it was deleted for the same reason the inventory was —
+  a list you must edit before the tool can work is stale when it matters. What
+  bounds the tier is its shape (worktree, branch, draft PR, `--why` + `--confirm`)
+  and the separate `merge` verb, not a roster of repo names.
 - **`skills/claude-dispatch/SKILL.md`** — when to reach for which tier, and the
   hard rule that infra mutation is `homelab-ops`, never this.
 - **`scripts/dispatch-sweep.py`** — `no_agent` cron, every 5 min. Reads open
@@ -282,7 +288,10 @@ arbitrary code execution.
    confirmed, which in Slack means Hermes had to ask first. That is the gate.
 4. **Worktree isolation** on `implement`, so a bad episode never touches the live
    checkout other agents on the mini are using.
-5. **Never merge, never push to a default branch.** Branch + PR only.
+5. **The episode never merges and never pushes to a default branch.** Branch +
+   draft PR only. Landing it is the separate `merge` verb, which the episode
+   cannot call — it re-checks every bound against the current head, pins the head
+   SHA, refuses any PR-required repo, and carries its own tighter daily ceiling.
 6. **No secrets in a brief.** The episode resolves its own via `secrets-run`.
 7. **A daily dispatch budget** in `hermes-cc.sh`. `--max-budget-usd` is API-only
    and does **not** cap a Max session, so the ceiling has to be structural:
