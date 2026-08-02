@@ -1,5 +1,7 @@
 # Hermes Journal — PRD
 
+> **Blocked (2026-08-02):** the vault's `01_Journal/` folder was removed in the `03_Projects`/`04_Areas` → `Projects`/`Areas` PARA rename. Every write target below (`~/SourceRoot/brain/01_Journal/`, `01_Journal/JOURNAL.md`) referenced a folder that no longer exists. This plan needs a new target folder decided before Phase 3 (or any further work) can proceed.
+
 **Status:** v1.1 — Phase 1 complete, Phase 2 paused at pre-execution recon (postponed by Johannes)
 **Owner:** Johannes
 **Last updated:** 2026-05-13
