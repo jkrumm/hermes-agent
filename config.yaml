@@ -382,6 +382,25 @@ skills:
   inline_shell: false
   inline_shell_timeout: 10
   guard_agent_created: false
+  # Bundled skills kept out of this profile. Matched by exact skill name against
+  # the frontmatter name (skills_tool._is_skill_disabled), NOT by category dir —
+  # so the Apple category needs its four leaf skills listed individually.
+  # Deleting them is not enough: they are in ~/.hermes/skills/.bundled_manifest,
+  # so `hermes update` re-seeds anything it does not find. This list is what
+  # makes the removal stick.
+  #
+  # Apple: notes live in the Obsidian vault and tasks in TickTick, so Notes /
+  # Reminders automation would be a second place for the same thing. FindMy and
+  # iMessage are not jobs this agent has. Songwriting: unused.
+  # `mcp` (fastmcp / mcporter / oauth-gateway) needs no entry — it ships under
+  # optional-skills/, which is only ever seeded on an explicit
+  # `hermes skills repair-official`, never automatically.
+  disabled:
+    - apple-notes
+    - apple-reminders
+    - findmy
+    - imessage
+    - songwriting-and-ai-music
 curator:
   enabled: true
   interval_hours: 168
