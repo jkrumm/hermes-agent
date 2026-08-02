@@ -238,7 +238,63 @@ def db_connect() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    _ensure_events_dispatch_id_column(conn)
     return conn
+
+
+def _ensure_events_dispatch_id_column(conn: sqlite3.Connection) -> None:
+    """Additive migration for the dispatch-bridge watchdog projection (Phase 3,
+    docs/dispatch-bridge.md): `events.dispatch_id` is the reverse pointer to a
+    `dispatches` row (which itself points back via `origin_event_id`), letting
+    reconcile() ask "does this event already have an investigation in flight"
+    before it re-reminds. `CREATE TABLE IF NOT EXISTS` never adds a column to
+    an already-existing table, so this checks PRAGMA table_info and
+    ALTER TABLE-adds it exactly once — matching this file's existing
+    idempotent-DDL convention rather than introducing a migrations framework.
+    """
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(events)").fetchall()}
+    if "dispatch_id" not in cols:
+        conn.execute("ALTER TABLE events ADD COLUMN dispatch_id INTEGER")
+        conn.commit()
+
+
+def _dispatch_status(conn: sqlite3.Connection, dispatch_id: int | None) -> sqlite3.Row | None:
+    """Look up one dispatches row for the watchdog projection. None whenever
+    there's nothing to project: no dispatch_id set, the dispatches table
+    doesn't exist yet (hermes-cc.sh / dispatch-sweep.py may never have run on
+    a fresh mini), or the row is gone. Every caller treats None as "behave
+    exactly as before the dispatch bridge existed" — this must never raise,
+    since watchdog-poll.py is a 30-min production cron and a regression here
+    is an alerting outage, not a cosmetic miss.
+    """
+    if not dispatch_id:
+        return None
+    try:
+        return conn.execute(
+            "SELECT status, reported_at, verdict_json FROM dispatches WHERE id=?",
+            (dispatch_id,),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return None
+
+
+def _dispatch_summary(status: str | None, verdict_json: str | None) -> str:
+    """Render a completed dispatch's outcome for the reminder digest, in place
+    of a bare 'reminder #N'. Deterministic, no LLM — verdict_json is sideclaw's
+    own schema-shaped result object, persisted verbatim by dispatch-sweep.py."""
+    if status in ("failed", "interrupted"):
+        return f"dispatch {status}"
+    if not verdict_json:
+        return "dispatch finished, no verdict"
+    try:
+        v = json.loads(verdict_json)
+    except json.JSONDecodeError:
+        return "dispatch finished, verdict unreadable"
+    if not isinstance(v, dict):
+        return "dispatch finished, verdict unreadable"
+    if v.get("degraded"):
+        return "dispatch degraded (tool failure, not a repo finding)"
+    return (v.get("summary") or "").strip() or "dispatch finished, no summary"
 
 
 def cursor_get(conn: sqlite3.Connection, key: str) -> str | None:
@@ -744,7 +800,23 @@ def reconcile(conn: sqlite3.Connection, source: str, observed: list[dict[str, An
         elif reminder_h:
             anchor = row["last_reminder_at"] or row["notified_at"]
             if (now - dt.datetime.fromisoformat(anchor)).total_seconds() >= reminder_h * 3600:
-                reminder_events.append(dict(row))
+                # Dispatch-bridge projection (Phase 3): an event with an OPEN
+                # dispatch already has an investigation in flight, so
+                # re-reminding is noise — skip silently (don't bump the
+                # anchor either, so this just re-checks cheaply next poll
+                # instead of going quiet for a full reminder_h window). An
+                # event whose dispatch has CLOSED gets the outcome folded into
+                # the reminder instead of a bare "reminder #N" — see
+                # _dispatch_summary. dispatch is None (no dispatch_id, no
+                # table, row gone) behaves exactly as before this projection
+                # existed.
+                dispatch = _dispatch_status(conn, row["dispatch_id"])
+                if dispatch is not None and dispatch["reported_at"] is None:
+                    continue
+                d = dict(row)
+                if dispatch is not None:
+                    d["dispatch_summary"] = _dispatch_summary(dispatch["status"], dispatch["verdict_json"])
+                reminder_events.append(d)
                 cur.execute(
                     "UPDATE events SET last_reminder_at=?, reminder_count=reminder_count+1 WHERE id=?",
                     (now.isoformat(), row["id"]),
@@ -939,9 +1011,15 @@ def _render_bullet(item: dict[str, Any], kind: str, now: dt.datetime) -> str:
 
     # kind-specific suffixes
     if kind == "reminder":
-        rc = item.get("reminder_count") or 0
-        if rc:
-            body += f" — reminder #{rc}"
+        dispatch_summary = item.get("dispatch_summary")
+        if dispatch_summary:
+            # Dispatch-bridge projection: the investigation closed, so report
+            # its outcome instead of a bare "reminder #N".
+            body += f" — {dispatch_summary}"
+        else:
+            rc = item.get("reminder_count") or 0
+            if rc:
+                body += f" — reminder #{rc}"
 
     return body
 
@@ -998,10 +1076,15 @@ def fmt_block(label: str, items: list[dict[str, Any]]) -> str:
         title = it.get("title", "?")
         url = it.get("url") or ""
         rc = it.get("reminder_count")
+        dispatch_summary = it.get("dispatch_summary")
         suffix_parts = []
         if url:
             suffix_parts.append(url)
-        if rc:
+        if dispatch_summary:
+            # Dispatch-bridge projection: surfaces in the raw block too, so the
+            # cron prompt's LLM sees the closed investigation, not just a count.
+            suffix_parts.append(f"dispatch: {dispatch_summary}")
+        elif rc:
             suffix_parts.append(f"reminder#{rc}")
         suffix = f" ({', '.join(suffix_parts)})" if suffix_parts else ""
         lines.append(f"  - [{src}] {title}{suffix}")

@@ -1,6 +1,8 @@
 # Dispatch Bridge — Hermes hands work to Claude Code
 
-STATUS: design, not built (2026-08-02)
+STATUS: Phases 1-3 built and committed (2026-08-02). Phase 4 (`author`/`implement`) not started.
+See hermes-agent CLAUDE.md § "Dispatch Bridge" and sideclaw CLAUDE.md § "Dispatch Tool"
+for what actually shipped, including the deviations recorded below.
 
 **The claim:** Hermes should never do repo work, and Claude Code should never
 watch for it. Hermes observes and decides; Claude Code executes bounded episodes
@@ -162,13 +164,22 @@ Two delivery mechanisms, one message body:
 | under ~3 min (`investigate`) | Hermes polls in-turn and answers in the thread it is already in |
 | longer (`author`, `implement`) | the 5-min sweeper posts into `origin_thread_ts` |
 
-The sweeper posting into a Slack thread is not a dead end: since v0.19.0 one
-thread *is* one Hermes session, so replying to the verdict continues the
-conversation with full context. **To verify at build time:** whether a
-bot-authored message in a thread enters that session's context, or whether
-delivery must go through Hermes's own `--deliver slack:<C>:<thread_ts>` path
-(`patches/scheduler-skip-resolver-for-slack-ids.patch` suggests compound
-channel:thread targets are a real thing in the directory).
+**ANSWERED at build time (2026-08-02), and the answer is the less convenient one.**
+Compound `slack:<C>:<thread_ts>` targets are real — `cron/scheduler.py` parses them via
+`_parse_target_ref`, and the channel directory already lists live ones. Delivery works:
+the sweeper uses `hermes send --to slack:<C>:<thread_ts>`, which reuses gateway
+credentials and needs no LLM.
+
+But a message delivered that way does **not** enter the thread's session context.
+`plugins/platforms/slack/adapter.py:5381` drops the bot's own messages on ingest to
+prevent echo loops, keyed on the sender's user id — which a `chat.postMessage` with the
+Hermes bot token carries. Verified empirically: a threaded send succeeded and produced
+zero ingest events in the gateway log.
+
+So a sweeper-delivered verdict is visible to a human but invisible to the session. The
+compensation is in the skill: when a thread references a dispatch, Hermes re-reads it with
+`hermes-cc.sh status <job-id>`. The dispatch record is the durable copy; the Slack message
+is only a notification.
 
 ## Bounding
 

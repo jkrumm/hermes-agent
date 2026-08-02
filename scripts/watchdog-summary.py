@@ -16,6 +16,12 @@ from pathlib import Path
 
 DB_PATH = Path.home() / ".hermes" / "watchdog.db"
 
+# "Overnight" for the morning briefing: a dispatch that finished within this
+# many hours of the poll is still worth mentioning; older ones have already
+# been seen (delivered into their origin thread by dispatch-sweep.py, or
+# folded into a watchdog reminder) and would just be noise here.
+DISPATCH_RECENT_HOURS = 18
+
 
 def fmt_age(now: dt.datetime, iso: str) -> str:
     when = dt.datetime.fromisoformat(iso)
@@ -25,6 +31,67 @@ def fmt_age(now: dt.datetime, iso: str) -> str:
     if secs < 86400:
         return f"{int(secs / 3600)}h"
     return f"{int(secs / 86400)}d"
+
+
+def _dispatch_outcome_note(status: str, verdict_json: str | None) -> str:
+    """Same rendering intent as watchdog-poll.py's _dispatch_summary — kept as
+    its own small copy rather than a shared import, matching this repo's
+    existing convention of independent, self-contained cron scripts."""
+    if status in ("failed", "interrupted"):
+        return status
+    if not verdict_json:
+        return "done, no verdict"
+    try:
+        v = json.loads(verdict_json)
+    except json.JSONDecodeError:
+        return "done, verdict unreadable"
+    if not isinstance(v, dict):
+        return "done, verdict unreadable"
+    if v.get("degraded"):
+        return "degraded (tool failure, not a finding)"
+    return (v.get("summary") or "").strip() or "done, no summary"
+
+
+def emit_dispatches(conn: sqlite3.Connection, now: dt.datetime) -> None:
+    """Dispatch-bridge projection (Phase 3, docs/dispatch-bridge.md § 'Morning
+    briefing' row): what's still running, and what landed overnight. Emits
+    nothing at all -- not even an empty-bracket block -- when there is
+    nothing to say, so an ordinary morning with an idle dispatch bridge adds
+    zero lines to the briefing prompt. Conservative: any failure to read the
+    dispatches table (doesn't exist yet) is treated as "nothing to project,"
+    matching this script's read-only, never-mutating contract.
+    """
+    try:
+        open_rows = conn.execute(
+            "SELECT repo, tier, job_id, status, created_at FROM dispatches "
+            "WHERE status IN ('queued','running') ORDER BY created_at"
+        ).fetchall()
+        cutoff = (now - dt.timedelta(hours=DISPATCH_RECENT_HOURS)).isoformat()
+        recent_rows = conn.execute(
+            "SELECT repo, tier, job_id, status, verdict_json, finished_at FROM dispatches "
+            "WHERE finished_at IS NOT NULL AND finished_at >= ? ORDER BY finished_at DESC",
+            (cutoff,),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return  # dispatches table doesn't exist yet -- nothing to project
+
+    if not open_rows and not recent_rows:
+        return
+
+    if open_rows:
+        print("DISPATCHES_OPEN=[")
+        for r in open_rows:
+            age = fmt_age(now, r["created_at"])
+            print(f"  - {r['repo']} (tier {r['tier']}, {r['status']}) — running {age} — job {r['job_id'][:8]}")
+        print("]")
+
+    if recent_rows:
+        print("DISPATCHES_RECENT=[")
+        for r in recent_rows:
+            age = fmt_age(now, r["finished_at"])
+            note = _dispatch_outcome_note(r["status"], r["verdict_json"])
+            print(f"  - {r['repo']} (tier {r['tier']}) — finished {age} ago — {note}")
+        print("]")
 
 
 def main() -> int:
@@ -50,8 +117,6 @@ def main() -> int:
         (week_ago,),
     ).fetchall()
 
-    conn.close()
-
     print("WATCHDOG_AVAILABLE=true")
     if not open_rows:
         print("WATCHDOG_OPEN=[]")
@@ -72,6 +137,9 @@ def main() -> int:
         for r in resolved_7d:
             print(f"  - {r['source']}: {r['n']}")
         print("]")
+
+    emit_dispatches(conn, now)
+    conn.close()
     return 0
 
 

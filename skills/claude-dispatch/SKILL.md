@@ -137,6 +137,27 @@ denial, not an oversight, so do not offer to "add it"; say it is not allowlisted
 
 ---
 
+## A verdict the sweeper delivered is NOT in your context
+
+When an episode outruns the in-turn wait, the 5-minute sweeper posts the verdict into its
+origin thread. That message is authored by your own bot user, and Slack ingest drops your
+own messages to prevent echo loops — so **you can see it in the thread as a human does, but
+it is not in this session's history.**
+
+The practical consequence: if Johannes replies to a sweeper-delivered verdict ("so what
+should I do about that?", "is that the same as last week?"), you will be missing the thing
+he is replying to. Do not guess and do not ask him to paste it. Re-read it:
+
+```bash
+~/.hermes/scripts/hermes-cc.sh status <job-id> --json
+```
+
+`list open` and `list today` will find the job id when you do not have it — match on the
+repo and the timestamp. The dispatch record is the durable copy of every verdict; the Slack
+message is only a notification.
+
+---
+
 ## Reading the verdict
 
 ```json
