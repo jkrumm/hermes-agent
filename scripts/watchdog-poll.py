@@ -1,11 +1,13 @@
 """Watchdog poll — runs every 30 min as Hermes cron pre-run.
 
 Polls UptimeKuma, Docker (homelab + vps), GitHub, Slack #alerts/#updates,
-Hermes self-state, and 1Password ref health on homelab + vps (a no-op
+Hermes self-state, 1Password ref health on homelab + vps (a no-op
 `op run -- true` over the shared .env.tpl — detects a dangling ref directly,
 the failure class behind the 2026-08-01 outage, instead of inferring it hours
-later from silent heartbeats). Reconciles against ~/.hermes/watchdog.db (SQLite).
-Emits NEW=, REMINDERS=, RESOLVED= blocks for the LLM cron prompt.
+later from silent heartbeats), and stray agent-created skills under
+~/.hermes/skills/ (untracked, unreviewed — the failure class behind the
+2026-08-02 skill-sprawl cleanup). Reconciles against ~/.hermes/watchdog.db
+(SQLite). Emits NEW=, REMINDERS=, RESOLVED= blocks for the LLM cron prompt.
 
 Source of truth: ~/SourceRoot/hermes-agent/scripts/watchdog-poll.py
 ~/.hermes/scripts/ is itself a symlink to this directory (see make setup).
@@ -30,6 +32,10 @@ HERMES_HOME = Path.home() / ".hermes"
 DB_PATH = HERMES_HOME / "watchdog.db"
 STATE_PATH = HERMES_HOME / "scripts" / "briefing-state.json"
 JOBS_PATH = HERMES_HOME / "cron" / "jobs.json"
+CONFIG_PATH = HERMES_HOME / "config.yaml"
+SKILLS_DIR = HERMES_HOME / "skills"
+BUNDLED_MANIFEST_PATH = SKILLS_DIR / ".bundled_manifest"
+SKILL_USAGE_PATH = SKILLS_DIR / ".usage.json"
 
 API_BASE = "https://argo.jkrumm.com/api"
 GH_OWNER = "jkrumm"
@@ -63,6 +69,11 @@ REM_HOURS = {
     "hermes_log": 24,
     "op_refs_homelab": 6,
     "op_refs_vps": 6,
+    # Governance backlog, not an outage — matches github_issue's weekly cadence
+    # rather than uk/docker/op_refs's 6h operational urgency. Still needs to
+    # recur (not go silent for weeks): that silence is exactly how the
+    # 2026-08-02 stray (89 patches, 20x growth over 18 days) went unnoticed.
+    "stray_skill": 168,
 }
 
 HERMES_LOG_FILES = [
@@ -546,6 +557,147 @@ def poll_op_refs(host: str, remote_cmd: str) -> tuple[list[dict[str, Any]], bool
     ], True
 
 
+def _load_external_skill_dirs() -> list[Path]:
+    """Parse `skills.external_dirs` out of config.yaml with a line-scan.
+
+    The file has exactly one `external_dirs:` key, a plain YAML list of
+    `- ~/path` entries — simple enough that pulling in a YAML dependency isn't
+    worth it, matching this script's stdlib-only parsing elsewhere.
+    """
+    try:
+        text = CONFIG_PATH.read_text()
+    except OSError:
+        return []
+    dirs: list[Path] = []
+    in_block = False
+    for line in text.splitlines():
+        if re.match(r"^\s*external_dirs:\s*$", line):
+            in_block = True
+            continue
+        if not in_block:
+            continue
+        m = re.match(r"^\s*-\s*(.+?)\s*$", line)
+        if not m:
+            break  # first non-list-item line ends the block
+        dirs.append(Path(m.group(1)).expanduser())
+    resolved: list[Path] = []
+    for d in dirs:
+        try:
+            resolved.append(d.resolve())
+        except OSError:
+            continue
+    return resolved
+
+
+def _load_bundled_manifest_names() -> set[str]:
+    """Skill names synced from the bundled repo (`name:origin_hash` per line)."""
+    try:
+        lines = BUNDLED_MANIFEST_PATH.read_text().splitlines()
+    except OSError:
+        return set()
+    return {line.split(":", 1)[0].strip() for line in lines if line.strip()}
+
+
+def _load_skill_usage() -> dict[str, Any]:
+    try:
+        data = json.loads(SKILL_USAGE_PATH.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def poll_stray_skills() -> list[dict[str, Any]]:
+    """Detect skill dirs the background self-improvement pass created directly
+    under ~/.hermes/skills/, with no review path (see CLAUDE.md's external_dirs
+    paragraph — a skill symlinked from this repo is protected from the curator's
+    write guard; one the agent creates ad hoc under ~/.hermes/skills/ is not).
+
+    Scans two levels deep: a top-level skill dir (`<name>/SKILL.md`) or one
+    nested inside a bundled category dir (`<category>/<name>/SKILL.md` — real
+    layout for bundled/hub skills, and where the worst incident this closes
+    (`homelab-alerts`, 89 silent rewrites) was actually found, under `devops/`).
+    Depth is hard-bounded to those two levels — no further recursion.
+
+    A candidate is a stray only if ALL of:
+      - has its own SKILL.md
+      - is not a symlink (repo-symlinked skills are the protected, tracked ones)
+      - does not resolve under skills.external_dirs
+      - its name is absent from .bundled_manifest (the synced-bundled registry)
+      - .usage.json shows it was locally MUTATED: created_by == "agent", or
+        patch_count >= 1
+
+    That last condition is load-bearing, not redundant with the manifest check.
+    The live tree carries 19 dirs that are absent from .bundled_manifest by name
+    yet entirely legitimate — hub-installed, or seeded by an early
+    pre-manifest-tracking sync. Matching on the manifest alone flags all of
+    them. But 18 of the 19 have never been touched, so "has been locally
+    mutated" separates the two cleanly: exactly one candidate on the current
+    tree, against six real strays it would have caught.
+
+    Mutation is the right signal rather than authorship. `created_by == "agent"`
+    alone (skill_manager_tool.py sets it only inside the background curator
+    fork) catches the worst class — `homelab-alerts`, 89 silent rewrites — but
+    missed four of the six cleaned up on 2026-08-02: the curator's consolidations
+    of upstream skills carried created_by=None with 1-5 patches each. Those are
+    the same problem, a divergent local copy `hermes update` will never refresh,
+    and the patch count is what exposes them.
+    """
+    try:
+        if not SKILLS_DIR.is_dir():
+            return []
+        external_dirs = _load_external_skill_dirs()
+        manifest_names = _load_bundled_manifest_names()
+        usage = _load_skill_usage()
+
+        def _is_external(path: Path) -> bool:
+            try:
+                real = path.resolve()
+            except OSError:
+                return False
+            return any(real == ext or real.is_relative_to(ext) for ext in external_dirs)
+
+        candidates: list[Path] = []
+        for top in SKILLS_DIR.iterdir():
+            if not top.is_dir() or top.name.startswith("."):
+                continue
+            candidates.append(top)
+            if top.is_symlink():
+                continue  # a symlinked skill dir has no nested skills of its own
+            for nested in top.iterdir():
+                if nested.is_dir() and not nested.name.startswith("."):
+                    candidates.append(nested)
+
+        out: list[dict[str, Any]] = []
+        for cand in candidates:
+            if not (cand / "SKILL.md").is_file():
+                continue
+            if cand.is_symlink() or _is_external(cand):
+                continue
+            name = cand.name
+            if name in manifest_names:
+                continue
+            rec = usage.get(name) or {}
+            created_by = rec.get("created_by")
+            patch_count = rec.get("patch_count") or 0
+            if created_by != "agent" and patch_count < 1:
+                continue
+            relpath = cand.relative_to(SKILLS_DIR).as_posix()
+            origin = "agent-created" if created_by == "agent" else "locally patched"
+            out.append({
+                "external_id": name,
+                "title": (
+                    f"Stray skill '{name}' at {relpath} — {origin}, "
+                    f"{patch_count} patches, not under skills.external_dirs"
+                ),
+                "url": "",
+                "payload": {"path": relpath, "patch_count": patch_count, "created_by": created_by},
+            })
+        return out
+    except Exception as e:  # filesystem/config parsing must never take the poll down
+        print(f"watchdog: stray_skill probe raised: {e}", file=sys.stderr)
+        return []
+
+
 def reconcile(conn: sqlite3.Connection, source: str, observed: list[dict[str, Any]],
               now: dt.datetime, gate_min: int, reminder_h: int | None,
               track_resolution: bool = True) -> tuple[list[dict], list[dict], list[dict]]:
@@ -747,6 +899,7 @@ SOURCE_EMOJI = {
     "hermes_log": ":bug:",
     "op_refs_homelab": ":key:",
     "op_refs_vps": ":key:",
+    "stray_skill": ":ghost:",
 }
 
 SECTION_CAP = 8
@@ -893,6 +1046,9 @@ def _run_poll(conn: sqlite3.Connection, now: dt.datetime, env: dict[str, str],
         all_new += n; all_rem += r; all_res += res
 
     n, r, res = reconcile(conn, "hermes_cron", poll_hermes_cron(), now, 0, REM_HOURS["hermes_cron"])
+    all_new += n; all_rem += r; all_res += res
+
+    n, r, res = reconcile(conn, "stray_skill", poll_stray_skills(), now, 0, REM_HOURS["stray_skill"])
     all_new += n; all_rem += r; all_res += res
 
     log_groups = poll_hermes_logs(conn, now, now_iso)
