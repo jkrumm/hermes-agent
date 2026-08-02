@@ -130,9 +130,10 @@ cd ~/SourceRoot/hermes-agent && make setup
 make status
 ```
 
-`make setup` runs idempotently. Re-run after editing skills or cron scripts.
-Crontab entries are rewritten in place — existing hermes lines are replaced,
-unrelated entries are preserved.
+`make setup` runs idempotently and **non-interactively** — nothing in it blocks on a
+TCC prompt, so it can be driven by an agent on the headless mini rather than only by a
+human at the screen. Re-run after editing skills or cron scripts. A LaunchAgent whose
+rendered plist is unchanged is left alone, so re-running never bounces a healthy job.
 
 ### 7. Run Hermes Setup
 
@@ -146,13 +147,13 @@ hermes setup  # interactive — confirm LLM provider, voice, Slack
 hermes gateway install   # registers the LaunchAgent (label: ai.hermes.gateway) and starts the gateway
 ```
 
-> **launchd caveat (this macOS).** `hermes gateway install` (and `restart`) cannot
-> bootstrap the user-domain LaunchAgent here — it fails with
-> `Bootstrap failed: 5: I/O error` and the CLI automatically falls back to a healthy
-> bare background process (`hermes gateway run --replace`). Consequence: **no
-> auto-restart on crash and no start-at-login.** The safety net is the liveness agent
-> (every 5 min, §"Scheduled jobs — Liveness + Backup") → UptimeKuma push monitor
-> `Hermes Agent - Push`, which alerts on a missing heartbeat if the gateway dies.
+> **`Bootstrap failed: 5` is noise.** `hermes gateway install` still prints it while
+> repairing the service definition, and it used to mean the CLI had fallen back to a
+> bare background process with no auto-restart and no start-at-login. Since v0.19.0 it
+> does not: `hermes gateway status` reports the gateway genuinely **supervised by
+> launchd**, so both are live. Trust `gateway status`, not the install output. The
+> liveness agent (every 5 min, §"Scheduled jobs") → UptimeKuma `Hermes Agent - Push`
+> remains the backstop for a gateway that dies in a way launchd cannot recover.
 
 (Re)start manually with:
 
@@ -172,8 +173,8 @@ tail -20 ~/.hermes/logs/gateway.log  # watch for successful Slack connection
 - [x] Send message in `#hermes` on Slack — get response via DeepSeek-V4-Flash
 - [x] Send voice memo in Slack — get transcribed via audio-gateway (`gpt-4o-transcribe`)
 - [x] TTS audio generation — Gemini Charon via audio-gateway, MP3 output
-- [x] Backup cron — daily 03:00 rsync to `homelab:/mnt/hdd/backups/hermes/`, pings UK
-- [x] Liveness cron — every 5 min, pings UK if gateway running + Slack connected
+- [x] Backup agent — daily 03:00 rsync to `homelab:/mnt/hdd/backups/hermes/`, pings UK
+- [x] Liveness agent — every 5 min, pings UK if gateway running + Slack connected
 
 ### Known Issues / TODOs
 

@@ -31,6 +31,13 @@
 # com.jkrumm.log-rotate LaunchAgent by adding `hermes-ops.log` to the FILES array
 # in dotfiles/scripts/log-rotate.sh (that list is DECLARED, never globbed, so an
 # unregistered log is an unbounded log).
+#
+# TESTS: tests/test_hermes_ops.py (run with
+# `~/.hermes/hermes-agent/venv/bin/python3 tests/test_hermes_ops.py`) covers the
+# properties above — argument bounding, the closed verb set, Tier B's double
+# gate, the --json contract, the audit log, the launchd-repair label allowlist,
+# and the uk-sync -> env-check hard gate — against a stubbed ssh/curl/launchctl,
+# never a real host. Re-run it after any edit here.
 
 set -euo pipefail
 
