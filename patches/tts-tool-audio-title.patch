@@ -1,8 +1,8 @@
 diff --git a/tools/tts_tool.py b/tools/tts_tool.py
-index 16320974a..816d9f627 100644
+index 67a0f4885..666276993 100644
 --- a/tools/tts_tool.py
 +++ b/tools/tts_tool.py
-@@ -1035,6 +1035,31 @@ def _tts_response_format_from_path(output_path: str) -> str:
+@@ -1455,6 +1455,31 @@ def _tts_response_format_from_path(output_path: str) -> str:
  # Provider: OpenAI TTS (also used by every OpenAI-compatible TTS endpoint —
  # DeepInfra delegates here via _generate_deepinfra_tts).
  # ===========================================================================
@@ -34,17 +34,17 @@ index 16320974a..816d9f627 100644
  def _generate_openai_tts(
      text: str,
      output_path: str,
-@@ -1045,7 +1070,7 @@ def _generate_openai_tts(
-     model: Optional[str] = None,
+@@ -1466,7 +1491,7 @@ def _generate_openai_tts(
      voice: Optional[str] = None,
      speed: Optional[float] = None,
+     instructions: Optional[str] = None,
 -) -> str:
 +) -> Optional[str]:
      """Generate audio via the OpenAI ``audio.speech.create`` SDK shape.
  
      Optional kwargs let OpenAI-compatible backends (DeepInfra etc.) reuse
-@@ -1067,8 +1092,15 @@ def _generate_openai_tts(
-             ``tts.speed``.
+@@ -1493,8 +1518,15 @@ def _generate_openai_tts(
+             unaffected.
  
      Returns:
 -        Path to the saved audio file.
@@ -60,14 +60,15 @@ index 16320974a..816d9f627 100644
      # Only resolve the OpenAI auth chain when the caller didn't pass explicit
      # credentials. OpenAI-compatible backends (DeepInfra) pass api_key /
      # base_url / model / voice through and never hit the managed-gateway path.
-@@ -1128,10 +1160,14 @@ def _generate_openai_tts(
-         }
-         if speed != 1.0:
-             create_kwargs["speed"] = max(0.25, min(4.0, speed))
+@@ -1559,10 +1591,15 @@ def _generate_openai_tts(
+             create_kwargs["instructions"] = instructions
+         if language:
+             create_kwargs["extra_body"] = {"lang_code": language}
 -        response = client.audio.speech.create(**create_kwargs)
 -
 -        response.stream_to_file(output_path)
 -        return output_path
++        # LOCAL MODIFICATION (patches/tts-tool-audio-title.patch):
 +        # with_raw_response so we can read the X-Audio-Title header alongside
 +        # the binary body (the typed client drops response headers).
 +        raw = client.audio.speech.with_raw_response.create(**create_kwargs)
@@ -79,7 +80,7 @@ index 16320974a..816d9f627 100644
      finally:
          close = getattr(client, "close", None)
          if callable(close):
-@@ -2380,6 +2416,9 @@ def text_to_speech_tool(
+@@ -2921,6 +2958,9 @@ def text_to_speech_tool(
      # Ensure parent directory exists
      file_path.parent.mkdir(parents=True, exist_ok=True)
      file_str = str(file_path)
@@ -89,16 +90,18 @@ index 16320974a..816d9f627 100644
  
      try:
          # Generate audio with the configured provider
-@@ -2426,7 +2465,7 @@ def text_to_speech_tool(
+@@ -2967,7 +3007,9 @@ def text_to_speech_tool(
                      "error": "OpenAI provider selected but 'openai' package not installed."
                  }, ensure_ascii=False)
              logger.info("Generating speech with OpenAI TTS...")
--            _generate_openai_tts(text, file_str, tts_config)
-+            audio_title = _generate_openai_tts(text, file_str, tts_config)
+-            _generate_openai_tts(text, file_str, tts_config, instructions=instructions)
++            audio_title = _generate_openai_tts(
++                text, file_str, tts_config, instructions=instructions,
++            )
  
          elif provider == "deepinfra":
              try:
-@@ -2574,6 +2613,15 @@ def text_to_speech_tool(
+@@ -3123,6 +3165,15 @@ def text_to_speech_tool(
          elif provider in {"elevenlabs", "openai", "mistral", "gemini"}:
              voice_compatible = want_opus and file_str.endswith(".ogg")
  

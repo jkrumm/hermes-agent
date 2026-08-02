@@ -1,5 +1,5 @@
 diff --git a/plugins/platforms/slack/adapter.py b/plugins/platforms/slack/adapter.py
-index a34c995cc..8e959785b 100644
+index 736598dba..8eab12377 100644
 --- a/plugins/platforms/slack/adapter.py
 +++ b/plugins/platforms/slack/adapter.py
 @@ -25,6 +25,7 @@ import aiohttp

@@ -175,12 +175,30 @@ live tree and from a pristine worktree and feed it the same inputs:
 
 ```bash
 PY=~/.hermes/hermes-agent/venv/bin/python3   # NOT ~/.hermes/venv — that path doesn't exist
-for d in ~/.hermes/hermes-agent /tmp/hermes-verify; do (cd $d && $PY /tmp/scan_test.py $d); done
+for d in ~/.hermes/hermes-agent /tmp/hermes-verify; do
+  (cd "$d" && $PY -c "
+import sys; sys.path.insert(0, '$d')
+exec(open('/tmp/scan_test.py').read().replace('sys.argv[1]', repr('$d')))
+")
+done
 ```
 
-That is how the cron-scanner allowlist was confirmed at v0.19.0: identical inputs, argo
-curls `OK` in the live tree and `Blocked` in pristine, while evil-host and mixed-fence
-curls stayed `Blocked` in both.
+**`cd`-ing into the worktree is not enough — that is a silent false negative.** An earlier
+revision of this skill said `(cd $d && $PY /tmp/scan_test.py $d)`, and at the v0.19.1
+update it reported the live and pristine trees as *byte-identical* in behaviour, which
+would have retired a load-bearing patch. Two things conspire: for a script, `sys.path[0]`
+is the **script's** directory (`/tmp`), not the cwd — and the venv has hermes installed,
+so `import tools.cronjob_tools` resolves to the **live** tree from either cwd. Both runs
+imported the same module. Pin the tree explicitly (above), and confirm before trusting the
+output:
+
+```bash
+(cd /tmp/hermes-verify && PYTHONPATH=/tmp/hermes-verify $PY -c "import tools.cronjob_tools as m; print(m.__file__)")
+```
+
+Done that way, the cron-scanner allowlist was confirmed at both v0.19.0 and v0.19.1:
+identical inputs, argo/karakeep/research curls `OK` in the live tree and `Blocked` in
+pristine, while evil-host and mixed-fence curls stayed `Blocked` in both.
 
 **Renaming a patch file? Grep the code for its old name.** Patched hunks carry
 `# LOCAL MODIFICATION (patches/<name>.patch)` headers pointing at their own source file.
@@ -198,6 +216,11 @@ Every conflict encountered so far (three, at the v0.18.2 jump) was **not** a log
 - *Adjacent independent early-return* (`tools/tirith_security.py`): upstream added its own circuit-breaker early-return at the same spot our argo-pipeline bypass inserts. Fix: keep both `if` blocks, order doesn't matter since both just return early.
 - *Renamed variable* (`gateway/platforms/base.py`): upstream renamed `_thread_metadata` → `_final_thread_metadata` (via a `_mark_notify_metadata()` wrap) at the same call sites our patch adds `reply_to=` to. Fix: grep the surrounding unconflicted code for which name is actually used elsewhere in the function — that's the one to keep — and combine it with the patch's added kwarg.
 - *Added return value* (`tools/tts_tool.py`): upstream independently grew a 2-tuple return into a 3-tuple (`api_key, base_url, is_managed`) on a function our patch also touches (to add an `unquote` import). Fix: keep upstream's tuple shape (grep the function's current definition to confirm the real signature) *and* the patch's own addition — they're unrelated changes to the same lines, not alternatives.
+
+Three more at v0.19.1, same shape — upstream and the patch both editing one spot, neither wrong:
+- *Adjacent independent statement* (`gateway/platforms/base.py`): upstream added an `if _non_image_media: logger.info(…)` block exactly where the patch assigns `_media_reply_anchor`. Fix: keep both, log block first.
+- *New parameters + changed return* (`tools/tts_tool.py`): upstream gave `_generate_openai_tts` an `instructions` kwarg and a `language` → `extra_body={"lang_code": …}` passthrough, and made it return `output_path`. Fix: keep every upstream kwarg, keep the patch's raw-response title read and `Optional[str]` return — then **update the call site**, which upstream also touched (`audio_title = _generate_openai_tts(…, instructions=instructions)` merges both sides). A conflict on a signature is a standing order to re-check callers.
+- *Upstream rewrote its own half of a shared helper* (`tools/cronjob_tools.py`): the GitHub strip in `_strip_cron_safe_constructs` went `re.search`+`str.replace` → repeated `re.sub` with a tighter host anchor. The patch carries the **old** upstream text plus our argo block, so a naive "keep ours" silently reverts upstream's hardening. Fix: take upstream's version verbatim for its half and re-append our block on top of its result. This is the conflict class most likely to cause a silent regression — when the `ours` side contains upstream code your patch merely *carried along*, prefer `theirs`.
 
 After resolving, always sanity-check: `grep -rn "^<<<<<<<\|^=======$\|^>>>>>>>"` across the touched files (loosely — grep `======` alone also matches legitimate RST-style section underlines in docstrings/tests, so eyeball hits before assuming they're conflict markers) and `python3 -c "import ast; ast.parse(open('<file>').read())"` per file to catch syntax breaks before moving on.
 
@@ -223,6 +246,29 @@ Only then `cp /tmp/new-patches/*.patch ~/SourceRoot/hermes-agent/patches/`, dele
 ### What `hermes update` does on its own
 
 `hermes update` stashes your working changes, pulls upstream, then tries to re-apply the stash. Expect conflicts on the eight patched files — that is normal. The CLI prints the stash ref (`Restore your changes later with: git stash apply <sha>`); keep it as a fallback. After conflicts surface, the CLI resets the working tree clean — re-apply via the loop above.
+
+**The Node half of the update fails on this box, and `hermes update` says so quietly.**
+v0.19.1 raised `package.json`'s engine floor to `node >=22.22.0`; the fnm **default** here is
+v20.20.0, so the update's `npm install` dies with `EBADENGINE` and it prints
+`⚠ Update partially complete — Node.js dependencies for repo root did not refresh` —
+then carries on and restarts the gateway anyway. The gateway itself is pure Python and
+unaffected; what's left stale is the dashboard/TUI/`hermes web`. Repair it by hand under a
+compliant Node (do **not** change the machine-wide fnm default for this):
+
+```bash
+cd ~/.hermes/hermes-agent && fnm exec --using=22.22.2 -- npm ci --no-audit --no-fund
+cd web && fnm exec --using=22.22.2 -- npm ci --no-audit --no-fund \
+  && fnm exec --using=22.22.2 -- npm run build      # → ../hermes_cli/web_dist
+```
+
+**`npm ci`, not `npm install`** — `package-lock.json` is upstream-tracked here, and a plain
+`install` rewrites it (27+/57- lines at v0.19.1). That local edit then lands in the next
+`hermes update`'s autostash and conflicts against a file we have no reason to own. `ci`
+installs exactly the lockfile and leaves the tree clean; verify with
+`git status --short package-lock.json` (must be empty) afterwards.
+
+Expect this every update until the fnm default moves past 22.22.0 — `hermes update` shells
+`npm` from Python, so fnm's `use-on-cd` shell hook never fires for it.
 
 **Lazy-backend refresh warnings are often benign.** After pulling, `hermes update` refreshes "lazy backends" (optional provider/platform plugins) and may print import warnings for some of them (e.g. `provider.vertex`, `platform.matrix`, `platform.feishu`, `platform.teams`, `tool.trace_upload` failed with a transient import error at the v0.18.2 jump). Before investigating, check whether the affected backend is actually active in `~/.hermes/config.yaml` (search for its provider/platform name under an *enabled* section, not just present as a stock default block — every platform gets a default config block whether used or not). If it's not part of this deployment (this repo only runs the Slack platform + OpenAI-provider TTS/STT via the audio-gateway), the warning is inert and doesn't block the update or the gateway.
 
