@@ -234,6 +234,19 @@ status:
 	@if crontab -l 2>/dev/null | grep -q "hermes-liveness.sh\|hermes-backup.sh"; then \
 		echo "    ✗ legacy crontab entries [double-firing — run make cron-migrate]"; \
 	fi
+	@# Every skill a cron job preloads must actually resolve. The scheduler only
+	@# logs a WARNING and runs anyway when one doesn't (cron/scheduler.py: "skill
+	@# not found, skipping"), and the watchdog matches ERROR|CRITICAL only — so a
+	@# renamed skill rots here invisibly. It did: the 2026-06 consolidation into
+	@# argo-api/references/ left 7 dead names in the briefings for weeks.
+	@python3 -c 'import json,os,sys;\
+p=os.path.expanduser("$(HERMES_DIR)/cron/jobs.json");\
+sys.exit(0) if not os.path.exists(p) else None;\
+d=json.load(open(p));\
+bad=sorted({(j.get("name"),s) for j in d.get("jobs",[]) for s in (j.get("skills") or []) if not os.path.exists(os.path.expanduser("$(HERMES_DIR)/skills/"+s))});\
+[print("    ✗ cron skill \"%s\" missing [job: %s]" % (s,n)) for n,s in bad];\
+print("    ✓ cron job skills resolve") if not bad else None' 2>/dev/null \
+		|| echo "    ✗ cron job skills [could not read jobs.json]"
 	@echo "  CC skills (per-repo, auto-loaded by Claude Code inside this dir)"
 	@for skill in hermes-update hermes-validate; do \
 		if [ -d ".claude/skills/$$skill" ]; then \

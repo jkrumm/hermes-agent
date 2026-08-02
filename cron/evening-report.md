@@ -7,7 +7,7 @@ Source-of-truth for the evening report prompt. **This file is documentation, not
 | Field | Value |
 |-|-|
 | Schedule | `0 22 * * 1-4` (22:00 Mon–Thu, Europe/Berlin) |
-| Skills | `garmin-health`, `strength`, `schedule`, `m365`, `weather`, `tasks` |
+| Skills | `argo-api`, `work` |
 | Pre-run script | `briefing-context.py` (shared with morning briefing) |
 | Deliver | `slack:C0AT6TH404R` (#briefings) |
 | Name | `Evening report` |
@@ -18,13 +18,9 @@ The schedule deliberately excludes Friday and Sunday — Friday evening is alrea
 
 ```bash
 # Create
-hermes cron create "0 22 * * 1-4" "$(cat ~/SourceRoot/dotfiles/hermes/cron/evening-report.prompt.txt)" \
-  --skill garmin-health \
-  --skill strength \
-  --skill schedule \
-  --skill m365 \
-  --skill weather \
-  --skill tasks \
+hermes cron create "0 22 * * 1-4" "$(cat ~/SourceRoot/hermes-agent/cron/evening-report.prompt.txt)" \
+  --skill argo-api \
+  --skill work \
   --script briefing-context.py \
   --name "Evening report" \
   --deliver slack:C0AT6TH404R
@@ -33,7 +29,7 @@ hermes cron create "0 22 * * 1-4" "$(cat ~/SourceRoot/dotfiles/hermes/cron/eveni
 hermes cron run <job_id>
 
 # Edit prompt only
-hermes cron edit <job_id> --prompt "$(cat ~/SourceRoot/dotfiles/hermes/cron/evening-report.prompt.txt)"
+hermes cron edit <job_id> --prompt "$(cat ~/SourceRoot/hermes-agent/cron/evening-report.prompt.txt)"
 ```
 
 `--script briefing-context.py` is shared with the morning briefing. The same `briefing-state.json` controls the city + vacation flag for both. Vacation suppresses both reports until the date passes.

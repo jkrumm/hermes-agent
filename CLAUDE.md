@@ -71,7 +71,8 @@ deliberately **not** part of `make setup`: it lives behind the one-time
 with instructions instead of a hang. It must be run from a terminal that *has* Full
 Disk Access. Until it succeeds, `make status` reports `✗ legacy crontab entries` and
 both jobs fire twice — harmless for the liveness ping, and made harmless for the
-backup by its lock.
+backup by its lock. **Done: `crontab -l` carries no hermes entries as of 2026-08-02**, so
+the check is quiet and the target is only needed if a legacy line ever reappears.
 
 **Hermes cron pre-run scripts (executed by `hermes-agent` before each cron run, *not* by macOS crontab or launchd):**
 - `scripts/briefing-context.py` — reads `briefing-state.json` and emits `BRIEFING_CITY` + `BRIEFING_SUPPRESSED` for the morning briefing prompt. Calls `briefing-coverage.py` as subprocess. Output is appended as `## Script Output` block.
@@ -305,6 +306,34 @@ Prerequisites:
 
 **Adding a Hermes skill:** create `skills/{name}/SKILL.md`, add `{name}` to
 `HERMES_SKILLS` in the Makefile, run `make setup`. If the skill should appear in scheduled briefings, also wire it into the relevant cron prompt (`cron/*.prompt.txt`) and re-sync `cron/jobs.json`.
+
+**Renaming or retiring one is the half that gets forgotten — and it fails silently.** A cron
+job preloads skills *by name*; when a name no longer resolves, `cron/scheduler.py` logs
+`skill not found, skipping` at **WARNING** and runs the job anyway, and `watchdog-poll.py`
+matches `ERROR|CRITICAL` only. So the job keeps reporting `ok` while running with fewer
+skills than it declares. That is exactly what the 2026-06 consolidation into
+`argo-api/references/*.md` did: both briefings kept naming `tasks`, `schedule`, `weather`,
+`infrastructure`, `slack`, `garmin-health`, `strength` — 7 of 8 dead — for weeks, logging 12
+warnings a day. They only survived because every endpoint is also spelled out inline in the
+prompt and `work` happened to carry the argo auth pattern. Fixed 2026-08-02: both jobs now
+preload `argo-api` + `work`, and `make status` asserts **every skill named in
+`~/.hermes/cron/jobs.json` resolves** (negative-tested — it prints `✗ cron skill "…" missing`).
+Run `make status` after any skill rename.
+
+**Three layers have to move together, and only two are in git.** `cron/*.prompt.txt` and
+`cron/*.md` are tracked; **`cron/jobs.json` is gitignored runtime state**, and the live job
+carries its **own copy of the prompt** — editing the `.txt` alone changes nothing at runtime.
+Push changes through the CLI, never by hand-editing `jobs.json` under a running gateway:
+
+```bash
+hermes cron edit <job_id> --prompt "$(cat cron/morning-briefing.prompt.txt)"
+hermes cron edit <job_id> --skill argo-api --skill work    # replaces the set
+```
+
+`--clear-skills` is applied *after* `--skill` in the same invocation and wins, leaving
+`Skills: none` — pass `--skill` alone to replace a set. Verify with `hermes cron list`, and
+test a changed job with `hermes cron run <job_id>`; it has **no dry-run and delivers for
+real**, so retarget it first (`--deliver slack:<test-channel>`) and restore the target after.
 
 **Adding a CC slash command for Hermes:** create `.claude/skills/{name}/SKILL.md`. Auto-loaded by Claude Code when started inside this repo — no symlink, no Makefile change needed.
 

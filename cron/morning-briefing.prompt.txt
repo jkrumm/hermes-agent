@@ -34,17 +34,17 @@ If the script block is missing or malformed, fall back to `Munich` and proceed. 
 
 **Important:** call the `terminal` tool directly with each shell command. Do NOT wrap calls in `execute_code` — that path is slower and prevents proper parallelization.
 
-The eight loaded skills (tasks, schedule, work, weather, infrastructure, slack, garmin-health, strength) document the argo API base URL and auth pattern — follow what they specify. The `work` skill covers IU calendar + Teams + Jira + Confluence + GitLab; call its endpoints per the playbook below. Issue all fourteen calls as fourteen `terminal` tool invocations in a single parallel batch:
+Two skills are loaded. `argo-api` is the hub for every personal domain below (tasks, schedule, weather, infrastructure, slack, garmin-health, strength) — it documents the argo base URL and auth pattern, and its `references/*.md` carry the per-domain endpoint detail. `work` covers IU calendar + Teams + Jira + Confluence + GitLab. Follow what they specify; every path you need is also named inline below, so do **not** spend turns opening reference files unless a call fails. Issue all fourteen calls as fourteen `terminal` tool invocations in a single parallel batch:
 
-1. Argo `/summary` — combined tasks + uptime overview (see `tasks` and `infrastructure` skills)
-2. Argo `/docker/homelab/summary` — Mac Mini Docker stack (see `infrastructure` skill)
-3. Argo `/docker/vps/summary` — VPS Docker stack (see `infrastructure` skill)
-4. Argo `/calendar?days=1` — today's **personal** Google calendar (see `schedule` skill)
+1. Argo `/summary` — combined tasks + uptime overview (see `argo-api` → `references/tasks.md` + `references/infrastructure.md`)
+2. Argo `/docker/homelab/summary` — Mac Mini Docker stack (see `argo-api` → `references/infrastructure.md`)
+3. Argo `/docker/vps/summary` — VPS Docker stack (see `argo-api` → `references/infrastructure.md`)
+4. Argo `/calendar?days=1` — today's **personal** Google calendar (see `argo-api` → `references/schedule.md`)
 5. Argo `/m365/calendar/upcoming?days=1` — today's **IU work** Outlook calendar (see `work` skill). On `503 M365 not authenticated …`, do not retry — surface a single bullet "IU-Kalender nicht verfügbar (Token abgelaufen — `bun m365:auth:prod` ausführen)" under Termine heute and continue.
-6. Argo `/weather/forecast?city=$BRIEFING_CITY` — forecast for the resolved city (see `weather` skill)
-7. Argo `/slack/channels/C0AS1LAUQ3C/messages?limit=20` — last 20 messages from #alerts (see `slack` skill)
-8. Argo `/daily-metrics?order=desc&limit=14` — last ~14 days of Garmin daily metrics: HRV, body battery, resting HR, sleep, stress (see `garmin-health` skill). Response is `{data: [...], total: N}` — read `response.data` for the row array. Use the most-recent record where the relevant field is non-null — Garmin sync timing means today's row may be partial at 07:00.
-9. Argo `/workouts?sort=date&order=desc&limit=10` — last 10 strength workouts with sets, total volume, est. 1RM (see `strength` skill). Response is `{data: [...], total: N}` — read `response.data`.
+6. Argo `/weather/forecast?city=$BRIEFING_CITY` — forecast for the resolved city (see `argo-api` → `references/weather.md`)
+7. Argo `/slack/channels/C0AS1LAUQ3C/messages?limit=20` — last 20 messages from #alerts (see `argo-api` → `references/slack.md`)
+8. Argo `/daily-metrics?order=desc&limit=14` — last ~14 days of Garmin daily metrics: HRV, body battery, resting HR, sleep, stress (see `argo-api` → `references/garmin-health.md`). Response is `{data: [...], total: N}` — read `response.data` for the row array. Use the most-recent record where the relevant field is non-null — Garmin sync timing means today's row may be partial at 07:00.
+9. Argo `/workouts?sort=date&order=desc&limit=10` — last 10 strength workouts with sets, total volume, est. 1RM (see `argo-api` → `references/strength.md`). Response is `{data: [...], total: N}` — read `response.data`.
 10. `gh search prs --owner jkrumm --state open --json title,repository,url --limit 20` — open PRs across personal repos
 11. `gh search issues --owner jkrumm --state open --json title,repository,url --limit 20` — open issues across personal repos
 12. Argo `/atlassian/jira/current-sprint?onlyMine=true` — IU sprint commitments assigned to Johannes (see `work` skill). On `503`, surface "Jira Sprint nicht verfügbar (Token abgelaufen)" and continue.

@@ -7,8 +7,8 @@ Source-of-truth for the morning briefing prompt. **This file is documentation, n
 | Field | Value |
 |-|-|
 | Schedule | `0 7 * * 1-5` (07:00 weekdays, Europe/Berlin) |
-| Skills | `tasks`, `schedule`, `m365`, `weather`, `infrastructure`, `slack`, `garmin-health`, `strength` |
-| Pre-run script | `briefing-context.py` (lives in `~/.hermes/scripts/`, source in `hermes/scripts/`) |
+| Skills | `argo-api`, `work` |
+| Pre-run script | `briefing-context.py` (lives in `~/.hermes/scripts/`, source in `scripts/` here) |
 | Deliver | `slack:C0AT6TH404R` (#briefings) |
 | Name | `Morning briefing` |
 
@@ -16,15 +16,9 @@ Source-of-truth for the morning briefing prompt. **This file is documentation, n
 
 ```bash
 # Create
-hermes cron create "0 7 * * 1-5" "$(cat ~/SourceRoot/dotfiles/hermes/cron/morning-briefing.prompt.txt)" \
-  --skill tasks \
-  --skill schedule \
-  --skill m365 \
-  --skill weather \
-  --skill infrastructure \
-  --skill slack \
-  --skill garmin-health \
-  --skill strength \
+hermes cron create "0 7 * * 1-5" "$(cat ~/SourceRoot/hermes-agent/cron/morning-briefing.prompt.txt)" \
+  --skill argo-api \
+  --skill work \
   --script briefing-context.py \
   --name "Morning briefing" \
   --deliver slack:C0AT6TH404R
@@ -33,7 +27,7 @@ hermes cron create "0 7 * * 1-5" "$(cat ~/SourceRoot/dotfiles/hermes/cron/mornin
 hermes cron run <job_id>
 
 # Edit prompt only
-hermes cron edit <job_id> --prompt "$(cat ~/SourceRoot/dotfiles/hermes/cron/morning-briefing.prompt.txt)"
+hermes cron edit <job_id> --prompt "$(cat ~/SourceRoot/hermes-agent/cron/morning-briefing.prompt.txt)"
 ```
 
 `--script briefing-context.py` is a *bare filename* — Hermes resolves it under `~/.hermes/scripts/` and rejects absolute paths that escape that directory.
@@ -88,7 +82,7 @@ Two prompt tweaks landed during iteration: use `daily_7d[0]` for the weather (so
 
 ## Location + vacation state
 
-Two files in `hermes/scripts/`:
+Two files in `scripts/` here:
 
 - **`briefing-state.json`** — *gitignored*, runtime state. Edited locally; never commits. Schema: `{"city": "Munich", "vacation_until": null}`. `make setup` seeds this from the example on first install if it doesn't exist; subsequent edits stay local.
 - **`briefing-state.example.json`** — *tracked*, canonical default. Reference for the schema and a fresh-install seed.
