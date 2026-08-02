@@ -258,6 +258,18 @@ def format_message(*, repo: str, tier: str, job_id: str, status: str,
     if summary:
         lines.append(summary)
 
+    # The artifact goes directly under the summary, above the prose, because it is the
+    # only actionable line in the message and `_finalize` truncates from the bottom.
+    # `branch` without `artifactUrl` is its own real outcome: the implement tier pushed
+    # work but opened no PR (the episode declined to describe one, or the run degraded),
+    # and saying so is what stops that branch from being silently orphaned.
+    artifact_url = (result.get("artifactUrl") or "").strip()
+    branch = (result.get("branch") or "").strip()
+    if artifact_url:
+        lines.append(f"*Artifact:* {artifact_url}")
+    elif branch:
+        lines.append(f"*Branch pushed, no PR opened:* `{branch}`")
+
     verdict_text = (result.get("verdict") or "").strip()
     if verdict_text:
         v_text, v_truncated = _truncate(verdict_text, 1500)
@@ -310,9 +322,21 @@ def process_dispatch(conn: sqlite3.Connection, row: sqlite3.Row, *, dry_run: boo
     # delivery attempt — see the module docstring's crash-safety contract.
     if not dry_run:
         now_iso = dt.datetime.now(dt.timezone.utc).isoformat()
+        # `artifact_url` is denormalized out of the verdict into its own column so the
+        # GitHub projection is a column read, not a JSON parse — the briefing and the
+        # watchdog both want "what did this dispatch produce" without unpacking a blob.
         conn.execute(
-            "UPDATE dispatches SET status=?, verdict_json=?, finished_at=? WHERE job_id=?",
-            (status, json.dumps(result) if result is not None else None, now_iso, job_id),
+            "UPDATE dispatches SET status=?, verdict_json=?, artifact_url=?, finished_at=? "
+            "WHERE job_id=?",
+            (
+                status,
+                json.dumps(result) if result is not None else None,
+                # `or None` so "" and NULL do not become two shapes of the same fact —
+                # every reader of this column filters on IS NOT NULL.
+                (result.get("artifactUrl") or None) if isinstance(result, dict) else None,
+                now_iso,
+                job_id,
+            ),
         )
         conn.commit()
 

@@ -93,20 +93,54 @@ Design: `docs/dispatch-bridge.md`. The episode itself is sideclaw's `dispatch` j
   There is deliberately no `--brief`: as an argv element the brief would be composed into a
   shell line and expanded *before* the script ran, so a `$(...)` in a Slack message would
   execute. The skill teaches the `<<'BRIEF'` form.
-- **Only `investigate` is built.** `author`/`implement` are refused (exit 4), never downgraded.
+- **All three tiers are built** (Phase 4). `investigate` read-only → verdict; `author`
+  read-only → verdict + one filed GitHub issue; `implement` → an isolated worktree, a
+  `dispatch/…` branch and a **draft** PR. A tier above a repo's `maxTier` is refused
+  (exit 4), never downgraded. The per-repo ceilings in `config/dispatch-repos.json` were
+  chosen deliberately and the file states its own rationale: `implement` only where the
+  bridge itself lives (`hermes-agent`, `sideclaw`) plus `usage-tracker` and the scratch
+  target; `investigate` floor for `dotfiles`/`vps`/`homelab`, which are the machine's own
+  control plane.
+- **`implement` needs `--why` AND `--confirm`.** Without `--confirm` the verb prints its
+  exact plan — including a `wouldNeverDo` list — and exits **0** having changed nothing.
+  Exit 0 because printing the plan *is* the successful outcome of that request; a non-zero
+  code would read as "the dispatch failed" to whatever parses it. `--why` is separate and
+  mandatory: it is the audit record of why an unattended episode was allowed to write.
 - **Structural ceilings, because `--max-budget-usd` is API-only and does not cap a Max
-  session:** 20 dispatches per UTC day counted from the `dispatches` table, a 240s in-turn
-  `--wait` cap, sideclaw's own turn/timeout/concurrency limits.
-- **Audit log:** `~/Library/Logs/hermes-cc.log`, one line per invocation including refusals
-  (`mode=refused` is its own mode — a refusal that logged as `opened` would hide the guard
-  doing its job). **Register it in `dotfiles/scripts/log-rotate.sh`'s `FILES` array** — that
-  list is declared, never globbed, so an unregistered log is an unbounded one.
+  session:** 20 dispatches per UTC day counted from the `dispatches` table, of which at
+  most 5 may be `implement` (its own ceiling — a 30-minute writing episode and a 90-second
+  read are not the same spend, and one bad day of triage must not consume the allowance for
+  real changes), a 240s in-turn `--wait` cap, sideclaw's own turn/timeout/concurrency limits.
+- **Audit log:** `~/Library/Logs/hermes-cc.log`, one line per invocation including refusals.
+  Four modes, and the distinctions are load-bearing: `opened` (an episode actually ran),
+  `planned` (a gated tier stopped to wait for a human), `dry-run` (the caller asked for a
+  rehearsal), `refused` (a guard said no). A refusal that logged as `opened` would hide the
+  guard doing its job, and a `planned` that logged as `refused` would make the `--confirm`
+  gate unverifiable after the fact. **Register it in `dotfiles/scripts/log-rotate.sh`'s
+  `FILES` array** — that list is declared, never globbed, so an unregistered log is an
+  unbounded one.
 - **`dispatches` table** in `~/.hermes/watchdog.db` (additive DDL; `events` is untouched).
   `reported_at` is the delivery contract: NULL means the sweeper still owes a message.
   A `--wait` that returns a terminal verdict stamps it, because handing the verdict to a live
   turn *is* the delivery; `status` deliberately does not, since a poll tells nobody.
-- **Tests:** `tests/test_hermes_cc.py` (78 cases, stubbed job server — never a real one) and
+  `artifact_url` is denormalized out of the verdict into its own column by **both** settlers
+  (`hermes-cc.sh`'s `sync_record` and `dispatch-sweep.py`) — whichever one closes a given
+  dispatch has to leave the row in the same shape, and the briefing/watchdog projections want
+  a column read, not a JSON parse.
+- **Tests:** `tests/test_hermes_cc.py` (89 cases, stubbed job server — never a real one) and
   `tests/test_raw_agent_guard.py`. Run with `~/.hermes/hermes-agent/venv/bin/python3`.
+
+> **The GitHub credential is `op://mini/github/token`, and it needs three permissions.**
+> `Contents: write` (the branch push, via the git credential helper) **plus** `Issues: write`
+> and `Pull requests: write` (the artifact, via the API). Those are separate grants on a
+> fine-grained PAT, and a token holding only the first pushes the branch successfully and
+> then fails at the very last step — GitHub's own message for that is "Resource not
+> accessible by personal access token", which names neither the permission nor the token.
+> `describeGithubFailure` in sideclaw's `dispatch-git.ts` rewrites it to name both.
+> There is a `GITHUB_TOKEN` fallback in sideclaw's `.env`, but it is a `gho_` OAuth token —
+> the same class retired from the git credential path on 2026-07-26 for expiring silently —
+> so the op:// ref is deliberately tried **first** and the fallback must not quietly become
+> the real dependency.
 
 > **The cron-creation guard rejects any substantial script — plan for a thin entry point.**
 > `hermes cron create --script` runs the referenced file through `cron/lifecycle_guard.py`.

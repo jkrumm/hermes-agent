@@ -27,12 +27,22 @@
 # TIERS — the episode's permission profile, capped per-repo by the allowlist.
 #   investigate  read-only session, verdict only. Cannot lose anything, so it
 #                needs no approval theatre and is safe to allowlist outright.
-#   author       + `gh issue create`.                        NOT BUILT YET.
-#   implement    write, worktree-isolated, branch + PR.      NOT BUILT YET.
-#                Will require --why AND --confirm. Never merges, never pushes to
-#                a default branch, in any repo.
-# Requesting an unbuilt tier is REFUSED, never quietly downgraded to a read-only
+#   author       read-only session + a filed GitHub issue. Ungated: an issue is
+#                a note on a list, and a wrong one is closed in two seconds.
+#   implement    write session in an isolated worktree, branch + DRAFT PR.
+#                Requires --why AND --confirm. Never merges, never pushes to a
+#                default branch, in ANY repo — including the direct-to-master
+#                ones. That deviation from the repo's own convention is the
+#                point: the convention was written by a human for their own
+#                commits, not for an unattended episode.
+# A tier a repo does not allow is REFUSED, never quietly downgraded to a weaker
 # run whose caller then believes a PR exists.
+#
+# THE --confirm GATE IS NOT A FORMALITY. Without it, `implement` prints exactly
+# what it would do and exits 0 having changed nothing. --confirm means Johannes
+# confirmed, which in Slack means Hermes had to ask him first and he answered.
+# An agent that passes --confirm because it "seems fine" has removed the only
+# human in the loop; the skill says so in those words.
 #
 # NO RECURSION. A dispatched episode may never dispatch. Enforced structurally,
 # not by instruction: this script refuses to run inside a Claude Code session, and
@@ -92,6 +102,12 @@ WAIT_INTERVAL=5
 # counted from the dispatches table. Hermes runs unattended and a routing bug
 # that opens an episode per Slack message would otherwise burn Max quota silently.
 MAX_DISPATCHES_PER_DAY="${HERMES_CC_DAILY_BUDGET:-20}"
+# A second, much tighter ceiling for `implement` alone. It is not the same kind
+# of spend: an investigate episode is 30s-3min and read-only, an implement one
+# runs up to 30 minutes, writes code and opens a PR a human then has to read.
+# Counting them against one shared budget would let a bad day of triage consume
+# the entire allowance for real changes, and vice versa.
+MAX_IMPLEMENT_PER_DAY="${HERMES_CC_IMPLEMENT_BUDGET:-5}"
 
 # Brief size cap, matched to sideclaw's own input schema so a rejection happens
 # here with a clear message rather than as an opaque job failure two minutes later.
@@ -99,8 +115,27 @@ MAX_BRIEF_CHARS=8000
 MAX_CONTEXT_CHARS=16000
 
 VALID_TIERS=(investigate author implement)
-# Tiers this script can actually execute today. The rest are refused.
-BUILT_TIERS=(investigate)
+# Tiers this script can actually execute today. Kept as a separate list from
+# VALID_TIERS on purpose: a tier named in the design but not yet wired must be
+# refused outright rather than silently downgraded, and that distinction has to
+# survive the next tier being added.
+BUILT_TIERS=(investigate author implement)
+# Tiers that need Johannes to have said yes before they run. The criterion is the
+# COST OF BEING WRONG, not "does it mutate anything outside this machine" — `author`
+# mutates external state too (it files an issue) and is deliberately ungated, because
+# a wrong issue is closed in two seconds and leaves nothing behind. A wrong branch and
+# draft PR costs a real review. Kept as its own list rather than hardcoded at the call
+# site, so adding a tier forces an answer to that question.
+#
+# NOTE ON WHAT THIS GATE IS. `--confirm` is a flag on the same invocation, supplied by
+# the same agent it constrains — so it is an INSTRUCTION-LEVEL gate, not a cryptographic
+# one, and a Hermes that decided to lie could pass it. That is accepted: the threat model
+# here is prompt injection reaching a brief, and the brief cannot reach argv (see the
+# header). Defending against a wholly-compromised Hermes would need an approval artifact
+# minted outside the agent and bound to the repo + brief hash, which is a different design.
+# What this gate does buy is that the DEFAULT path stops and asks, and that every skip
+# leaves a `mode=planned` / `mode=opened` pair in the audit log to be read after the fact.
+GATED_TIERS=(implement)
 
 # --- exit codes --------------------------------------------------------------
 # 0 ok · 2 precondition failed · 3 remote failed · 4 budget/policy refusal · 64 usage error
@@ -132,6 +167,13 @@ AUDIT_TARGET="-"
 # because a verb that was REFUSED must not log as though it ran — that is the
 # difference between an audit log and a list of intentions.
 DID_MUTATE=0
+
+# Set to 1 when the invocation deliberately stopped to show a plan — a gated tier
+# without --confirm, or an unconfirmed cancel. Distinct from both `refused` (a
+# guard said no) and `dry-run` (the caller asked for a rehearsal): this one is
+# the script waiting on a human, and an audit log that could not tell those three
+# apart would make the --confirm gate unverifiable after the fact.
+PLANNED=0
 
 # A --json error object cannot simply be printed where it is raised: most come
 # from helpers every verb calls inside `$( )`, and a subshell's stdout is captured
@@ -188,6 +230,7 @@ audit() {
     dispatch|cancel)
       if [ "$DID_MUTATE" = 1 ]; then mode="opened"
       elif [ "$DRY_RUN" = 1 ]; then mode="dry-run"
+      elif [ "$PLANNED" = 1 ]; then mode="planned"
       else mode="refused"; fi ;;
     *) mode="read" ;;
   esac
@@ -301,6 +344,13 @@ print(entry.get("maxTier", "investigate"))
 ') || usage_err "repo not in the allowlist: $name (see list above; absence is a denial, not an oversight)"
   REPO_PATH=$(printf '%s' "$out" | sed -n 1p)
   REPO_MAX_TIER=$(printf '%s' "$out" | sed -n 2p)
+  # The ceiling has to FAIL CLOSED on a malformed value. tier_rank maps anything it does
+  # not recognize to 99, which is above every real tier — so a typo in the allowlist
+  # ("implment") would silently lift the cap entirely and hand a write episode to a repo
+  # meant to be read-only. That is the exact inversion of this file's "absence is a denial"
+  # rule, and it is invisible: the JSON parses, the repo resolves, the dispatch runs.
+  in_list "$REPO_MAX_TIER" "${VALID_TIERS[@]}" \
+    || precond_err "repo '$name' has an unrecognized maxTier '$REPO_MAX_TIER' in $REPOS_JSON (must be one of: ${VALID_TIERS[*]}). Refusing rather than defaulting — a malformed ceiling must never read as a permissive one."
   [ -d "$REPO_PATH" ] || precond_err "allowlisted repo '$name' has no checkout at $REPO_PATH"
   [ -e "$REPO_PATH/.git" ] || precond_err "allowlisted repo '$name' at $REPO_PATH is not a git repository"
 }
@@ -321,6 +371,18 @@ resolve_tier() {
   [ "$rank_req" -le "$rank_max" ] \
     || policy_err "repo '$name' is capped at tier '$REPO_MAX_TIER' in the allowlist; '$requested' was requested"
 }
+
+# Ranks are compared as `requested <= ceiling`. The unknown case returns 99 — deliberately
+# ABOVE every real tier, so an unrecognized *request* is refused. That is the safe direction
+# for the left-hand side and the wrong one for the right, which is why `resolve_repo`
+# validates the ceiling against VALID_TIERS before it ever gets here rather than relying on
+# this default to be safe in both positions. It cannot be: one constant cannot fail closed
+# at both ends of a comparison.
+# One predicate for "does this tier need a human", and one for "is it still waiting on
+# them". Three call sites asked that question inline before; three copies of a security
+# condition is three chances for one of them to drift out of step with the others.
+tier_is_gated() { in_list "$TIER" "${GATED_TIERS[@]}"; }
+awaiting_confirm() { tier_is_gated && [ "$CONFIRM" != 1 ]; }
 
 tier_rank() {
   case "$1" in
@@ -436,19 +498,30 @@ conn.close()
 
 # Structural budget check. Counts today's rows rather than trusting a counter file:
 # the table is the record, and a count that can drift from it is not a budget.
+# Two ceilings, because the two kinds of episode are not the same kind of spend —
+# see MAX_IMPLEMENT_PER_DAY. Echoes the total used, which the emitters report.
 check_budget() {
-  local used
-  used=$(db_py '
+  local counts used used_tier
+  counts=$(R_TIER="$TIER" db_py '
 import datetime as dt
 today = dt.datetime.now(dt.timezone.utc).date().isoformat()
 n = conn.execute("SELECT COUNT(*) FROM dispatches WHERE created_at >= ?", (today,)).fetchone()[0]
+t = conn.execute("SELECT COUNT(*) FROM dispatches WHERE created_at >= ? AND tier = ?",
+                 (today, os.environ["R_TIER"])).fetchone()[0]
 print(n)
+print(t)
 ') || precond_err "could not read the dispatch budget from $DB_PATH"
-  case "$used" in
-    ''|*[!0-9]*) precond_err "unexpected budget count from $DB_PATH: $used" ;;
+  used=$(printf '%s' "$counts" | sed -n 1p)
+  used_tier=$(printf '%s' "$counts" | sed -n 2p)
+  case "$used$used_tier" in
+    ''|*[!0-9]*) precond_err "unexpected budget count from $DB_PATH: $counts" ;;
   esac
   [ "$used" -lt "$MAX_DISPATCHES_PER_DAY" ] \
     || policy_err "daily dispatch budget exhausted ($used/$MAX_DISPATCHES_PER_DAY opened today, UTC). This is a structural ceiling on unattended Max spend, not a rate limit — if it is hit legitimately, raise HERMES_CC_DAILY_BUDGET deliberately."
+  if [ "$TIER" = implement ]; then
+    [ "$used_tier" -lt "$MAX_IMPLEMENT_PER_DAY" ] \
+      || policy_err "daily implement budget exhausted ($used_tier/$MAX_IMPLEMENT_PER_DAY opened today, UTC). Implement episodes are the expensive tier and each one produces a PR a human has to read; raise HERMES_CC_IMPLEMENT_BUDGET deliberately if this is legitimate."
+  fi
   printf '%s' "$used"
 }
 
@@ -532,13 +605,28 @@ cmd_dispatch() {
   resolve_repo "$name"
   TIER="${TIER:-investigate}"
   resolve_tier "$TIER" "$name"
+  # --why is checked before the brief is read: it is a property of the request,
+  # not of the payload, so a caller that forgot it should be told immediately
+  # rather than after piping in 8k of material.
+  if tier_is_gated && [ -z "$WHY" ]; then
+    usage_err "tier '$TIER' requires --why \"<reason>\". It lands in the audit log and is the record of why an unattended episode was allowed to write. There is no default."
+  fi
   valid_origin
   read_brief
   read_context
   AUDIT_TARGET="${name}:${TIER}"
 
-  if [ "$DRY_RUN" = 1 ]; then
-    emit_dry_run "$name"
+  # Two different reasons to stop here, one output. An explicit --dry-run is the
+  # caller asking what would happen; a gated tier without --confirm is this
+  # script refusing to act until a human has. Both change nothing and exit 0 —
+  # exit 0 because printing the plan IS the successful outcome of that request,
+  # and a non-zero code would read as "the dispatch failed" to whatever parses it.
+  # PLANNED is set ONLY for the gated case, so the audit line can tell "stopped to ask a
+  # human" from "the caller asked for a rehearsal" — an explicit --dry-run on a gated tier
+  # is still a rehearsal, and the audit `case` checks DRY_RUN first for exactly that reason.
+  if awaiting_confirm; then PLANNED=1; fi
+  if [ "$DRY_RUN" = 1 ] || [ "$PLANNED" = 1 ]; then
+    emit_plan "$name"
     return 0
   fi
 
@@ -608,12 +696,20 @@ import datetime as dt
 job = json.loads(os.environ["RESP"])["job"]
 now = dt.datetime.now(dt.timezone.utc).isoformat()
 reported = now if os.environ["REPORTED"] == "reported" else None
+result = job.get("result")
+# artifact_url is lifted out of the verdict into its own column so "what did this
+# dispatch produce" is a column read for the briefing and the watchdog, not a JSON
+# parse. Same denormalization dispatch-sweep.py does, deliberately — whichever of
+# the two settles a given dispatch has to leave the row in the same shape.
+# Normalized to NULL rather than stored verbatim: "" and NULL would be the same fact
+# ("no artifact") in two shapes, and every reader filters on IS NOT NULL.
+artifact = (result.get("artifactUrl") or None) if isinstance(result, dict) else None
 conn.execute(
-    "UPDATE dispatches SET status=?, verdict_json=?, finished_at=?, "
+    "UPDATE dispatches SET status=?, verdict_json=?, artifact_url=?, finished_at=?, "
     "reported_at=COALESCE(reported_at, ?) WHERE job_id=?",
     (job["status"],
-     json.dumps(job["result"]) if job.get("result") is not None else None,
-     now, reported, os.environ["JOB_ID"]),
+     json.dumps(result) if result is not None else None,
+     artifact, now, reported, os.environ["JOB_ID"]),
 )
 ' || precond_err "could not update the dispatch record for $1"
 }
@@ -675,6 +771,7 @@ cmd_cancel() {
   need python3
   AUDIT_TARGET="$job_id"
 
+  if [ "$CONFIRM" != 1 ]; then PLANNED=1; fi
   if [ "$CONFIRM" != 1 ] || [ "$DRY_RUN" = 1 ]; then
     emit_cancel_plan "$job_id"
     return 0
@@ -732,11 +829,17 @@ emit_result() {
     E_JOB="$job_id" E_REPO="$name" E_TIER="${TIER:--}" RESP="$resp" python3 -c '
 import json, os
 job = json.loads(os.environ["RESP"])["job"]
+result = job.get("result")
+r = result if isinstance(result, dict) else {}
+# artifactUrl and branch are hoisted to the top level rather than left nested in
+# the verdict. They are the only fields a caller ACTS on, and an agent reading
+# this should not have to know the verdict object is where a PR link hides.
 print(json.dumps({"verb": "dispatch", "ok": job["status"] == "done",
                   "jobId": os.environ["E_JOB"], "repo": os.environ["E_REPO"],
                   "tier": os.environ["E_TIER"], "status": job["status"],
                   "waited": True, "elapsedMs": job.get("elapsedMs"),
-                  "verdict": job.get("result"), "error": job.get("error")}, indent=2))
+                  "artifactUrl": r.get("artifactUrl"), "branch": r.get("branch"),
+                  "verdict": result, "error": job.get("error")}, indent=2))
 '
   else
     RESP="$resp" python3 -c '
@@ -747,6 +850,10 @@ print(f"status: {job["status"]} ({job.get("elapsedMs", 0)/1000:.0f}s)")
 if r:
     print(f"summary: {r.get("summary", "")}")
     print(f"confidence: {r.get("confidence")} | next: {r.get("nextAction")}")
+    if r.get("artifactUrl"):
+        print(f"artifact: {r["artifactUrl"]}")
+    elif r.get("branch"):
+        print(f"branch pushed, no PR: {r["branch"]}")
     print()
     print(r.get("verdict", ""))
     print()
@@ -776,24 +883,62 @@ print(json.dumps({"verb": "dispatch", "ok": True, "jobId": os.environ["E_JOB"],
   fi
 }
 
-emit_dry_run() {
-  local name=$1
+# The plan. Printed for an explicit --dry-run and for a gated tier awaiting
+# --confirm; `needsConfirm` is what tells the two apart, and it is what the agent
+# must surface to Johannes before it may pass --confirm. The plan spells out the
+# irreversible-looking parts (a branch, a PR) alongside the parts that are
+# guaranteed NOT to happen, because "it opens a PR" and "it never merges" are
+# both things a human needs before answering yes.
+emit_plan() {
+  local name=$1 needs_confirm=0
+  if awaiting_confirm; then needs_confirm=1; fi
   if [ "$JSON" = 1 ]; then
     JSON_EMITTED=1
-    E_REPO="$name" E_TIER="$TIER" E_PATH="$REPO_PATH" E_BRIEF="$BRIEF" python3 -c '
+    E_REPO="$name" E_TIER="$TIER" E_PATH="$REPO_PATH" E_BRIEF="$BRIEF" E_WHY="$WHY" \
+    E_NEEDS="$needs_confirm" E_MAXTIER="$REPO_MAX_TIER" python3 -c '
 import json, os
-print(json.dumps({"verb": "dispatch", "ok": True, "dryRun": True,
-                  "repo": os.environ["E_REPO"], "tier": os.environ["E_TIER"],
-                  "cwd": os.environ["E_PATH"],
-                  "briefChars": len(os.environ["E_BRIEF"]),
-                  "note": "nothing ran — no episode was opened and no budget was consumed"}, indent=2))
+tier = os.environ["E_TIER"]
+needs = os.environ["E_NEEDS"] == "1"
+effects = {
+    "investigate": ["opens a read-only session inside the repo",
+                    "returns a verdict; changes nothing anywhere"],
+    "author": ["opens a read-only session inside the repo",
+               "files ONE GitHub issue in that repo, or none if it finds nothing worth tracking"],
+    "implement": ["cuts a fresh dispatch/… branch in an ISOLATED worktree, never the live checkout",
+                  "lets the session edit files and run the validators the repo defines",
+                  "commits, pushes that branch, and opens a DRAFT pull request"],
+}[tier]
+never = ["never merges anything",
+         "never pushes to a default branch, in any repo, including direct-to-master ones",
+         "never touches .github/workflows or .github/actions",
+         "never mutates infrastructure — that is hermes-ops.sh, not this"]
+out = {"verb": "dispatch", "ok": True, "dryRun": True, "needsConfirm": needs,
+       "repo": os.environ["E_REPO"], "tier": tier,
+       "repoMaxTier": os.environ["E_MAXTIER"], "cwd": os.environ["E_PATH"],
+       "briefChars": len(os.environ["E_BRIEF"]), "why": os.environ["E_WHY"] or None,
+       "wouldDo": effects, "wouldNeverDo": never,
+       "note": "nothing ran — no episode was opened and no budget was consumed"}
+if needs:
+    out["note"] += (". This tier is GATED: re-invoke with --confirm ONLY after Johannes has "
+                    "seen this plan and said yes. Passing --confirm on your own judgement "
+                    "removes the only human in the loop.")
+print(json.dumps(out, indent=2))
 '
   else
-    printf 'DRY RUN — nothing executed.\n'
+    printf 'PLAN — nothing executed.\n'
     printf '  repo:  %s (%s)\n' "$name" "$REPO_PATH"
-    printf '  tier:  %s\n' "$TIER"
+    printf '  tier:  %s (repo ceiling: %s)\n' "$TIER" "$REPO_MAX_TIER"
     printf '  brief: %s chars\n' "${#BRIEF}"
-    printf 'Re-invoke without --dry-run to open the episode.\n'
+    [ -n "$WHY" ] && printf '  why:   %s\n' "$WHY"
+    if [ "$TIER" = implement ]; then
+      printf '  would: isolated worktree -> dispatch/… branch -> draft PR\n'
+      printf '  never: merge · push to a default branch · touch CI workflows\n'
+    fi
+    if [ "$needs_confirm" = 1 ]; then
+      printf 'GATED — re-invoke with --confirm only after Johannes has approved this plan.\n'
+    else
+      printf 'Re-invoke without --dry-run to open the episode.\n'
+    fi
   fi
 }
 
@@ -875,10 +1020,18 @@ VERBS
   cancel <job-id>      Abandon the LOCAL record. Needs --why and --confirm.
 
 TIERS
-  investigate  read-only session, verdict only. The only tier built today.
-  author       + gh issue create.                            NOT BUILT YET
-  implement    write, worktree-isolated, branch + PR.        NOT BUILT YET
+  investigate  read-only session, verdict only. Default. Ungated.
+  author       read-only session + one filed GitHub issue. Ungated.
+  implement    write session in an ISOLATED worktree, branch + DRAFT PR.
+               Requires --why AND --confirm. Without --confirm it prints the
+               plan and exits 0 having done nothing. It never merges and never
+               pushes to a default branch, in ANY repo — including the
+               direct-to-master ones, deliberately.
   A repo's ceiling lives in config/dispatch-repos.json and wins over the request.
+
+BUDGETS   20 dispatches per UTC day overall, and 5 of those may be `implement`
+          (HERMES_CC_DAILY_BUDGET / HERMES_CC_IMPLEMENT_BUDGET). Counted from
+          the dispatches table, not a counter file.
 
 THE BRIEF IS DATA, NEVER COMMAND
   It is read from stdin or a file — never taken as an argv string. Use a QUOTED
@@ -906,7 +1059,7 @@ DELIBERATELY NOT IMPLEMENTED
 EXIT CODES  0 ok · 2 precondition failed · 3 remote failed · 4 policy/budget
             refusal · 64 usage error
 AUDIT LOG   ~/Library/Logs/hermes-cc.log (one line per invocation, always)
-BUDGET      20 dispatches per UTC day, counted from the dispatches table.
+BUDGET      See BUDGETS above. Counted from the dispatches table, never a file.
 EOF
 }
 

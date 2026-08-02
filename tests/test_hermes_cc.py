@@ -5,8 +5,11 @@ Covers the security properties that make it safe to hand an LLM a bounded verb
 dispatcher instead of a raw `terminal` tool: the closed verb set (no fallthrough
 to a shell), argument bounding against each slot's fixed/live list or shape, the
 repo allowlist (absence is a denial, and a listed-but-uncheckedout repo is its
-own distinct precondition failure), tier gating (an unbuilt tier is refused,
-never silently downgraded; a repo's `maxTier` ceiling wins over the request),
+own distinct precondition failure), tier gating (a repo's `maxTier` ceiling wins
+over the request and is never silently downgraded), the write-tier gate
+(`implement` demands --why, and without --confirm prints its plan and changes
+nothing; it carries its own tighter daily ceiling), artifact plumbing (the
+issue/PR URL reaches both the --json top level and its own column),
 the brief-is-data rule (never taken from argv, always from stdin or
 `--brief-file`, transmitted verbatim into the sideclaw job body — never
 expanded, never re-parsed by a shell), the `--json` contract (exactly one
@@ -144,7 +147,12 @@ class Harness:
         self.repos_root.mkdir()
         self.alpha = self.repos_root / "alpha"
         self.beta = self.repos_root / "beta"
-        for d in (self.alpha, self.beta):
+        # "gamma" is the only fixture whose ceiling admits a write tier. Keeping
+        # it separate from alpha is what lets a single test prove BOTH halves of
+        # the ceiling: gamma accepts `implement`, alpha (defaulted to
+        # investigate) refuses the identical request.
+        self.gamma = self.repos_root / "gamma"
+        for d in (self.alpha, self.beta, self.gamma):
             (d / ".git").mkdir(parents=True)
         self.ghost = self.repos_root / "ghost-missing"  # deliberately never created
 
@@ -153,6 +161,7 @@ class Harness:
             "repos": {
                 "alpha": {"path": str(self.alpha)},
                 "beta": {"path": str(self.beta), "maxTier": "investigate"},
+                "gamma": {"path": str(self.gamma), "maxTier": "implement"},
                 "ghost": {"path": str(self.ghost)},
             }
         }))
@@ -427,36 +436,60 @@ def test_repo_allowlist(h: Harness):
 
 
 # =============================================================================
-# 4. Tier gating — unbuilt tiers refuse (never downgrade), an invalid tier
-#    name is a usage error, the default is investigate.
+# 4. Tier gating — the per-repo maxTier ceiling wins over the request, an
+#    invalid tier name is a usage error, and the default is investigate.
 #
-#    NOTE on the per-repo maxTier ceiling: BUILT_TIERS=(investigate) is the
-#    only tier this script can execute today, and investigate is tier rank 1 —
-#    the floor of the whole scale. Any request above investigate is already
-#    refused by the not-implemented gate, before the ceiling comparison ever
-#    runs; there is no requestable tier today whose rank could exceed a repo's
-#    maxTier. That branch becomes reachable only once author/implement land.
-#    We instead confirm the ceiling is a documented no-op today: a repo
-#    explicitly capped at investigate still accepts an investigate request.
+#    Now that all three tiers are built, the ceiling is the live gate rather
+#    than the documented no-op it was while author/implement were unbuilt: a
+#    repo capped at investigate must refuse an author/implement request at exit
+#    4 WITHOUT submitting anything, and a repo capped at implement must accept
+#    the identical request. Both directions are checked, because a ceiling that
+#    only ever says no is indistinguishable from a broken tier.
 # =============================================================================
 
 def test_tier_gating(h: Harness):
     failures = []
     total = passed = 0
 
+    # alpha carries no explicit maxTier, so it defaults to investigate — the
+    # request is well-formed and the tier is built; only the ceiling stops it.
     for tier in ("author", "implement"):
         total += 1
         curl_log = h.new_log("curl")
-        proc = h.run(["dispatch", "alpha", "--tier", tier],
-                      env_extra={"CC_TEST_CURL_LOG": str(curl_log)})
+        args = ["dispatch", "alpha", "--tier", tier]
+        if tier == "implement":
+            args += ["--why", "checking the ceiling", "--confirm"]
+        proc = h.run(args, env_extra={"CC_TEST_CURL_LOG": str(curl_log)},
+                      stdin=VALID_BRIEF)
         text = proc.stdout + proc.stderr
-        ok = proc.returncode == 4 and "not implemented" in text and not _curl_lines(curl_log)
+        ok = (proc.returncode == 4 and "capped at tier" in text
+              and not _curl_lines(curl_log))
         if ok:
             passed += 1
         else:
-            failures.append(f"--tier {tier}: expected a clean 'not implemented' "
-                             f"refusal (4), got rc={proc.returncode} "
-                             f"stdout={proc.stdout[:300]!r}")
+            failures.append(f"--tier {tier} into a repo capped at investigate: "
+                             f"expected a clean ceiling refusal (4) with nothing "
+                             f"submitted, got rc={proc.returncode} "
+                             f"stdout={proc.stdout[:300]!r} "
+                             f"curl={_curl_lines(curl_log)!r}")
+
+    # gamma's ceiling is implement, so author must pass through and reach curl
+    # carrying the tier it was asked for — never a silently downgraded one.
+    total += 1
+    curl_log = h.new_log("curl")
+    proc = h.run(["dispatch", "gamma", "--tier", "author", "--json"],
+                  env_extra={"CC_TEST_CURL_LOG": str(curl_log)}, stdin=VALID_BRIEF)
+    submits = [c for c in _curl_lines(curl_log) if c.get("stdin")]
+    ok = False
+    if proc.returncode == 0 and len(submits) == 1:
+        body = json.loads(submits[0]["stdin"])
+        ok = body["params"]["tier"] == "author"
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"--tier author into a repo capped at implement: expected "
+                         f"a submit carrying tier=author, got rc={proc.returncode} "
+                         f"curl={submits!r}")
 
     total += 1
     proc = h.run(["dispatch", "alpha", "--tier", "godmode"])
@@ -898,6 +931,267 @@ def test_dispatch_record(h: Harness):
 
 
 # =============================================================================
+# 12. Write-tier gate — `implement` is the only tier that mutates anything
+#     outside this machine, and it may not do so on an agent's own judgement.
+#     --why is mandatory (it is the audit record); without --confirm the verb
+#     prints its plan and changes nothing at exit 0; the implement tier carries
+#     its own tighter daily ceiling; and the audit log distinguishes a plan
+#     awaiting a human from a refusal and from a rehearsal.
+# =============================================================================
+
+def test_write_tier_gate(h: Harness):
+    failures = []
+    total = passed = 0
+
+    # (a) no --why: refused as a usage error, nothing submitted.
+    total += 1
+    curl_log = h.new_log("curl")
+    proc = h.run(["dispatch", "gamma", "--tier", "implement", "--confirm"],
+                  env_extra={"CC_TEST_CURL_LOG": str(curl_log)}, stdin=VALID_BRIEF)
+    ok = (proc.returncode == 64 and "--why" in (proc.stdout + proc.stderr)
+          and not _curl_lines(curl_log))
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"implement without --why: expected exit 64 demanding "
+                         f"--why with nothing submitted, got rc={proc.returncode} "
+                         f"stdout={proc.stdout[:300]!r} "
+                         f"curl={_curl_lines(curl_log)!r}")
+
+    # (b) --why but no --confirm: the plan, exit 0, nothing submitted, and the
+    #     JSON says needsConfirm so the agent cannot read it as a completed run.
+    total += 1
+    curl_log = h.new_log("curl")
+    audit_log = h.new_log("audit-planned")
+    proc = h.run(["dispatch", "gamma", "--tier", "implement", "--why",
+                  "the check job has failed the same way four times", "--json"],
+                  env_extra={"CC_TEST_CURL_LOG": str(curl_log)},
+                  audit_log=audit_log, stdin=VALID_BRIEF)
+    ok = False
+    if proc.returncode == 0 and not _curl_lines(curl_log):
+        try:
+            data = json.loads(proc.stdout.strip())
+            ok = (data.get("needsConfirm") is True
+                  and data.get("dryRun") is True
+                  and data.get("tier") == "implement"
+                  and isinstance(data.get("wouldDo"), list)
+                  # The plan must state what CANNOT happen, not only what will:
+                  # that is the half a human needs in order to answer "yes".
+                  and any("default branch" in s for s in data.get("wouldNeverDo", [])))
+        except json.JSONDecodeError:
+            ok = False
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"implement without --confirm: expected an exit-0 plan "
+                         f"with needsConfirm=true and nothing submitted, got "
+                         f"rc={proc.returncode} stdout={proc.stdout[:400]!r} "
+                         f"curl={_curl_lines(curl_log)!r}")
+
+    # (c) that same unconfirmed run audits as `planned` — not `refused` (no
+    #     guard said no) and not `dry-run` (the caller did not ask for one).
+    total += 1
+    lines = _log_text(audit_log).splitlines()
+    ok = len(lines) == 1 and "mode=planned" in lines[0] and "tier=implement" in lines[0]
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"unconfirmed implement should audit as mode=planned, "
+                         f"got {lines!r}")
+
+    # (d) an explicit --dry-run stays `dry-run` even on a gated tier — the
+    #     caller asked for a rehearsal, which is a different fact to record.
+    total += 1
+    audit_log = h.new_log("audit-dryrun-gated")
+    h.run(["dispatch", "gamma", "--tier", "implement", "--why", "rehearsing",
+           "--confirm", "--dry-run"], audit_log=audit_log, stdin=VALID_BRIEF)
+    lines = _log_text(audit_log).splitlines()
+    ok = len(lines) == 1 and "mode=dry-run" in lines[0]
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"explicit --dry-run on a gated tier should audit as "
+                         f"mode=dry-run, got {lines!r}")
+
+    # (e) --why AND --confirm: the episode is actually opened, carrying the tier
+    #     it asked for, and the audit line records the reason.
+    total += 1
+    curl_log = h.new_log("curl")
+    audit_log = h.new_log("audit-opened-implement")
+    proc = h.run(["dispatch", "gamma", "--tier", "implement", "--why",
+                  "approved in thread", "--confirm", "--json"],
+                  env_extra={"CC_TEST_CURL_LOG": str(curl_log)},
+                  audit_log=audit_log, stdin=VALID_BRIEF)
+    submits = [c for c in _curl_lines(curl_log) if c.get("stdin")]
+    ok = False
+    if proc.returncode == 0 and len(submits) == 1:
+        body = json.loads(submits[0]["stdin"])
+        audit = _log_text(audit_log)
+        ok = (body["params"]["tier"] == "implement"
+              and body["params"]["brief"] == VALID_BRIEF
+              and "mode=opened" in audit and "why=approved in thread" in audit)
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"confirmed implement: expected one submit at "
+                         f"tier=implement and mode=opened with the reason "
+                         f"audited, got rc={proc.returncode} curl={submits!r} "
+                         f"audit={_log_text(audit_log)!r}")
+
+    # (f) the implement tier has its OWN daily ceiling, independent of the
+    #     overall one — an exhausted implement budget refuses while the shared
+    #     budget still has room, and nothing is submitted.
+    total += 1
+    db_path = h.new_db()
+    h.run(["list"], env_extra={"HERMES_CC_DB": str(db_path)})
+    now = dt.datetime.now(dt.timezone.utc).isoformat()
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT INTO dispatches(job_id,tier,repo,brief,status,created_at) "
+        "VALUES(?,?,?,?,?,?)",
+        ("preseeded-impl", "implement", "gamma", "preseeded", "done", now),
+    )
+    conn.commit()
+    conn.close()
+    curl_log = h.new_log("curl")
+    proc = h.run(["dispatch", "gamma", "--tier", "implement", "--why", "second one",
+                  "--confirm", "--json"],
+                  env_extra={"HERMES_CC_DB": str(db_path),
+                             "HERMES_CC_DAILY_BUDGET": "20",
+                             "HERMES_CC_IMPLEMENT_BUDGET": "1",
+                             "CC_TEST_CURL_LOG": str(curl_log)},
+                  stdin=VALID_BRIEF)
+    ok = (proc.returncode == 4
+          and "implement budget" in (proc.stdout + proc.stderr)
+          and not _curl_lines(curl_log))
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"implement over its own ceiling while the shared budget "
+                         f"has room: expected exit 4 with nothing submitted, got "
+                         f"rc={proc.returncode} stdout={proc.stdout[:300]!r} "
+                         f"curl={_curl_lines(curl_log)!r}")
+
+    # (g-pre) A malformed maxTier must FAIL CLOSED. tier_rank maps an unknown tier to 99,
+    #     which is above every real rank — so without validation a typo in the allowlist
+    #     ("implment") silently lifts the ceiling instead of tightening it, and hands a
+    #     write episode to a repo meant to be read-only. Caught by adversarial review;
+    #     reproduced before it was fixed.
+    total += 1
+    bad_json = h.root / "repos-bad-tier.json"
+    bad_json.write_text(json.dumps({
+        "repos": {"typo": {"path": str(h.alpha), "maxTier": "implment"}}
+    }))
+    curl_log = h.new_log("curl")
+    proc = h.run(["dispatch", "typo", "--tier", "implement", "--why", "typo probe",
+                  "--confirm", "--json"],
+                  env_extra={"HERMES_CC_REPOS_JSON": str(bad_json),
+                             "CC_TEST_CURL_LOG": str(curl_log)},
+                  stdin=VALID_BRIEF)
+    ok = (proc.returncode == 2
+          and "unrecognized maxTier" in (proc.stdout + proc.stderr)
+          and not _curl_lines(curl_log))
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"a malformed maxTier must fail closed, got rc={proc.returncode} "
+                         f"stdout={proc.stdout[:300]!r} curl={_curl_lines(curl_log)!r}")
+
+    # (g) `author` is deliberately NOT gated — no --why, no --confirm, and it
+    #     still opens. A gate on every tier would make the implement gate
+    #     routine, which is exactly how an approval prompt stops being read.
+    total += 1
+    curl_log = h.new_log("curl")
+    proc = h.run(["dispatch", "gamma", "--tier", "author", "--json"],
+                  env_extra={"CC_TEST_CURL_LOG": str(curl_log)}, stdin=VALID_BRIEF)
+    submits = [c for c in _curl_lines(curl_log) if c.get("stdin")]
+    ok = proc.returncode == 0 and len(submits) == 1
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"author tier should need no --why/--confirm, got "
+                         f"rc={proc.returncode} curl={submits!r}")
+
+    return total, passed, failures
+
+
+# =============================================================================
+# 13. Artifact plumbing — an author/implement episode returns a URL, and that
+#     URL is the one field a caller acts on. It must reach both the --json
+#     payload's top level and its own `artifact_url` column, so the GitHub
+#     projection is a column read rather than a JSON parse.
+# =============================================================================
+
+def test_artifact_plumbing(h: Harness):
+    failures = []
+    total = passed = 0
+
+    pr_url = "https://github.com/jkrumm/dispatch-scratch/pull/7"
+    verdict = json.dumps({
+        "verdict": "stub verdict text",
+        "confidence": "high",
+        "evidence": [],
+        "recommendation": "stub recommendation",
+        "nextAction": "none",
+        "summary": "stub summary",
+        "artifactUrl": pr_url,
+        "branch": "dispatch/stub-abcd1234",
+    })
+
+    total += 1
+    db_path = h.new_db()
+    proc = h.run(["dispatch", "gamma", "--tier", "implement", "--why", "artifact test",
+                  "--confirm", "--wait", "--json"],
+                  env_extra={"HERMES_CC_DB": str(db_path),
+                             "CC_TEST_JOB_RESULT": verdict},
+                  stdin=VALID_BRIEF)
+    ok = False
+    job_id = None
+    try:
+        data = json.loads(proc.stdout.strip())
+        job_id = data.get("jobId")
+        ok = (data.get("artifactUrl") == pr_url
+              and data.get("branch") == "dispatch/stub-abcd1234")
+    except json.JSONDecodeError:
+        ok = False
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"--wait result should hoist artifactUrl/branch to the "
+                         f"top level, got {proc.stdout[:400]!r}")
+
+    total += 1
+    row = _fetch_row(db_path, job_id) if job_id else None
+    ok = row is not None and row["artifact_url"] == pr_url
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"the dispatch row should carry artifact_url in its own "
+                         f"column, got {row!r}")
+
+    # A verdict with no artifact must leave the column NULL rather than storing
+    # an empty string — "produced nothing" and "produced something empty" are
+    # different states, and the briefing filters on IS NOT NULL.
+    total += 1
+    db_path = h.new_db()
+    proc = h.run(["dispatch", "gamma", "--tier", "author", "--wait", "--json"],
+                  env_extra={"HERMES_CC_DB": str(db_path)}, stdin=VALID_BRIEF)
+    try:
+        job_id = json.loads(proc.stdout.strip()).get("jobId")
+    except json.JSONDecodeError:
+        job_id = None
+    row = _fetch_row(db_path, job_id) if job_id else None
+    ok = row is not None and row["artifact_url"] is None
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"a verdict carrying no artifactUrl should leave the "
+                         f"column NULL, got {row!r}")
+
+    return total, passed, failures
+
+
+# =============================================================================
 # 11. No free-form surface — static grep for a passthrough/eval shape.
 # =============================================================================
 
@@ -950,6 +1244,8 @@ def main() -> int:
             ("9. recursion guard", test_recursion_guard(h)),
             ("10. dispatch record", test_dispatch_record(h)),
             ("11. no free-form surface", test_no_freeform_surface()),
+            ("12. write-tier gate", test_write_tier_gate(h)),
+            ("13. artifact plumbing", test_artifact_plumbing(h)),
         ]
     finally:
         h.cleanup()

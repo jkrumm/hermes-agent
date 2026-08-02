@@ -1,8 +1,8 @@
 # Dispatch Bridge — Hermes hands work to Claude Code
 
-STATUS: Phases 1-3 built and committed (2026-08-02). Phase 4 (`author`/`implement`) not started.
-See hermes-agent CLAUDE.md § "Dispatch Bridge" and sideclaw CLAUDE.md § "Dispatch Tool"
-for what actually shipped, including the deviations recorded below.
+STATUS: all four phases built and committed (2026-08-02). See hermes-agent CLAUDE.md
+§ "Dispatch Bridge" and sideclaw CLAUDE.md § "Dispatch Tool" for what actually shipped,
+including the deviations recorded below.
 
 **The claim:** Hermes should never do repo work, and Claude Code should never
 watch for it. Hermes observes and decides; Claude Code executes bounded episodes
@@ -63,9 +63,9 @@ Same pipeline, same record, three permission profiles. Not three features.
 
 | Tier | Session | Artifact | Gate | Typical duration |
 |-|-|-|-|-|
-| `investigate` | `readOnly` (`Read,Bash,Grep,Glob`), `--json-schema` verdict | a verdict object | none | 30s–3min |
-| `author` | `readOnly` + `gh issue create` | GitHub issue | none | 1–4min |
-| `implement` | write, `--worktree`, branch push | branch + **PR** | `--why` **and** `--confirm` | 10–40min |
+| `investigate` | `readOnly`, `--json-schema` verdict | a verdict object | none | 30s–3min |
+| `author` | `readOnly`; the HANDLER files the issue | GitHub issue | none | 1–4min |
+| `implement` | write, in a handler-managed worktree | branch + **draft PR** | `--why` **and** `--confirm` | 10–40min |
 
 `investigate` is the tier that fixes the stated pain and it needs no approval
 theatre — a read-only session in a git repo cannot lose anything.
@@ -74,6 +74,39 @@ theatre — a read-only session in a git repo cannot lose anything.
 ones.** This deviates from the repo's normal convention on purpose: a human wrote
 the direct-to-master rule for their own commits, not for an unattended agent's.
 Never merge, never push to a default branch.
+
+### Two deviations from this design, both deliberate (Phase 4, 2026-08-02)
+
+**The session never creates the artifact; the handler does.** This design said
+`author` gets `gh issue create` and `implement` pushes its own branch. Built the
+other way round: the worker session holds **no GitHub credential at all**, and
+`dispatch-git.ts` — running in the sideclaw process, never in a session — resolves
+the token, commits, builds the push refspec and calls the API. The reason is the
+same one this document gives for fencing the brief: the prompt is assembled from
+untrusted material, so anything the session can reach, an injected brief can
+reach. Handing it a token to push with would have made every other bound
+advisory. As a bonus, "never merges, never pushes to a default branch" becomes a
+property of `pushBranch` (explicit default-branch check, `dispatch/` namespace
+check, single-branch refspec, no force flag) instead of a line in a prompt.
+
+**A handler-managed `git worktree add`, not the CLI's `--worktree`.** The handler
+has to know the worktree path to inspect the diff, apply the ceilings and tear it
+down on every exit path including a throw; `--worktree` hands that lifecycle to
+the CLI. Creating it explicitly also made the isolation claim *testable*, which is
+how it was verified: dirty the worktree, fail the run, watch the live checkout
+stay clean and the worktree, branch and directory all disappear.
+
+**One thing this design did not anticipate.** `~/.gitconfig` on the mini includes
+`~/.gitconfig-headless`, which points the GitHub credential helper at the offline
+secrets cache. So *any* process running as this user can push — including a
+read-only session, which still has `Bash`. Scrubbing credential-shaped env vars
+does nothing about it, because the credential never travels through the
+environment. Every tier now runs with `GIT_DENY_CREDENTIALS_ENV`
+(`GIT_CONFIG_GLOBAL=/dev/null` plus the terminal-prompt / askpass / ssh fallbacks
+closed), verified by measurement: a push under that env fails in under a second
+with "terminal prompts disabled", while `git log` is unaffected. This was a
+pre-existing hole in the `investigate` tier, not something the write tiers
+introduced.
 
 ## The dispatch record
 
@@ -237,7 +270,13 @@ Default model `sonnet` for every tier. `opus` only on explicit request.
 | 4 | `author` and `implement` tiers, worktree + PR path | delegated code change with a review gate |
 
 Phase 1 and 2 together are the thing that removes the daily friction. Phase 4 is
-the one that can go wrong, and it goes last on purpose.
+the one that can go wrong, and it went last on purpose.
+
+All four are built. What Phase 4 demonstrated rather than asserted, on
+`jkrumm/dispatch-scratch`: an `implement` episode producing a pushed branch and a
+draft PR in 24s; an `author` episode filing an issue; a failing episode leaving
+the live checkout byte-identical with the worktree, branch and directory gone;
+and a push attempt under the worker's own env failing in under a second.
 
 ## Verified during design (2026-08-02)
 
