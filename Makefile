@@ -4,7 +4,7 @@ HERMES_DIR    := $(HOME)/.hermes
 # schedule, slack, tasks, weather, garmin-health and strength skills were
 # consolidated into argo-api/references/*.md (commit 3087645) — they are no longer
 # separate dirs, so listing them here only created dead symlinks.
-HERMES_SKILLS := capture argo-api work karakeep obsidian reading research-gateway image-delivery homelab-ops homelab
+HERMES_SKILLS := capture argo-api work karakeep obsidian reading research-gateway image-delivery homelab-ops homelab briefing-tts
 
 # Scheduled jobs run as user LaunchAgents, not macOS crontab — see the Setup
 # banner below for why. Templates live in launchd/, rendered into ~/Library/LaunchAgents.

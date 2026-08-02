@@ -98,7 +98,7 @@ Today's row holds the **night that just ended** + **today's resting HR + body ba
 | Field | Meaning |
 |-|-|
 | `date` | `YYYY-MM-DD` — Garmin's daily bucket |
-| `sleep_duration_min` | Total sleep last night (minutes) |
+| `sleep_duration_sec` | Total sleep last night, in **seconds** (not minutes — divide by 3600 for hours, `% 3600 / 60` for the remainder) |
 | `sleep_score` | 0–100, ≥85 deep, 70–84 solid, 55–69 light, <55 rough |
 | `hrv_last_night_avg` | ms — last-night average. Trend over 7d matters more than absolute |
 | `hrv_status` | Garmin label: `BALANCED` / `LOW` / `UNBALANCED` / `POOR` |
@@ -109,6 +109,8 @@ Today's row holds the **night that just ended** + **today's resting HR + body ba
 | `stress_avg` | Average stress 0–100 |
 
 **Null handling:** at 07:00 the morning row may be partial — last-night sleep usually present, today's RHR/BB still partial. **Do not substitute yesterday's row** when today's field is null. Say "data still syncing" instead.
+
+**`bb_lowest == bb_highest` means overnight-only sync.** If both fields are equal (e.g. both `5`), Garmin has only synced the overnight window and hasn't captured the waking day's body-battery drain yet. Report as "data still syncing" rather than showing a misleading flat value — don't use `bb_charged` or `bb_highest` as a substitute end-of-day reading either.
 
 ### `/recovery` score
 - Range 0–100, weights HRV 40 / Sleep 35 / RHR 25

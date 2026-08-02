@@ -1,7 +1,7 @@
 ---
 name: argo-api
 description: Call the argo REST API (https://argo.jkrumm.com/api) for TickTick tasks, Gmail, Calendar, Docker (homelab + VPS), UptimeKuma, Slack, weather, Garmin Health, Strength tracking, WalkingPad treadmill stats, AI usage/cost, user profile, and read-only SQL — use curl with Bearer $HOMELAB_API_KEY
-version: 1.5.0
+version: 1.5.1
 metadata:
   hermes:
     tags: [ticktick, tasks, gmail, calendar, docker, uptime, slack, weather, garmin, strength, workouts, weight, profile, walking-pad, walkingpad, treadmill, steps, usage, cost, spend, tokens, sql, homelab, api]
