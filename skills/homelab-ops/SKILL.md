@@ -1,7 +1,7 @@
 ---
 name: homelab-ops
 description: Diagnose and remediate homelab / VPS / Mac Mini infrastructure through the bounded `hermes-ops.sh` verb dispatcher — monitors down, unhealthy or restart-looping containers, cron failures, push-monitor heartbeat gaps, uptime-kuma config corruption, deploy drift. Read-only triage is free; every mutation is a named verb needing --confirm and --why. Use for "#alerts" messages, "what's down", "is everything up", "why is X red", "restart Y", "redeploy Z".
-version: 1.0.0
+version: 1.1.0
 metadata:
   hermes:
     tags: [homelab, vps, mini, alerts, alert, incident, outage, down, infrastructure, infra, uptime-kuma, uptimekuma, monitor, monitors, docker, container, containers, unhealthy, restart, deploy, redeploy, cron, heartbeat, push-monitor, launchd, ops, devops, sync, drift]
@@ -40,6 +40,11 @@ Every invocation is audited to `~/Library/Logs/hermes-ops.log`, including dry ru
 
 Hosts are `homelab` and `vps`. Read-only *data* questions (metrics, tasks, weather)
 belong to the `argo-api` skill; this skill is health, incidents and change.
+
+For a named error-string / job-name → root-cause → verb lookup beyond the
+tables below, see `references/alert-patterns.md` — check it before improvising
+a diagnosis for anything that looks like a recurring alert shape. Dev-vhost
+DNS troubleshooting (`mini.jkrumm.com` and friends) is `references/cloudflare-dns.md`.
 
 ## Tier A — diagnosis (free)
 
@@ -84,7 +89,8 @@ Every path ends in a Tier B verb or an escalation. Nothing ends in raw shell.
    re-corrupts everything), then `uk-dry-run`, then **`uk-sync --why "…" --confirm`**.
 4. `env-check` failed → **escalate**: 1Password is Johannes's to fix. Report the
    dangling item names verbatim.
-5. Nothing matches → **escalate** with the monitor names, their `msg` from
+5. Nothing matches → check `references/alert-patterns.md` for a named pattern
+   first, then **escalate** with the monitor names, their `msg` from
    `kuma-db heartbeats <id>`, and what you ruled out.
 
 ### Docker container unhealthy

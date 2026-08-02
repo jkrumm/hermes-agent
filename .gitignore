@@ -29,3 +29,7 @@ skills/karakeep/state.json
 # Python
 __pycache__/
 *.pyc
+
+# Un-scrubbed archive of untracked skills pulled off the mini before deletion
+# (real tailnet IPs / 1Password vault UUIDs — never let this enter git).
+.skill-archive/
