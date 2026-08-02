@@ -4,16 +4,16 @@ description: Read, search, and write Johannes's Obsidian vault (the PARA second 
 version: 1.0.0
 metadata:
   hermes:
-    tags: [obsidian, vault, notes, note, second-brain, pkm, knowledge, daily, inbox, search, backlinks, dataview, wikilink, markdown, capture, resource, inspiration]
+    tags: [obsidian, vault, notes, note, second-brain, pkm, knowledge, inbox, search, backlinks, dataview, wikilink, markdown, capture, resource, inspiration]
     related_skills: [capture, karakeep, argo-api]
 ---
 
 # Obsidian
 
-Johannes's personal knowledge vault — plain-markdown, PARA-organised, the **source of truth** of the second brain. Capture lands here; durable knowledge lives here. Synced across devices by self-hosted LiveSync (CouchDB over Tailscale). The vault is also a **git repo** at `~/SourceRoot/brain`, shared with Claude Code (its `/brain` skill) — LiveSync stays the continuous cross-device backup, git is the deliberate `git diff` review + history gate. The shared machine-facing contract both agents follow is `~/SourceRoot/brain/AGENTS.md` — read it for anything this skill doesn't cover.
+Johannes's personal knowledge vault — plain-markdown, PARA-organised, the **source of truth** of the second brain. Capture lands here; durable knowledge lives here. The vault is a **git repo** at `~/SourceRoot/brain`, shared with Claude Code (its `/brain` skill); a LaunchAgent pulls and pushes it every 5 minutes between the mini and the MacBook — on this Mac Mini it never auto-commits, so a write isn't durable until it's committed. Git is the deliberate `git diff` review + history gate. The shared machine-facing contract both agents follow is `~/SourceRoot/brain/AGENTS.md` — read it for anything this skill doesn't cover.
 
 **Vault root:** `~/SourceRoot/brain/`
-**Access:** Obsidian.app runs on this Mac Mini, so prefer the **Obsidian CLI** — it goes through Obsidian's live API (metadata cache, backlinks, Dataview) and LiveSync picks up the change cleanly. Fall back to the **filesystem** only when the CLI is unavailable.
+**Access:** Obsidian.app runs on this Mac Mini, so prefer the **Obsidian CLI** — it goes through Obsidian's live API (metadata cache, backlinks, Dataview). Fall back to the **filesystem** only when the CLI is unavailable.
 
 Use the terminal. Don't say you lack access to the vault — reading and writing it is this skill.
 
@@ -31,11 +31,11 @@ Use the terminal. Don't say you lack access to the vault — reading and writing
 | Folder | Holds | Naming |
 |-|-|-|
 | `Inbox/` | Unprocessed captures — the default dump for anything unclassified | free |
-| `Projects/` | Active projects (`basalt-ui`, `iu`, `open-news` as folders; `free-planning-poker`, `rollhook` as single notes, no folder yet) — folder-note `{name}.md` + optional `notes/`, `specs/` | — |
-| `Areas/` | Ongoing areas (`Engineering`, `Health/Peptide`, `Photography`, `Reading`) | — |
+| `Projects/` | Active projects (`basalt-ui`, `iu` as folders; `free-planning-poker`, `rollhook` as single notes, no folder yet) — folder-note `{name}.md` + optional `notes/`, `specs/` | — |
+| `Areas/` | Ongoing areas (`Engineering`, `Health`, `Photography`, `Reading`) | — |
 | `wiki/` | **Agentic knowledge** — atomic English concept notes agents grow by traversal, domain-organized (`wiki/health/peptides/`) + per-level `index.md` MOC | — |
 
-There is **no `05_Resources/` tier** — reference material (articles, videos, books) is a `wiki/` concept note or a page under an Area; raw captures land in `Inbox/` and are promoted from there. Tasks live in TickTick, not the vault. For the authoritative traversal + write contract shared with Claude Code, see `~/SourceRoot/brain/AGENTS.md`.
+There is **no PARA `Resources` tier** — reference material (articles, videos, books) is a `wiki/` concept note or a page under an Area; raw captures land in `Inbox/` and are promoted from there. Tasks live in TickTick, not the vault. For the authoritative traversal + write contract shared with Claude Code, see `~/SourceRoot/brain/AGENTS.md`.
 
 ## Conventions (real, in active use)
 
@@ -44,7 +44,7 @@ There is **no `05_Resources/` tier** — reference material (articles, videos, b
 - **Links** are `[[wikilinks]]`; add them to relate a note to projects/areas/other notes.
 - **Dates** are `YYYY-MM-DD` everywhere. Resolve "today" before writing — nothing expands date tokens for you.
 - **Never write to the vault root.** Unclassified content → `Inbox/`.
-- **The vault has no templates.** The `09_Templates/` folder was removed 2026-08-02 (its files were inert Templater syntax and Templater is not installed), so never pass `template=`/`templates`. Build the full frontmatter + body yourself from the schemas below and pass it via `content=`.
+- **The vault has no templates or daily notes.** The `09_Templates/` and `02_Daily/` folders were removed 2026-08-02, and the backing `templates`/`daily-notes` core plugins are disabled — never pass `template=`/`templates`, and never call any `daily:*` CLI verb (`daily`, `daily:append`, `daily:path`, `daily:prepend`, `daily:read`); they're dead. Build the full frontmatter + body yourself from the schemas below and pass it via `content=`.
 - **New subfolder → new folder note.** When adding a subfolder under `Projects/<project>/` or `Areas/<area>/` that will hold more than one note, create its folder note (`{foldername}.md`) in the same write rather than leaving it for the linter to flag — see `AGENTS.md` → Reserved filenames. A pure attachment/spec bucket already covered by the parent's folder note doesn't need one.
 
 ## Durable knowledge — two layers, shared discipline with Claude Code
@@ -119,8 +119,8 @@ obsidian search query="deep modules" format=json   # full-text search → matchi
 obsidian search:context query="ACWR" limit=10      # search WITH matching line context
 obsidian read path="Areas/Engineering/north-star-stack.md"
 obsidian files folder="Inbox"                      # list notes in a folder
-obsidian backlinks file="open-news" format=tsv     # what links to a note
-obsidian links file="open-news"                    # outgoing links from a note
+obsidian backlinks file="basalt-ui" format=tsv     # what links to a note
+obsidian links file="basalt-ui"                    # outgoing links from a note
 obsidian tags                                      # all tags in the vault
 obsidian properties counts format=tsv              # all frontmatter properties + usage counts
 obsidian outline path="…"                          # heading structure of a note
@@ -193,6 +193,7 @@ The `capture` skill routes; this is the shared model:
 
 - **Do not write journal entries.** The voice-first journal is a separate, paused subsystem with its own tone rules and ingest pipeline — currently blocked pending a new vault target (see `journal/PRD.md`). If asked to journal, say it isn't wired up yet rather than improvising an entry.
 - **Never write to the vault root**; unclassified → `Inbox/`.
+- **The `daily:*` and `template:*`/`templates` CLI verbs are dead.** Their backing core plugins (`daily-notes`, `templates`) are disabled and the `02_Daily/`/`09_Templates/` folders were removed 2026-08-02. Never call them. If asked to "add to my daily note", say daily notes were retired rather than improvising a location.
 - **Confirm before delete, move, or overwrite** an existing note. Prefer `append`/`property:set` over rewriting a whole file.
-- **Don't manage sync** — LiveSync propagates changes automatically; just write.
+- **Sync is git, not automatic.** A LaunchAgent pulls and pushes `~/SourceRoot/brain` every 5 minutes; on this Mac Mini it never auto-commits. A write isn't durable until it's committed — after writing, commit (the human reviews `git diff`).
 - **Reading on the Kobo e-reader** (selected vault notes → KOReader) is a separate, planned surface (Readeck, Phase 4) — not this skill yet.
