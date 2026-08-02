@@ -401,6 +401,20 @@ skills:
     - findmy
     - imessage
     - songwriting-and-ai-music
+    # kanban: the multi-agent task-board feature (kanban: block below, kanban
+    # toolset) has never been used. kanban.db has zero rows in every table —
+    # tasks, task_events, task_runs — since the board was created; `hermes
+    # kanban stats`/`boards`/`list` all confirm empty. The gateway's periodic
+    # "reaped N zombie worker(s)" log lines look like dispatch evidence but
+    # are not: reap_worker_zombies() is a generic os.waitpid(-1, WNOHANG)
+    # reaper for any child of the gateway process, run once per dispatch
+    # tick — unrelated to whether a kanban task ever ran. orchestrator_profile
+    # and default_assignee are both unset, so nothing was ever wired to route
+    # work onto the board either. Disabling only drops the skill doc from the
+    # agent's context; the dispatcher below still ticks every 60s against an
+    # empty board — leave `kanban:` and the toolset entries alone, turning the
+    # feature itself off is a separate decision.
+    - kanban
 curator:
   enabled: true
   interval_hours: 168
