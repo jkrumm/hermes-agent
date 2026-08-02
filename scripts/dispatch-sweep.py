@@ -37,6 +37,20 @@ the process died between "sent" and "recorded." An occasional duplicate
 message in a thread is a cosmetic annoyance; a lost verdict is the thing
 Phase 3 exists to prevent.
 
+WAKE-UP NUDGE. The verdict above is posted via `hermes send`, i.e. as
+Hermes's own Slack bot user — and Slack ingest unconditionally drops
+Hermes's own messages (echo-loop protection), so nothing wakes the agent
+when an episode finishes. For an *actionable* dispatch (done, implement
+tier, has an artifact URL, not already merged — see is_actionable()), this
+script additionally posts a short nudge through argo's Slack API, which
+posts as the HomeLab bot — a different user Hermes does ingest — strictly
+AFTER `reported_at` is stamped, and best-effort (its failure never affects
+`reported_at` and never raises — see send_nudge()). The nudge body is
+restricted to fields the dispatch bridge itself owns (job id, repo, tier,
+artifact URL) and never carries episode-authored text — see
+build_nudge_body()'s docstring for why that boundary is a security
+property, not a style choice.
+
 Source of truth: ~/SourceRoot/hermes-agent/scripts/dispatch-sweep.py
 ~/.hermes/scripts/ is itself a symlink to this directory (see make setup).
 """
@@ -71,6 +85,25 @@ SIDECLAW_POLL_TIMEOUT = 15  # seconds; a bare GET against a localhost job server
 HERMES_SEND_TIMEOUT = 30    # seconds; shells out to the gateway's platform client
 
 TERMINAL_STATUSES = {"done", "failed", "interrupted"}
+
+# --- Wake-up nudge (argo Slack API) -----------------------------------------
+#
+# The verdict above is sent via `hermes send`, which posts as Hermes's own
+# Slack bot user — and Slack ingest unconditionally drops Hermes's own
+# messages (echo-loop protection, independent of allow_bots), so nothing
+# wakes the agent when an episode finishes. For an *actionable* dispatch
+# (see is_actionable()) we additionally post a short nudge through argo's
+# Slack API, which posts as the HomeLab bot — a different user, which Hermes
+# DOES ingest — so it can decide whether to call `merge`.
+#
+# Same API_BASE + same bearer secret (op://common/api/SECRET, env
+# HOMELAB_API_KEY) that scripts/briefing-coverage.py and
+# scripts/watchdog-poll.py already use; resolve_api_key() below mirrors
+# briefing-coverage.py's implementation exactly.
+ARGO_API_BASE = "https://argo.jkrumm.com/api"
+ARGO_API_KEY_REF = "op://common/api/SECRET"
+SECRETS_RUN = Path.home() / ".local" / "bin" / "secrets-run"
+ARGO_HTTP_TIMEOUT = 10  # seconds; a bare POST against a remote HTTP API
 
 # A dispatch with no origin_channel was never asked from a Slack thread (e.g.
 # opened from a cron context with nothing to answer into) — it can NEVER be
@@ -169,6 +202,116 @@ def poll_job(job_id: str) -> dict[str, Any] | None:
         return None
     job = data.get("job")
     return job if isinstance(job, dict) else None
+
+
+def http_post_json(url: str, payload: dict[str, Any], headers: dict[str, str],
+                    timeout: int = ARGO_HTTP_TIMEOUT) -> Any:
+    """POST sibling of http_get — same urllib idiom, same never-raise contract:
+    any transport/parse failure folds into a {"_error": ...} dict rather than
+    propagating, so a bad nudge attempt can't take the sweep down."""
+    data = json.dumps(payload).encode()
+    req = urllib.request.Request(
+        url, data=data, method="POST",
+        headers={"Content-Type": "application/json", **headers},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode())
+    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError,
+            TimeoutError, ValueError) as e:
+        return {"_error": str(e)}
+
+
+def resolve_api_key() -> str:
+    """Mirrors scripts/briefing-coverage.py's resolve_api_key() exactly:
+    process env first (HOMELAB_API_KEY), then the secrets-run cache shim with
+    a widened PATH (the cache backend needs sops+jq, which the gateway's
+    minimal cron PATH may not reach). Returns "" on any failure — a missing
+    key is simply a nudge failure, never a hard error for this script."""
+    val = os.environ.get("HOMELAB_API_KEY", "")
+    if val:
+        return val
+    env = os.environ.copy()
+    env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + env.get("PATH", "/usr/bin:/bin")
+    try:
+        r = subprocess.run(
+            [str(SECRETS_RUN), "read", ARGO_API_KEY_REF],
+            capture_output=True, text=True, timeout=15, env=env,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def is_actionable(*, status: str, tier: str, artifact_url: str | None,
+                   merged_at: str | None) -> bool:
+    """A dispatch is actionable — i.e. worth waking Hermes for — only when
+    ALL of: the job finished successfully (status == "done"), it was an
+    implement-tier episode (the only tier that can produce something to
+    merge), it actually produced an artifact (a PR URL), and it isn't
+    already merged. Anything else (investigate/author tiers, a
+    failed/interrupted job, no artifact, already merged) gets today's
+    behaviour — verdict only, no nudge."""
+    return status == "done" and tier == "implement" and bool(artifact_url) and not merged_at
+
+
+def build_nudge_body(*, job_id: str, repo: str, tier: str, artifact_url: str) -> str:
+    """Deterministic wake-up nudge, in the same voice as format_message().
+
+    SECURITY — do not "improve" this by inlining the episode's summary,
+    verdict, recommendation, evidence, or branch. This nudge is ingested by
+    Hermes as a live user turn (that is the whole point — it's what wakes
+    the agent), so any episode-authored prose in it becomes an instruction
+    to an agent that can go on to merge code to master. The episode's
+    output is derived from repo content, which can include third-party
+    text. Restricting this body to fields the dispatch bridge itself owns
+    — job id, repo, tier, artifact URL — keeps that injection surface
+    empty by construction. The full verdict (including any episode prose)
+    is already in the thread from the prior `hermes send` — Hermes reads
+    it there, as a human would, rather than having it re-injected here."""
+    job_short = job_id[:8]
+    return (
+        f":bell: Implement episode finished — {repo}\n"
+        f"Unmerged PR: {artifact_url}\n"
+        f"Review the verdict above and decide whether to merge — use the `claude-dispatch` "
+        f"skill's `merge {job_id}` verb, or explain why not.\n"
+        f"_tier {tier} · job `{job_short}`_"
+    )
+
+
+def send_nudge(*, origin_channel: str, origin_thread_ts: str | None, job_id: str,
+               repo: str, tier: str, artifact_url: str) -> None:
+    """Best-effort wake-up nudge via argo's Slack API (posts as the HomeLab
+    bot, which Hermes — unlike its own bot — actually ingests). Must run
+    STRICTLY AFTER reported_at is already stamped (see the module
+    docstring's crash-safety contract) and must NEVER affect it and NEVER
+    raise: at-most-once is the correct trade here, since the worst case is
+    "Hermes isn't woken and a human pokes the thread," which is exactly
+    today's behaviour. A caught exception is logged to stderr, not
+    propagated — this function is called from a context where letting it
+    raise would incorrectly look like the sweep itself failed."""
+    try:
+        api_key = resolve_api_key()
+        if not api_key:
+            print(
+                f"dispatch-sweep: no HOMELAB_API_KEY available, skipping nudge for "
+                f"job {job_id} (repo {repo})",
+                file=sys.stderr,
+            )
+            return
+        body = build_nudge_body(job_id=job_id, repo=repo, tier=tier, artifact_url=artifact_url)
+        if origin_thread_ts:
+            url = f"{ARGO_API_BASE}/slack/channels/{origin_channel}/messages/{origin_thread_ts}/reply"
+        else:
+            url = f"{ARGO_API_BASE}/slack/channels/{origin_channel}/messages"
+        result = http_post_json(url, {"text": body}, {"Authorization": f"Bearer {api_key}"})
+        if not isinstance(result, dict) or "_error" in result:
+            print(
+                f"dispatch-sweep: nudge post failed for job {job_id} (repo {repo}): {result}",
+                file=sys.stderr,
+            )
+    except Exception as e:  # a nudge failure must never look like a sweep failure
+        print(f"dispatch-sweep: nudge raised for job {job_id} (repo {repo}): {e}", file=sys.stderr)
 
 
 def send_message(target: str, body: str) -> int:
@@ -362,6 +505,10 @@ def process_dispatch(conn: sqlite3.Connection, row: sqlite3.Row, *, dry_run: boo
 
     result = job.get("result")
     error = job.get("error")
+    # `or None` so "" and NULL do not become two shapes of the same fact — every
+    # reader of this column (and the actionable predicate below) filters on
+    # IS NOT NULL / truthiness.
+    artifact_url = ((result.get("artifactUrl") if isinstance(result, dict) else None) or "").strip() or None
 
     # Fold the terminal outcome back into the row and commit it BEFORE any
     # delivery attempt — see the module docstring's crash-safety contract.
@@ -376,9 +523,7 @@ def process_dispatch(conn: sqlite3.Connection, row: sqlite3.Row, *, dry_run: boo
             (
                 status,
                 json.dumps(result) if result is not None else None,
-                # `or None` so "" and NULL do not become two shapes of the same fact —
-                # every reader of this column filters on IS NOT NULL.
-                (result.get("artifactUrl") or None) if isinstance(result, dict) else None,
+                artifact_url,
                 now_iso,
                 job_id,
             ),
@@ -410,9 +555,15 @@ def process_dispatch(conn: sqlite3.Connection, row: sqlite3.Row, *, dry_run: boo
     body = format_message(repo=repo, tier=tier, job_id=job_id, status=status,
                            result=result, error=error, merged_at=row["merged_at"])
     target = f"slack:{origin_channel}:{origin_thread_ts}" if origin_thread_ts else f"slack:{origin_channel}"
+    actionable = is_actionable(status=status, tier=tier, artifact_url=artifact_url,
+                                merged_at=row["merged_at"])
 
     if dry_run:
         print(f"[dry-run] would send to {target} (job {job_id}, repo {repo}):\n{body}\n")
+        if actionable:
+            nudge_body = build_nudge_body(job_id=job_id, repo=repo, tier=tier,
+                                           artifact_url=artifact_url)
+            print(f"[dry-run] would nudge {target} (job {job_id}, repo {repo}):\n{nudge_body}\n")
         return
 
     rc = send_message(target, body)
@@ -423,6 +574,11 @@ def process_dispatch(conn: sqlite3.Connection, row: sqlite3.Row, *, dry_run: boo
             (now_iso2, job_id),
         )
         conn.commit()
+        # Strictly AFTER reported_at is stamped, and best-effort — see
+        # send_nudge()'s docstring for why ordering here is load-bearing.
+        if actionable:
+            send_nudge(origin_channel=origin_channel, origin_thread_ts=origin_thread_ts,
+                       job_id=job_id, repo=repo, tier=tier, artifact_url=artifact_url)
     else:
         print(
             f"dispatch-sweep: hermes send exited {rc} for job {job_id} (repo {repo}, "

@@ -50,6 +50,8 @@ dispatch_sweep = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(dispatch_sweep)
 
 format_message = dispatch_sweep.format_message
+is_actionable = dispatch_sweep.is_actionable
+build_nudge_body = dispatch_sweep.build_nudge_body
 
 JOB_ID = "6f7c9cc4-641d-4088-9a94-65845a1b1f4b"
 JOB_SHORT = JOB_ID[:8]
@@ -263,6 +265,101 @@ def main() -> int:
     check("done-with-no-result rendering identical with and without merged_at",
           no_result_without_merge == no_result_with_merge)
 
+    # --- wake-up nudge: is_actionable() predicate ------------------------
+    #
+    # WHY THIS SECTION EXISTS. The verdict sent via `hermes send` posts as
+    # Hermes's own Slack bot user, which Slack ingest unconditionally drops
+    # (echo-loop protection) — so nothing wakes Hermes when an implement
+    # episode finishes with a draft PR sitting unreviewed. is_actionable()
+    # gates a second, separate message posted through argo's Slack API (a
+    # different bot user Hermes DOES ingest). It must be true only for the
+    # exact case that needs a human-in-the-loop decision — an unmerged
+    # implement-tier PR — and false for everything else: other tiers
+    # (nothing to merge), non-done terminal states (nothing landed), and an
+    # already-merged dispatch (nothing left to decide).
+    ACTIONABLE_ARTIFACT = "https://github.com/jkrumm/example/pull/42"
+    BASE_ACTIONABLE_KWARGS = {
+        "status": "done",
+        "tier": "implement",
+        "artifact_url": ACTIONABLE_ARTIFACT,
+        "merged_at": None,
+    }
+
+    def _actionable(**overrides: object) -> bool:
+        kwargs = dict(BASE_ACTIONABLE_KWARGS)
+        kwargs.update(overrides)
+        return is_actionable(**kwargs)  # type: ignore[arg-type]
+
+    actionable_checks = [
+        ("all four conditions hold => actionable",
+         _actionable() is True),
+        ("merged_at set => not actionable",
+         _actionable(merged_at="2026-08-02T19:06:00+00:00") is False),
+        ("tier=author => not actionable",
+         _actionable(tier="author") is False),
+        ("tier=investigate => not actionable",
+         _actionable(tier="investigate") is False),
+        ("status=failed => not actionable",
+         _actionable(status="failed") is False),
+        ("status=interrupted => not actionable",
+         _actionable(status="interrupted") is False),
+        ("artifact_url='' (empty) => not actionable",
+         _actionable(artifact_url="") is False),
+        ("artifact_url=None (missing) => not actionable",
+         _actionable(artifact_url=None) is False),
+    ]
+    for label, cond in actionable_checks:
+        check(f"is_actionable: {label}", cond)
+    actionable_ok = sum(1 for _, cond in actionable_checks if cond)
+
+    # --- wake-up nudge: body content + the security-critical exclusion ---
+    #
+    # This is the important test in this file. build_nudge_body() must never
+    # be handed — and therefore can never leak — any episode-authored text
+    # (summary/verdict/recommendation/evidence/branch), because the nudge is
+    # ingested by Hermes as a live user turn: episode-authored prose in it
+    # would become an instruction to an agent that can go on to merge code
+    # to master, and the episode's own output is derived from repo content
+    # that can include third-party text. Every episode-authored field below
+    # carries a distinctive sentinel; if the sentinel leaks into the nudge
+    # body, the injection surface build_nudge_body() is supposed to close is
+    # open.
+    LEAK_SENTINEL = "ZZZ_EPISODE_AUTHORED_TEXT_MUST_NOT_LEAK_INTO_NUDGE_ZZZ"
+    tainted_verdict_result = {
+        "summary": f"Fixed the flaky test. {LEAK_SENTINEL}",
+        "artifactUrl": ACTIONABLE_ARTIFACT,
+        "verdict": f"All good, ship it. {LEAK_SENTINEL}",
+        "recommendation": f"Merge when ready. {LEAK_SENTINEL}",
+        "evidence": [{"file": "tests/test_x.py", "detail": f"fixed race. {LEAK_SENTINEL}"}],
+        "branch": f"dispatch/example-fix-{LEAK_SENTINEL}",
+        "confidence": "high",
+        "nextAction": f"review the draft PR. {LEAK_SENTINEL}",
+    }
+    # Mirrors how scripts/dispatch-sweep.py's process_dispatch() derives
+    # artifact_url from the job result before calling build_nudge_body() —
+    # only the artifact URL crosses from the (tainted) result object into
+    # the nudge; nothing else does, by construction of the function's
+    # signature.
+    extracted_artifact_url = tainted_verdict_result["artifactUrl"]
+    nudge_body = build_nudge_body(
+        job_id=JOB_ID, repo="example", tier="implement",
+        artifact_url=extracted_artifact_url,
+    )
+    nudge_checks = [
+        ("nudge body contains the full job id",
+         JOB_ID in nudge_body),
+        ("nudge body contains the repo",
+         "example" in nudge_body),
+        ("nudge body contains the artifact URL",
+         ACTIONABLE_ARTIFACT in nudge_body),
+        ("nudge body does NOT contain episode-authored text (summary/verdict/"
+         "recommendation/evidence/branch)",
+         LEAK_SENTINEL not in nudge_body),
+    ]
+    for label, cond in nudge_checks:
+        check(f"nudge body: {label}", cond)
+    nudge_ok = sum(1 for _, cond in nudge_checks if cond)
+
     print(f"unmerged byte-identical      {unmerged_ok}/{unmerged_cases}")
     print(f"merged rendering             {merged_ok}/{len(merged_checks)}")
     print(f"garbage merged_at            {garbage_ok}/{len(garbage_checks)}")
@@ -270,6 +367,8 @@ def main() -> int:
     print(f"merged degraded row          {degraded_ok}/{len(degraded_checks)}")
     print(f"merged, no artifactUrl       {no_artifact_ok}/{len(no_artifact_checks)}")
     print(f"failed/interrupted unaffected {terminal_ok}/{len(terminal_checks)}")
+    print(f"is_actionable predicate      {actionable_ok}/{len(actionable_checks)}")
+    print(f"nudge body content            {nudge_ok}/{len(nudge_checks)}")
 
     if failures:
         print("\nFAILURES:")
