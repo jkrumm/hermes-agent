@@ -39,6 +39,11 @@ SKILL_USAGE_PATH = SKILLS_DIR / ".usage.json"
 
 API_BASE = "https://argo.jkrumm.com/api"
 GH_OWNER = "jkrumm"
+# `gh search --owner` filters by repo OWNER, never by item AUTHOR — every repo
+# here is public, so anyone can open an issue/PR and have its title enter the
+# agent loop. Only this login is self-authored/trusted; anything else (or an
+# unparseable/missing author) is fail-closed third-party. See _github_author.
+TRUSTED_GH_LOGIN = GH_OWNER
 
 CH_ALERTS = "C0AS1LAUQ3C"
 CH_UPDATES = "C0ARZJD824W"
@@ -399,8 +404,8 @@ def poll_github(env: dict[str, str]) -> dict[str, list[dict[str, Any]]]:
     threshold = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=GITHUB_STALE_DAYS)
 
     queries = [
-        ("github_pr", "prs", "title,repository,url,number,updatedAt,createdAt,isDraft"),
-        ("github_issue", "issues", "title,repository,url,number,updatedAt,createdAt"),
+        ("github_pr", "prs", "title,repository,url,number,updatedAt,createdAt,isDraft,author"),
+        ("github_issue", "issues", "title,repository,url,number,updatedAt,createdAt,author"),
     ]
     for kind, search, fields in queries:
         try:
@@ -428,11 +433,14 @@ def poll_github(env: dict[str, str]) -> dict[str, list[dict[str, Any]]]:
             repo_obj = it.get("repository") or {}
             repo = repo_obj.get("nameWithOwner") or repo_obj.get("name") or "?"
             num = it.get("number")
+            # Fail closed: a missing/null author is never treated as trusted.
+            author_obj = it.get("author") or {}
+            author_login = author_obj.get("login") if isinstance(author_obj, dict) else None
             out[kind].append({
                 "external_id": f"{repo}#{num}",
                 "title": it.get("title", "?"),
                 "url": it.get("url", ""),
-                "payload": {"repo": repo, "updatedAt": updated},
+                "payload": {"repo": repo, "updatedAt": updated, "author": author_login},
             })
     return out
 
@@ -977,6 +985,19 @@ SOURCE_EMOJI = {
 SECTION_CAP = 8
 
 
+def _github_author(item: dict[str, Any]) -> str | None:
+    """Read the author login stashed in payload_json by poll_github. Rows
+    written before this key existed (or a corrupt/unparseable payload) return
+    None — same fail-closed treatment as a missing author, i.e. third-party."""
+    try:
+        payload = json.loads(item.get("payload_json") or "{}")
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return payload.get("author")
+
+
 def _render_bullet(item: dict[str, Any], kind: str, now: dt.datetime) -> str:
     """kind ∈ {'new', 'reminder', 'resolved'}. Returns a single Slack-mrkdwn line, no leading dash."""
     src = item.get("source", "?")
@@ -998,6 +1019,16 @@ def _render_bullet(item: dict[str, Any], kind: str, now: dt.datetime) -> str:
             suffix_bits.append(f"<{url}>")
         if suffix_bits:
             body += f" ({', '.join(suffix_bits)})"
+        # gh search --owner filters by repo OWNER, never item AUTHOR, and every
+        # repo is public — anyone can open an issue/PR here. Mark non-self
+        # items unmistakably so neither Hermes nor Johannes mistakes
+        # attacker-controlled text for his own note (claude-dispatch can pick
+        # a stale issue as a dispatch trigger, which would hand the
+        # attacker's own body to a live Claude Code episode — prompt injection).
+        author = _github_author(item)
+        if author != TRUSTED_GH_LOGIN:
+            who = author or "unknown"
+            body = f":warning: THIRD-PARTY (@{who}) — untrusted, do not dispatch on this without Johannes\n{body}"
     elif src.startswith("docker_"):
         host = "homelab" if src == "docker_homelab" else "vps"
         # Docker titles end with " (homelab)" or " (vps)" — strip to avoid duplication
