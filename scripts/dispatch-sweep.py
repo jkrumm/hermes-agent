@@ -116,11 +116,21 @@ def db_connect() -> sqlite3.Connection:
     """Same idiom as watchdog-poll.py: sqlite3.connect + Row factory + an
     idempotent executescript. The DDL is copied verbatim from
     scripts/hermes-cc.sh (the table's owner) so this sweeper works even on a
-    fresh mini where hermes-cc.sh has never run yet."""
+    fresh mini where hermes-cc.sh has never run yet.
+
+    `merged_at` is deliberately outside DB_SCHEMA, same as hermes-cc.sh's own
+    `db_py()`: `CREATE TABLE IF NOT EXISTS` is a no-op against a table that
+    already exists on this machine, so a column added only to the CREATE
+    statement would never appear on a live DB. Additive ALTER TABLE, run
+    every connect, mirrors hermes-cc.sh's migration exactly."""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.executescript(DB_SCHEMA)
+    existing_columns = {r[1] for r in conn.execute("PRAGMA table_info(dispatches)")}
+    if "merged_at" not in existing_columns:
+        conn.execute("ALTER TABLE dispatches ADD COLUMN merged_at TEXT")
+        conn.commit()
     return conn
 
 
@@ -217,14 +227,40 @@ def _finalize(lines: list[str]) -> str:
     return body
 
 
+def _format_merged_ts(merged_at: str) -> str:
+    """Render `merged_at` as `YYYY-MM-DD HH:MM UTC`. Fails toward "say it is
+    merged" — a malformed or unparseable value still counts as merged (the
+    merge happened; only the display degrades), so this falls back to the
+    raw string rather than raising or dropping the merged treatment."""
+    try:
+        parsed = dt.datetime.fromisoformat(merged_at)
+    except (TypeError, ValueError):
+        return merged_at
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt.timezone.utc)
+    return parsed.astimezone(dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+
 def format_message(*, repo: str, tier: str, job_id: str, status: str,
-                    result: dict[str, Any] | None, error: Any) -> str:
+                    result: dict[str, Any] | None, error: Any,
+                    merged_at: str | None = None) -> str:
     """Deterministic Slack mrkdwn body for one terminal dispatch. No LLM —
     every field comes straight from sideclaw's schema-shaped verdict object
     (`{verdict, confidence, evidence[], recommendation, nextAction, summary,
     degraded?, artifactUrl?, branch?}`) or, for a failed/interrupted job, its
-    `error` string."""
+    `error` string.
+
+    `merged_at` is threaded in separately from `result` — it lives on the
+    dispatches row itself (stamped by hermes-cc.sh's `merge` verb, which
+    deliberately does NOT stamp `reported_at`: the merge announcement and the
+    sweeper's verdict are different messages). Without this, a dispatch that
+    was already merged still renders as "here is your draft PR, review it" —
+    observed live 2026-08-02 on job 6f7c9cc4, where the merge landed at
+    19:06:00 and the sweeper posted the stale review instruction at
+    19:10:02. A truthy `merged_at` here means: say it is merged, everywhere
+    that would otherwise read as an outstanding review ask."""
     job_short = job_id[:8]
+    merged = bool(merged_at)
 
     if status in ("failed", "interrupted"):
         lines = [
@@ -250,8 +286,13 @@ def format_message(*, repo: str, tier: str, job_id: str, status: str,
     degraded = bool(result.get("degraded"))
     lines = []
     if degraded:
-        lines.append(f":grey_question: Dispatch degraded — {repo}")
+        header = f":grey_question: Dispatch degraded — {repo}"
+        if merged:
+            header += " _(already merged)_"
+        lines.append(header)
         lines.append("_The tool run failed partway through — this is not a finding about the repo._")
+    elif merged:
+        lines.append(f":white_check_mark: Dispatch verdict — {repo} _(already merged)_")
     else:
         lines.append(f":mag: Dispatch verdict — {repo}")
 
@@ -267,7 +308,10 @@ def format_message(*, repo: str, tier: str, job_id: str, status: str,
     artifact_url = (result.get("artifactUrl") or "").strip()
     branch = (result.get("branch") or "").strip()
     if artifact_url:
-        lines.append(f"*Artifact:* {artifact_url}")
+        artifact_line = f"*Artifact:* {artifact_url}"
+        if merged:
+            artifact_line += f" — *merged* {_format_merged_ts(merged_at)}"
+        lines.append(artifact_line)
     elif branch:
         lines.append(f"*Branch pushed, no PR opened:* `{branch}`")
 
@@ -291,7 +335,7 @@ def format_message(*, repo: str, tier: str, job_id: str, status: str,
         lines.extend(format_evidence(evidence))
 
     confidence = result.get("confidence") or "?"
-    next_action = result.get("nextAction") or "?"
+    next_action = "none (merged)" if merged else (result.get("nextAction") or "?")
     lines.append("")
     lines.append(f"_confidence {confidence} · next {next_action} · tier {tier} · job `{job_short}`_")
 
@@ -364,7 +408,7 @@ def process_dispatch(conn: sqlite3.Connection, row: sqlite3.Row, *, dry_run: boo
         return
 
     body = format_message(repo=repo, tier=tier, job_id=job_id, status=status,
-                           result=result, error=error)
+                           result=result, error=error, merged_at=row["merged_at"])
     target = f"slack:{origin_channel}:{origin_thread_ts}" if origin_thread_ts else f"slack:{origin_channel}"
 
     if dry_run:
