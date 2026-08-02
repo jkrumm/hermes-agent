@@ -1,7 +1,10 @@
 """Watchdog poll — runs every 30 min as Hermes cron pre-run.
 
 Polls UptimeKuma, Docker (homelab + vps), GitHub, Slack #alerts/#updates,
-and Hermes self-state. Reconciles against ~/.hermes/watchdog.db (SQLite).
+Hermes self-state, and 1Password ref health on homelab + vps (a no-op
+`op run -- true` over the shared .env.tpl — detects a dangling ref directly,
+the failure class behind the 2026-08-01 outage, instead of inferring it hours
+later from silent heartbeats). Reconciles against ~/.hermes/watchdog.db (SQLite).
 Emits NEW=, REMINDERS=, RESOLVED= blocks for the LLM cron prompt.
 
 Source of truth: ~/SourceRoot/hermes-agent/scripts/watchdog-poll.py
@@ -58,6 +61,8 @@ REM_HOURS = {
     "github_issue": 168,
     "hermes_cron": 6,
     "hermes_log": 24,
+    "op_refs_homelab": 6,
+    "op_refs_vps": 6,
 }
 
 HERMES_LOG_FILES = [
@@ -71,6 +76,27 @@ LOG_RECENT_HOURS = 6  # log lines older than this are ignored even on first run
 
 QUIET_START_H = 0
 QUIET_END_H = 7
+
+
+# Probes whether the shared .env.tpl on each host still fully resolves — the
+# root cause of the 2026-08-01 outage: `op run --env-file=... -- <script>` (every
+# homelab/vps cron's launcher) fails WHOLESALE the instant a single referenced
+# 1Password item goes missing (e.g. deleted as part of a service retirement),
+# taking every cron sharing that template down at once. This detects the cause
+# directly instead of waiting hours for it to surface as silent heartbeats.
+# Mirrors scripts/hermes-ops.sh's `env-check` verb (same `op run -- true` probe,
+# same stderr parse) but is reimplemented here rather than shelled out to, so the
+# watchdog stays a self-contained script with no dependency on that file's shape.
+OP_REF_SSH_TIMEOUT = 20  # seconds; the remote command is a no-op ("-- true")
+OP_REF_HOSTS: dict[str, str] = {
+    "homelab": "cd ~/homelab && op run --env-file=.env.tpl -- true",
+    "vps": "cd ~/vps && op run --env-file=.env.tpl -- true",
+}
+# `op run` prints "could not find item <name> in vault <id>" or "could not resolve
+# item UUID for item <name>: ...". Only the item name is ever extracted — the
+# vault id is deliberately left alone, it never needs to be logged.
+OP_RUN_MISSING_ITEM_RE = re.compile(r"could not find item (\S+) in vault")
+OP_RUN_MISSING_UUID_RE = re.compile(r"could not resolve item UUID for item ([^:\s]+)")
 
 
 # op:// refs the watchdog needs. When it runs inside the gateway, the cron
@@ -470,6 +496,56 @@ def poll_hermes_cron() -> list[dict[str, Any]]:
     return out
 
 
+def poll_op_refs(host: str, remote_cmd: str) -> tuple[list[dict[str, Any]], bool]:
+    """Probe one host's shared .env.tpl via a no-op `op run -- true` over ssh.
+
+    Returns (observed_events, reachable). `reachable=False` means the probe itself
+    didn't complete (ssh timeout, connection failure, or a spawn error) — a network
+    condition, not a verdict about the refs. The caller must skip reconciling that
+    host's state on a cycle where this is False, so a blip can neither page as a
+    missing secret nor silently auto-resolve a real dangling one.
+    """
+    try:
+        r = subprocess.run(
+            ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host, remote_cmd],
+            capture_output=True, text=True, timeout=OP_REF_SSH_TIMEOUT,
+        )
+    except (subprocess.TimeoutExpired, OSError, subprocess.SubprocessError):
+        return [], False
+    if r.returncode == 0:
+        return [], True
+    # ssh exits 255 when it can't reach/authenticate to the host at all (as opposed
+    # to the remote command itself failing) — that's connectivity, not a dangling
+    # ref. The remote command is a bare `-- true`, so a non-255 non-zero code can
+    # only come from `op run` itself refusing to resolve the template.
+    if r.returncode == 255:
+        return [], False
+
+    out = (r.stderr or "") + (r.stdout or "")
+    items = sorted(set(OP_RUN_MISSING_ITEM_RE.findall(out)) | set(OP_RUN_MISSING_UUID_RE.findall(out)))
+    if not items:
+        # op failed for a reason we can't name a specific item for — degrade to
+        # host + the raw error's first line, never to a bare boolean.
+        first_line = next((ln.strip() for ln in out.splitlines() if ln.strip()), "op run failed (no output)")
+        key = normalize_title(first_line)[:80] or "unknown"
+        return [{
+            "external_id": f"raw:{key}",
+            "title": f"1Password refs unresolved on {host} (.env.tpl) — {first_line[:160]}",
+            "url": "",
+            "payload": {"host": host, "raw_error": first_line[:500]},
+        }], True
+
+    return [
+        {
+            "external_id": item,
+            "title": f"1Password item '{item}' unresolved on {host} — op run blocks every cron sharing this template",
+            "url": "",
+            "payload": {"host": host, "item": item},
+        }
+        for item in items
+    ], True
+
+
 def reconcile(conn: sqlite3.Connection, source: str, observed: list[dict[str, Any]],
               now: dt.datetime, gate_min: int, reminder_h: int | None,
               track_resolution: bool = True) -> tuple[list[dict], list[dict], list[dict]]:
@@ -669,6 +745,8 @@ SOURCE_EMOJI = {
     "slack_update": ":package:",
     "hermes_cron": ":robot_face:",
     "hermes_log": ":bug:",
+    "op_refs_homelab": ":key:",
+    "op_refs_vps": ":key:",
 }
 
 SECTION_CAP = 8
@@ -793,6 +871,20 @@ def _run_poll(conn: sqlite3.Connection, now: dt.datetime, env: dict[str, str],
         src = f"docker_{host}"
         n, r, res = reconcile(conn, src, poll_docker(env, host), now,
                               DOCKER_UNHEALTHY_GATE_MIN, REM_HOURS[src])
+        all_new += n; all_rem += r; all_res += res
+
+    for host, remote_cmd in OP_REF_HOSTS.items():
+        src = f"op_refs_{host}"
+        try:
+            observed, reachable = poll_op_refs(host, remote_cmd)
+        except Exception as e:  # probe must never take the rest of the poll down
+            print(f"watchdog: op_refs probe for {host} raised: {e}", file=sys.stderr)
+            continue
+        if not reachable:
+            # Network blip / unreachable host this cycle — skip reconciling so it
+            # can neither page as a missing secret nor auto-resolve a real one.
+            continue
+        n, r, res = reconcile(conn, src, observed, now, 0, REM_HOURS[src])
         all_new += n; all_rem += r; all_res += res
 
     gh = poll_github(env)
