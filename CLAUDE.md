@@ -180,6 +180,23 @@ Design: `docs/dispatch-bridge.md`. The episode itself is sideclaw's `dispatch` j
   credential goes in as a curl config on **stdin**, never argv: this machine runs triage that
   reads `ps` output (`skills/homelab-ops/references/launchd-restart-triage.md`), so a token in
   the process table is a real leak path, and a test asserts it never appears there.
+- **A bot sender can drive this whole chain, and that is the design (owner decision,
+  2026-08-02) — do not "fix" it.** `slack.allow_bots: all` means anything that can post in
+  the workspace can reach an agent that can now merge to a default branch. That was raised
+  as a hole and rejected: HomeLab, VPS and Argo all post from inside the tailnet, they are
+  Johannes's own infra, and gating them is precisely what would break the self-healing
+  premise the bridge exists to serve. A per-channel bot policy was designed and not built.
+  **The trust boundary here is the workspace, not the human/bot distinction.**
+  Two things worth keeping straight if this comes up again. First, `allow_bots` is
+  load-bearing for a reason that is easy to get wrong: the watchdog reads `#alerts` over
+  the **argo API**, not Slack ingest, so it does not depend on this at all — what does is
+  live auto-triage, Hermes ingesting a UptimeKuma alert in `#alerts` and answering it
+  (verified 2026-08-02 21:01: `user=unknown chat=C0AS1LAUQ3C msg='[MacMini Dev Host - Push]
+  [:red_circle: Down] …'` → a 1034-char reply). Setting `allow_bots: none` would kill that.
+  Second, the real exposure is not a hostile *sender* but hostile *content* relayed by a
+  trusted one — a stranger's GitHub issue title arriving through Johannes's own bot. That
+  is why `watchdog-poll.py` and `briefing-coverage.py` mark non-`jkrumm` GitHub items as
+  third-party rather than trying to authenticate the messenger.
 - **Tests:** `tests/test_hermes_cc.py` (130 cases, stubbed job server and stubbed GitHub —
   never a real one of either), `tests/test_raw_agent_guard.py` and
   `tests/test_repo_write_guard.py` (the guard that makes the bridge non-optional). Run with `~/.hermes/hermes-agent/venv/bin/python3`.
