@@ -39,18 +39,33 @@ GH_TIMEOUT = 20
 FRESH_HOURS = 48
 
 
-def load_env() -> dict[str, str]:
-    env_path = Path.home() / ".hermes" / ".env"
-    out: dict[str, str] = {}
-    if not env_path.exists():
-        return out
-    for line in env_path.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, v = line.split("=", 1)
-        out[k.strip()] = v.strip().strip('"').strip("'")
-    return out
+# The one secret this script needs. There is no plaintext ~/.hermes/.env any
+# more (v0.19+ resolves secrets through config.yaml's `secrets.command` over the
+# encrypted cache), so this reads the inherited process env first and falls back
+# to the cache via the `secrets-run` shim — the same two-step, and the same ref,
+# watchdog-poll.py uses. Without the fallback this depends entirely on the cron
+# subprocess sanitizer happening to let HOMELAB_API_KEY through, and the failure
+# is quiet: the briefing simply loses its coverage section.
+API_KEY_REF = "op://common/api/SECRET"
+SECRETS_RUN = Path.home() / ".local" / "bin" / "secrets-run"
+
+
+def resolve_api_key() -> str:
+    val = os.environ.get("HOMELAB_API_KEY", "")
+    if val:
+        return val
+    env = os.environ.copy()
+    # secrets-run's cache backend needs sops+jq (Homebrew); the gateway spawns
+    # cron scripts with a minimal PATH that may not reach them.
+    env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + env.get("PATH", "/usr/bin:/bin")
+    try:
+        r = subprocess.run(
+            [str(SECRETS_RUN), "read", API_KEY_REF],
+            capture_output=True, text=True, timeout=15, env=env,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return r.stdout.strip() if r.returncode == 0 else ""
 
 
 def http_get_json(url: str, headers: dict[str, str]) -> Any | None:
@@ -107,11 +122,10 @@ def fmt_age(hours: float | None) -> str:
 
 
 def main() -> None:
-    env = load_env()
-    api_key = env.get("HOMELAB_API_KEY") or os.environ.get("HOMELAB_API_KEY", "")
+    api_key = resolve_api_key()
     if not api_key:
         print("COVERAGE_AVAILABLE=false")
-        print("COVERAGE_REASON=missing HOMELAB_API_KEY")
+        print("COVERAGE_REASON=missing HOMELAB_API_KEY (process env and secrets cache both empty)")
         return
 
     headers = {"Authorization": f"Bearer {api_key}"}
