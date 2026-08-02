@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.jkrumm.hermes-backup</string>
+  <!-- Nightly rsync of ~/.hermes/ to the homelab HDD, then an UptimeKuma ping.
+       Replaced the `0 3 * * *` crontab entry on 2026-08-02 — see the sibling
+       liveness plist for why crontab was the wrong mechanism on a headless Mac. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>__HOME__/SourceRoot/hermes-agent/scripts/hermes-backup.sh</string>
+  </array>
+  <!-- 03:00 daily, same slot as the crontab entry. Unlike cron, launchd runs a
+       missed calendar job once on wake rather than skipping it — strictly better
+       for a backup, and a no-op on an always-on mini. -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>3</integer>
+    <key>Minute</key><integer>0</integer>
+  </dict>
+  <!-- Deliberately NOT RunAtLoad, unlike the liveness agent: this rsyncs the whole
+       vault to the homelab and pings a 25h-interval Kuma monitor. Firing it on
+       every `make setup` and every reboot would turn an install step into a
+       backup run and paper over a genuinely missed night. -->
+  <key>RunAtLoad</key><false/>
+  <!-- ~/Library/Logs, never /tmp — see the liveness plist. This one matters more:
+       it is the only record that a backup ran at all, and macOS's /tmp sweep was
+       deleting that history every 3 days. Declared in log-rotate.sh. -->
+  <key>StandardOutPath</key><string>__HOME__/Library/Logs/hermes-backup.log</string>
+  <key>StandardErrorPath</key><string>__HOME__/Library/Logs/hermes-backup.err</string>
+</dict>
+</plist>

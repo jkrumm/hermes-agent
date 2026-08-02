@@ -6,15 +6,27 @@ HERMES_DIR    := $(HOME)/.hermes
 # separate dirs, so listing them here only created dead symlinks.
 HERMES_SKILLS := capture argo-api work karakeep obsidian reading research-gateway image-delivery homelab-ops
 
+# Scheduled jobs run as user LaunchAgents, not macOS crontab — see the Setup
+# banner below for why. Templates live in launchd/, rendered into ~/Library/LaunchAgents.
+LAUNCHD_DIR   := $(HERMES_REPO)/launchd
+LAUNCHAGENTS  := $(HOME)/Library/LaunchAgents
+HERMES_PLISTS := com.jkrumm.hermes-liveness com.jkrumm.hermes-backup
+
 # TTS/STT is served by the audio-gateway (https://audio-gateway.jkrumm.com/v1),
 # a VPS Docker container reached over the tailnet — Hermes only points its native
 # openai TTS/STT providers at it in config.yaml. No local audio service to install.
 
 # ============================================================================
-# Setup — Mac Mini-only. Symlinks config + skills into ~/.hermes/, installs
-# liveness + backup cron. Claude Code skills (hermes-validate, hermes-update)
-# live committed at .claude/skills/ — no setup step needed; they auto-load when
-# Claude is started inside this repo.
+# Setup — Mac Mini-only. Symlinks config + skills into ~/.hermes/, installs the
+# liveness + backup LaunchAgents. Claude Code skills (hermes-validate,
+# hermes-update) live committed at .claude/skills/ — no setup step needed; they
+# auto-load when Claude is started inside this repo.
+#
+# `make setup` must be runnable non-interactively (from an agent on the headless
+# mini, not just a human at a screen). Nothing in this chain may block on a TCC
+# prompt — which is why the two scheduled jobs moved off macOS crontab, whose
+# WRITE path (`crontab -`) needs Full Disk Access on the invoking process and
+# hangs forever when it isn't granted. See _agents and cron-migrate below.
 # ============================================================================
 
 .PHONY: setup
@@ -24,7 +36,7 @@ setup:
 	@echo ""
 	@$(MAKE) --no-print-directory _precheck
 	@$(MAKE) --no-print-directory _symlinks
-	@$(MAKE) --no-print-directory _cron
+	@$(MAKE) --no-print-directory _agents
 	@echo ""
 	@echo "  Done. Follow-up:"
 	@echo "    1. Create push monitors in UptimeKuma UI (Hermes Agent - Push, Hermes Backup - Push)"
@@ -92,16 +104,89 @@ _symlinks:
 			"$(HERMES_REPO)/skills/karakeep/state.json"; \
 	fi
 
-.PHONY: _cron
-_cron:
-	@echo "  Cron (liveness + backup, both ping UptimeKuma)..."
+.PHONY: _agents
+_agents:
+	@echo "  LaunchAgents (liveness + backup, both ping UptimeKuma)..."
 	@chmod +x $(HERMES_REPO)/scripts/hermes-liveness.sh $(HERMES_REPO)/scripts/hermes-backup.sh
-	@LIVENESS="*/5 * * * * $(HERMES_REPO)/scripts/hermes-liveness.sh >> /tmp/hermes-liveness.log 2>&1"; \
-	BACKUP="0 3 * * * $(HERMES_REPO)/scripts/hermes-backup.sh >> /tmp/hermes-backup.log 2>&1"; \
-	CURRENT=$$(crontab -l 2>/dev/null || true); \
-	NEW=$$(echo "$$CURRENT" | grep -v "hermes-liveness.sh" | grep -v "hermes-backup.sh"); \
-	printf '%s\n%s\n%s\n' "$$NEW" "$$LIVENESS" "$$BACKUP" | sed '/^$$/d' | crontab -; \
-	echo "    ✓ crontab installed (*/5 liveness, 03:00 backup)"
+	@mkdir -p "$(LAUNCHAGENTS)"
+	@$(MAKE) --no-print-directory _render-plists PLISTS="$(HERMES_PLISTS)"
+	@$(MAKE) --no-print-directory _legacy-cron-warn
+
+# Renders __HOME__ into each $(LAUNCHD_DIR)/<label>.plist.template and (re)loads
+# it only when the rendered content actually differs — so re-running `make setup`
+# is a no-op that neither rewrites the file nor bounces a healthy agent. Same
+# shape as dotfiles' _render-plists; kept local because this repo does not source
+# that Makefile.
+.PHONY: _render-plists
+_render-plists:
+	@for label in $(PLISTS); do \
+		SRC="$(LAUNCHD_DIR)/$$label.plist.template"; \
+		DST="$(LAUNCHAGENTS)/$$label.plist"; \
+		TMP="$$(mktemp)"; \
+		sed "s|__HOME__|$(HOME)|g" "$$SRC" > "$$TMP"; \
+		if [ ! -f "$$DST" ] || ! diff -q "$$TMP" "$$DST" >/dev/null 2>&1; then \
+			mv "$$TMP" "$$DST"; \
+			launchctl unload "$$DST" 2>/dev/null || true; \
+			launchctl load "$$DST"; \
+			echo "    ✓ $$label (installed + loaded)"; \
+		else \
+			rm "$$TMP"; \
+			echo "    · $$label (up to date)"; \
+		fi; \
+	done
+
+# The liveness/backup jobs lived in macOS crontab until 2026-08-02. Leaving the
+# old entries in place alongside the LaunchAgents double-fires both jobs — for
+# the 03:00 backup that means two concurrent rsyncs onto the same destination, so
+# this warns loudly rather than quietly tolerating the overlap. It does NOT clean
+# up on its own: removing them is a `crontab -` WRITE, the exact TCC-blocking
+# call this migration exists to keep out of `make setup`. That lives behind the
+# explicit, bounded `make cron-migrate` below.
+.PHONY: _legacy-cron-warn
+_legacy-cron-warn:
+	@if crontab -l 2>/dev/null | grep -q "hermes-liveness.sh\|hermes-backup.sh"; then \
+		echo ""; \
+		echo "    ⚠ legacy crontab entries still present — both jobs now fire TWICE"; \
+		echo "      (the 03:00 backup would run two concurrent rsyncs to homelab)."; \
+		echo "      Remove them once:  make cron-migrate"; \
+	fi
+
+## Remove the superseded hermes crontab entries (one-time, after the LaunchAgent
+## migration). Separate from `make setup` on purpose: `crontab -` needs Full Disk
+## Access on the invoking process, and without it macOS raises a TCC dialog that
+## a headless mini has nobody to answer — the call then blocks indefinitely (one
+## such `make setup` sat wedged for 19h). Bounded by `timeout` so the worst case
+## is a 15s failure with instructions, never a hang. Run it from a terminal that
+## HAS Full Disk Access (System Settings → Privacy & Security → Full Disk Access).
+.PHONY: cron-migrate
+cron-migrate:
+	@if ! crontab -l 2>/dev/null | grep -q "hermes-liveness.sh\|hermes-backup.sh"; then \
+		echo "  · no hermes crontab entries — nothing to migrate"; exit 0; \
+	fi
+	@TO=$$(command -v timeout || command -v gtimeout || true); \
+	NEW=$$(crontab -l 2>/dev/null | grep -v "hermes-liveness.sh" | grep -v "hermes-backup.sh"); \
+	if [ -z "$$TO" ]; then \
+		echo "  ✗ no 'timeout' binary — refusing to run an unbounded 'crontab -'."; \
+		echo "    brew install coreutils, or edit by hand: crontab -e"; exit 1; \
+	fi; \
+	if printf '%s\n' "$$NEW" | sed '/^$$/d' | $$TO 15 crontab -; then \
+		echo "  ✓ hermes crontab entries removed (jobs now run as LaunchAgents)"; \
+	else \
+		echo "  ✗ 'crontab -' failed or timed out — almost certainly a TCC prompt"; \
+		echo "    this process cannot answer. Re-run from a terminal with Full Disk"; \
+		echo "    Access, or remove the two hermes lines by hand: crontab -e"; \
+		exit 1; \
+	fi
+
+## Unload + remove the liveness/backup LaunchAgents.
+.PHONY: agents-teardown
+agents-teardown:
+	@for label in $(HERMES_PLISTS); do \
+		PLIST="$(LAUNCHAGENTS)/$$label.plist"; \
+		launchctl unload "$$PLIST" 2>/dev/null || true; \
+		rm -f "$$PLIST"; \
+		echo "  ✓ $$label torn down (unloaded + plist removed)"; \
+	done
 
 # ============================================================================
 # Status
@@ -134,12 +219,21 @@ status:
 	@curl -fsS https://audio-gateway.jkrumm.com/health >/dev/null 2>&1 \
 		&& echo "    ✓ audio-gateway (TTS/STT)" \
 		|| echo "    ✗ audio-gateway [not reachable — VPS Docker container over tailnet]"
-	@crontab -l 2>/dev/null | grep -q "hermes-liveness.sh" \
-		&& echo "    ✓ liveness cron" \
-		|| echo "    ✗ liveness cron [missing — run make setup]"
-	@crontab -l 2>/dev/null | grep -q "hermes-backup.sh" \
-		&& echo "    ✓ backup cron" \
-		|| echo "    ✗ backup cron [missing — run make setup]"
+	@# Scheduled jobs. `launchctl list` reporting the label is the load check;
+	@# a loaded-but-missing plist would survive a reboot only by luck, so assert
+	@# the rendered file too.
+	@for label in $(HERMES_PLISTS); do \
+		if launchctl list 2>/dev/null | grep -q "$$label" && [ -f "$(LAUNCHAGENTS)/$$label.plist" ]; then \
+			echo "    ✓ $$label"; \
+		elif [ -f "$(LAUNCHAGENTS)/$$label.plist" ]; then \
+			echo "    ✗ $$label [plist present but not loaded — run make setup]"; \
+		else \
+			echo "    ✗ $$label [missing — run make setup]"; \
+		fi; \
+	done
+	@if crontab -l 2>/dev/null | grep -q "hermes-liveness.sh\|hermes-backup.sh"; then \
+		echo "    ✗ legacy crontab entries [double-firing — run make cron-migrate]"; \
+	fi
 	@echo "  CC skills (per-repo, auto-loaded by Claude Code inside this dir)"
 	@for skill in hermes-update hermes-validate; do \
 		if [ -d ".claude/skills/$$skill" ]; then \
@@ -197,6 +291,8 @@ help:
 	@echo ""
 	@echo "  hermes-agent"
 	@echo ""
-	@echo "  make setup    Mac Mini-only — config symlinks, cron, CC skills"
-	@echo "  make status   Verify symlinks, audio-gateway, crontab, CC skills"
+	@echo "  make setup           Mac Mini-only — config symlinks, LaunchAgents, CC skills"
+	@echo "  make status          Verify symlinks, audio-gateway, LaunchAgents, CC skills"
+	@echo "  make cron-migrate    One-time — drop the superseded crontab entries"
+	@echo "  make agents-teardown Unload + remove the liveness/backup LaunchAgents"
 	@echo ""

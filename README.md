@@ -1,6 +1,6 @@
 # Hermes Agent — Mac Mini M2 Pro
 
-Personal AI assistant running 24/7 on Mac Mini. Slack as interface, DeepSeek-V4-Flash as brain (EU; `claude-sonnet-4-6-eu` failover), eight skill domains.
+Personal AI assistant running 24/7 on Mac Mini. Slack as interface, DeepSeek-V4-Flash as brain (EU; `claude-sonnet-4-6-eu` failover), nine skill domains.
 
 **Hermes docs**: https://hermes-agent.nousresearch.com/docs/
 
@@ -120,8 +120,8 @@ Create these channels and invite the Hermes bot:
 ### 6. Deploy Config
 
 ```bash
-# Mac Mini-only — symlinks all hermes config files and registers the
-# liveness + backup crons. TTS/STT is served by the audio-gateway
+# Mac Mini-only — symlinks all hermes config files and installs the
+# liveness + backup LaunchAgents. TTS/STT is served by the audio-gateway
 # (https://audio-gateway.jkrumm.com/v1), a VPS Docker container reached over the
 # tailnet — Hermes just points its native openai TTS/STT providers at it (see config.yaml).
 cd ~/SourceRoot/hermes-agent && make setup
@@ -150,8 +150,8 @@ hermes gateway install   # registers the LaunchAgent (label: ai.hermes.gateway) 
 > bootstrap the user-domain LaunchAgent here — it fails with
 > `Bootstrap failed: 5: I/O error` and the CLI automatically falls back to a healthy
 > bare background process (`hermes gateway run --replace`). Consequence: **no
-> auto-restart on crash and no start-at-login.** The safety net is the liveness cron
-> (every 5 min, §"Cron — Liveness + Backup") → UptimeKuma push monitor
+> auto-restart on crash and no start-at-login.** The safety net is the liveness agent
+> (every 5 min, §"Scheduled jobs — Liveness + Backup") → UptimeKuma push monitor
 > `Hermes Agent - Push`, which alerts on a missing heartbeat if the gateway dies.
 
 (Re)start manually with:
@@ -205,16 +205,25 @@ To add a secret: add the `KEY=op://vault/item/field` line to `.env.tpl`, add the
 — biometric, must run with a human present). A ref absent from `headless.refs` will never
 resolve on the mini; that allowlist *is* the security boundary.
 
-## Cron — Liveness + Backup
+## Scheduled jobs — Liveness + Backup
 
-Both installed by `make setup`. Both ping UptimeKuma push monitors.
+Both installed by `make setup` as **user LaunchAgents** (templates in `launchd/`,
+rendered into `~/Library/LaunchAgents`). Both ping UptimeKuma push monitors.
+
+They ran under macOS `crontab` until 2026-08-02. The move is not cosmetic: a
+`crontab -` *write* needs Full Disk Access on the invoking process, so on the
+headless mini `make setup` raised a TCC dialog nobody could answer and blocked
+indefinitely — even when the entries were already correct. launchd needs no such
+grant. Clearing the old entries is itself a `crontab -` write and so lives behind a
+separate one-time `make cron-migrate` (bounded by `timeout`, run it from a terminal
+with Full Disk Access); `make status` flags them until it succeeds.
 
 | When | Script | What |
 |-|-|-|
-| `*/5 * * * *` | `scripts/hermes-liveness.sh` | Read `~/.hermes/gateway_state.json`. If `gateway_state == "running"` AND `platforms.slack.state == "connected"` AND PID alive → curl the push URL (resolved via `secrets-run read op://hermes/uptime-kuma/agent-push-url`). UK monitor `Hermes Agent - Push` (interval 360s). |
-| `0 3 * * *` | `scripts/hermes-backup.sh` | rsync `~/.hermes/` → `homelab:/mnt/hdd/backups/hermes/` (excludes `audio_cache/`, `image_cache/`, `cache/`, `sandboxes/`, `sessions/`, `hermes-agent/`, `*.lock`, `*.pid`). On success → curl the push URL (resolved via `secrets-run read op://hermes/uptime-kuma/backup-push-url`). UK monitor `Hermes Backup - Push` (interval 25h). |
+| every 300s (`StartInterval`) | `scripts/hermes-liveness.sh` | Read `~/.hermes/gateway_state.json`. If `gateway_state == "running"` AND `platforms.slack.state == "connected"` AND PID alive → curl the push URL (resolved via `secrets-run read op://hermes/uptime-kuma/agent-push-url`). UK monitor `Hermes Agent - Push` (interval 360s). |
+| 03:00 daily (`StartCalendarInterval`) | `scripts/hermes-backup.sh` | rsync `~/.hermes/` → `homelab:/mnt/hdd/backups/hermes/` (excludes `audio_cache/`, `image_cache/`, `cache/`, `sandboxes/`, `sessions/`, `hermes-agent/`, `*.lock`, `*.pid`). Holds a `mkdir` single-instance lock so overlapping runs can't race `rsync --delete`. On success → curl the push URL (resolved via `secrets-run read op://hermes/uptime-kuma/backup-push-url`). UK monitor `Hermes Backup - Push` (interval 25h). |
 
-**Push URLs** live in 1Password (`op://hermes/uptime-kuma/{agent,backup,watchdog}-push-url`) and are resolved **on demand** by each script via `secrets-run read` — the drop-in `op` shim (encrypted cache on the Mac mini, biometric `op` on the MacBook), so no plaintext `~/.hermes/.env` is needed. cron runs with a minimal `PATH`, so the scripts prepend `/opt/homebrew/bin` (secrets-run's cache backend needs `sops`+`jq`). Scripts no-op silently if the URL can't be resolved — UK alerts on the missing heartbeat. The watchdog heartbeat (`UPTIME_PUSH_WATCHDOG`) is pinged by `scripts/watchdog-slack.py` on a clean 30-min poll; UK monitor `Hermes Watchdog - Push` (interval ~2700s). The watchdog resolves its own secrets (`GITHUB_TOKEN`, `HOMELAB_API_KEY`, `UPTIME_PUSH_WATCHDOG`) the same way — inheriting whatever survives the gateway subprocess sanitizer and backfilling the rest from the cache (`scripts/watchdog-poll.py:load_env`).
+**Push URLs** live in 1Password (`op://hermes/uptime-kuma/{agent,backup,watchdog}-push-url`) and are resolved **on demand** by each script via `secrets-run read` — the drop-in `op` shim (encrypted cache on the Mac mini, biometric `op` on the MacBook), so no plaintext `~/.hermes/.env` is needed. launchd hands a job a minimal `PATH` (as cron did), so the scripts prepend `/opt/homebrew/bin` (secrets-run's cache backend needs `sops`+`jq`). Scripts no-op silently if the URL can't be resolved — UK alerts on the missing heartbeat. The watchdog heartbeat (`UPTIME_PUSH_WATCHDOG`) is pinged by `scripts/watchdog-slack.py` on a clean 30-min poll; UK monitor `Hermes Watchdog - Push` (interval ~2700s). The watchdog resolves its own secrets (`GITHUB_TOKEN`, `HOMELAB_API_KEY`, `UPTIME_PUSH_WATCHDOG`) the same way — inheriting whatever survives the gateway subprocess sanitizer and backfilling the rest from the cache (`scripts/watchdog-poll.py:load_env`).
 
 **Push monitors** are created manually in the UK UI per existing convention (uptime-kuma-api 1.2.1 doesn't support UK 2.x push creation). Monitor specs are documented declaratively in `homelab/uptime-kuma/monitors.yaml` under the Infrastructure subgroup.
 

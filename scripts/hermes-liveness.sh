@@ -1,8 +1,9 @@
 #!/bin/zsh
 # Hermes liveness ping — LLM-free.
 # Reads ~/.hermes/gateway_state.json, verifies gateway is running AND Slack is
-# connected, then pings the UptimeKuma push URL on success. Run via cron every
-# 5 min; UK monitor interval should be ~360s.
+# connected, then pings the UptimeKuma push URL on success. Run every 5 min by
+# the com.jkrumm.hermes-liveness LaunchAgent (launchd/, installed by `make setup`);
+# UK monitor interval should be ~360s.
 #
 # Push URL is resolved on demand from op://hermes/uptime-kuma/agent-push-url via
 # `secrets-run read` (the drop-in op shim — encrypted cache on the mini, biometric
@@ -13,8 +14,8 @@ set -u
 
 STATE="$HOME/.hermes/gateway_state.json"
 SECRETS_RUN="$HOME/.local/bin/secrets-run"
-# cron runs with a minimal PATH; prepend Homebrew so secrets-run finds sops+jq (its
-# cache backend) and `timeout` resolves. Prepend (not replace) to preserve cron's PATH.
+# launchd hands the job a minimal PATH (as cron did); prepend Homebrew so secrets-run
+# finds sops+jq (its cache backend) and `timeout` resolves. Prepend, not replace.
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 if [[ ! -f "$STATE" ]]; then

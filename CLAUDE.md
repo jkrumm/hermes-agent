@@ -38,11 +38,34 @@ tailnet.
 - `/hermes-validate` — slash command to test Hermes routing + fix SOUL.md / SKILL.md
 - `/hermes-update` — slash command to pull upstream Hermes, re-apply local patches, restart the gateway
 
-**Host-level scripts (called by macOS `crontab`, not symlinked):**
-- `scripts/hermes-liveness.sh` — every 5 min, checks gateway state + Slack connection, pings `$UPTIME_PUSH_HERMES` on success.
-- `scripts/hermes-backup.sh` — daily 03:00, rsyncs `~/.hermes/` → `homelab:/mnt/hdd/backups/hermes/`, pings `$UPTIME_PUSH_BACKUP` on success.
+**Host-level scripts (run by user LaunchAgents, not symlinked):**
+- `scripts/hermes-liveness.sh` — every 5 min (`com.jkrumm.hermes-liveness`, `StartInterval 300`), checks gateway state + Slack connection, pings `$UPTIME_PUSH_HERMES` on success.
+- `scripts/hermes-backup.sh` — daily 03:00 (`com.jkrumm.hermes-backup`, `StartCalendarInterval`), rsyncs `~/.hermes/` → `homelab:/mnt/hdd/backups/hermes/`, pings `$UPTIME_PUSH_BACKUP` on success. Holds a `mkdir`-based single-instance lock (`~/Library/Caches/hermes-backup.lock`) so two overlapping runs can never race one another's `rsync --delete`.
 
-**Hermes cron pre-run scripts (executed by `hermes-agent` before each cron run, *not* by macOS crontab):**
+Templates live in `launchd/`, rendered into `~/Library/LaunchAgents` by `make setup`
+(`_agents` → `_render-plists`, `__HOME__` substituted; unchanged content is a no-op,
+so re-running never bounces a healthy agent). Logs go to
+`~/Library/Logs/hermes-{liveness,backup}.{log,err}` and are declared in
+`dotfiles/scripts/log-rotate.sh`.
+
+**These were macOS `crontab` entries until 2026-08-02, and the reason they are not
+is that `make setup` could never complete unattended.** Installing a crontab entry
+is a `crontab -` *write*, which needs Full Disk Access on the invoking process; on
+the headless mini that raises a TCC dialog nobody can answer and the call blocks
+indefinitely rather than failing. `make setup` was therefore a human-at-the-screen
+target, on the one machine that has no human — and it hung even when the entries it
+wanted to write were already present verbatim. launchd needs no such grant, and
+every other always-on job on this Mac is already a LaunchAgent.
+
+Removing the superseded crontab lines is still a `crontab -` write, so it is
+deliberately **not** part of `make setup`: it lives behind the one-time
+`make cron-migrate`, bounded by `timeout 15` so the worst case is a fast failure
+with instructions instead of a hang. It must be run from a terminal that *has* Full
+Disk Access. Until it succeeds, `make status` reports `✗ legacy crontab entries` and
+both jobs fire twice — harmless for the liveness ping, and made harmless for the
+backup by its lock.
+
+**Hermes cron pre-run scripts (executed by `hermes-agent` before each cron run, *not* by macOS crontab or launchd):**
 - `scripts/briefing-context.py` — reads `briefing-state.json` and emits `BRIEFING_CITY` + `BRIEFING_SUPPRESSED` for the morning briefing prompt. Calls `briefing-coverage.py` as subprocess. Output is appended as `## Script Output` block.
 - `scripts/briefing-coverage.py` — full TickTick backlog + open GitHub items; emits `COVERAGE_AVAILABLE`, `TICKTICK_BACKLOG`, `TICKTICK_HIGH_PRIO_DATELESS`, `GITHUB_OPEN_BY_REPO`, `GITHUB_FRESH_48H`, `GITHUB_TOTAL` blocks. Called by `briefing-context.py`.
 - `scripts/watchdog-poll.py` — polls UptimeKuma, Docker (homelab + vps), GitHub, Slack `#alerts`; reconciles against `~/.hermes/watchdog.db`. Emits `NEW=`, `REMINDERS=`, `RESOLVED=` blocks for the watchdog cron prompt. **Grouped sources** (`slack_alert`, `slack_update`, `hermes_log`) are append-only — recorded via `upsert_grouped`, never disappearance-resolved — so `sweep_stale_grouped()` silently auto-resolves any open grouped event idle for >7d (`GROUPED_TTL_DAYS`), capping DB + briefing-list growth. `hermes_log` signatures skip the optional `[thread]` token after the level and cut the message at ` | ` so a recurring error (e.g. the cron "API call failed" flood) collapses to one signature instead of one per poll.

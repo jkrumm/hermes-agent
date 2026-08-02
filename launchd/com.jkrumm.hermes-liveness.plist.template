@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.jkrumm.hermes-liveness</string>
+  <!-- Liveness heartbeat for the Hermes gateway. Reads
+       ~/.hermes/gateway_state.json, asserts the gateway is running AND Slack is
+       connected AND every ref in .env.tpl still renders, then pings the
+       UptimeKuma push URL. LLM-free, no network beyond the ping.
+
+       This was a macOS crontab entry until 2026-08-02. It is a LaunchAgent now
+       because installing a crontab entry needs Full Disk Access on the invoking
+       process: `crontab -` on a headless mini raises a TCC dialog nobody can
+       answer and blocks forever, so `make setup` could only ever be completed by
+       a human sitting at the screen. launchd needs no such grant, and every
+       other always-on job on this machine is already a LaunchAgent. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>__HOME__/SourceRoot/hermes-agent/scripts/hermes-liveness.sh</string>
+  </array>
+  <!-- Every 5 minutes, matching the crontab entry it replaces. The paired Kuma
+       monitor `Hermes Agent - Push` runs at 360s so one skipped tick cannot page
+       on its own. The script is a sequence of guard clauses that exit 0 — there
+       is nothing to overlap even if a run is slow. -->
+  <key>StartInterval</key><integer>300</integer>
+  <!-- Fire on load so a reboot closes the heartbeat gap immediately rather than
+       leaving up to 5 minutes of silence that reads as a dead gateway. Safe to
+       repeat: the script only reads state and curls a push URL. -->
+  <key>RunAtLoad</key><true/>
+  <!-- ~/Library/Logs, never /tmp — macOS's periodic cleanup deletes /tmp files
+       untouched for 3+ days, and /tmp is world-writable. The old crontab entry
+       appended to /tmp/hermes-liveness.log, which is exactly the shape
+       dotfiles/scripts/log-rotate.sh exists to replace. Both files are declared
+       in that script's rotation list. -->
+  <key>StandardOutPath</key><string>__HOME__/Library/Logs/hermes-liveness.log</string>
+  <key>StandardErrorPath</key><string>__HOME__/Library/Logs/hermes-liveness.err</string>
+</dict>
+</plist>
