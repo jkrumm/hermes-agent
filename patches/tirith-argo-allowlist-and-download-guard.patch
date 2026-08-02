@@ -1,5 +1,5 @@
 diff --git a/tools/tirith_security.py b/tools/tirith_security.py
-index a07d3f817..f1cb8525e 100644
+index a07d3f817..66d244c58 100644
 --- a/tools/tirith_security.py
 +++ b/tools/tirith_security.py
 @@ -25,6 +25,8 @@ import json
@@ -11,7 +11,7 @@ index a07d3f817..f1cb8525e 100644
  import shutil
  import stat
  import subprocess
-@@ -719,6 +721,361 @@ def ensure_installed(*, log_failures: bool = True):
+@@ -719,6 +721,476 @@ def ensure_installed(*, log_failures: bool = True):
      return None  # Not available yet; commands will fail-open until ready
  
  
@@ -101,6 +101,121 @@ index a07d3f817..f1cb8525e 100644
 +    """
 +    normalised = os.path.normpath(path)
 +    return re.sub(r"^//+", "/", normalised)
++
++
++# LOCAL MODIFICATION (patches/tirith-argo-allowlist-and-download-guard.patch):
++# Programs that ARE a coding agent. Hermes must never invoke one directly from the
++# terminal tool — see _raw_agent_invocation_reason for why this is a block and not
++# a warning.
++_AGENT_PROGRAMS = frozenset({"claude", "claude_iu", "claude_bridge", "ca", "opencode"})
++
++# Wrappers that take the real program as a later argument. Stripped so
++# `timeout 300 claude -p …` and `env FOO=1 claude …` are seen for what they are.
++_AGENT_WRAPPERS = frozenset({"env", "timeout", "gtimeout", "nohup", "command", "stdbuf",
++                             "nice", "time", "xargs", "sudo", "doas"})
++
++# Interpreters whose -c argument is another command line to scan recursively.
++_AGENT_INTERPRETERS = frozenset({"sh", "bash", "zsh", "dash", "ksh"})
++
++
++def _strip_agent_wrappers(tokens: list) -> list:
++    """Drop leading env assignments and wrapper programs, returning the real argv."""
++    i = 0
++    while i < len(tokens):
++        tok = tokens[i]
++        if "=" in tok and not tok.startswith("-") and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", tok):
++            # `K=$(cmd arg arg)` arrives as several tokens; swallow through the
++            # balancing `)` or the assignment's own words are read as the program.
++            depth = tok.count("(") - tok.count(")")
++            i += 1
++            while depth > 0 and i < len(tokens):
++                depth += tokens[i].count("(") - tokens[i].count(")")
++                i += 1
++            continue
++        base = os.path.basename(tok)
++        if base in _AGENT_WRAPPERS:
++            i += 1
++            # Skip that wrapper's own flags and a bare numeric duration (timeout 300 …).
++            while i < len(tokens) and (tokens[i].startswith("-") or tokens[i].replace(".", "", 1).isdigit()):
++                i += 1
++            continue
++        break
++    return tokens[i:]
++
++
++def _agent_segments(command: str) -> list:
++    """Split *command* into argv lists at shell operators, QUOTE-AWARE.
++
++    Splitting on a regex first (as the download guard does) tears quoted strings
++    apart, so `sh -c "cd /x && claude -p y"` becomes two unparseable fragments and
++    the agent call inside disappears. Tokenizing with punctuation_chars keeps a
++    quoted argument as ONE token, which is what makes the `-c` recursion below
++    possible. Returns [] on anything unparseable — the caller then defers.
++    """
++    try:
++        lex = shlex.shlex(command, posix=True, punctuation_chars=True)
++        lex.whitespace_split = True
++        tokens = list(lex)
++    except ValueError:
++        return []
++    # `(` and `)` are separators too, so a command substitution or a subshell starts a
++    # fresh argv rather than hiding one. Both directions matter and they pull opposite
++    # ways: in `K=$(secrets-run read ref) claude -p x` the substitution's words must not
++    # be mistaken for the program (the real `claude` follows it), while `$(claude -p x)`
++    # and `(claude -p x)` must still be caught. Splitting on the parens gives both — each
++    # side becomes its own argv and is scanned at position 0.
++    segments, current = [], []
++    for tok in tokens:
++        if tok in (";", "|", "&", "&&", "||", "(", ")", "\n"):
++            if current:
++                segments.append(current)
++            current = []
++        else:
++            current.append(tok)
++    if current:
++        segments.append(current)
++    return segments
++
++
++def _raw_agent_invocation_reason(command: str, _depth: int = 0) -> str:
++    """Return a human reason when *command* invokes a coding agent directly.
++
++    Empty string means "no such shape" — the caller falls through to tirith.
++
++    WHY THIS IS A BLOCK. Observed live on 2026-08-02: handed the `claude-dispatch`
++    skill, the agent read it, understood the task, and then composed its own prompt
++    and ran `claude -p` straight from the terminal tool instead of going through
++    `hermes-cc.sh`. Everything that bounds a dispatch — the repo allowlist, the
++    per-repo tier ceiling, the daily budget, the audit log, the recursion guard and
++    the dispatch record the return path is built on — lives in that script, so the
++    direct call silently discarded all of it while returning an answer that looked
++    entirely correct. That is precisely the failure a closed verb set exists to
++    prevent, and it cannot be closed by instruction: the skill already said not to.
++
++    Never raises: an unparseable command returns "" and defers, exactly like the
++    download guard does.
++    """
++    if not command or _depth > 2:
++        return ""
++    if not any(prog in command for prog in _AGENT_PROGRAMS):
++        return ""
++
++    for tokens in _agent_segments(command):
++        tokens = _strip_agent_wrappers(tokens)
++        if not tokens:
++            continue
++        base = os.path.basename(tokens[0])
++        if base in _AGENT_PROGRAMS:
++            return f"`{base}` invoked directly"
++        # `bash -c "... claude -p ..."` — recurse into the inline script, which the
++        # quote-aware tokenizer above preserved as a single argument.
++        if base in _AGENT_INTERPRETERS:
++            for j, tok in enumerate(tokens):
++                if tok == "-c" and j + 1 < len(tokens):
++                    inner = _raw_agent_invocation_reason(tokens[j + 1], _depth + 1)
++                    if inner:
++                        return f"{inner} inside `{base} -c`"
++    return ""
 +
 +
 +def _download_then_execute_reason(command: str) -> str:
@@ -373,7 +488,7 @@ index a07d3f817..f1cb8525e 100644
  # ---------------------------------------------------------------------------
  # Main API
  # ---------------------------------------------------------------------------
-@@ -744,6 +1101,34 @@ def check_command_security(command: str) -> dict:
+@@ -744,6 +1216,59 @@ def check_command_security(command: str) -> dict:
      if not cfg["tirith_enabled"]:
          return {"action": "allow", "findings": [], "summary": ""}
  
@@ -381,6 +496,31 @@ index a07d3f817..f1cb8525e 100644
 +    # close tirith's download-then-execute gap. Deliberately placed BEFORE the
 +    # circuit breaker and the argo allowlist, so it still holds when tirith is
 +    # unavailable/fail-open and can never be bypassed by an allowlisted host.
++    _agent_reason = _raw_agent_invocation_reason(command)
++    if _agent_reason:
++        return {
++            "action": "block",
++            "findings": [{
++                "rule_id": "raw_agent_invocation",
++                "severity": "HIGH",
++                "title": "Coding agent invoked directly",
++                "description": (
++                    f"Command invokes a coding agent directly ({_agent_reason}). "
++                    "Repo work goes through the bounded dispatcher instead:\n"
++                    "  ~/.hermes/scripts/hermes-cc.sh dispatch <repo> --wait --json\n"
++                    "A direct call bypasses the repo allowlist, the per-repo tier "
++                    "ceiling, the daily budget, the audit log, the no-recursion guard "
++                    "and the dispatch record the return path depends on — so the answer "
++                    "looks right while every bound on it is gone. Run "
++                    "`~/.hermes/scripts/hermes-cc.sh help` for the verb set."
++                ),
++                "evidence": [{"type": "command_pattern",
++                              "pattern": "direct coding-agent invocation",
++                              "matched": command[:200]}],
++            }],
++            "summary": "raw coding-agent invocation blocked (local hardening)",
++        }
++
 +    _dte_reason = _download_then_execute_reason(command)
 +    if _dte_reason:
 +        return {
@@ -408,7 +548,7 @@ index a07d3f817..f1cb8525e 100644
      # Circuit breaker: if tirith has crashed _CRASH_LIMIT times in a row,
      # stop trying for the rest of the process.  Without this, a corrupted
      # or missing binary causes every tool call to hit the same spawn failure
-@@ -752,6 +1137,11 @@ def check_command_security(command: str) -> dict:
+@@ -752,6 +1277,11 @@ def check_command_security(command: str) -> dict:
      if _circuit_open:
          return {"action": "allow", "findings": [], "summary": "tirith disabled (circuit breaker)"}
  

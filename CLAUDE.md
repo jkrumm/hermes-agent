@@ -29,7 +29,8 @@ tailnet.
 | `cron/` | `~/.hermes/cron/` | symlink — Hermes-driven (LLM) cron jobs |
 | `scripts/` | `~/.hermes/scripts/` | symlink — Hermes cron pre-run scripts (security check requires they live under `HERMES_HOME/scripts/`). Also holds host-level shell scripts. |
 | `hooks/` | `~/.hermes/hooks/` | symlink — add hooks here |
-| `skills/{name}/` | `~/.hermes/skills/{name}/` | symlink per skill — actual dirs are `capture`, `argo-api`, `work`, `karakeep`, `obsidian`, `reading`, `research-gateway`, `image-delivery`, `homelab-ops`, `homelab`, `briefing-tts` (the former infrastructure/schedule/slack/tasks/weather/garmin-health/strength skills were consolidated into `argo-api/references/*.md` — now incl. `walking-pad.md`; they are no longer separate dirs and were dropped from `HERMES_SKILLS`). **`HERMES_SKILLS` in the Makefile is the source of truth — this list must match it.** |
+| `config/` | `~/.hermes/config/` | symlink — tracked agent-facing config. Today just `dispatch-repos.json`, the repo allowlist `hermes-cc.sh` resolves a dispatch against. Absence from it is a denial, so it is deliberately in git and not runtime state. |
+| `skills/{name}/` | `~/.hermes/skills/{name}/` | symlink per skill — actual dirs are `capture`, `argo-api`, `work`, `karakeep`, `obsidian`, `reading`, `research-gateway`, `image-delivery`, `homelab-ops`, `homelab`, `briefing-tts`, `claude-dispatch` (the former infrastructure/schedule/slack/tasks/weather/garmin-health/strength skills were consolidated into `argo-api/references/*.md` — now incl. `walking-pad.md`; they are no longer separate dirs and were dropped from `HERMES_SKILLS`). **`HERMES_SKILLS` in the Makefile is the source of truth — this list must match it.** |
 | `USER.md` | `~/.hermes/memories/USER.md` | copied — Hermes writes to it |
 
 > **Skill trust (v0.16.0+).** Skills are symlinked into `~/.hermes/skills/`, but v0.16.0's skill-security check resolves each skill's *realpath* and warns — and may later **block** — when it lands outside a trusted dir (our symlink targets do). `config.yaml` therefore sets `skills.external_dirs: [~/SourceRoot/hermes-agent/skills]` so the resolved realpath is trusted. The symlink and the external entry resolve to the same path, which `skills_tool` dedups (by realpath on load, by name on listing) — no duplicate-skill collisions. If a future update reintroduces the "skill file is outside the trusted skills directory" warning, confirm this key is still populated.
@@ -73,6 +74,56 @@ Disk Access. Until it succeeds, `make status` reports `✗ legacy crontab entrie
 both jobs fire twice — harmless for the liveness ping, and made harmless for the
 backup by its lock. **Done: `crontab -l` carries no hermes entries as of 2026-08-02**, so
 the check is quiet and the target is only needed if a legacy line ever reappears.
+
+## Dispatch Bridge — handing repo work to Claude Code
+
+Hermes observes well and reads repos badly: DeepSeek-V4-Flash with a `terminal` tool cannot
+use a repo's `CLAUDE.md`, `.claude/rules/` or `.claude/skills/`, and that context is exactly
+what triage needs. `scripts/hermes-cc.sh` is the bounded client that hands the episode to
+Claude Code instead — the same closed-verb-set shape as `hermes-ops.sh`, for the same reason.
+Design: `docs/dispatch-bridge.md`. The episode itself is sideclaw's `dispatch` job tool.
+
+- **Verbs:** `dispatch <repo>` · `status <job-id>` · `list [open|today|all]` · `cancel <job-id>`.
+  `cancel` abandons the LOCAL record only — sideclaw has no cancel endpoint, and the help text
+  and skill both say so rather than implying the episode stopped.
+- **No verb takes a path, a command or a URL.** A dispatch names a *repo* — a key in
+  `config/dispatch-repos.json` — and the script resolves the path. Absence is a denial;
+  `dotfiles-private`, `homelab-private` and `brain` are absent and stay absent.
+- **The brief is data, never argv.** Read from stdin (quoted heredoc) or `--brief-file`.
+  There is deliberately no `--brief`: as an argv element the brief would be composed into a
+  shell line and expanded *before* the script ran, so a `$(...)` in a Slack message would
+  execute. The skill teaches the `<<'BRIEF'` form.
+- **Only `investigate` is built.** `author`/`implement` are refused (exit 4), never downgraded.
+- **Structural ceilings, because `--max-budget-usd` is API-only and does not cap a Max
+  session:** 20 dispatches per UTC day counted from the `dispatches` table, a 240s in-turn
+  `--wait` cap, sideclaw's own turn/timeout/concurrency limits.
+- **Audit log:** `~/Library/Logs/hermes-cc.log`, one line per invocation including refusals
+  (`mode=refused` is its own mode — a refusal that logged as `opened` would hide the guard
+  doing its job). **Register it in `dotfiles/scripts/log-rotate.sh`'s `FILES` array** — that
+  list is declared, never globbed, so an unregistered log is an unbounded one.
+- **`dispatches` table** in `~/.hermes/watchdog.db` (additive DDL; `events` is untouched).
+  `reported_at` is the delivery contract: NULL means the sweeper still owes a message.
+  A `--wait` that returns a terminal verdict stamps it, because handing the verdict to a live
+  turn *is* the delivery; `status` deliberately does not, since a poll tells nobody.
+- **Tests:** `tests/test_hermes_cc.py` (78 cases, stubbed job server — never a real one) and
+  `tests/test_raw_agent_guard.py`. Run with `~/.hermes/hermes-agent/venv/bin/python3`.
+
+> **Why a tirith rule had to back this, and the lesson.** `hermes-cc.sh` invocations pass
+> tirith cleanly on their own — a bounded script call is benign by construction, so unlike
+> `hermes-ops.sh` no allowlist patch was needed for the sanctioned path. The patch exists for
+> the opposite reason. Handed the `claude-dispatch` skill on 2026-08-02, Hermes read it,
+> understood the task, and then **composed its own prompt and ran `claude -p` directly** from
+> the terminal tool (session `e7f07742` under `~/.claude/projects/-Users-jkrumm-SourceRoot-sideclaw/`).
+> It produced a correct-looking answer while bypassing the allowlist, the tier ceiling, the
+> daily budget, the audit log, the recursion guard and the dispatch record the whole return
+> path is built on. The skill already said not to; instruction is not a bound. So
+> `_raw_agent_invocation_reason()` in `patches/tirith-argo-allowlist-and-download-guard.patch`
+> blocks a direct `claude`/`claude_iu`/`claude_bridge`/`ca`/`opencode` invocation and points
+> at the dispatcher. It handles wrappers (`timeout`, `env`, `nohup`, `sudo`, `xargs`, `nice`),
+> env-assignment prefixes including `K=$(...)` substitutions, `sh -c` inline scripts, and
+> subshells — 28 attack shapes blocked, 23 real commands allowed, 4000-input fuzz clean.
+> **Edits need a gateway restart** — the module is imported once at startup, so a green
+> in-process test says nothing about the running process.
 
 **Hermes cron pre-run scripts (executed by `hermes-agent` before each cron run, *not* by macOS crontab or launchd):**
 - `scripts/briefing-context.py` — reads `briefing-state.json` and emits `BRIEFING_CITY` + `BRIEFING_SUPPRESSED` for the morning briefing prompt. Calls `briefing-coverage.py` as subprocess. Output is appended as `## Script Output` block.

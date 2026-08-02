@@ -4,7 +4,7 @@ HERMES_DIR    := $(HOME)/.hermes
 # schedule, slack, tasks, weather, garmin-health and strength skills were
 # consolidated into argo-api/references/*.md (commit 3087645) — they are no longer
 # separate dirs, so listing them here only created dead symlinks.
-HERMES_SKILLS := capture argo-api work karakeep obsidian reading research-gateway image-delivery homelab-ops homelab briefing-tts
+HERMES_SKILLS := capture argo-api work karakeep obsidian reading research-gateway image-delivery homelab-ops homelab briefing-tts claude-dispatch
 
 # Scheduled jobs run as user LaunchAgents, not macOS crontab — see the Setup
 # banner below for why. Templates live in launchd/, rendered into ~/Library/LaunchAgents.
@@ -80,6 +80,9 @@ _symlinks:
 	@$(MAKE) --no-print-directory _link \
 		SRC="$(HERMES_REPO)/hooks" \
 		DST="$(HERMES_DIR)/hooks"
+	@$(MAKE) --no-print-directory _link \
+		SRC="$(HERMES_REPO)/config" \
+		DST="$(HERMES_DIR)/config"
 	@for skill in $(HERMES_SKILLS); do \
 		$(MAKE) --no-print-directory _link \
 			SRC="$(HERMES_REPO)/skills/$$skill" \
@@ -204,9 +207,26 @@ status:
 	@$(MAKE) --no-print-directory _check DST="$(HERMES_DIR)/SOUL.md"
 	@$(MAKE) --no-print-directory _check DST="$(HERMES_DIR)/cron"
 	@$(MAKE) --no-print-directory _check DST="$(HERMES_DIR)/hooks"
+	@$(MAKE) --no-print-directory _check DST="$(HERMES_DIR)/config"
 	@for skill in $(HERMES_SKILLS); do \
 		$(MAKE) --no-print-directory _check DST="$(HERMES_DIR)/skills/$$skill"; \
 	done
+	@# Dispatch bridge. The allowlist is the whole bounding mechanism for hermes-cc.sh
+	@# — absence from it is a denial — so an unreadable or unparseable one must be loud
+	@# here rather than surfacing as "repo not in the allowlist" on every dispatch.
+	@if [ -x "$(HERMES_REPO)/scripts/hermes-cc.sh" ]; then \
+		n=$$(python3 -c 'import json;print(len(json.load(open("$(HERMES_DIR)/config/dispatch-repos.json"))["repos"]))' 2>/dev/null || echo ""); \
+		if [ -n "$$n" ]; then \
+			echo "    ✓ hermes-cc.sh ($$n repos allowlisted)"; \
+		else \
+			echo "    ✗ hermes-cc.sh [dispatch-repos.json missing or unparseable — every dispatch would be denied]"; \
+		fi; \
+	else \
+		echo "    ✗ hermes-cc.sh [missing or not executable]"; \
+	fi
+	@curl -fsS --max-time 5 http://localhost:7705/health >/dev/null 2>&1 \
+		&& echo "    ✓ sideclaw job server (:7705, dispatch backend)" \
+		|| echo "    ✗ sideclaw job server [:7705 unreachable — dispatch would fail with exit 3]"
 	@# Secrets resolve natively via config.yaml `secrets.command` -> the dotfiles
 	@# secrets-run cache. There is deliberately no ~/.hermes/.env any more, so this
 	@# asserts the helper actually renders refs rather than checking for a file.
