@@ -211,14 +211,14 @@ status:
 	@for skill in $(HERMES_SKILLS); do \
 		$(MAKE) --no-print-directory _check DST="$(HERMES_DIR)/skills/$$skill"; \
 	done
-	@# Dispatch bridge. The allowlist is the whole bounding mechanism for hermes-cc.sh
-	@# — absence from it is a denial — so an unreadable or unparseable one must be loud
-	@# here rather than surfacing as "repo not in the allowlist" on every dispatch.
-	@# Every maxTier is validated here too, not just counted. hermes-cc.sh fails CLOSED on
-	@# an unrecognized ceiling, so a typo turns into "precondition failed" on every dispatch
-	@# to that repo — correct, but it surfaces mid-incident. Catch it at setup instead.
+	@# Dispatch bridge. dispatch-repos.json is the whole bounding mechanism for
+	@# hermes-cc.sh — the root it resolves names under, the deny list, and the tier
+	@# ceilings — so an unreadable or contradictory one must be loud here. The validator
+	@# re-runs the checks hermes-cc.sh makes at dispatch time: hermes-cc.sh fails CLOSED
+	@# on a malformed policy, which is correct but surfaces mid-incident on the first
+	@# dispatch. Catch it at setup instead, while nobody is waiting on an answer.
 	@if [ -x "$(HERMES_REPO)/scripts/hermes-cc.sh" ]; then \
-		out=$$(python3 -c 'import json,collections,sys; d=json.load(open("$(HERMES_DIR)/config/dispatch-repos.json"))["repos"]; V=("investigate","author","implement"); bad=sorted(k for k,v in d.items() if v.get("maxTier","investigate") not in V); sys.exit("unrecognized maxTier for: "+", ".join(bad)) if bad else None; c=collections.Counter(v.get("maxTier","investigate") for v in d.values()); print("%d repos allowlisted — %d investigate, %d author, %d implement" % (len(d), c["investigate"], c["author"], c["implement"]))' 2>&1); \
+		out=$$(python3 "$(HERMES_REPO)/scripts/validate-dispatch-policy.py" "$(HERMES_DIR)/config/dispatch-repos.json" 2>&1); \
 		if [ $$? -eq 0 ]; then \
 			echo "    ✓ hermes-cc.sh ($$out)"; \
 		else \

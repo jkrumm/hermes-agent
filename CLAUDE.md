@@ -29,7 +29,7 @@ tailnet.
 | `cron/` | `~/.hermes/cron/` | symlink — Hermes-driven (LLM) cron jobs |
 | `scripts/` | `~/.hermes/scripts/` | symlink — Hermes cron pre-run scripts (security check requires they live under `HERMES_HOME/scripts/`). Also holds host-level shell scripts. |
 | `hooks/` | `~/.hermes/hooks/` | symlink — add hooks here |
-| `config/` | `~/.hermes/config/` | symlink — tracked agent-facing config. Today just `dispatch-repos.json`, the repo allowlist `hermes-cc.sh` resolves a dispatch against. Absence from it is a denial, so it is deliberately in git and not runtime state. |
+| `config/` | `~/.hermes/config/` | symlink — tracked agent-facing config. Today just `dispatch-repos.json`, the dispatch policy `hermes-cc.sh` resolves a repo against — root, `deny` list, default tier and per-repo ceilings. It decides what an unattended episode may do, so it is deliberately in git and not runtime state. |
 | `skills/{name}/` | `~/.hermes/skills/{name}/` | symlink per skill — actual dirs are `capture`, `argo-api`, `work`, `karakeep`, `obsidian`, `reading`, `research-gateway`, `image-delivery`, `homelab-ops`, `homelab`, `briefing-tts`, `claude-dispatch` (the former infrastructure/schedule/slack/tasks/weather/garmin-health/strength skills were consolidated into `argo-api/references/*.md` — now incl. `walking-pad.md`; they are no longer separate dirs and were dropped from `HERMES_SKILLS`). **`HERMES_SKILLS` in the Makefile is the source of truth — this list must match it.** |
 | `USER.md` | `~/.hermes/memories/USER.md` | copied — Hermes writes to it |
 
@@ -83,24 +83,42 @@ what triage needs. `scripts/hermes-cc.sh` is the bounded client that hands the e
 Claude Code instead — the same closed-verb-set shape as `hermes-ops.sh`, for the same reason.
 Design: `docs/dispatch-bridge.md`. The episode itself is sideclaw's `dispatch` job tool.
 
-- **Verbs:** `dispatch <repo>` · `status <job-id>` · `list [open|today|all]` · `cancel <job-id>`.
+- **Verbs:** `dispatch <repo>` · `status <job-id>` · `list [open|today|all]` · `merge <job-id>` · `cancel <job-id>`.
   `cancel` abandons the LOCAL record only — sideclaw has no cancel endpoint, and the help text
   and skill both say so rather than implying the episode stopped.
-- **No verb takes a path, a command or a URL.** A dispatch names a *repo* — a key in
-  `config/dispatch-repos.json` — and the script resolves the path. Absence is a denial;
-  `dotfiles-private`, `homelab-private` and `brain` are absent and stay absent.
+- **No verb takes a path, a command or a URL.** A dispatch names a *repo* — a bare name,
+  which the script resolves under the single `root` in `config/dispatch-repos.json`.
+  `dotfiles-private`, `homelab-private` and `brain` are in that file's `deny` list and stay
+  there. **The enumeration this replaced (2026-08-02) is the lesson:** it was a per-repo
+  inventory where absence meant denial, and it rotted — 22 repos listed against 30 on disk,
+  three of them (`king-smith-walkingpad-mac`, `linewatch`, `vibe-stack`) unreachable since
+  they were cloned, with no way to tell a stale omission from a deliberate one. Discovery
+  under a confined root plus an explicit `deny` keeps the denials meaningful and stops the
+  file needing an edit per clone. What did **not** change is the property that matters: a
+  path never crosses the interface. Composing one from caller input is a step the old map
+  lookup never took, so `resolve_repo` carries the weight now — the name must be a single
+  segment (`.`, `..` and dotted names refused, which the old `[A-Za-z0-9_.-]` class admitted
+  harmlessly as dict keys and would not have as path components), and the resolved
+  checkout's parent must **be** the resolved root, so a symlink planted in the root cannot
+  point out of it. Both are regression-tested.
 - **The brief is data, never argv.** Read from stdin (quoted heredoc) or `--brief-file`.
   There is deliberately no `--brief`: as an argv element the brief would be composed into a
   shell line and expanded *before* the script ran, so a `$(...)` in a Slack message would
   execute. The skill teaches the `<<'BRIEF'` form.
 - **All three tiers are built** (Phase 4). `investigate` read-only → verdict; `author`
   read-only → verdict + one filed GitHub issue; `implement` → an isolated worktree, a
-  `dispatch/…` branch and a **draft** PR. A tier above a repo's `maxTier` is refused
-  (exit 4), never downgraded. The per-repo ceilings in `config/dispatch-repos.json` were
-  chosen deliberately and the file states its own rationale: `implement` only where the
-  bridge itself lives (`hermes-agent`, `sideclaw`) plus `usage-tracker` and the scratch
-  target; `investigate` floor for `dotfiles`/`vps`/`homelab`, which are the machine's own
-  control plane.
+  `dispatch/…` branch and a **draft** PR. A tier above a repo's ceiling is refused (exit 4),
+  never downgraded. `config/dispatch-repos.json` sets those ceilings and states its own
+  rationale: `defaultTier` is **`author`**, with `implement` only where the bridge itself
+  lives (`hermes-agent`, `sideclaw`) plus `usage-tracker` and the scratch target, and an
+  `investigate` floor for `dotfiles`/`vps`/`homelab`, the machine's own control plane.
+  **`author` as the default means an unattended episode can file a world-readable issue on
+  a public repo with no human gate.** That is an owner decision (2026-08-02), not an
+  oversight: an issue is cheap to delete, and triage that finds a real defect should be able
+  to record it. The handler-side secret scan still *refuses* — never redacts — a brief
+  carrying credentials, and the skill instructs the agent to summarize rather than quote.
+  Revisiting it is one line: set `defaultTier` to `investigate` and list the author repos
+  under `tiers`.
 - **`implement` needs `--why` AND `--confirm`.** Without `--confirm` the verb prints its
   exact plan — including a `wouldNeverDo` list — and exits **0** having changed nothing.
   Exit 0 because printing the plan *is* the successful outcome of that request; a non-zero
@@ -111,6 +129,16 @@ Design: `docs/dispatch-bridge.md`. The episode itself is sideclaw's `dispatch` j
   most 5 may be `implement` (its own ceiling — a 30-minute writing episode and a 90-second
   read are not the same spend, and one bad day of triage must not consume the allowance for
   real changes), a 240s in-turn `--wait` cap, sideclaw's own turn/timeout/concurrency limits.
+  **Both counts are reported by every path that reports anything** — dispatch, the
+  `--dry-run` plan, `status`, `list` — as a `budget` object, plus a `budget.warning` naming
+  the env var once a ceiling is close. The first build computed them only inside the refusal
+  path, so `implementToday` never appeared in a successful response and the sole signal was
+  an exit 4 that said nothing about how to proceed; a bound nobody can see approaching reads
+  as the tool breaking, not as a budget. Counts are re-read *after* the row is inserted, so a
+  caller's number includes its own dispatch rather than trailing the one the next refusal
+  will use. Raising a ceiling is Johannes's call: the refusals and warnings name
+  `HERMES_CC_DAILY_BUDGET` / `HERMES_CC_IMPLEMENT_BUDGET`, and `claude-dispatch`'s SKILL.md
+  forbids the agent composing an invocation that sets either.
 - **Audit log:** `~/Library/Logs/hermes-cc.log`, one line per invocation including refusals.
   Four modes, and the distinctions are load-bearing: `opened` (an episode actually ran),
   `planned` (a gated tier stopped to wait for a human), `dry-run` (the caller asked for a
@@ -127,8 +155,29 @@ Design: `docs/dispatch-bridge.md`. The episode itself is sideclaw's `dispatch` j
   (`hermes-cc.sh`'s `sync_record` and `dispatch-sweep.py`) — whichever one closes a given
   dispatch has to leave the row in the same shape, and the briefing/watchdog projections want
   a column read, not a JSON parse.
-- **Tests:** `tests/test_hermes_cc.py` (89 cases, stubbed job server — never a real one) and
-  `tests/test_raw_agent_guard.py`. Run with `~/.hermes/hermes-agent/venv/bin/python3`.
+- **`merge <job-id>` lands the draft PR, with no human on GitHub (owner decision, 2026-08-02).**
+  It inverts a statement sideclaw's `openPullRequest` makes in a comment — "un-drafting is not
+  something the episode can do for itself" — so the bounds carry the weight the human used to.
+  It takes a **job id, never a PR number or URL**: the pull request is looked up from the
+  `dispatches` row, so no shape of caller input can name an arbitrary PR — the same property
+  the repo argument has. Eligibility is **derived, not listed**: a repo in
+  `dotfiles/config/pr-required-repos.json` (the file the branch-protection hook and
+  `github-config.sh` already share) can never be auto-merged, so there is no second list to
+  drift. Every bound the episode was held to is re-checked against the **current** head — base
+  is the default branch, head is a `dispatch/…` branch in this same repo and never a fork, no
+  `.github/workflows|actions` path, sideclaw's 40-file/2000-line ceilings intact,
+  `mergeable_state` exactly `clean` (`blocked` and `unstable` are refusals, not judgement
+  calls) — and the merge call **pins the head SHA**, so a push landing between inspection and
+  merge fails the merge rather than riding it. Own ceiling: 3/day
+  (`HERMES_CC_MERGE_BUDGET`), tighter than implement's 5, because not everything written
+  should land. Audit mode is **`merged`**, deliberately not folded into `opened` — grepping
+  the log for what actually reached a default branch is the reason the log exists. The GitHub
+  credential goes in as a curl config on **stdin**, never argv: this machine runs triage that
+  reads `ps` output (`skills/homelab-ops/references/launchd-restart-triage.md`), so a token in
+  the process table is a real leak path, and a test asserts it never appears there.
+- **Tests:** `tests/test_hermes_cc.py` (130 cases, stubbed job server and stubbed GitHub —
+  never a real one of either), `tests/test_raw_agent_guard.py` and
+  `tests/test_repo_write_guard.py` (the guard that makes the bridge non-optional). Run with `~/.hermes/hermes-agent/venv/bin/python3`.
 
 > **The GitHub credential is `op://mini/github/token`, and it needs three permissions.**
 > `Contents: write` (the branch push, via the git credential helper) **plus** `Issues: write`
@@ -167,7 +216,7 @@ Design: `docs/dispatch-bridge.md`. The episode itself is sideclaw's `dispatch` j
 > It produced a correct-looking answer while bypassing the allowlist, the tier ceiling, the
 > daily budget, the audit log, the recursion guard and the dispatch record the whole return
 > path is built on. The skill already said not to; instruction is not a bound. So
-> `_raw_agent_invocation_reason()` in `patches/tirith-argo-allowlist-and-download-guard.patch`
+> `_raw_agent_invocation_reason()` in `patches/tirith-hermes-guards.patch`
 > blocks a direct `claude`/`claude_iu`/`claude_bridge`/`ca`/`opencode` invocation and points
 > at the dispatcher. It handles wrappers (`timeout`, `env`, `nohup`, `sudo`, `xargs`, `nice`),
 > env-assignment prefixes including `K=$(...)` substitutions, `sh -c` inline scripts, and
@@ -389,6 +438,14 @@ Re-apply after `hermes update`: **eight `.patch` files** (each applied with `git
   **Hardened 2026-07-24 after an adversarial audit** found 11 bypasses in the first implementation, including the `wget -qO /tmp/f` row of the table above — which this file previously claimed was blocked and was not. Regression suite: **`tests/test_download_guard.py`** (run with `~/.hermes/hermes-agent/venv/bin/python3`), currently 20/20 attack shapes blocked, 27/27 real Hermes commands allowed, 4000-input fuzz clean. Root causes worth remembering: newlines weren't segment separators (a multi-line command block is the *most* common LLM spelling), glued `>/tmp/f` didn't tokenize as a redirect, `-qO PATH` with the path in the next token was unhandled, and `os.path.normpath` preserves a leading `//` so `//tmp//f` ≠ `/tmp/f`. **Edits to `tirith_security.py` need a gateway restart** — the module is imported once at startup, so a green in-process test says nothing about the running process.
 
   **Known limits — deliberate; this raises the cost of the shape, it does not eliminate the class.** Not caught: cross-call (download in one terminal call, execute in the next — per-command scanning fundamentally cannot see this); value indirection where the written and executed spellings differ (`F=/tmp/f; curl -o $F URL; sh /tmp/f` — matching spellings *are* caught); `xargs`-mediated execution where the path arrives on stdin; arbitrary decode/transformer chains beyond the single `| sh` stdin case. **Not reported upstream to tirith yet** — worth doing.
+
+  **Third rule in the same patch (added 2026-08-02): `raw_repo_write` block.** The `raw_agent_invocation` rule above stops Hermes composing its own `claude -p`. It does not stop Hermes skipping the episode entirely and editing the repo itself — and that is what happened, in the same session that built the `merge` verb. Asked in Slack to fix a README "implement tier", Hermes read the repo, saw the branches two earlier *dispatched* episodes had left, said in as many words **"I'll put the fix on master directly"**, edited the file with the terminal tool, committed, hit a push rejection because the remote had moved, fetched, rebased, and pushed. Nine turns, no `hermes-cc.sh`, no audit line, and the change landed on `origin/master` (`f7c16d6` in `dispatch-scratch`). Tier ceilings, worktree isolation, never-push-to-a-default-branch, the draft-PR gate, the merge checks and three daily budgets were all simply not involved. Same lesson as the `claude -p` incident, one layer down.
+
+  `_repo_write_reason()` blocks it. **Unconditional, not path-scoped, and that is forced:** `git commit -m x` names no path — the repo comes from the terminal tool's working directory, which is invisible to a command scanner — so a path-scoped rule is evaded by `cd`, which is literally what happened. It is a **denylist of git write verbs** (commit, push, merge, rebase, reset, checkout, add, tag, clone, `config`, …), so every inspection (`log`, `status`, `diff`, `show`, `blame`, `rev-parse`, `for-each-ref`, `fetch`) still works untouched — the agent reads repos exactly as before. `git -C <path>`, `sh -c "…"`, `ssh host "…"` and the wrapper set are all followed. Also blocked: `gh` subcommands that change code or its delivery (`pr create/merge/ready`, `release`, `repo create/delete/edit`, `workflow run`, `secret set`, `gh api` with a mutating method), and the same shapes by hand against `api.github.com`.
+
+  **Two exemptions, both load-bearing, both tested.** (1) **Issues are not repo writes** — `gh issue create` is the `capture` skill's sanctioned path, `claude-dispatch` routes to it by name, and the `author` tier files one ungated; an issue changes nothing that runs. The `/issues` API path is exempt for the same reason (note GitHub serves PR *comments* from that path too — also fine). (2) **The brain vault**, `~/SourceRoot/brain`: the `obsidian` skill requires a commit for durability ("a write isn't durable until it's committed") **and** the vault is in the dispatch policy's `deny` list, so the guard's premise — "there is a bounded path instead" — is false there; refusing would tell the agent to dispatch into a repo that refuses dispatches. The exemption is narrow: the command must **name** the vault (`git -C ~/SourceRoot/brain …`, or a `cd` to it in the same command line). A bare `git commit` stays blocked, because a bare `git commit` is exactly the shape that landed on `dispatch-scratch`'s master. The obsidian skill was updated to spell the path. An explicit `-C` outside the vault always beats an earlier `cd` into it.
+
+  Regression suite: **`tests/test_repo_write_guard.py`** — 62/62 attack shapes blocked, 51/51 real Hermes commands allowed, 4000-input fuzz clean. Two false positives found and fixed while writing it, both the "annoying guard" failure mode: `gh pr list --search add` tripped because flag *values* were being read as subcommands (now only the immediate subcommand is checked), and `git branch --list --contains HEAD` tripped because `HEAD` looked like a branch name to create (flags that take a value are now tracked). **Known limits:** cross-call `cd` (fails closed — the commit is refused, so the cost is naming the vault, not a bypass); editing files without git (not durable, not outward-facing, and `git status` shows it); value indirection (`G=git; $G push`). **Edits need a gateway restart** — the module is imported once at startup. **Verified live end-to-end 2026-08-02:** the same request that bypassed the bridge an hour earlier produced `verb=help` → `verb=dispatch mode=opened tier=implement` → `verb=status` → `verb=merge mode=merged`, PR #4 merged to `master` as `bab460a6`, with the repo untouched by any raw git.
 - `~/.hermes/hermes-agent/tools/cronjob_tools.py` — extend the shared `_strip_cron_safe_constructs` helper with an argo + karakeep + research allowlist so the cron-prompt scanners stop flagging legitimate `curl -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/..."` shapes (and the `$KARAKEEP_API_KEY` → `https://karakeep.jkrumm.com/...` and `$RESEARCH_API_KEY` → `https://research.jkrumm.com/...` equivalents) carried by the bundled argo + karakeep + research-gateway skills. Source: `patches/cronjob-tools-allowlist-argo-bearer.patch`. Re-apply: `cd ~/.hermes/hermes-agent && git apply ~/SourceRoot/hermes-agent/patches/cronjob-tools-allowlist-argo-bearer.patch`. **v0.15.1 refactor:** upstream split the cron scanner into `_scan_cron_prompt` (raw user prompt — still checks `_CRON_EXFIL_COMMAND_PATTERNS`, incl. `exfil_curl_auth_header`) and `_scan_cron_skill_assembled` (skills-loaded — now uses a looser pattern set that already *drops* the curl/exfil shapes), with the GitHub-auth exemption hoisted into a shared `_strip_cron_safe_constructs` helper both call. The argo allowlist now lives in that **shared helper** (was inline in `_scan_cron_prompt`), so it covers both paths: the still-live `exfil_curl_auth_header` block on the raw-prompt path, plus harmless redundancy on the assembled path. Without it, any cron whose raw prompt carries an argo bearer curl fails with `Blocked: prompt matches threat pattern 'exfil_curl_auth_header'`. The patch sanitizes allowlisted-host markdown bash fences plus any single-line argo/karakeep curl before the exfil scan runs, but leaves any fence containing a non-allowlisted host intact so real exfil to a different host still triggers. Co-located evil curls in the same fence as argo/karakeep curls still get caught because the fence-sanitizer skips fences with a foreign host alongside the allowlisted ones. (Behaviorally tested post-update: argo single-line + fence sanitized, evil single-line + mixed fence preserved, GitHub fallback intact.) **v0.19.1 nuance (conflicted, hand-resolved):** upstream rewrote *its own half* of the helper — the GitHub strip went from `re.search` + a single `str.replace` (first occurrence only) to a repeated `re.sub` with a tighter host anchor (`api.github.com` must be followed by `/`, whitespace, quote or end, so `api.github.com.evil.com` no longer counts) and a `[^\s;&|$\`]*` path tail that can't swallow a smuggled `;`/`&&`/`$(…)`. Resolution keeps **upstream's** version of the GitHub strip verbatim and appends our argo/karakeep/research block, operating on its result. Differential-tested against a pristine v0.19.1 worktree afterwards: argo + karakeep + research curls and the argo fence pass live and are **blocked** in pristine (patch still load-bearing), evil-host and mixed-fence curls blocked in both, GitHub fallback — including two occurrences in one prompt — passes in both.
 - `~/.hermes/hermes-agent/agent/auxiliary_client.py` — respect `api_mode: anthropic_messages` in the `provider == "custom" + explicit_base_url` branch of `resolve_provider_client`: skip the `/anthropic`→`/v1` rewrite that `_to_openai_base_url` would otherwise apply, so `custom_base` keeps the `/anthropic` suffix. Source: `patches/auxiliary-client-anthropic-mode-respect.patch`. Re-apply: `cd ~/.hermes/hermes-agent && git apply ~/SourceRoot/hermes-agent/patches/auxiliary-client-anthropic-mode-respect.patch`. **v0.15.1 nuance:** upstream's `_maybe_wrap_anthropic` now detects the Anthropic surface via `api_mode == "anthropic_messages"` *explicitly* (decoupled from the URL suffix), so detection itself no longer breaks — **but** the patch is still load-bearing because `build_anthropic_client(api_key, base_url)` is handed `custom_base`; if that got rewritten to `/v1` the Anthropic client targets `/v1/messages` on the IU `/anthropic`-only gateway → 404 "Endpoint not found". The patch keeps the correct `/anthropic` base. **Currently defensive/dormant:** the live config routes the brain *and* auxiliaries through `${OPENAI_BASE_URL}` with `api_mode: chat_completions` (DeepSeek-V4-Pro / -Flash), so the `anthropic_messages` branch isn't exercised today — the patch only matters if a model is re-routed through the IU `/anthropic` endpoint. Kept applied (clean, zero cost on the `chat_completions` path).
 

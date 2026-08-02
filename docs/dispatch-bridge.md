@@ -167,17 +167,67 @@ precedent there and needs its own care (git identity via `~/.gitconfig-headless`
 Mirrors `hermes-ops.sh` exactly, because that pattern is already proven here:
 
 - **`scripts/hermes-cc.sh`** — closed verb set (`dispatch`, `status`, `list`,
-  `cancel`), no free-form paths, `--why`+`--confirm` on `implement`, `--json`
-  contract, audit log to `~/Library/Logs/hermes-cc.log`, tests under `tests/`.
-- **`config/dispatch-repos.json`** — tracked allowlist, repo → max tier.
-  Absence is a denial. `dotfiles-private` and `homelab-private` are absent and
-  stay absent.
+  `merge`, `cancel`), no free-form paths, `--why`+`--confirm` on `implement` and
+  `merge`, `--json` contract, audit log to `~/Library/Logs/hermes-cc.log`, tests
+  under `tests/`.
+- **`config/dispatch-repos.json`** — tracked policy: one root, a `deny` list, a
+  `defaultTier`, and per-repo tier overrides. Repos are discovered under the root
+  rather than enumerated, because the enumeration rotted — it listed 22 repos
+  while 30 sat on disk, and a missing entry was indistinguishable from a
+  deliberate denial. `dotfiles-private`, `homelab-private` and `brain` are
+  denied and stay denied.
 - **`skills/claude-dispatch/SKILL.md`** — when to reach for which tier, and the
   hard rule that infra mutation is `homelab-ops`, never this.
 - **`scripts/dispatch-sweep.py`** — `no_agent` cron, every 5 min. Reads open
   dispatches, polls `GET localhost:7705/api/jobs/:id`, posts finished ones into
   their origin thread, stamps `reported_at`. **No LLM in the return path** — the
   verdict is schema-shaped, so formatting is deterministic and free.
+
+## The merge verb — where the human stopped being on GitHub
+
+Phase 5 (2026-08-02, owner decision). Every other verb produces a *proposal* a
+human reads before it means anything. `merge <job-id>` lands one, unattended.
+It inverts a design statement sideclaw's own `openPullRequest` makes in a
+comment — *"un-drafting is not something the episode can do for itself"* — so the
+question is what carries the weight the click used to.
+
+Four things do, and the fourth is the one that generalizes:
+
+1. **Addressing.** The argument is a job id. The pull request is read out of the
+   `dispatches` row, so no shape of caller input names a PR — exactly the property
+   the repo argument has, for the same reason: an injected brief cannot reach the
+   thing being acted on.
+2. **Eligibility is derived, not listed.** A repo in
+   `dotfiles/config/pr-required-repos.json` — the single source of truth the
+   branch-protection hook and `github-config.sh` already share — can never be
+   auto-merged. This was the alternative to a second allowlist, and the reason is
+   the same one that killed the repo inventory: a list that must be edited when a
+   repo changes status is a list that is wrong most of the time. Here there is
+   nothing to edit. Adding a repo to that file removes its auto-merge in the same
+   commit that starts requiring review, and the two can never disagree.
+3. **Re-checked against the current head, not the inspected one.** Base is the
+   default branch, head is a `dispatch/…` branch in this same repo (never a fork),
+   no `.github/workflows|actions` path, sideclaw's own 40-file/2000-line episode
+   ceilings still hold, and `mergeable_state` is exactly `clean`. `blocked` (a
+   required review or check missing) and `unstable` (something failing) are
+   refusals, not judgement calls. The merge call **pins the head SHA**, so a push
+   landing between inspection and merge fails the merge rather than riding it.
+4. **The order of operations is a bound.** Un-drafting happens *after* every
+   check, so a PR that fails one is never left ready-for-review as a side effect
+   of being refused — and `--confirm`'s absence stops it before that point, which
+   is why the plan output can honestly say nothing changed on GitHub.
+
+Its ceiling is 3/day, tighter than the 5 implement episodes that can produce
+candidates: not everything that gets written should land. Its audit mode is
+`merged` and not `opened` — grepping the log for what actually reached a default
+branch is the reason the log exists.
+
+**What this does not solve.** `--confirm` is still instruction-level, and now it
+gates the most consequential verb in the script. The bounds above are structural
+and hold against a confused agent; none of them holds against an agent that has
+decided to lie, because it can pass `--confirm` itself. That was accepted
+knowingly. The thing that would change it is unchanged from Phase 4: an approval
+artifact minted outside the agent and bound to the repo plus a content hash.
 
 ## Return path, derived not chosen
 
@@ -221,7 +271,11 @@ session**. Hermes reads untrusted input all day — Slack, GitHub issue bodies,
 OTEL logs, web pages — so a prompt injection that reaches a brief must not reach
 arbitrary code execution.
 
-1. **Closed repo allowlist**, per-repo max tier. No free-form paths, ever.
+1. **A repo is named, never pathed**, and resolved under one confined root with a
+   `deny` list and a per-repo tier ceiling. The name must be a single segment
+   (`.`, `..` and dotted names refused) and the resolved checkout's parent must
+   BE the root, so neither a traversal nor a symlink reaches outside it. No
+   free-form paths, ever.
 2. **The brief is data, never command.** Passed as a file, never interpolated
    into a shell string — the `rd bg` base64 lesson, one level up.
 3. **`implement` needs `--why` and `--confirm`.** `--confirm` means Johannes
@@ -233,6 +287,22 @@ arbitrary code execution.
 7. **A daily dispatch budget** in `hermes-cc.sh`. `--max-budget-usd` is API-only
    and does **not** cap a Max session, so the ceiling has to be structural:
    `maxTurns`, timeout, sideclaw's concurrency cap, and a per-day count.
+
+   **The ceilings are reported on the way up, not only when they refuse.** Every
+   reporting path — dispatch, the `--dry-run` plan, `status`, `list` — carries a
+   `budget` object with both counts, and a `budget.warning` naming the env var
+   once one is close. This is a correction, not a flourish: the first build
+   computed the counts *inside* the refusal path, so `implementToday` was absent
+   from every successful response and the only signal a caller ever got was an
+   exit 4 that told it nothing about how to proceed. A bound nobody can see
+   approaching does not read as a budget; it reads as the tool breaking. The
+   counts are re-read after the row is inserted so the number a caller sees
+   includes its own dispatch — otherwise it is always one behind the number the
+   next refusal will use. Both refusals and both warnings name
+   `HERMES_CC_DAILY_BUDGET` / `HERMES_CC_IMPLEMENT_BUDGET`, because an escape
+   hatch only discoverable by reading the script is not one. Raising a ceiling
+   stays Johannes's call — the skill forbids the agent composing an invocation
+   that sets either var.
 8. **Audit log on every invocation**, including refusals and dry runs.
 
 ## Cost

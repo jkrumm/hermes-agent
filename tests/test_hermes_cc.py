@@ -3,10 +3,13 @@ Hermes agent may hand a bounded Claude Code episode to one repo.
 
 Covers the security properties that make it safe to hand an LLM a bounded verb
 dispatcher instead of a raw `terminal` tool: the closed verb set (no fallthrough
-to a shell), argument bounding against each slot's fixed/live list or shape, the
-repo allowlist (absence is a denial, and a listed-but-uncheckedout repo is its
-own distinct precondition failure), tier gating (a repo's `maxTier` ceiling wins
-over the request and is never silently downgraded), the write-tier gate
+to a shell), argument bounding against each slot's fixed/live list or shape,
+repo resolution (repos are DISCOVERED under a policy root rather than
+enumerated — a denied name refuses, a name the policy claims to have but
+doesn't is its own distinct precondition failure, and a traversal/symlink
+attempt is confined against the resolved real path), tier gating (a repo's
+policy-resolved ceiling wins over the request and is never silently
+downgraded), the write-tier gate
 (`implement` demands --why, and without --confirm prints its plan and changes
 nothing; it carries its own tighter daily ceiling), artifact plumbing (the
 issue/PR URL reaches both the --json top level and its own column),
@@ -21,7 +24,7 @@ dispatch record lifecycle (`reported_at` is the delivery debt — a `--wait` tha
 reaches a terminal status settles it, a bare `status` poll does not).
 
 Every case here runs against a stubbed `curl` and `secrets-run` on PATH, an
-isolated fake `$HOME`, a from-scratch `dispatch-repos.json` fixture, and a fresh
+isolated fake `$HOME`, a from-scratch `dispatch-repos.json` policy fixture, and a fresh
 SQLite dispatch DB per case (unless a case deliberately shares one to exercise
 continuity) — no real network call ever reaches sideclaw, no real 1Password
 read, no real dispatches DB or audit log touched, ever. Safe to run repeatedly
@@ -61,8 +64,21 @@ import json, os, sys
 
 argv = sys.argv[1:]
 stdin_data = None
+# The GitHub path sends the auth header as a curl config on stdin (-K -) and the
+# request body as a file (--data-binary @path); the sideclaw path still sends its
+# body on stdin (--data-binary @-). Drain stdin whenever -K is present so the
+# caller's printf never takes a SIGPIPE, and resolve @path bodies from disk.
+if "-K" in argv:
+    sys.stdin.read()
 if "--data-binary" in argv:
-    stdin_data = sys.stdin.read()
+    ref = argv[argv.index("--data-binary") + 1]
+    if ref == "@-":
+        stdin_data = sys.stdin.read()
+    elif ref.startswith("@"):
+        with open(ref[1:]) as fh:
+            stdin_data = fh.read()
+
+method = argv[argv.index("-X") + 1] if "-X" in argv else "GET"
 
 log = os.environ.get("CC_TEST_CURL_LOG")
 if log:
@@ -76,6 +92,46 @@ if exit_code != 0:
 status = os.environ.get("CC_TEST_CURL_STATUS", "200")
 url = argv[-1] if argv else ""
 job_id = "test-job-0001"
+
+# --- fake GitHub -------------------------------------------------------------
+# Only the `merge` verb talks to GitHub. Every response is driven by env so a
+# case can pose exactly one bad condition (a fork head, a blocked state, a CI
+# path) and prove the refusal is that one and not an accident of another field.
+GH = os.environ.get("CC_TEST_GH_API", "")
+if GH and url.startswith(GH):
+    path = url[len(GH):]
+    pr_defaults = {
+        "state": "open", "merged": False, "draft": True,
+        "node_id": "PR_kwstub", "title": "stub pr title",
+        "base": {"ref": "master"},
+        "head": {"ref": "dispatch/stub-branch", "sha": "deadbeef" * 5,
+                 "repo": {"full_name": "jkrumm/gamma"}},
+        "changed_files": 2, "additions": 4, "deletions": 4,
+        "mergeable": True, "mergeable_state": "clean",
+    }
+    pr = json.loads(os.environ.get("CC_TEST_PR_JSON", "{}"))
+    pr_defaults.update(pr)
+    repo_obj = json.loads(os.environ.get("CC_TEST_REPO_JSON", "{}"))
+    repo_defaults = {"default_branch": "master", "allow_squash_merge": True,
+                     "allow_rebase_merge": True, "allow_merge_commit": True}
+    repo_defaults.update(repo_obj)
+    files = json.loads(os.environ.get("CC_TEST_PR_FILES", '[{"filename": "src/a.ts"}]'))
+
+    if path == "/graphql":
+        body, status = os.environ.get("CC_TEST_GRAPHQL", '{"data": {}}'), "200"
+    elif path.endswith("/merge") and method == "PUT":
+        status = os.environ.get("CC_TEST_MERGE_STATUS", "200")
+        body = json.dumps({"sha": "mergedsha001", "merged": True})
+    elif "/git/refs/heads/" in path:
+        body, status = "", "204"
+    elif "/files" in path:
+        body = json.dumps(files)
+    elif "/pulls/" in path:
+        body = json.dumps(pr_defaults)
+    else:
+        body = json.dumps(repo_defaults)
+    sys.stdout.write(body + "\\n" + status)
+    sys.exit(0)
 
 default_result = json.dumps({
     "verdict": "stub verdict text",
@@ -109,8 +165,12 @@ sys.exit(0)
 
 # secrets-run is only checked for executability by require_backend() — no
 # implemented verb actually invokes it today, so the stub needs no behavior.
+# ...except for `merge`, which reads the GitHub credential through it. A token
+# shaped like a real one, so the audit-log redactor is exercised on it too.
 FAKE_SECRETS_RUN = """#!/usr/bin/env python3
 import sys
+if len(sys.argv) > 2 and sys.argv[1] == "read":
+    print("github_pat_STUB0000000000000000000000000000")
 sys.exit(0)
 """
 
@@ -137,34 +197,59 @@ class Harness:
         self.backend_file = self.root / "backend"
         self.backend_file.write_text("cache\n")
 
-        # Repo allowlist fixture: real on-disk checkouts for "alpha" (default
-        # maxTier) and "beta" (explicit maxTier: investigate), plus "ghost" —
-        # present in the JSON but with no checkout on disk, to exercise the
-        # precondition-2 path distinctly from "absent from the file entirely"
-        # (which every test exercises with a repo name that is never written
-        # here at all).
+        # Dispatch POLICY fixture (not an inventory): repos are DISCOVERED under
+        # `root`, and `deny`/`tiers` only ever narrow or redirect what discovery
+        # finds — absence from either is neither permission nor denial. Fixture
+        # repos exercise every resolution outcome:
+        #   - alpha: a real checkout with no entry anywhere in the policy — proves
+        #     plain discovery works and falls through to `defaultTier` (set to
+        #     "author" here, matching production).
+        #   - beta: a real checkout named in `tiers.investigate` — an explicit
+        #     ceiling below the default.
+        #   - gamma: a real checkout named in `tiers.implement` — the only
+        #     fixture repo whose ceiling admits a write tier. Keeping it separate
+        #     from beta is what lets a single test prove BOTH halves of a
+        #     ceiling: gamma accepts `implement`, beta (capped at investigate)
+        #     refuses the identical request.
+        #   - denied: a real checkout that ALSO appears in `deny` — proves deny
+        #     wins over having a perfectly good checkout on disk; discovery alone
+        #     would have let it through.
+        #   - ghost: named in `tiers` but never created on disk — the policy
+        #     claims this machine has a checkout it does not, which is its own
+        #     distinct precondition failure (exit 2), not a typo (exit 64).
+        #   - any name never written here at all (e.g. "not-a-listed-repo")
+        #     exercises the plain-typo path: no checkout AND no entry in `tiers`,
+        #     so it is exit 64 with the dispatchable list, not exit 2.
         self.repos_root = self.root / "repos"
         self.repos_root.mkdir()
         self.alpha = self.repos_root / "alpha"
         self.beta = self.repos_root / "beta"
-        # "gamma" is the only fixture whose ceiling admits a write tier. Keeping
-        # it separate from alpha is what lets a single test prove BOTH halves of
-        # the ceiling: gamma accepts `implement`, alpha (defaulted to
-        # investigate) refuses the identical request.
         self.gamma = self.repos_root / "gamma"
-        for d in (self.alpha, self.beta, self.gamma):
+        self.denied = self.repos_root / "denied"
+        for d in (self.alpha, self.beta, self.gamma, self.denied):
             (d / ".git").mkdir(parents=True)
-        self.ghost = self.repos_root / "ghost-missing"  # deliberately never created
+        self.ghost = self.repos_root / "ghost"  # named in `tiers`, deliberately never created
 
         self.repos_json = self.root / "dispatch-repos.json"
         self.repos_json.write_text(json.dumps({
-            "repos": {
-                "alpha": {"path": str(self.alpha)},
-                "beta": {"path": str(self.beta), "maxTier": "investigate"},
-                "gamma": {"path": str(self.gamma), "maxTier": "implement"},
-                "ghost": {"path": str(self.ghost)},
-            }
+            "root": str(self.repos_root),
+            "defaultTier": "author",
+            "deny": ["denied"],
+            "tiers": {
+                "investigate": ["beta", "ghost"],
+                "implement": ["gamma"],
+            },
         }))
+
+        # Merge eligibility is derived from this file, not from a list in the
+        # dispatch policy. The fixture names a repo that is NOT one of ours, so
+        # the default path is "allowed"; the case that proves the refusal points
+        # HERMES_CC_PR_REQUIRED_JSON at its own file naming `gamma`.
+        self.pr_required_json = self.root / "pr-required-repos.json"
+        self.pr_required_json.write_text(json.dumps(
+            {"repos": ["some-other-repo"], "directToMain": []}))
+        self.pr_required_gamma = self.root / "pr-required-gamma.json"
+        self.pr_required_gamma.write_text(json.dumps({"repos": ["gamma"]}))
 
         self.log_dir = self.root / "logs"
         self.log_dir.mkdir()
@@ -192,6 +277,9 @@ class Harness:
         env["HERMES_CC_REPOS_JSON"] = str(self.repos_json)
         env["HERMES_CC_DB"] = str(self.new_db())
         env["HERMES_CC_LOG"] = str(audit_log or self.new_log("audit"))
+        env["HERMES_CC_GH_API"] = "http://gh.invalid"
+        env["CC_TEST_GH_API"] = "http://gh.invalid"
+        env["HERMES_CC_PR_REQUIRED_JSON"] = str(self.pr_required_json)
         env.pop("OP_SERVICE_ACCOUNT_TOKEN", None)
         # The suite itself runs inside a Claude Code session; every case must
         # start clean of the recursion-guard markers, or every dispatch would
@@ -385,11 +473,13 @@ def test_argument_bounding(h: Harness):
 
 
 # =============================================================================
-# 3. Repo allowlist — absence is a denial; a listed-but-uncheckedout repo is
-#    its own distinct precondition failure.
+# 3. Repo resolution — repos are DISCOVERED under the policy root rather than
+#    enumerated; a denied name refuses, an absent name refuses with the
+#    dispatchable list, and a name the policy claims but has no checkout for
+#    is its own distinct precondition failure.
 # =============================================================================
 
-def test_repo_allowlist(h: Harness):
+def test_repo_resolution(h: Harness):
     failures = []
     total = passed = 0
 
@@ -405,39 +495,116 @@ def test_repo_allowlist(h: Harness):
     if ok:
         passed += 1
     else:
-        failures.append(f"allowlisted repo did not pass validation: "
+        failures.append(f"a plainly discovered repo did not resolve: "
                          f"rc={proc.returncode} stdout={proc.stdout[:300]!r}")
+
+    total += 1
+    curl_log = h.new_log("curl")
+    proc = h.run(["dispatch", "denied"],
+                  env_extra={"CC_TEST_CURL_LOG": str(curl_log)})
+    text = proc.stdout + proc.stderr
+    ok = (proc.returncode == 64 and "not dispatchable" in text
+          and not _curl_lines(curl_log))
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"a real checkout that is also in `deny` did not "
+                         f"refuse cleanly (deny must win over having a "
+                         f"perfectly good checkout on disk): rc={proc.returncode} "
+                         f"stdout={proc.stdout[:300]!r} stderr={proc.stderr[:300]!r}")
 
     total += 1
     curl_log = h.new_log("curl")
     proc = h.run(["dispatch", "not-a-listed-repo"],
                   env_extra={"CC_TEST_CURL_LOG": str(curl_log)})
     text = proc.stdout + proc.stderr
-    ok = (proc.returncode == 64 and "not in the allowlist" in text
+    ok = (proc.returncode == 64 and "dispatchable:" in text
           and "alpha" in text and not _curl_lines(curl_log))
     if ok:
         passed += 1
     else:
-        failures.append(f"repo absent from allowlist did not refuse cleanly: "
+        failures.append(f"a name absent from the policy entirely did not "
+                         f"refuse cleanly with the dispatchable list: "
                          f"rc={proc.returncode} stdout={proc.stdout[:300]!r} "
                          f"stderr={proc.stderr[:300]!r}")
 
     total += 1
     proc = h.run(["dispatch", "ghost"])
-    ok = proc.returncode == 2 and "no checkout at" in (proc.stdout + proc.stderr)
+    ok = (proc.returncode == 2
+          and "policy names a repo this machine does not have" in
+          (proc.stdout + proc.stderr))
     if ok:
         passed += 1
     else:
-        failures.append(f"repo present in allowlist but missing checkout did "
-                         f"not exit 2: rc={proc.returncode} "
+        failures.append(f"repo named in `tiers` but with no checkout on disk "
+                         f"did not exit 2 (this is a machine that lacks what "
+                         f"the policy claims, not a typo): rc={proc.returncode} "
                          f"stdout={proc.stdout[:300]!r} stderr={proc.stderr[:300]!r}")
 
     return total, passed, failures
 
 
 # =============================================================================
-# 4. Tier gating — the per-repo maxTier ceiling wins over the request, an
-#    invalid tier name is a usage error, and the default is investigate.
+# 3b. Repo name confinement — traversal-shaped names are rejected by shape
+#     before ever touching the filesystem, and a symlink planted INSIDE the
+#     policy root that points OUTSIDE it is caught by the realpath-parent
+#     check, not the character class (a symlink's own name is a perfectly
+#     ordinary single segment and can still escape).
+# =============================================================================
+
+def test_repo_name_confinement(h: Harness):
+    failures = []
+    total = passed = 0
+
+    for name in (".", "..", ".git", "../etc", "foo/bar"):
+        total += 1
+        curl_log = h.new_log("curl")
+        proc = h.run(["dispatch", name],
+                      env_extra={"CC_TEST_CURL_LOG": str(curl_log)})
+        text = proc.stdout + proc.stderr
+        ok = (proc.returncode == 64 and "not a repo name" in text
+              and not _curl_lines(curl_log))
+        if ok:
+            passed += 1
+        else:
+            failures.append(f"repo name {name!r}: expected exit 64 'not a repo "
+                             f"name' with nothing submitted, got "
+                             f"rc={proc.returncode} stdout={proc.stdout[:300]!r} "
+                             f"stderr={proc.stderr[:300]!r}")
+
+    # A checkout that lives entirely outside the dispatch root, reached only
+    # via a symlink planted inside it, must still refuse. The character-class
+    # check can't catch this — the symlink's own name ("escape") passes it
+    # cleanly. Confinement has to be enforced against the REAL, resolved path,
+    # which is what `resolve_repo`'s dirname-must-equal-root check does; without
+    # it this is a live escape hatch out of the dispatch root.
+    total += 1
+    outside = h.root / "outside-checkout"
+    (outside / ".git").mkdir(parents=True)
+    escape_link = h.repos_root / "escape"
+    escape_link.symlink_to(outside)
+    curl_log = h.new_log("curl")
+    proc = h.run(["dispatch", "escape"],
+                  env_extra={"CC_TEST_CURL_LOG": str(curl_log)})
+    text = proc.stdout + proc.stderr
+    ok = (proc.returncode == 64 and "not dispatchable" in text
+          and not _curl_lines(curl_log))
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"a symlink inside the root pointing outside it: "
+                         f"expected exit 64 'not dispatchable' with nothing "
+                         f"submitted, got rc={proc.returncode} "
+                         f"stdout={proc.stdout[:300]!r} "
+                         f"stderr={proc.stderr[:300]!r}")
+
+    return total, passed, failures
+
+
+# =============================================================================
+# 4. Tier gating — the per-repo ceiling resolved from the dispatch policy
+#    (either an explicit `tiers` override or the fallback `defaultTier`) wins
+#    over the request, and an invalid tier name is a usage error.
 #
 #    Now that all three tiers are built, the ceiling is the live gate rather
 #    than the documented no-op it was while author/implement were unbuilt: a
@@ -451,12 +618,12 @@ def test_tier_gating(h: Harness):
     failures = []
     total = passed = 0
 
-    # alpha carries no explicit maxTier, so it defaults to investigate — the
-    # request is well-formed and the tier is built; only the ceiling stops it.
+    # beta carries an explicit `tiers.investigate` override — the request is
+    # well-formed and the tier is built; only the ceiling stops it.
     for tier in ("author", "implement"):
         total += 1
         curl_log = h.new_log("curl")
-        args = ["dispatch", "alpha", "--tier", tier]
+        args = ["dispatch", "beta", "--tier", tier]
         if tier == "implement":
             args += ["--why", "checking the ceiling", "--confirm"]
         proc = h.run(args, env_extra={"CC_TEST_CURL_LOG": str(curl_log)},
@@ -500,18 +667,24 @@ def test_tier_gating(h: Harness):
         failures.append(f"--tier godmode: expected exit 64 'unknown tier', got "
                          f"rc={proc.returncode} stdout={proc.stdout[:300]!r}")
 
+    # No --tier flag hardcodes the REQUESTED tier to "investigate" regardless
+    # of the repo's resolved ceiling — that default lives in cmd_dispatch, not
+    # in the policy, and stays the safe read-only floor even for alpha, whose
+    # ceiling (`repoMaxTier`, resolved from `defaultTier`) is "author".
     total += 1
     proc = h.run(["dispatch", "alpha", "--dry-run", "--json"], stdin=VALID_BRIEF)
     try:
         data = json.loads(proc.stdout.strip())
-        ok = proc.returncode == 0 and data.get("tier") == "investigate"
+        ok = (proc.returncode == 0 and data.get("tier") == "investigate"
+              and data.get("repoMaxTier") == "author")
     except json.JSONDecodeError:
         ok = False
     if ok:
         passed += 1
     else:
-        failures.append(f"default tier: expected 'investigate' with no --tier "
-                         f"flag, got rc={proc.returncode} "
+        failures.append(f"default requested tier: expected 'investigate' with "
+                         f"repoMaxTier 'author' and no --tier flag on a "
+                         f"plainly discovered repo, got rc={proc.returncode} "
                          f"stdout={proc.stdout[:300]!r}")
 
     total += 1
@@ -650,7 +823,7 @@ def test_json_contract(h: Harness):
         ("unknown repo", ["dispatch", "not-a-listed-repo", "--json"],
          None, {}, 64, False),
         ("unknown verb", ["totally-bogus-verb", "--json"], None, {}, 64, False),
-        ("tier refusal", ["dispatch", "alpha", "--tier", "author", "--json"],
+        ("tier refusal", ["dispatch", "beta", "--tier", "author", "--json"],
          None, {}, 4, False),
         ("http 500", ["dispatch", "alpha", "--json"],
          VALID_BRIEF, {"CC_TEST_CURL_STATUS": "500"}, 3, False),
@@ -693,7 +866,7 @@ def test_audit_log(h: Harness):
 
     total += 1
     audit_log = h.new_log("audit-refused")
-    proc = h.run(["dispatch", "alpha", "--tier", "author"], audit_log=audit_log)
+    proc = h.run(["dispatch", "beta", "--tier", "author"], audit_log=audit_log)
     lines = _log_text(audit_log).splitlines()
     ok = len(lines) == 1 and all(f in lines[0] for f in fields) and "mode=refused" in lines[0]
     if ok:
@@ -745,26 +918,38 @@ def test_audit_log(h: Harness):
 # =============================================================================
 # 8. Daily budget — a structural ceiling on unattended Max spend. Exhausted
 #    budget refuses at exit 4 before ever reaching curl, and still audits.
+#
+#    The rest of this section is about the ceiling being LEGIBLE, which is a
+#    separate property from it being correct. A bound that is invisible until it
+#    refuses reads as an arbitrary breakage: the caller cannot see one coming,
+#    and the refusal is the first and only signal. So every reporting path
+#    carries the standing counts of BOTH ceilings, a near-ceiling adds a warning,
+#    and both the warning and the refusal name the env var that raises them —
+#    an escape hatch only discoverable by reading the script is not one.
 # =============================================================================
+
+def _preseed(h: Harness, db_path, n: int, tier: str = "investigate") -> None:
+    """Insert n dispatch rows dated today, so a budget count sees them."""
+    # Let the script create the schema idempotently before inserting directly.
+    h.run(["list"], env_extra={"HERMES_CC_DB": str(db_path)})
+    now = dt.datetime.now(dt.timezone.utc).isoformat()
+    conn = sqlite3.connect(db_path)
+    for i in range(n):
+        conn.execute(
+            "INSERT INTO dispatches(job_id,tier,repo,brief,status,created_at) "
+            "VALUES(?,?,?,?,?,?)",
+            (f"preseeded-{tier}-{i}", tier, "alpha", "preseeded", "done", now),
+        )
+    conn.commit()
+    conn.close()
+
 
 def test_daily_budget(h: Harness):
     failures = []
     total = passed = 0
 
     db_path = h.new_db()
-    # Let the script create the schema idempotently before inserting directly.
-    h.run(["list"], env_extra={"HERMES_CC_DB": str(db_path)})
-
-    now = dt.datetime.now(dt.timezone.utc).isoformat()
-    conn = sqlite3.connect(db_path)
-    for i in range(2):
-        conn.execute(
-            "INSERT INTO dispatches(job_id,tier,repo,brief,status,created_at) "
-            "VALUES(?,?,?,?,?,?)",
-            (f"preseeded-{i}", "investigate", "alpha", "preseeded", "done", now),
-        )
-    conn.commit()
-    conn.close()
+    _preseed(h, db_path, 2)
 
     total += 1
     curl_log = h.new_log("curl")
@@ -793,6 +978,109 @@ def test_daily_budget(h: Harness):
     else:
         failures.append(f"over-budget dispatch did not write a clean audit "
                          f"line: {lines!r}")
+
+    # The refusal has to say how to proceed. Naming the ceiling without naming
+    # the way past it is what makes a budget feel like a bug.
+    total += 1
+    text = proc.stdout + proc.stderr
+    ok = "HERMES_CC_DAILY_BUDGET" in text and "2/2" in text
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"budget refusal named neither the count nor the env "
+                         f"var that raises it: {text[:400]!r}")
+
+    # (a) an ordinary dispatch reports both ceilings, counting itself. A count
+    # that excluded the dispatch just made would always be one behind the one
+    # the next refusal uses.
+    total += 1
+    db_a = h.new_db()
+    proc = h.run(["dispatch", "alpha", "--json"],
+                  env_extra={"HERMES_CC_DB": str(db_a)}, stdin=VALID_BRIEF)
+    try:
+        budget = json.loads(proc.stdout.strip()).get("budget")
+    except json.JSONDecodeError:
+        budget = None
+    ok = budget == {"usedToday": 1, "max": 20, "remaining": 19,
+                    "implementToday": 0, "implementMax": 5,
+                    "implementRemaining": 5}
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"dispatch did not report both ceilings counting "
+                         f"itself: {budget!r}")
+
+    # (b) the rehearsal reports the standing counts and consumes nothing. The
+    # plan is where the decision to spend a slot is actually made, so it is the
+    # one place the remaining slots most need to be legible.
+    total += 1
+    db_b = h.new_db()
+    _preseed(h, db_b, 3)
+    proc = h.run(["dispatch", "alpha", "--dry-run", "--json"],
+                  env_extra={"HERMES_CC_DB": str(db_b)}, stdin=VALID_BRIEF)
+    try:
+        data = json.loads(proc.stdout.strip())
+    except json.JSONDecodeError:
+        data = {}
+    after = h.run(["list", "today", "--json"], env_extra={"HERMES_CC_DB": str(db_b)})
+    try:
+        listed = json.loads(after.stdout.strip())
+    except json.JSONDecodeError:
+        listed = {}
+    ok = (data.get("budget", {}).get("usedToday") == 3
+          and data.get("dryRun") is True
+          and listed.get("count") == 3
+          and listed.get("budget", {}).get("usedToday") == 3)
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"dry-run budget: expected usedToday=3 reported and "
+                         f"nothing consumed, got plan={data.get('budget')!r} "
+                         f"list={listed.get('count')!r}/{listed.get('budget')!r}")
+
+    # (c) approaching the shared ceiling warns at exit 0 rather than only
+    # refusing at exit 4 one dispatch later.
+    total += 1
+    db_c = h.new_db()
+    _preseed(h, db_c, 2)
+    proc = h.run(["dispatch", "alpha", "--json"],
+                  env_extra={"HERMES_CC_DB": str(db_c),
+                             "HERMES_CC_DAILY_BUDGET": "4"}, stdin=VALID_BRIEF)
+    try:
+        budget = json.loads(proc.stdout.strip()).get("budget", {})
+    except json.JSONDecodeError:
+        budget = {}
+    ok = (proc.returncode == 0 and budget.get("remaining") == 1
+          and "HERMES_CC_DAILY_BUDGET" in budget.get("warning", ""))
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"near the shared ceiling: expected a warning naming "
+                         f"HERMES_CC_DAILY_BUDGET at rc=0, got "
+                         f"rc={proc.returncode} budget={budget!r}")
+
+    # (d) the implement ceiling warns on its own terms, and is counted even
+    # from a read-only episode — a caller planning a write needs to see the
+    # write allowance before it asks for one.
+    total += 1
+    db_d = h.new_db()
+    _preseed(h, db_d, 4, tier="implement")
+    proc = h.run(["dispatch", "alpha", "--json"],
+                  env_extra={"HERMES_CC_DB": str(db_d)}, stdin=VALID_BRIEF)
+    try:
+        budget = json.loads(proc.stdout.strip()).get("budget", {})
+    except json.JSONDecodeError:
+        budget = {}
+    ok = (proc.returncode == 0 and budget.get("implementToday") == 4
+          and budget.get("implementRemaining") == 1
+          and "HERMES_CC_IMPLEMENT_BUDGET" in budget.get("warning", "")
+          and "HERMES_CC_DAILY_BUDGET" not in budget.get("warning", ""))
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"near the implement ceiling from a read-only "
+                         f"episode: expected an implement-only warning, got "
+                         f"rc={proc.returncode} budget={budget!r}")
 
     return total, passed, failures
 
@@ -1061,41 +1349,83 @@ def test_write_tier_gate(h: Harness):
                              "HERMES_CC_IMPLEMENT_BUDGET": "1",
                              "CC_TEST_CURL_LOG": str(curl_log)},
                   stdin=VALID_BRIEF)
+    # The refusal must also say which ceiling was hit and how to raise THAT one:
+    # a caller told only "budget exhausted" would reach for the shared knob and
+    # still be refused, or worse, raise the wrong ceiling.
     ok = (proc.returncode == 4
           and "implement budget" in (proc.stdout + proc.stderr)
+          and "HERMES_CC_IMPLEMENT_BUDGET" in (proc.stdout + proc.stderr)
           and not _curl_lines(curl_log))
     if ok:
         passed += 1
     else:
         failures.append(f"implement over its own ceiling while the shared budget "
-                         f"has room: expected exit 4 with nothing submitted, got "
+                         f"has room: expected exit 4 naming HERMES_CC_IMPLEMENT_BUDGET "
+                         f"with nothing submitted, got "
                          f"rc={proc.returncode} stdout={proc.stdout[:300]!r} "
                          f"curl={_curl_lines(curl_log)!r}")
 
-    # (g-pre) A malformed maxTier must FAIL CLOSED. tier_rank maps an unknown tier to 99,
-    #     which is above every real rank — so without validation a typo in the allowlist
-    #     ("implment") silently lifts the ceiling instead of tightening it, and hands a
-    #     write episode to a repo meant to be read-only. Caught by adversarial review;
-    #     reproduced before it was fixed.
+    # (g-pre) A malformed dispatch policy must FAIL CLOSED, always at exit 2 —
+    #     a policy that does not parse, or contradicts itself, must never be
+    #     read as a permissive one. Four distinct ways it can be wrong, each
+    #     its own case: an unknown tier KEY would otherwise be silently
+    #     ignored, which — with defaultTier=author — quietly PROMOTES every
+    #     repo listed under it to a write tier; a name in both `deny` and
+    #     `tiers` is a contradiction, not a precedence question, and picking a
+    #     winner would hide which reading of the file is wrong; an
+    #     unrecognized `defaultTier` has the same silently-permissive failure
+    #     mode as the tier-key case, just at the top level; and JSON that
+    #     doesn't parse at all must not fall back to any default. Caught by
+    #     adversarial review; reproduced before it was fixed.
+    malformed_cases = [
+        ("unknown tier key", {
+            "root": str(h.repos_root), "defaultTier": "author",
+            "tiers": {"implment": ["gamma"]},
+        }, "unknown tier"),
+        ("name in both deny and tiers", {
+            "root": str(h.repos_root), "defaultTier": "author",
+            "deny": ["gamma"], "tiers": {"implement": ["gamma"]},
+        }, "named in both"),
+        ("invalid defaultTier", {
+            "root": str(h.repos_root), "defaultTier": "godmode",
+        }, "unrecognized defaultTier"),
+    ]
+    for i, (label, policy, expect_text) in enumerate(malformed_cases):
+        total += 1
+        bad_json = h.root / f"repos-bad-{i}.json"
+        bad_json.write_text(json.dumps(policy))
+        curl_log = h.new_log("curl")
+        proc = h.run(["dispatch", "gamma", "--tier", "implement", "--why",
+                      "malformed probe", "--confirm", "--json"],
+                      env_extra={"HERMES_CC_REPOS_JSON": str(bad_json),
+                                 "CC_TEST_CURL_LOG": str(curl_log)},
+                      stdin=VALID_BRIEF)
+        text = proc.stdout + proc.stderr
+        ok = proc.returncode == 2 and expect_text in text and not _curl_lines(curl_log)
+        if ok:
+            passed += 1
+        else:
+            failures.append(f"malformed policy ({label}) must fail closed at "
+                             f"exit 2, got rc={proc.returncode} "
+                             f"stdout={proc.stdout[:300]!r} "
+                             f"curl={_curl_lines(curl_log)!r}")
+
     total += 1
-    bad_json = h.root / "repos-bad-tier.json"
-    bad_json.write_text(json.dumps({
-        "repos": {"typo": {"path": str(h.alpha), "maxTier": "implment"}}
-    }))
+    bad_json = h.root / "repos-bad-unparseable.json"
+    bad_json.write_text("{not valid json")
     curl_log = h.new_log("curl")
-    proc = h.run(["dispatch", "typo", "--tier", "implement", "--why", "typo probe",
-                  "--confirm", "--json"],
+    proc = h.run(["dispatch", "gamma", "--tier", "implement", "--why",
+                  "malformed probe", "--confirm", "--json"],
                   env_extra={"HERMES_CC_REPOS_JSON": str(bad_json),
                              "CC_TEST_CURL_LOG": str(curl_log)},
                   stdin=VALID_BRIEF)
-    ok = (proc.returncode == 2
-          and "unrecognized maxTier" in (proc.stdout + proc.stderr)
-          and not _curl_lines(curl_log))
+    ok = proc.returncode == 2 and not _curl_lines(curl_log)
     if ok:
         passed += 1
     else:
-        failures.append(f"a malformed maxTier must fail closed, got rc={proc.returncode} "
-                         f"stdout={proc.stdout[:300]!r} curl={_curl_lines(curl_log)!r}")
+        failures.append(f"unparseable policy JSON must fail closed at exit 2, "
+                         f"got rc={proc.returncode} stdout={proc.stdout[:300]!r} "
+                         f"curl={_curl_lines(curl_log)!r}")
 
     # (g) `author` is deliberately NOT gated — no --why, no --confirm, and it
     #     still opens. A gate on every tier would make the implement gate
@@ -1195,6 +1525,281 @@ def test_artifact_plumbing(h: Harness):
 # 11. No free-form surface — static grep for a passthrough/eval shape.
 # =============================================================================
 
+# =============================================================================
+# 14. Merge — the only verb that changes what RUNS. It merges a PR this bridge
+#     opened, addressed by JOB ID so no caller input ever names a pull request,
+#     only where a human review is not required, and only while every bound the
+#     episode was held to still holds against the current head. Each refusal case
+#     below poses exactly ONE bad condition, so a pass proves that specific guard
+#     fired and not some neighbouring accident.
+# =============================================================================
+
+MERGE_JOB = "merge-job-0001"
+PR_URL = "https://github.com/jkrumm/gamma/pull/7"
+GOOD_HEAD = {"ref": "dispatch/stub-branch", "sha": "deadbeef" * 5,
+             "repo": {"full_name": "jkrumm/gamma"}}
+
+
+def _seed_pr_dispatch(h: Harness, db_path, *, tier="implement", repo="gamma",
+                      status="done", artifact=PR_URL, job_id=MERGE_JOB) -> None:
+    # `list` first so the script creates the schema AND applies the additive
+    # merged_at migration before anything is inserted.
+    h.run(["list"], env_extra={"HERMES_CC_DB": str(db_path)})
+    now = dt.datetime.now(dt.timezone.utc).isoformat()
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT INTO dispatches(job_id,tier,repo,brief,status,artifact_url,created_at) "
+        "VALUES(?,?,?,?,?,?,?)",
+        (job_id, tier, repo, "seed brief", status, artifact, now),
+    )
+    conn.commit()
+    conn.close()
+
+
+def _merged_at(db_path, job_id=MERGE_JOB):
+    conn = sqlite3.connect(db_path)
+    row = conn.execute("SELECT merged_at FROM dispatches WHERE job_id=?", (job_id,)).fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+def test_merge_verb(h: Harness):
+    failures = []
+    total = passed = 0
+
+    def pr(**over):
+        base = {"state": "open", "merged": False, "draft": True,
+                "node_id": "PR_kwstub", "title": "stub pr title",
+                "base": {"ref": "master"}, "head": GOOD_HEAD,
+                "changed_files": 2, "additions": 4, "deletions": 4,
+                "mergeable": True, "mergeable_state": "clean"}
+        base.update(over)
+        return json.dumps(base)
+
+    # (a) every refusal, each with one thing wrong and nothing else.
+    refusals = [
+        ("unknown job id", {"job_id": "some-other-job"}, {}, 2, "no dispatch recorded"),
+        ("read-only tier", {"tier": "investigate"}, {}, 4, "produces no pull request"),
+        ("episode failed", {"status": "failed"}, {}, 4, "not 'done'"),
+        ("no artifact", {"artifact": None}, {}, 4, "no artifact URL"),
+        ("issue url, not a pr", {"artifact": "https://github.com/jkrumm/gamma/issues/7"},
+         {}, 4, "not a pull request URL"),
+        ("foreign owner", {"artifact": "https://github.com/someone-else/gamma/pull/7"},
+         {}, 4, "belongs to"),
+        ("record disagrees with itself",
+         {"artifact": "https://github.com/jkrumm/alpha/pull/7"}, {}, 4, "disagrees with itself"),
+        ("repo ceiling now below implement",
+         {"repo": "beta", "artifact": "https://github.com/jkrumm/beta/pull/7"},
+         {}, 4, "ceiling is now"),
+        ("repo requires human review", {},
+         {"HERMES_CC_PR_REQUIRED_JSON": "GAMMA"}, 4, "human pull-request review"),
+        ("pull request closed", {}, {"CC_TEST_PR_JSON": pr(state="closed")}, 4, "not open"),
+        ("already merged on github", {}, {"CC_TEST_PR_JSON": pr(merged=True)}, 4, "already merged"),
+        ("base retargeted", {}, {"CC_TEST_PR_JSON": pr(base={"ref": "release"})},
+         4, "not the default branch"),
+        ("head is not a dispatch branch", {},
+         {"CC_TEST_PR_JSON": pr(head={"ref": "feature/x", "sha": "a" * 40,
+                                      "repo": {"full_name": "jkrumm/gamma"}})},
+         4, "not a dispatch"),
+        ("head is a fork", {},
+         {"CC_TEST_PR_JSON": pr(head={"ref": "dispatch/x", "sha": "a" * 40,
+                                      "repo": {"full_name": "someone-else/gamma"}})},
+         4, "fork"),
+        ("over the file ceiling", {}, {"CC_TEST_PR_JSON": pr(changed_files=99)},
+         4, "over the"),
+        ("over the line ceiling", {}, {"CC_TEST_PR_JSON": pr(additions=4000)},
+         4, "over the"),
+        ("touches CI definitions", {},
+         {"CC_TEST_PR_FILES": json.dumps([{"filename": ".github/workflows/ci.yml"}])},
+         4, "CI definitions"),
+        ("no merge method allowed", {},
+         {"CC_TEST_REPO_JSON": json.dumps({"default_branch": "master",
+                                           "allow_squash_merge": False,
+                                           "allow_rebase_merge": False,
+                                           "allow_merge_commit": False})},
+         4, "no merge method"),
+    ]
+
+    for label, seed, env, want_rc, want_text in refusals:
+        total += 1
+        db_path = h.new_db()
+        job_id = seed.pop("job_id", None)
+        _seed_pr_dispatch(h, db_path, **seed)
+        env_extra = {"HERMES_CC_DB": str(db_path)}
+        curl_log = h.new_log("curl")
+        env_extra["CC_TEST_CURL_LOG"] = str(curl_log)
+        for k, v in env.items():
+            env_extra[k] = str(h.pr_required_gamma) if v == "GAMMA" else v
+        proc = h.run(["merge", job_id or MERGE_JOB, "--why", "test", "--confirm", "--json"],
+                      env_extra=env_extra)
+        text = proc.stdout + proc.stderr
+        # A refusal must also be inert: nothing un-drafted, nothing merged.
+        touched = [c for c in _curl_lines(curl_log)
+                   if "/graphql" in c["argv"][-1] or c["argv"][-1].endswith("/merge")]
+        ok = proc.returncode == want_rc and want_text in text and not touched
+        if ok:
+            passed += 1
+        else:
+            failures.append(f"merge refusal [{label}]: expected rc={want_rc} "
+                             f"containing {want_text!r} with no graphql/merge call, got "
+                             f"rc={proc.returncode} touched={touched!r} text={text[:300]!r}")
+
+    # (b) --why is mandatory: it is the audit record for landing code unattended.
+    total += 1
+    db_path = h.new_db()
+    _seed_pr_dispatch(h, db_path)
+    proc = h.run(["merge", MERGE_JOB, "--confirm", "--json"],
+                  env_extra={"HERMES_CC_DB": str(db_path)})
+    ok = proc.returncode == 64 and "--why" in (proc.stdout + proc.stderr)
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"merge without --why: expected exit 64, got "
+                         f"rc={proc.returncode} {proc.stdout[:200]!r}")
+
+    # (c) without --confirm it prints the plan, exits 0, and — the part that
+    #     matters — has NOT un-drafted the pull request. Un-drafting is the one
+    #     irreversible-looking step before the merge, so it must not happen as a
+    #     side effect of asking what would happen.
+    total += 1
+    db_path = h.new_db()
+    _seed_pr_dispatch(h, db_path)
+    curl_log = h.new_log("curl")
+    audit_log = h.new_log("audit-merge-plan")
+    proc = h.run(["merge", MERGE_JOB, "--why", "test", "--json"],
+                  env_extra={"HERMES_CC_DB": str(db_path),
+                             "CC_TEST_CURL_LOG": str(curl_log)},
+                  audit_log=audit_log)
+    try:
+        data = json.loads(proc.stdout.strip())
+    except json.JSONDecodeError:
+        data = {}
+    mutating = [c for c in _curl_lines(curl_log)
+                if "/graphql" in c["argv"][-1] or c["argv"][-1].endswith("/merge")]
+    lines = _log_text(audit_log).splitlines()
+    ok = (proc.returncode == 0 and data.get("dryRun") is True
+          and data.get("needsConfirm") is True
+          and data.get("mergeMethod") == "squash"
+          and not mutating and _merged_at(db_path) is None
+          and len(lines) == 1 and "mode=planned" in lines[0])
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"merge without --confirm: expected an inert plan at rc=0 "
+                         f"audited as planned, got rc={proc.returncode} "
+                         f"data={data!r} mutating={mutating!r} audit={lines!r}")
+
+    # (d) mergeable_state is checked AFTER the un-draft, so this case proves the
+    #     merge still does not happen once it is too late to refuse earlier.
+    total += 1
+    db_path = h.new_db()
+    _seed_pr_dispatch(h, db_path)
+    curl_log = h.new_log("curl")
+    proc = h.run(["merge", MERGE_JOB, "--why", "test", "--confirm", "--json"],
+                  env_extra={"HERMES_CC_DB": str(db_path),
+                             "CC_TEST_CURL_LOG": str(curl_log),
+                             "CC_TEST_PR_JSON": pr(mergeable_state="blocked")})
+    merged_calls = [c for c in _curl_lines(curl_log) if c["argv"][-1].endswith("/merge")]
+    text = proc.stdout + proc.stderr
+    ok = (proc.returncode == 4 and "blocked" in text and not merged_calls
+          and _merged_at(db_path) is None)
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"blocked mergeable_state: expected exit 4 with nothing "
+                         f"merged, got rc={proc.returncode} merged={merged_calls!r} "
+                         f"text={text[:300]!r}")
+
+    # (e) the happy path: ready-for-review, merge with the head SHA PINNED,
+    #     branch deleted, record stamped, audited as `merged` and not `opened`.
+    total += 1
+    db_path = h.new_db()
+    _seed_pr_dispatch(h, db_path)
+    curl_log = h.new_log("curl")
+    audit_log = h.new_log("audit-merge")
+    proc = h.run(["merge", MERGE_JOB, "--why", "landing the fix", "--confirm", "--json"],
+                  env_extra={"HERMES_CC_DB": str(db_path),
+                             "CC_TEST_CURL_LOG": str(curl_log)},
+                  audit_log=audit_log)
+    try:
+        data = json.loads(proc.stdout.strip())
+    except json.JSONDecodeError:
+        data = {}
+    calls = _curl_lines(curl_log)
+    put = [c for c in calls if c["argv"][-1].endswith("/merge")]
+    graphql = [c for c in calls if "/graphql" in c["argv"][-1]]
+    deleted = [c for c in calls if "/git/refs/heads/" in c["argv"][-1]]
+    body = json.loads(put[0]["stdin"]) if put and put[0]["stdin"] else {}
+    lines = _log_text(audit_log).splitlines()
+    ok = (proc.returncode == 0 and data.get("merged") is True
+          and data.get("mergeMethod") == "squash"
+          and data.get("mergeCommit") == "mergedsha001"
+          and data.get("branchDeleted") is True
+          and len(graphql) == 1 and len(put) == 1 and len(deleted) == 1
+          and body.get("sha") == "deadbeef" * 5
+          and body.get("merge_method") == "squash"
+          and _merged_at(db_path) is not None
+          and len(lines) == 1 and "mode=merged" in lines[0] and "rc=0" in lines[0])
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"merge happy path: expected a pinned-SHA squash merge "
+                         f"recorded and audited as merged, got rc={proc.returncode} "
+                         f"data={data!r} body={body!r} audit={lines!r}")
+
+    # (f) the credential never reaches argv. This machine runs triage that reads
+    #     `ps` output, so a token in the process table is a real leak path.
+    total += 1
+    flat = " ".join(" ".join(c["argv"]) for c in calls)
+    ok = "github_pat_" not in flat and "Authorization" not in flat
+    if ok:
+        passed += 1
+    else:
+        failures.append("the GitHub token or its header reached curl's argv")
+
+    # (g) merging twice is not a retry.
+    total += 1
+    proc = h.run(["merge", MERGE_JOB, "--why", "again", "--confirm", "--json"],
+                  env_extra={"HERMES_CC_DB": str(db_path)})
+    ok = proc.returncode == 4 and "already merged" in (proc.stdout + proc.stderr)
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"second merge of the same job: expected exit 4, got "
+                         f"rc={proc.returncode} {proc.stdout[:200]!r}")
+
+    # (h) the merge ceiling is its own, tighter than implement's, and its refusal
+    #     names the var that raises it.
+    total += 1
+    db_path = h.new_db()
+    _seed_pr_dispatch(h, db_path)
+    now = dt.datetime.now(dt.timezone.utc).isoformat()
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT INTO dispatches(job_id,tier,repo,brief,status,created_at,merged_at) "
+        "VALUES(?,?,?,?,?,?,?)",
+        ("already-merged-today", "implement", "gamma", "b", "done", now, now),
+    )
+    conn.commit()
+    conn.close()
+    curl_log = h.new_log("curl")
+    proc = h.run(["merge", MERGE_JOB, "--why", "over ceiling", "--confirm", "--json"],
+                  env_extra={"HERMES_CC_DB": str(db_path),
+                             "HERMES_CC_MERGE_BUDGET": "1",
+                             "CC_TEST_CURL_LOG": str(curl_log)})
+    text = proc.stdout + proc.stderr
+    ok = (proc.returncode == 4 and "HERMES_CC_MERGE_BUDGET" in text
+          and not [c for c in _curl_lines(curl_log) if c["argv"][-1].endswith("/merge")])
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"merge over its daily ceiling: expected exit 4 naming "
+                         f"HERMES_CC_MERGE_BUDGET, got rc={proc.returncode} "
+                         f"{text[:300]!r}")
+
+    return total, passed, failures
+
+
 def test_no_freeform_surface():
     failures = []
     src = CC_SCRIPT.read_text()
@@ -1235,7 +1840,8 @@ def main() -> int:
         groups = [
             ("1. closed verb set", test_closed_verb_set(h)),
             ("2. argument bounding", test_argument_bounding(h)),
-            ("3. repo allowlist", test_repo_allowlist(h)),
+            ("3. repo resolution", test_repo_resolution(h)),
+            ("3b. repo name confinement", test_repo_name_confinement(h)),
             ("4. tier gating", test_tier_gating(h)),
             ("5. brief is data", test_brief_is_data(h)),
             ("6. --json contract", test_json_contract(h)),
@@ -1246,6 +1852,7 @@ def main() -> int:
             ("11. no free-form surface", test_no_freeform_surface()),
             ("12. write-tier gate", test_write_tier_gate(h)),
             ("13. artifact plumbing", test_artifact_plumbing(h)),
+            ("14. merge verb", test_merge_verb(h)),
         ]
     finally:
         h.cleanup()

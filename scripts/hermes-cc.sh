@@ -11,9 +11,10 @@
 # understood what it was doing.
 #
 # The design rule to defend in review: NO VERB ACCEPTS A FILESYSTEM PATH, A
-# COMMAND, OR A URL. A dispatch names a REPO — a key in config/dispatch-repos.json
-# — and this script resolves the path. Absence from that file is a denial. One
-# free-form escape hatch and the whole exercise is theatre.
+# COMMAND, OR A URL. A dispatch names a REPO — a bare name, resolved by this
+# script under the single root in config/dispatch-repos.json, which also carries
+# the denials and the per-repo tier ceilings. One free-form escape hatch and the
+# whole exercise is theatre.
 #
 # THE BRIEF IS DATA, NEVER COMMAND. It arrives on stdin or via --brief-file, and
 # is never taken as an argv string. That is not fussiness: the brief is assembled
@@ -24,9 +25,9 @@
 # skill instructs Hermes to use a QUOTED heredoc (`<<'BRIEF'`) for the same reason
 # one level up.
 #
-# TIERS — the episode's permission profile, capped per-repo by the allowlist.
+# TIERS — the episode's permission profile, capped per-repo by the dispatch policy.
 #   investigate  read-only session, verdict only. Cannot lose anything, so it
-#                needs no approval theatre and is safe to allowlist outright.
+#                needs no approval theatre and is safe to permit outright.
 #   author       read-only session + a filed GitHub issue. Ungated: an issue is
 #                a note on a list, and a wrong one is closed in two seconds.
 #   implement    write session in an isolated worktree, branch + DRAFT PR.
@@ -64,7 +65,7 @@
 #
 # TESTS: tests/test_hermes_cc.py (run with
 # `~/.hermes/hermes-agent/venv/bin/python3 tests/test_hermes_cc.py`) covers the
-# properties above — the closed verb set, argument bounding, the repo allowlist,
+# properties above — the closed verb set, argument bounding, the repo policy,
 # tier gating, the brief-never-from-argv rule, the recursion guard, the daily
 # budget, the --json contract and the audit log — against a stubbed job server,
 # never a real one. Re-run it after any edit here.
@@ -108,6 +109,43 @@ MAX_DISPATCHES_PER_DAY="${HERMES_CC_DAILY_BUDGET:-20}"
 # Counting them against one shared budget would let a bad day of triage consume
 # the entire allowance for real changes, and vice versa.
 MAX_IMPLEMENT_PER_DAY="${HERMES_CC_IMPLEMENT_BUDGET:-5}"
+# How few slots left counts as "approaching a ceiling". Both ceilings report a
+# warning from here on, so the last slots are visible BEFORE one of them is the
+# one that refuses — a bound that is invisible until it fires reads as an
+# arbitrary breakage rather than as a budget, which is exactly how this behaved
+# when the counts were only computed inside the refusal path.
+BUDGET_WARN_REMAINING=3
+IMPLEMENT_WARN_REMAINING=1
+# Merges landed per UTC day, its own ceiling again and the tightest of the three.
+# A merge is the only act in this script that changes what runs — an issue is
+# closed in two seconds and a draft PR is a proposal, but a merged commit is on
+# master. Three is deliberately fewer than the five implement episodes that can
+# produce candidates: not everything that gets written should land.
+MAX_MERGES_PER_DAY="${HERMES_CC_MERGE_BUDGET:-3}"
+
+# --- github ------------------------------------------------------------------
+# The `merge` verb is the only one that talks to GitHub directly; every other
+# verb reaches it through the episode. The owner is a constant, not a parameter:
+# `root` holds only Johannes's own repos, so a PR URL naming any other owner is
+# a corrupted record, not a repo to merge into.
+GH_API="${HERMES_CC_GH_API:-https://api.github.com}"
+GH_OWNER=jkrumm
+GH_TOKEN_REF="op://mini/github/token"
+GH_TOKEN=""
+GH_STATUS=""
+GH_BODY=""
+MERGES_TODAY=-1
+# Repos that require a human PR review, read from the single source of truth the
+# branch-protection hook and `github-config.sh` already share. Deriving merge
+# eligibility from it rather than from a list here means there is nothing to
+# maintain: a repo that requires review can never be auto-merged, and a repo
+# added to that file stops being auto-mergeable in the same edit.
+PR_REQUIRED_JSON="${HERMES_CC_PR_REQUIRED_JSON:-$HOME/.claude/pr-required-repos.json}"
+# Re-checked at merge time against sideclaw's own episode ceilings. The episode
+# already refused anything bigger, so this catches only the case that matters:
+# something pushed to the branch between the PR opening and now.
+MAX_MERGE_FILES=40
+MAX_MERGE_LINES=2000
 
 # Brief size cap, matched to sideclaw's own input schema so a rejection happens
 # here with a clear message rather than as an opaque job failure two minutes later.
@@ -227,6 +265,14 @@ audit() {
   # `refused` is its own mode precisely because it is the interesting one: a
   # refusal that logged as `opened` would hide the guard doing its job.
   case "$VERB" in
+    merge)
+      # `merged` is its own mode and not folded into `opened`. Grepping this log
+      # for what actually landed on a default branch is the reason the log exists,
+      # and a merge that reads as "opened an episode" makes that ungreppable.
+      if [ "$DID_MUTATE" = 1 ]; then mode="merged"
+      elif [ "$DRY_RUN" = 1 ]; then mode="dry-run"
+      elif [ "$PLANNED" = 1 ]; then mode="planned"
+      else mode="refused"; fi ;;
     dispatch|cancel)
       if [ "$DID_MUTATE" = 1 ]; then mode="opened"
       elif [ "$DRY_RUN" = 1 ]; then mode="dry-run"
@@ -314,45 +360,130 @@ require_backend() {
   [ -x "$SECRETS_RUN" ] || precond_err "secrets-run not found at $SECRETS_RUN"
 }
 
-# --- repo allowlist ----------------------------------------------------------
+# --- repo resolution ---------------------------------------------------------
 
 # Set by resolve_repo. Never assembled from caller input.
 REPO_PATH=""
 REPO_MAX_TIER=""
 
-# Two gates, deliberately. The shape check rejects anything that could not be a
-# repo key before it is used as one; the allowlist lookup is what makes this
-# script incapable of naming a repo Johannes did not list. A path never crosses
-# the interface — the caller says `sideclaw`, this resolves `~/SourceRoot/sideclaw`.
+# The property that matters is unchanged: a path never crosses this interface. The caller
+# says `sideclaw`, this resolves `~/SourceRoot/sideclaw`. What changed (see the rationale
+# in dispatch-repos.json) is that the set of names is DISCOVERED under a single root
+# rather than enumerated, because an enumeration silently rots — it listed 22 repos while
+# 30 sat on disk, and a missing entry was indistinguishable from a deliberate denial.
+#
+# Composing a path from caller input is exactly the step the old map lookup did not take,
+# so the shape check carries the weight now and is deliberately stricter than "characters
+# that could appear in a repo name":
+#
+#   - The old class [A-Za-z0-9_.-] ADMITS "." and ".." — inert as a dict key, a traversal
+#     the moment it is joined onto a root. Both are rejected by name, as is any leading
+#     dot (there is no dispatchable repo called .git or .config, and every such name is
+#     either hidden state or an escape attempt).
+#   - No separator can survive the class, so the name is always a single segment.
+#   - And none of that is trusted on its own: the resolved checkout's parent must BE the
+#     resolved root, which is what stops a symlinked entry from pointing outside it.
 resolve_repo() {
   local name=$1 out
   case "$name" in
-    ''|*[!A-Za-z0-9_.-]*) usage_err "not a repo name: $name" ;;
+    ''|.|..|.*|*[!A-Za-z0-9_.-]*) usage_err "not a repo name: $name" ;;
   esac
-  [ -f "$REPOS_JSON" ] || precond_err "repo allowlist not found at $REPOS_JSON"
+  [ -f "$REPOS_JSON" ] || precond_err "dispatch policy not found at $REPOS_JSON"
   out=$(NAME="$name" REPOS_JSON="$REPOS_JSON" python3 -c '
 import json, os, sys
+
+VALID = ("investigate", "author", "implement")
+
 with open(os.environ["REPOS_JSON"]) as f:
-    repos = json.load(f).get("repos", {})
+    policy = json.load(f)
+
+root = os.path.realpath(os.path.expanduser(policy.get("root", "~/SourceRoot")))
+default_tier = policy.get("defaultTier", "investigate")
+deny = set(policy.get("deny", []))
+overrides = {}
+for tier, names in (policy.get("tiers") or {}).items():
+    # An unknown tier KEY must not be ignored. Ignoring it would silently drop every repo
+    # under it to defaultTier — which, with defaultTier=author, quietly PROMOTES the
+    # read-only floor repos. A typo here has to be loud.
+    if tier not in VALID:
+        sys.stderr.write("unknown tier %r in `tiers` (must be one of: %s)\n"
+                         % (tier, ", ".join(VALID)))
+        sys.exit(2)
+    for n in names:
+        overrides[n] = tier
+
+if default_tier not in VALID:
+    sys.stderr.write("unrecognized defaultTier %r (must be one of: %s)\n"
+                     % (default_tier, ", ".join(VALID)))
+    sys.exit(2)
+
+# deny and tiers disagreeing is a contradiction, not a precedence question. Picking a
+# winner would mean one of the two readings of this file is wrong and nobody is told.
+both = deny & set(overrides)
+if both:
+    sys.stderr.write("named in both `deny` and `tiers`: %s\n" % ", ".join(sorted(both)))
+    sys.exit(2)
+
+def discoverable():
+    try:
+        entries = os.listdir(root)
+    except OSError:
+        return []
+    out = []
+    for n in sorted(entries):
+        if n.startswith(".") or n in deny:
+            continue
+        p = os.path.join(root, n)
+        if os.path.isdir(p) and os.path.exists(os.path.join(p, ".git")):
+            out.append(n)
+    return out
+
 name = os.environ["NAME"]
-entry = repos.get(name)
-if not entry:
-    sys.stderr.write("allowed repos: " + ", ".join(sorted(repos)) + "\n")
-    sys.exit(1)
-print(os.path.expanduser(entry["path"]))
-print(entry.get("maxTier", "investigate"))
-') || usage_err "repo not in the allowlist: $name (see list above; absence is a denial, not an oversight)"
+
+if name in deny:
+    sys.stderr.write("denied by policy\n")
+    sys.exit(3)
+
+path = os.path.join(root, name)
+real = os.path.realpath(path)
+# Confinement, checked against the REAL path on both sides: the checkout must sit
+# directly in the root, not merely start with its prefix.
+if os.path.dirname(real) != root:
+    sys.stderr.write("resolves outside %s\n" % root)
+    sys.exit(3)
+
+# A name that is simply misspelled lands here, not on the denial branch — so this is the
+# one failure where listing what DOES resolve helps the caller fix itself. The denial
+# branch deliberately stays silent about the rest of the root.
+if not os.path.isdir(real) or not os.path.exists(os.path.join(real, ".git")):
+    sys.stderr.write("no git checkout at %s\ndispatchable: %s\n"
+                     % (path, ", ".join(discoverable())))
+    # A name someone deliberately wrote into `tiers` is expected to exist, so its absence
+    # is an infrastructure problem to report. Any other name is discovered, so its absence
+    # is a misspelling to retry. Same condition, two different things to do about it.
+    sys.exit(5 if name in overrides else 4)
+
+print(real)
+print(overrides.get(name, default_tier))
+') || {
+    local rc=$?
+    case "$rc" in
+      2) precond_err "dispatch policy at $REPOS_JSON is malformed (see above). Refusing rather than defaulting — a policy that does not parse must never read as a permissive one." ;;
+      3) usage_err "repo '$name' is not dispatchable: denied by policy, or it resolves outside the dispatch root. This is deliberate, not an oversight — do not offer to add it." ;;
+      4) usage_err "repo '$name' has no git checkout under the dispatch root (see the dispatchable list above)" ;;
+      5) precond_err "repo '$name' carries a tier in $REPOS_JSON but has no checkout under the dispatch root — the policy names a repo this machine does not have" ;;
+      *) precond_err "could not resolve repo '$name'" ;;
+    esac
+  }
   REPO_PATH=$(printf '%s' "$out" | sed -n 1p)
   REPO_MAX_TIER=$(printf '%s' "$out" | sed -n 2p)
   # The ceiling has to FAIL CLOSED on a malformed value. tier_rank maps anything it does
-  # not recognize to 99, which is above every real tier — so a typo in the allowlist
+  # not recognize to 99, which is above every real tier — so a typo in the policy
   # ("implment") would silently lift the cap entirely and hand a write episode to a repo
-  # meant to be read-only. That is the exact inversion of this file's "absence is a denial"
-  # rule, and it is invisible: the JSON parses, the repo resolves, the dispatch runs.
+  # meant to be read-only. The python above rejects an unknown tier key, but this stays:
+  # it is the check that holds if the two ever disagree about what a valid tier is.
   in_list "$REPO_MAX_TIER" "${VALID_TIERS[@]}" \
-    || precond_err "repo '$name' has an unrecognized maxTier '$REPO_MAX_TIER' in $REPOS_JSON (must be one of: ${VALID_TIERS[*]}). Refusing rather than defaulting — a malformed ceiling must never read as a permissive one."
-  [ -d "$REPO_PATH" ] || precond_err "allowlisted repo '$name' has no checkout at $REPO_PATH"
-  [ -e "$REPO_PATH/.git" ] || precond_err "allowlisted repo '$name' at $REPO_PATH is not a git repository"
+    || precond_err "repo '$name' resolved to an unrecognized tier '$REPO_MAX_TIER' via $REPOS_JSON (must be one of: ${VALID_TIERS[*]}). Refusing rather than defaulting — a malformed ceiling must never read as a permissive one."
 }
 
 # The requested tier must be (a) a real tier, (b) implemented, and (c) within the
@@ -369,7 +500,7 @@ resolve_tier() {
   rank_req=$(tier_rank "$requested")
   rank_max=$(tier_rank "$REPO_MAX_TIER")
   [ "$rank_req" -le "$rank_max" ] \
-    || policy_err "repo '$name' is capped at tier '$REPO_MAX_TIER' in the allowlist; '$requested' was requested"
+    || policy_err "repo '$name' is capped at tier '$REPO_MAX_TIER' by the dispatch policy; '$requested' was requested"
 }
 
 # Ranks are compared as `requested <= ceiling`. The unknown case returns 99 — deliberately
@@ -490,39 +621,104 @@ import json, os, sqlite3, sys
 conn = sqlite3.connect(os.environ['DB_PATH'])
 conn.row_factory = sqlite3.Row
 conn.executescript(os.environ['DB_SCHEMA'])
+# Additive, idempotent, and outside DB_SCHEMA on purpose: CREATE TABLE IF NOT
+# EXISTS is a no-op against the table that already exists on this machine, so a
+# column added to it there would never appear. Same shape as the events.dispatch_id
+# migration in watchdog-poll.py.
+if 'merged_at' not in {r[1] for r in conn.execute('PRAGMA table_info(dispatches)')}:
+    conn.execute('ALTER TABLE dispatches ADD COLUMN merged_at TEXT')
 $1
 conn.commit()
 conn.close()
 "
 }
 
-# Structural budget check. Counts today's rows rather than trusting a counter file:
-# the table is the record, and a count that can drift from it is not a budget.
-# Two ceilings, because the two kinds of episode are not the same kind of spend —
-# see MAX_IMPLEMENT_PER_DAY. Echoes the total used, which the emitters report.
-check_budget() {
-  local counts used used_tier
-  counts=$(R_TIER="$TIER" db_py '
+# The structural budget, in three deliberately separate pieces.
+#
+# `budget_counts` READS. It never refuses, and every verb that reports anything
+# calls it — including the ones that consume nothing. Counts come from the table
+# rather than a counter file: the table is the record, and a count that can drift
+# from it is not a budget. The implement count is read unconditionally, not only
+# when the current tier is `implement`, because a caller running a read-only
+# episode still needs to see how much of the write allowance is left before it
+# plans one.
+#
+# `check_budget` REFUSES, from counts already read. Both ceilings name the env
+# var that raises them in the refusal text: an escape hatch only discoverable by
+# reading this script is not an escape hatch.
+#
+# `budget_json` / `budget_text` RENDER. Every emitter reports the same object, so
+# the ceilings are visible on the way up rather than only at the moment one of
+# them says no.
+BUDGET_USED=-1
+BUDGET_IMPL=-1
+
+budget_counts() {
+  local counts
+  counts=$(db_py '
 import datetime as dt
 today = dt.datetime.now(dt.timezone.utc).date().isoformat()
 n = conn.execute("SELECT COUNT(*) FROM dispatches WHERE created_at >= ?", (today,)).fetchone()[0]
 t = conn.execute("SELECT COUNT(*) FROM dispatches WHERE created_at >= ? AND tier = ?",
-                 (today, os.environ["R_TIER"])).fetchone()[0]
+                 (today, "implement")).fetchone()[0]
 print(n)
 print(t)
 ') || precond_err "could not read the dispatch budget from $DB_PATH"
-  used=$(printf '%s' "$counts" | sed -n 1p)
-  used_tier=$(printf '%s' "$counts" | sed -n 2p)
-  case "$used$used_tier" in
+  BUDGET_USED=$(printf '%s' "$counts" | sed -n 1p)
+  BUDGET_IMPL=$(printf '%s' "$counts" | sed -n 2p)
+  case "$BUDGET_USED$BUDGET_IMPL" in
     ''|*[!0-9]*) precond_err "unexpected budget count from $DB_PATH: $counts" ;;
   esac
-  [ "$used" -lt "$MAX_DISPATCHES_PER_DAY" ] \
-    || policy_err "daily dispatch budget exhausted ($used/$MAX_DISPATCHES_PER_DAY opened today, UTC). This is a structural ceiling on unattended Max spend, not a rate limit — if it is hit legitimately, raise HERMES_CC_DAILY_BUDGET deliberately."
+}
+
+check_budget() {
+  [ "$BUDGET_USED" -ge 0 ] || budget_counts
+  [ "$BUDGET_USED" -lt "$MAX_DISPATCHES_PER_DAY" ] \
+    || policy_err "daily dispatch budget exhausted ($BUDGET_USED/$MAX_DISPATCHES_PER_DAY opened today, UTC — resets at 00:00 UTC). This is a structural ceiling on unattended Max spend, not a rate limit. To proceed now, raise it deliberately: HERMES_CC_DAILY_BUDGET=<n> hermes-cc.sh dispatch …"
   if [ "$TIER" = implement ]; then
-    [ "$used_tier" -lt "$MAX_IMPLEMENT_PER_DAY" ] \
-      || policy_err "daily implement budget exhausted ($used_tier/$MAX_IMPLEMENT_PER_DAY opened today, UTC). Implement episodes are the expensive tier and each one produces a PR a human has to read; raise HERMES_CC_IMPLEMENT_BUDGET deliberately if this is legitimate."
+    [ "$BUDGET_IMPL" -lt "$MAX_IMPLEMENT_PER_DAY" ] \
+      || policy_err "daily implement budget exhausted ($BUDGET_IMPL/$MAX_IMPLEMENT_PER_DAY opened today, UTC — resets at 00:00 UTC). Implement is the expensive tier and each episode produces a PR a human has to read, so it has its own ceiling; the shared budget still has $(( MAX_DISPATCHES_PER_DAY - BUDGET_USED )) slot(s) left for the read-only tiers, which is where triage should go. To proceed now, raise it deliberately: HERMES_CC_IMPLEMENT_BUDGET=<n> hermes-cc.sh dispatch …"
   fi
-  printf '%s' "$used"
+}
+
+# Rendered once per invocation and handed to the emitters as E_BUDGET, rather
+# than reassembled inside each python fragment. Prints nothing when the counts
+# were never read, and the emitters then omit the key entirely — a null `budget`
+# would read as "there is no budget", which is the opposite of true.
+budget_json() {
+  [ "$BUDGET_USED" -ge 0 ] || return 0
+  E_USED="$BUDGET_USED" E_IMPL="$BUDGET_IMPL" E_MAX="$MAX_DISPATCHES_PER_DAY" \
+  E_IMPLMAX="$MAX_IMPLEMENT_PER_DAY" E_WARN="$BUDGET_WARN_REMAINING" \
+  E_IWARN="$IMPLEMENT_WARN_REMAINING" python3 -c '
+import json, os
+used, impl = int(os.environ["E_USED"]), int(os.environ["E_IMPL"])
+mx, imx = int(os.environ["E_MAX"]), int(os.environ["E_IMPLMAX"])
+rem, irem = max(mx - used, 0), max(imx - impl, 0)
+out = {"usedToday": used, "max": mx, "remaining": rem,
+       "implementToday": impl, "implementMax": imx, "implementRemaining": irem}
+warn = []
+if rem <= int(os.environ["E_WARN"]):
+    warn.append(
+        f"{rem} of {mx} dispatches left today (UTC day, resets 00:00). "
+        + ("The next dispatch will be REFUSED. " if rem == 0 else "")
+        + "This is a spend ceiling, not a rate limit — raise it deliberately with "
+          "HERMES_CC_DAILY_BUDGET=<n> if it is wrong, do not retry into it.")
+if irem <= int(os.environ["E_IWARN"]):
+    warn.append(
+        f"{irem} of {imx} implement dispatches left today. "
+        + ("The next implement will be REFUSED (read-only tiers are unaffected). "
+           if irem == 0 else "")
+        + "Raise it deliberately with HERMES_CC_IMPLEMENT_BUDGET=<n> if it is wrong.")
+if warn:
+    out["warning"] = " ".join(warn)
+print(json.dumps(out))
+'
+}
+
+budget_text() {
+  [ "$BUDGET_USED" -ge 0 ] || return 0
+  printf 'budget: %s/%s dispatches today · implement %s/%s\n' \
+    "$BUDGET_USED" "$MAX_DISPATCHES_PER_DAY" "$BUDGET_IMPL" "$MAX_IMPLEMENT_PER_DAY"
 }
 
 record_dispatch() {
@@ -590,6 +786,66 @@ valid_job_id() {
   esac
 }
 
+# --- github transport --------------------------------------------------------
+
+# The token is read once per invocation and never reaches argv. `curl -H
+# "Authorization: Bearer $T"` would put it in the process table, and this machine
+# runs agents that read `ps` output as triage evidence — so the header goes in on
+# stdin as a curl config and the request body, when there is one, goes in as a
+# file.
+gh_token() {
+  [ -n "$GH_TOKEN" ] && return 0
+  GH_TOKEN=$(timeout 15 "$SECRETS_RUN" read "$GH_TOKEN_REF" 2>/dev/null) \
+    || precond_err "could not read $GH_TOKEN_REF through secrets-run — the merge needs a GitHub credential and this machine resolves it from the sealed cache"
+  [ -n "$GH_TOKEN" ] || precond_err "$GH_TOKEN_REF resolved empty. Re-seed the cache (make secrets-seed in dotfiles, biometric, MacBook-only)"
+}
+
+# One bounded REST call. The path is assembled only from values already validated
+# — the owner constant, the repo from the dispatch row, an integer PR number —
+# never from caller input.
+#
+# It sets GH_BODY and GH_STATUS rather than printing the body, and that is not a
+# style choice: `body=$(github_api …)` runs the function in a SUBSHELL, so the
+# status it recorded — and the token it cached — would be discarded at the closing
+# paren, leaving every caller checking a stale GH_STATUS from the previous call.
+# The status is half the answer here (404 on the pull request and 404 on the
+# branch delete are not the same severity), so it has to survive.
+github_api() {
+  local method=$1 path=$2 body_file="${3:-}" out
+  gh_token
+  local -a args=(-sS -w '\n%{http_code}' --connect-timeout 5 --max-time "$HTTP_TIMEOUT"
+                 -X "$method" -H "Accept: application/vnd.github+json"
+                 -H "X-GitHub-Api-Version: 2022-11-28")
+  if [ -n "$body_file" ]; then
+    args+=(-H "Content-Type: application/json" --data-binary "@$body_file")
+  fi
+  out=$(printf 'header = "Authorization: Bearer %s"\n' "$GH_TOKEN" \
+        | timeout "$HTTP_TIMEOUT" curl -K - "${args[@]}" "${GH_API}${path}") \
+    || remote_err "GitHub request failed: $method $path"
+  GH_STATUS="${out##*$'\n'}"
+  GH_BODY="${out%$'\n'"${GH_STATUS}"}"
+}
+
+# Pull one field out of a JSON response without letting a missing key look like a
+# value. Prints nothing and returns 1 when the path is absent, so `|| refuse` is
+# always available at the call site.
+json_field() {
+  RESP="$1" FIELD="$2" python3 -c '
+import json, os, sys
+try:
+    obj = json.loads(os.environ["RESP"])
+except ValueError:
+    sys.exit(1)
+for part in os.environ["FIELD"].split("."):
+    if not isinstance(obj, dict) or part not in obj:
+        sys.exit(1)
+    obj = obj[part]
+if obj is None:
+    sys.exit(1)
+print(obj if not isinstance(obj, bool) else str(obj).lower())
+'
+}
+
 # =============================================================================
 # VERBS
 # =============================================================================
@@ -624,16 +880,21 @@ cmd_dispatch() {
   # PLANNED is set ONLY for the gated case, so the audit line can tell "stopped to ask a
   # human" from "the caller asked for a rehearsal" — an explicit --dry-run on a gated tier
   # is still a rehearsal, and the audit `case` checks DRY_RUN first for exactly that reason.
+  # Counted before the plan branch precisely because a plan consumes nothing: the
+  # rehearsal is where a caller decides whether to spend a slot, so it is the one
+  # place the standing counts matter most. Reading them never refuses.
+  budget_counts
+
   if awaiting_confirm; then PLANNED=1; fi
   if [ "$DRY_RUN" = 1 ] || [ "$PLANNED" = 1 ]; then
     emit_plan "$name"
     return 0
   fi
 
-  # Budget is checked after validation so a refused invocation does not consume a
-  # slot, and before submission so an over-budget one never opens a session.
-  local used
-  used=$(check_budget)
+  # The refusal is checked after validation so a refused invocation does not
+  # consume a slot, and before submission so an over-budget one never opens a
+  # session.
+  check_budget
 
   local resp job_id
   resp=$(sideclaw_submit)
@@ -646,12 +907,17 @@ print(json.load(sys.stdin)["job"]["id"])
   DID_MUTATE=1
   AUDIT_TARGET="${name}:${TIER}:${job_id}"
 
+  # The row is in the table now, so the counts the emitters report must include
+  # this dispatch — otherwise the number a caller sees is always one behind the
+  # one the next refusal will use.
+  budget_counts
+
   if [ "$WAIT" = 1 ]; then
-    wait_for "$job_id" "$name" "$used"
+    wait_for "$job_id" "$name"
     return $?
   fi
 
-  emit_submitted "$job_id" "$name" "$used"
+  emit_submitted "$job_id" "$name"
 }
 
 # In-turn polling for the short tiers: an investigate episode is 30s-3min, which
@@ -660,7 +926,7 @@ print(json.load(sys.stdin)["job"]["id"])
 # — the dispatch record is already written, so the sweeper owns delivery from
 # there and nothing is lost by not waiting longer.
 wait_for() {
-  local job_id=$1 name=$2 used=$3 elapsed=0 resp status
+  local job_id=$1 name=$2 elapsed=0 resp status
   while :; do
     resp=$(sideclaw_get "$job_id")
     status=$(printf '%s' "$resp" | python3 -c '
@@ -681,7 +947,7 @@ print(json.load(sys.stdin)["job"]["status"])
   # minutes later. A --wait that TIMED OUT deliberately does not reach this line —
   # there the sweeper genuinely does still owe the message.
   sync_record "$job_id" "$resp" reported
-  emit_result "$job_id" "$name" "$resp" "$used"
+  emit_result "$job_id" "$name" "$resp"
 }
 
 # Fold a terminal job's outcome back into its dispatch row. The second argument
@@ -725,7 +991,10 @@ cmd_status() {
   case "$(printf '%s' "$resp" | python3 -c 'import json,sys; print(json.load(sys.stdin)["job"]["status"])')" in
     done|failed|interrupted) sync_record "$job_id" "$resp" ;;
   esac
-  emit_result "$job_id" "-" "$resp" "-"
+  # A poll is where an agent decides whether to open the next episode, so it
+  # reports the same standing counts a dispatch does.
+  budget_counts
+  emit_result "$job_id" "-" "$resp"
 }
 
 cmd_list() {
@@ -754,6 +1023,7 @@ for r in rows:
     out.append(d)
 print(json.dumps(out))
 ') || precond_err "could not read dispatches from $DB_PATH"
+  budget_counts
   emit_list "$scope" "$rows"
 }
 
@@ -794,6 +1064,325 @@ print(cur.rowcount)
 }
 
 # =============================================================================
+# MERGE
+# =============================================================================
+#
+# The only verb that changes what RUNS. Everything else in this script produces a
+# proposal — an issue, a branch, a draft PR — that a human reads before it means
+# anything. This one lands a commit on a default branch with no human in the loop,
+# by owner decision (2026-08-02), and it inverts a design statement sideclaw's
+# `openPullRequest` makes in a comment: "un-drafting is not something the episode
+# can do for itself". It is now something a bounded verb can do for it. So the
+# bounds have to carry the weight the human used to:
+#
+#   - It merges only a PR THIS BRIDGE OPENED. The argument is a job id, not a PR
+#     number and not a URL: the PR is looked up from the dispatch row, so there is
+#     no shape of caller input that names an arbitrary pull request. That is the
+#     same property the repo argument has, for the same reason.
+#   - It never merges where a human review is required. Eligibility is derived
+#     from `pr-required-repos.json`, the file the branch-protection hook and
+#     `github-config.sh` already share — not from a list kept here that would
+#     drift out of agreement with them.
+#   - Every bound the episode was held to is re-checked against the CURRENT head:
+#     the base is the default branch, the head is a `dispatch/…` branch in this
+#     same repo (never a fork), no `.github/workflows|actions` path is touched,
+#     the size ceilings still hold. The merge itself pins that head SHA, so a push
+#     landing between inspection and merge fails the merge rather than riding it.
+#   - `mergeable_state` must be exactly `clean`. `blocked` (a required review or
+#     check is missing) and `unstable` (something is failing) are refusals, not
+#     judgement calls.
+#
+# What it deliberately does NOT do: merge anything it did not open, force-push,
+# retarget a base, override a protection rule, or merge a PR a human has pushed
+# to. On each of those it stops and says which one.
+
+# Terminal-ish states this verb refuses to look at. Kept as data so the refusal
+# can name the actual state rather than "not mergeable".
+merge_precheck_repo() {
+  local repo=$1 verdict
+  [ -f "$PR_REQUIRED_JSON" ] \
+    || precond_err "cannot verify merge eligibility: $PR_REQUIRED_JSON is missing. That file decides which repos require a human review, so an unreadable one is a refusal, never an assumption."
+  verdict=$(R_REPO="$repo" python3 - "$PR_REQUIRED_JSON" <<'PY'
+import json, os, sys
+try:
+    with open(sys.argv[1]) as fh:
+        data = json.load(fh)
+except (OSError, ValueError) as exc:
+    print("ERR " + str(exc))
+    raise SystemExit(0)
+repos = data.get("repos")
+if not isinstance(repos, list) or not all(isinstance(r, str) for r in repos):
+    print("ERR `repos` is not a list of strings")
+    raise SystemExit(0)
+print("YES" if os.environ["R_REPO"] in repos else "NO")
+PY
+) || precond_err "could not read $PR_REQUIRED_JSON"
+  case "$verdict" in
+    NO)  : ;;
+    YES) policy_err "$repo requires a human pull-request review (it is listed in $PR_REQUIRED_JSON, the same file the branch-protection hook enforces). This verb will not merge there — say the PR is ready and let Johannes merge it." ;;
+    *)   precond_err "could not read merge eligibility from $PR_REQUIRED_JSON: ${verdict#ERR }" ;;
+  esac
+}
+
+# Split for the same reason the dispatch budget is: the count is read on every
+# path that reports, the refusal happens once. After a merge lands, the emitter
+# needs the new count — and calling the refusing half there would refuse on the
+# merge that just succeeded.
+merge_count() {
+  local used
+  used=$(db_py '
+import datetime as dt
+today = dt.datetime.now(dt.timezone.utc).date().isoformat()
+print(conn.execute("SELECT COUNT(*) FROM dispatches WHERE merged_at >= ?", (today,)).fetchone()[0])
+') || precond_err "could not read the merge budget from $DB_PATH"
+  case "$used" in ''|*[!0-9]*) precond_err "unexpected merge count from $DB_PATH: $used" ;; esac
+  MERGES_TODAY="$used"
+}
+
+check_merge_budget() {
+  merge_count
+  local used="$MERGES_TODAY"
+  [ "$used" -lt "$MAX_MERGES_PER_DAY" ] \
+    || policy_err "daily merge budget exhausted ($used/$MAX_MERGES_PER_DAY landed today, UTC — resets at 00:00 UTC). This is the tightest ceiling in the script because a merge is the only act here that changes what runs. To proceed now, raise it deliberately: HERMES_CC_MERGE_BUDGET=<n> hermes-cc.sh merge …"
+}
+
+cmd_merge() {
+  local job_id="${1:-}"
+  [ -n "$job_id" ] || usage_err "usage: hermes-cc.sh merge <job-id> --why \"<reason>\" --confirm [--json]"
+  require_no_recursion
+  require_backend
+  need python3
+  need curl
+  need timeout
+  valid_job_id "$job_id"
+  [ -n "$WHY" ] || usage_err "merge requires --why \"<reason>\". It is the audit record of why an unattended episode was allowed to land code on a default branch. There is no default."
+  AUDIT_TARGET="$job_id"
+
+  # --- the record decides which PR, and whether there is one -----------------
+  local row tier repo artifact status
+  # NULLs are normalized in python, not with COALESCE: a SQL string literal needs
+  # single quotes, and this block is expanded inside db_py's double-quoted python
+  # source, where escaping them is a trap with no upside.
+  row=$(JOB_ID="$job_id" db_py '
+r = conn.execute("SELECT tier, repo, status, artifact_url, merged_at "
+                 "FROM dispatches WHERE job_id=?", (os.environ["JOB_ID"],)).fetchone()
+if r is None:
+    print("MISSING")
+else:
+    print("\n".join("" if x is None else str(x) for x in r))
+') || precond_err "could not read the dispatch record for $job_id"
+  [ "$row" != "MISSING" ] || precond_err "no dispatch recorded with job id $job_id. This verb merges only a pull request this bridge opened, so a job it has no record of is not mergeable by it."
+  tier=$(printf '%s' "$row" | sed -n 1p)
+  repo=$(printf '%s' "$row" | sed -n 2p)
+  status=$(printf '%s' "$row" | sed -n 3p)
+  artifact=$(printf '%s' "$row" | sed -n 4p)
+  local already; already=$(printf '%s' "$row" | sed -n 5p)
+  TIER="$tier"
+
+  [ -z "$already" ] || policy_err "dispatch $job_id was already merged at $already. Re-merging is not a retry — if something is wrong with what landed, that is a new change, not a second merge."
+  [ "$tier" = implement ] \
+    || policy_err "dispatch $job_id ran at tier '$tier', which produces no pull request. Only an implement episode can be merged."
+  [ "$status" = "done" ] \
+    || policy_err "dispatch $job_id finished as '$status', not 'done'. A merge follows a successful episode, never a failed or still-running one."
+  [ -n "$artifact" ] \
+    || policy_err "dispatch $job_id recorded no artifact URL — the episode pushed a branch but never opened a pull request (its verdict says why). There is nothing to merge; open the PR by hand if the branch is worth keeping."
+
+  # The URL is parsed, never trusted. Owner is pinned to the constant, and the
+  # repo segment must agree with the repo the row says was dispatched — a record
+  # whose two halves disagree is corrupt, and corrupt is a refusal.
+  local url_re='^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/pull/([0-9]+)$'
+  [[ "$artifact" =~ $url_re ]] \
+    || policy_err "dispatch $job_id recorded an artifact that is not a pull request URL: $artifact"
+  local owner="${BASH_REMATCH[1]}" url_repo="${BASH_REMATCH[2]}" pr="${BASH_REMATCH[3]}"
+  [ "$owner" = "$GH_OWNER" ] \
+    || policy_err "the recorded pull request belongs to '$owner', not $GH_OWNER. This bridge dispatches only into Johannes's own repos; a foreign owner means a corrupted record."
+  [ "$url_repo" = "$repo" ] \
+    || policy_err "the dispatch record disagrees with itself: repo '$repo' but a pull request in '$url_repo'."
+
+  # --- the policy still has to allow it, now ---------------------------------
+  # Re-resolved rather than trusted from the row: the policy may have changed
+  # since the episode ran, and the answer that matters is today's.
+  resolve_repo "$repo"
+  [ "$(tier_rank "$REPO_MAX_TIER")" -ge "$(tier_rank implement)" ] \
+    || policy_err "$repo's ceiling is now '$REPO_MAX_TIER', below the implement tier that produced this pull request. The policy changed after the episode ran; that is a refusal, not a stale record."
+  merge_precheck_repo "$repo"
+  check_merge_budget
+
+  # --- the pull request has to still be what was inspected -------------------
+  local pr_json repo_json files_json
+  github_api GET "/repos/$owner/$repo/pulls/$pr"
+  [ "$GH_STATUS" = "200" ] \
+    || remote_err "GitHub returned HTTP $GH_STATUS for $owner/$repo#$pr — the recorded pull request could not be read"
+  pr_json="$GH_BODY"
+  github_api GET "/repos/$owner/$repo"
+  [ "$GH_STATUS" = "200" ] || remote_err "GitHub returned HTTP $GH_STATUS reading $owner/$repo"
+  repo_json="$GH_BODY"
+
+  local pr_state pr_merged pr_base pr_head pr_head_sha pr_head_repo pr_files pr_add pr_del pr_title default_branch
+  pr_state=$(json_field "$pr_json" state) || remote_err "pull request response has no state"
+  pr_merged=$(json_field "$pr_json" merged) || pr_merged=false
+  pr_base=$(json_field "$pr_json" base.ref) || remote_err "pull request response has no base ref"
+  pr_head=$(json_field "$pr_json" head.ref) || remote_err "pull request response has no head ref"
+  pr_head_sha=$(json_field "$pr_json" head.sha) || remote_err "pull request response has no head sha"
+  pr_head_repo=$(json_field "$pr_json" head.repo.full_name) || pr_head_repo=""
+  pr_files=$(json_field "$pr_json" changed_files) || pr_files=0
+  pr_add=$(json_field "$pr_json" additions) || pr_add=0
+  pr_del=$(json_field "$pr_json" deletions) || pr_del=0
+  pr_title=$(json_field "$pr_json" title) || pr_title="(untitled)"
+  default_branch=$(json_field "$repo_json" default_branch) || remote_err "could not read $repo's default branch"
+
+  [ "$pr_merged" != true ] || policy_err "$owner/$repo#$pr is already merged."
+  [ "$pr_state" = open ] || policy_err "$owner/$repo#$pr is '$pr_state', not open."
+  [ "$pr_base" = "$default_branch" ] \
+    || policy_err "$owner/$repo#$pr targets '$pr_base', not the default branch '$default_branch'. A dispatch PR that has been retargeted is not the thing that was inspected."
+  case "$pr_head" in
+    dispatch/*) : ;;
+    *) policy_err "$owner/$repo#$pr merges '$pr_head', which is not a dispatch/… branch. This verb merges only branches this bridge cut." ;;
+  esac
+  [ "$pr_head_repo" = "$owner/$repo" ] \
+    || policy_err "$owner/$repo#$pr is from '$pr_head_repo', a fork. A fork branch was never inspected by the episode and is never merged here."
+
+  local lines=$(( pr_add + pr_del ))
+  [ "$pr_files" -le "$MAX_MERGE_FILES" ] \
+    || policy_err "$owner/$repo#$pr touches $pr_files files, over the $MAX_MERGE_FILES-file ceiling. The episode was held to that ceiling, so something has been pushed to the branch since."
+  [ "$lines" -le "$MAX_MERGE_LINES" ] \
+    || policy_err "$owner/$repo#$pr is $lines changed lines, over the $MAX_MERGE_LINES-line ceiling. The episode was held to that ceiling, so something has been pushed to the branch since."
+
+  github_api GET "/repos/$owner/$repo/pulls/$pr/files?per_page=100"
+  [ "$GH_STATUS" = "200" ] || remote_err "GitHub returned HTTP $GH_STATUS listing files on $owner/$repo#$pr"
+  files_json="$GH_BODY"
+  local forbidden
+  forbidden=$(RESP="$files_json" python3 -c '
+import json, os, re
+bad = [f["filename"] for f in json.loads(os.environ["RESP"])
+       if re.match(r"^\.github/(workflows|actions)/", f.get("filename", ""))]
+print(",".join(bad))
+') || remote_err "could not read the file list for $owner/$repo#$pr"
+  [ -z "$forbidden" ] \
+    || policy_err "$owner/$repo#$pr touches CI definitions ($forbidden). A dispatch may never change what runs in CI, and merging one that does would launder exactly that."
+
+  local method
+  method=$(pick_merge_method "$repo_json") \
+    || policy_err "$owner/$repo allows no merge method this verb can use (squash, rebase, merge commit all disabled)."
+
+  # --- the gate --------------------------------------------------------------
+  if [ "$CONFIRM" != 1 ]; then PLANNED=1; fi
+  if [ "$DRY_RUN" = 1 ] || [ "$CONFIRM" != 1 ]; then
+    emit_merge_plan "$owner/$repo" "$pr" "$pr_title" "$pr_head" "$pr_base" "$method" "$pr_files" "$lines"
+    return 0
+  fi
+
+  # --- land it ---------------------------------------------------------------
+  # Ready-for-review first: a draft cannot be merged, and this is the step that
+  # used to be the human's click. It is done AFTER every check above, so a PR
+  # that fails one is never un-drafted as a side effect of being refused.
+  local node_id
+  node_id=$(json_field "$pr_json" node_id) || remote_err "pull request response has no node id"
+  mark_ready_for_review "$node_id"
+
+  # mergeable is computed asynchronously and is null right after a mutation, so a
+  # single read would be a coin flip. Re-read until GitHub has an answer.
+  local tries=0 mergeable state_now
+  while :; do
+    github_api GET "/repos/$owner/$repo/pulls/$pr"
+    [ "$GH_STATUS" = "200" ] || remote_err "GitHub returned HTTP $GH_STATUS re-reading $owner/$repo#$pr"
+    pr_json="$GH_BODY"
+    mergeable=$(json_field "$pr_json" mergeable) || mergeable=""
+    state_now=$(json_field "$pr_json" mergeable_state) || state_now=""
+    [ -n "$mergeable" ] && [ "$state_now" != unknown ] && break
+    tries=$(( tries + 1 ))
+    [ "$tries" -lt 5 ] || remote_err "GitHub never finished computing mergeability for $owner/$repo#$pr. Nothing was merged; the pull request is now marked ready for review."
+    sleep 2
+  done
+  [ "$mergeable" = true ] \
+    || policy_err "$owner/$repo#$pr is not mergeable (state: $state_now) — usually a conflict with $default_branch. Nothing was merged."
+  [ "$state_now" = clean ] \
+    || policy_err "$owner/$repo#$pr is '$state_now', not 'clean'. 'blocked' means a required review or status check is missing; 'unstable' means something is failing; 'behind' means the branch needs updating. Each of those is a human's call, not this verb's. Nothing was merged."
+
+  local body_file merge_resp
+  body_file=$(mktemp "${TMPDIR:-/tmp}/hermes-cc-merge.XXXXXX") \
+    || precond_err "could not create a temp file for the merge request"
+  # The head SHA is pinned: every check above was made against it, so a push that
+  # lands between the inspection and this call must fail the merge, not ride it.
+  M_SHA="$pr_head_sha" M_METHOD="$method" python3 -c '
+import json, os
+print(json.dumps({"sha": os.environ["M_SHA"], "merge_method": os.environ["M_METHOD"]}))
+' > "$body_file" || { rm -f "$body_file"; precond_err "could not build the merge request body"; }
+  github_api PUT "/repos/$owner/$repo/pulls/$pr/merge" "$body_file"
+  rm -f "$body_file"
+  merge_resp="$GH_BODY"
+  case "$GH_STATUS" in
+    200) : ;;
+    409) policy_err "GitHub refused the merge (409): the head moved since it was inspected, or the branch is not in a mergeable state. Nothing was merged. Re-run to inspect the new head." ;;
+    405) policy_err "GitHub refused the merge (405): the pull request is not mergeable under this repo's rules. Nothing was merged." ;;
+    *)   remote_err "GitHub returned HTTP $GH_STATUS merging $owner/$repo#$pr: $(printf '%s' "$merge_resp" | head -c 300)" ;;
+  esac
+  DID_MUTATE=1
+
+  local merge_sha; merge_sha=$(json_field "$merge_resp" sha) || merge_sha=""
+
+  # The record is stamped before the branch delete, which is cleanup and is
+  # allowed to fail: a merged commit with a leftover branch is untidy, a merge
+  # this table does not know about is a second merge waiting to happen.
+  JOB_ID="$job_id" db_py '
+import datetime as dt
+conn.execute("UPDATE dispatches SET merged_at=? WHERE job_id=?",
+             (dt.datetime.now(dt.timezone.utc).isoformat(), os.environ["JOB_ID"]))
+' || precond_err "MERGED $owner/$repo#$pr but could not stamp the dispatch record — fix $DB_PATH before merging again, or the ceiling will not count this one"
+
+  # Cleanup, and allowed to fail: 422 is "already gone" (the repo deletes on
+  # merge), anything else leaves an orphan branch, which is untidy and nothing
+  # more. The merge is already recorded.
+  local deleted=false
+  github_api DELETE "/repos/$owner/$repo/git/refs/heads/$pr_head"
+  case "$GH_STATUS" in 204|422) deleted=true ;; esac
+
+  merge_count
+  emit_merged "$owner/$repo" "$pr" "$pr_title" "$method" "$merge_sha" "$pr_head" "$deleted"
+}
+
+# Squash first: a dispatch branch is one unit of work by construction, and a
+# squashed commit is what its history should read as. Rebase next, merge commit
+# last — a merge commit on a linear-history repo is refused by GitHub anyway.
+pick_merge_method() {
+  local repo_json=$1 m
+  for m in squash rebase merge; do
+    case "$m" in
+      squash) json_field "$repo_json" allow_squash_merge | grep -qx true && { printf squash; return 0; } ;;
+      rebase) json_field "$repo_json" allow_rebase_merge | grep -qx true && { printf rebase; return 0; } ;;
+      merge)  json_field "$repo_json" allow_merge_commit | grep -qx true && { printf merge;  return 0; } ;;
+    esac
+  done
+  return 1
+}
+
+# Un-drafting is GraphQL-only — REST has no ready-for-review transition.
+mark_ready_for_review() {
+  local node_id=$1 body_file resp
+  body_file=$(mktemp "${TMPDIR:-/tmp}/hermes-cc-ready.XXXXXX") \
+    || precond_err "could not create a temp file for the ready-for-review request"
+  M_NODE="$node_id" python3 -c '
+import json, os
+print(json.dumps({
+    "query": "mutation($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id})"
+             "{pullRequest{isDraft}}}",
+    "variables": {"id": os.environ["M_NODE"]},
+}))
+' > "$body_file" || { rm -f "$body_file"; precond_err "could not build the ready-for-review request"; }
+  github_api POST "/graphql" "$body_file"
+  rm -f "$body_file"
+  resp="$GH_BODY"
+  [ "$GH_STATUS" = "200" ] \
+    || remote_err "GitHub returned HTTP $GH_STATUS marking the pull request ready for review. Nothing was merged."
+  # GraphQL reports errors inside a 200, so the status alone proves nothing.
+  printf '%s' "$resp" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+sys.exit(1 if d.get("errors") else 0)
+' || remote_err "GitHub rejected the ready-for-review mutation: $(printf '%s' "$resp" | head -c 300). Nothing was merged."
+}
+
+# =============================================================================
 # OUTPUT
 # =============================================================================
 #
@@ -802,31 +1391,35 @@ print(cur.rowcount)
 # appending a second object.
 
 emit_submitted() {
-  local job_id=$1 name=$2 used=$3
+  local job_id=$1 name=$2
   if [ "$JSON" = 1 ]; then
     JSON_EMITTED=1
-    E_JOB="$job_id" E_REPO="$name" E_TIER="$TIER" E_USED="$used" E_MAX="$MAX_DISPATCHES_PER_DAY" \
+    E_JOB="$job_id" E_REPO="$name" E_TIER="$TIER" E_BUDGET="$(budget_json)" \
     python3 -c '
 import json, os
-print(json.dumps({"verb": "dispatch", "ok": True, "jobId": os.environ["E_JOB"],
-                  "repo": os.environ["E_REPO"], "tier": os.environ["E_TIER"],
-                  "status": "queued", "waited": False,
-                  "budget": {"usedToday": int(os.environ["E_USED"]), "max": int(os.environ["E_MAX"])},
-                  "note": "Episode opened. It is NOT finished — poll with `hermes-cc.sh status "
-                          + os.environ["E_JOB"] + "`, or let the 5-minute sweeper deliver the "
-                          "verdict into the origin thread."}, indent=2))
+out = {"verb": "dispatch", "ok": True, "jobId": os.environ["E_JOB"],
+       "repo": os.environ["E_REPO"], "tier": os.environ["E_TIER"],
+       "status": "queued", "waited": False,
+       "note": "Episode opened. It is NOT finished — poll with `hermes-cc.sh status "
+               + os.environ["E_JOB"] + "`, or let the 5-minute sweeper deliver the "
+               "verdict into the origin thread."}
+if os.environ.get("E_BUDGET"):
+    out["budget"] = json.loads(os.environ["E_BUDGET"])
+print(json.dumps(out, indent=2))
 '
   else
     printf 'dispatch opened: %s (%s, tier %s)\n' "$job_id" "$name" "$TIER"
     printf 'not finished — poll: hermes-cc.sh status %s\n' "$job_id"
+    budget_text
   fi
 }
 
 emit_result() {
-  local job_id=$1 name=$2 resp=$3 used=$4
+  local job_id=$1 name=$2 resp=$3
   if [ "$JSON" = 1 ]; then
     JSON_EMITTED=1
-    E_JOB="$job_id" E_REPO="$name" E_TIER="${TIER:--}" RESP="$resp" python3 -c '
+    E_JOB="$job_id" E_REPO="$name" E_TIER="${TIER:--}" RESP="$resp" \
+    E_BUDGET="$(budget_json)" python3 -c '
 import json, os
 job = json.loads(os.environ["RESP"])["job"]
 result = job.get("result")
@@ -834,12 +1427,15 @@ r = result if isinstance(result, dict) else {}
 # artifactUrl and branch are hoisted to the top level rather than left nested in
 # the verdict. They are the only fields a caller ACTS on, and an agent reading
 # this should not have to know the verdict object is where a PR link hides.
-print(json.dumps({"verb": "dispatch", "ok": job["status"] == "done",
-                  "jobId": os.environ["E_JOB"], "repo": os.environ["E_REPO"],
-                  "tier": os.environ["E_TIER"], "status": job["status"],
-                  "waited": True, "elapsedMs": job.get("elapsedMs"),
-                  "artifactUrl": r.get("artifactUrl"), "branch": r.get("branch"),
-                  "verdict": result, "error": job.get("error")}, indent=2))
+out = {"verb": "dispatch", "ok": job["status"] == "done",
+       "jobId": os.environ["E_JOB"], "repo": os.environ["E_REPO"],
+       "tier": os.environ["E_TIER"], "status": job["status"],
+       "waited": True, "elapsedMs": job.get("elapsedMs"),
+       "artifactUrl": r.get("artifactUrl"), "branch": r.get("branch"),
+       "verdict": result, "error": job.get("error")}
+if os.environ.get("E_BUDGET"):
+    out["budget"] = json.loads(os.environ["E_BUDGET"])
+print(json.dumps(out, indent=2))
 '
   else
     RESP="$resp" python3 -c '
@@ -861,6 +1457,7 @@ if r:
 elif job.get("error"):
     print("error: " + str(job["error"]))
 '
+    budget_text
   fi
 }
 
@@ -868,18 +1465,23 @@ emit_timeout() {
   local job_id=$1 name=$2 elapsed=$3
   if [ "$JSON" = 1 ]; then
     JSON_EMITTED=1
-    E_JOB="$job_id" E_REPO="$name" E_TIER="$TIER" E_EL="$elapsed" python3 -c '
+    E_JOB="$job_id" E_REPO="$name" E_TIER="$TIER" E_EL="$elapsed" \
+    E_BUDGET="$(budget_json)" python3 -c '
 import json, os
-print(json.dumps({"verb": "dispatch", "ok": True, "jobId": os.environ["E_JOB"],
-                  "repo": os.environ["E_REPO"], "tier": os.environ["E_TIER"],
-                  "status": "running", "waited": True,
-                  "waitedSeconds": int(os.environ["E_EL"]),
-                  "note": "Still running after the in-turn wait. The dispatch record is "
-                          "written, so the sweeper will deliver the verdict into the origin "
-                          "thread — say so and move on rather than waiting again."}, indent=2))
+out = {"verb": "dispatch", "ok": True, "jobId": os.environ["E_JOB"],
+       "repo": os.environ["E_REPO"], "tier": os.environ["E_TIER"],
+       "status": "running", "waited": True,
+       "waitedSeconds": int(os.environ["E_EL"]),
+       "note": "Still running after the in-turn wait. The dispatch record is "
+               "written, so the sweeper will deliver the verdict into the origin "
+               "thread — say so and move on rather than waiting again."}
+if os.environ.get("E_BUDGET"):
+    out["budget"] = json.loads(os.environ["E_BUDGET"])
+print(json.dumps(out, indent=2))
 '
   else
     printf 'still running after %ss — the sweeper will deliver it (job %s)\n' "$elapsed" "$job_id"
+    budget_text
   fi
 }
 
@@ -895,7 +1497,7 @@ emit_plan() {
   if [ "$JSON" = 1 ]; then
     JSON_EMITTED=1
     E_REPO="$name" E_TIER="$TIER" E_PATH="$REPO_PATH" E_BRIEF="$BRIEF" E_WHY="$WHY" \
-    E_NEEDS="$needs_confirm" E_MAXTIER="$REPO_MAX_TIER" python3 -c '
+    E_NEEDS="$needs_confirm" E_MAXTIER="$REPO_MAX_TIER" E_BUDGET="$(budget_json)" python3 -c '
 import json, os
 tier = os.environ["E_TIER"]
 needs = os.environ["E_NEEDS"] == "1"
@@ -918,6 +1520,11 @@ out = {"verb": "dispatch", "ok": True, "dryRun": True, "needsConfirm": needs,
        "briefChars": len(os.environ["E_BRIEF"]), "why": os.environ["E_WHY"] or None,
        "wouldDo": effects, "wouldNeverDo": never,
        "note": "nothing ran — no episode was opened and no budget was consumed"}
+# The standing counts, reported on the one path that spends nothing. A rehearsal
+# is where the decision to spend a slot is actually made, so it is where the
+# remaining slots have to be legible.
+if os.environ.get("E_BUDGET"):
+    out["budget"] = json.loads(os.environ["E_BUDGET"])
 if needs:
     out["note"] += (". This tier is GATED: re-invoke with --confirm ONLY after Johannes has "
                     "seen this plan and said yes. Passing --confirm on your own judgement "
@@ -930,6 +1537,7 @@ print(json.dumps(out, indent=2))
     printf '  tier:  %s (repo ceiling: %s)\n' "$TIER" "$REPO_MAX_TIER"
     printf '  brief: %s chars\n' "${#BRIEF}"
     [ -n "$WHY" ] && printf '  why:   %s\n' "$WHY"
+    budget_text
     if [ "$TIER" = implement ]; then
       printf '  would: isolated worktree -> dispatch/… branch -> draft PR\n'
       printf '  never: merge · push to a default branch · touch CI workflows\n'
@@ -946,11 +1554,14 @@ emit_list() {
   local scope=$1 rows=$2
   if [ "$JSON" = 1 ]; then
     JSON_EMITTED=1
-    E_SCOPE="$scope" ROWS="$rows" python3 -c '
+    E_SCOPE="$scope" ROWS="$rows" E_BUDGET="$(budget_json)" python3 -c '
 import json, os
 rows = json.loads(os.environ["ROWS"])
-print(json.dumps({"verb": "list", "ok": True, "scope": os.environ["E_SCOPE"],
-                  "count": len(rows), "dispatches": rows}, indent=2))
+out = {"verb": "list", "ok": True, "scope": os.environ["E_SCOPE"],
+       "count": len(rows), "dispatches": rows}
+if os.environ.get("E_BUDGET"):
+    out["budget"] = json.loads(os.environ["E_BUDGET"])
+print(json.dumps(out, indent=2))
 '
   else
     ROWS="$rows" python3 -c '
@@ -961,6 +1572,7 @@ if not rows:
 for r in rows:
     print(f"{r["job_id"][:8]}  {r["status"]:<11} {r["repo"]:<18} {r["tier"]:<11} {r["created_at"][:19]}")
 '
+    budget_text
   fi
 }
 
@@ -1000,6 +1612,85 @@ print(json.dumps({"verb": "cancel", "ok": True, "dryRun": False, "confirmed": Tr
   fi
 }
 
+# The merge plan. Printed for --dry-run and, more importantly, whenever --confirm
+# is absent — which is the default. Everything it lists has ALREADY been verified
+# against the live pull request by the time this prints: it is a statement of what
+# will happen to a PR in exactly this state, not a forecast.
+emit_merge_plan() {
+  local slug=$1 pr=$2 title=$3 head=$4 base=$5 method=$6 files=$7 lines=$8
+  if [ "$JSON" = 1 ]; then
+    JSON_EMITTED=1
+    E_SLUG="$slug" E_PR="$pr" E_TITLE="$title" E_HEAD="$head" E_BASE="$base" \
+    E_METHOD="$method" E_FILES="$files" E_LINES="$lines" E_MERGES="$MERGES_TODAY" \
+    E_MERGEMAX="$MAX_MERGES_PER_DAY" E_NEEDS="$([ "$CONFIRM" = 1 ] && echo 0 || echo 1)" \
+    python3 -c '
+import json, os
+needs = os.environ["E_NEEDS"] == "1"
+out = {"verb": "merge", "ok": True, "dryRun": True, "needsConfirm": needs,
+       "repo": os.environ["E_SLUG"], "pullRequest": int(os.environ["E_PR"]),
+       "title": os.environ["E_TITLE"], "head": os.environ["E_HEAD"],
+       "base": os.environ["E_BASE"], "mergeMethod": os.environ["E_METHOD"],
+       "changedFiles": int(os.environ["E_FILES"]), "changedLines": int(os.environ["E_LINES"]),
+       "wouldDo": ["mark the draft pull request ready for review",
+                   "merge it into " + os.environ["E_BASE"] + " by " + os.environ["E_METHOD"],
+                   "delete the dispatch/… branch"],
+       "wouldNeverDo": ["never merge a pull request this bridge did not open",
+                        "never merge where a human review is required "
+                        "(derived from pr-required-repos.json)",
+                        "never merge a fork branch, a retargeted base, or a change "
+                        "touching .github/workflows",
+                        "never override a failing check or a branch protection rule"],
+       "mergeBudget": {"usedToday": int(os.environ["E_MERGES"]),
+                       "max": int(os.environ["E_MERGEMAX"])},
+       "note": "nothing was merged and nothing was un-drafted"}
+if needs:
+    out["note"] += (". Re-invoke with --confirm to land it. This is the last point at "
+                    "which nothing has changed on GitHub.")
+print(json.dumps(out, indent=2))
+'
+  else
+    printf 'PLAN — nothing merged.\n'
+    printf '  pr:     %s#%s — %s\n' "$slug" "$pr" "$title"
+    printf '  merge:  %s -> %s (%s)\n' "$head" "$base" "$method"
+    printf '  size:   %s files, %s lines\n' "$files" "$lines"
+    printf '  budget: %s/%s merges today\n' "$MERGES_TODAY" "$MAX_MERGES_PER_DAY"
+    [ "$CONFIRM" = 1 ] || printf 'Re-invoke with --confirm to land it.\n'
+  fi
+}
+
+emit_merged() {
+  local slug=$1 pr=$2 title=$3 method=$4 sha=$5 head=$6 deleted=$7
+  if [ "$JSON" = 1 ]; then
+    JSON_EMITTED=1
+    E_SLUG="$slug" E_PR="$pr" E_TITLE="$title" E_METHOD="$method" E_SHA="$sha" \
+    E_HEAD="$head" E_DELETED="$deleted" E_MERGES="$MERGES_TODAY" \
+    E_MERGEMAX="$MAX_MERGES_PER_DAY" python3 -c '
+import json, os
+used, mx = int(os.environ["E_MERGES"]), int(os.environ["E_MERGEMAX"])
+out = {"verb": "merge", "ok": True, "merged": True,
+       "repo": os.environ["E_SLUG"], "pullRequest": int(os.environ["E_PR"]),
+       "title": os.environ["E_TITLE"], "mergeMethod": os.environ["E_METHOD"],
+       "mergeCommit": os.environ["E_SHA"] or None,
+       "branch": os.environ["E_HEAD"],
+       "branchDeleted": os.environ["E_DELETED"] == "true",
+       "mergeBudget": {"usedToday": used, "max": mx, "remaining": max(mx - used, 0)},
+       "note": "This is on the default branch now. Say so plainly, with the "
+               "pull request link — a merge is the one outcome here that a human "
+               "cannot discover later by reading an open PR list."}
+if mx - used <= 1:
+    out["mergeBudget"]["warning"] = (
+        f"{max(mx - used, 0)} of {mx} merges left today (UTC day). Raise it "
+        "deliberately with HERMES_CC_MERGE_BUDGET=<n> if the ceiling is wrong.")
+print(json.dumps(out, indent=2))
+'
+  else
+    printf 'MERGED %s#%s (%s) — %s\n' "$slug" "$pr" "$method" "$title"
+    [ -n "$sha" ] && printf '  commit: %s\n' "$sha"
+    [ "$deleted" = true ] && printf '  branch %s deleted\n' "$head"
+    printf '  budget: %s/%s merges today\n' "$MERGES_TODAY" "$MAX_MERGES_PER_DAY"
+  fi
+}
+
 # =============================================================================
 
 show_help() {
@@ -1017,6 +1708,11 @@ VERBS
                        heredoc) or --brief-file. --wait polls in-turn.
   status <job-id>      Poll one episode; folds a terminal outcome into its record.
   list [open|today|all]  List dispatch records. Default: open.
+  merge <job-id>       Land the draft PR an `implement` episode opened: mark it
+                       ready for review, merge it, delete the branch. Needs
+                       --why AND --confirm; without --confirm it prints the plan
+                       and changes nothing. Takes a JOB ID, never a PR number —
+                       it merges only what this bridge opened.
   cancel <job-id>      Abandon the LOCAL record. Needs --why and --confirm.
 
 TIERS
@@ -1031,7 +1727,26 @@ TIERS
 
 BUDGETS   20 dispatches per UTC day overall, and 5 of those may be `implement`
           (HERMES_CC_DAILY_BUDGET / HERMES_CC_IMPLEMENT_BUDGET). Counted from
-          the dispatches table, not a counter file.
+          the dispatches table, not a counter file. Every dispatch, plan,
+          status and list reports the standing counts as `budget`, and adds a
+          `budget.warning` naming the env var once a ceiling is close — so the
+          bound is visible on the way up, not only when it refuses. A refusal is
+          exit 4 and never a downgrade: raise the ceiling deliberately or wait
+          for 00:00 UTC, do not retry into it. `merge` has a third, tighter
+          ceiling of 3/day (HERMES_CC_MERGE_BUDGET) — it is the only verb that
+          changes what runs.
+
+MERGE     `merge <job-id>` lands the draft PR an `implement` episode opened, with
+          no human on GitHub. It merges ONLY a PR recorded in the dispatches
+          table (a job id in, never a PR number), only where a human review is
+          not required — eligibility is derived from pr-required-repos.json, the
+          same file the branch-protection hook reads — and only when every bound
+          the episode was held to still holds against the CURRENT head: base is
+          the default branch, head is a dispatch/… branch in this repo (never a
+          fork), no .github/workflows change, size ceilings intact,
+          mergeable_state exactly `clean`. The head SHA is pinned in the merge
+          call, so a push landing mid-inspection fails the merge instead of
+          riding it.
 
 THE BRIEF IS DATA, NEVER COMMAND
   It is read from stdin or a file — never taken as an argv string. Use a QUOTED
@@ -1124,6 +1839,7 @@ case "$VERB" in
   list)      cmd_list "${ARGS[@]:1}" ;;
 
   cancel)    cmd_cancel "${ARGS[@]:1}" ;;
+  merge)     cmd_merge "${ARGS[@]:1}" ;;
 
   help|"")   show_help ;;
   # No fallthrough to a shell, ever. An unknown verb is a usage error and the
@@ -1133,6 +1849,7 @@ valid verbs:
   dispatch <repo>   open an episode (brief on stdin)
   status <job-id>   poll one
   list [scope]      open | today | all
+  merge <job-id>    land the draft PR that dispatch opened (--why --confirm)
   cancel <job-id>   abandon the local record (--why --confirm)
   help" ;;
 esac
