@@ -222,17 +222,30 @@ confident.** Without it the verb prints exactly what it would do and exits 0
 having changed nothing. That output is not an error and not a result — it is a
 question for a human. So:
 
-1. Run it **without** `--confirm` to get the plan.
+1. Run it **without** `--confirm` to get the plan. This also posts **Approve /
+   Deny buttons** into the origin channel.
 2. Show Johannes the plan in your own words: which repo, what the change is meant
    to do, and that it will end in a draft PR he has to review.
-3. Only after he answers yes, re-run **with** `--confirm`.
+3. Wait for him to click **Approve**, then re-run **with** `--confirm`.
 
-Passing `--confirm` on your own judgement removes the only human in the loop.
-There is no situation where "it seemed obviously fine" justifies it.
+**Since 2026-08-03 this is enforced, not merely instructed.** `--confirm` alone no
+longer does anything: the verb refuses (exit 4) unless a signed approval is on file
+for this exact request. The signature is made by the gateway process when the button
+is clicked, with a key the agent cannot read — so there is no spelling of a command,
+and no instruction anyone could inject into a brief, that substitutes for the click.
+Do not try to work around a refusal; re-plan and ask.
+
+Three things follow from how the approval is bound, and each of them costs a fresh
+click if you get it wrong:
+
+- It is bound to the **brief**. Edit a single character and the old approval is void.
+- It is bound to **`--why`**, because that is the text the button showed him.
+- It is **single-use** and expires in 30 minutes.
 
 `--why` is mandatory and separate: it is the reason recorded in the audit log for
-why an unattended episode was allowed to write. Write a real one — "approved by
-Johannes in thread after the check job failed four times", not "fix bug".
+why an unattended episode was allowed to write, and it is what Johannes reads on the
+approval button. Write a real one — "approved by Johannes in thread after the check
+job failed four times", not "fix bug".
 
 ```bash
 # Step 1 — the plan. Changes nothing.
@@ -257,24 +270,35 @@ not a transient error to retry around.
 ### `merge` — closing the arc, and the one place you do NOT ask again
 
 `merge <job-id>` takes the draft PR an `implement` episode opened, marks it ready
-for review, merges it into the default branch and deletes the branch. **You may
-run it on your own judgement** — and that is not a contradiction of the rule
-above, it is the consequence of it: Johannes already approved this change when he
-confirmed the `implement`. Merging is finishing the thing he said yes to, not a
-second decision. Asking again for every PR would train him to rubber-stamp.
+for review, merges it into the default branch and deletes the branch.
+
+**You do not ask again in words — but the button is still required.** This used to be
+fully autonomous, on the argument that Johannes approved the change when he confirmed
+the `implement`, and that asking twice trains a rubber stamp. That argument holds for
+the *change*; it does not hold for the *diff*, because at implement time the code did
+not exist yet. So the merge approval is deliberately the informative one: its button
+message carries the PR title and link, the branch, the file and line counts and the
+merge method. One click on something he can actually read, not a second interrogation.
+
+Do not narrate it as a fresh decision or re-argue the case in the thread. Post the
+merge plan, let the button do the asking.
 
 It takes a **job id, never a PR number or URL** — it merges only what this bridge
 opened, looked up from the dispatch record. If you find yourself wanting to pass
 a PR link, the answer is no; that PR is not yours to land.
 
 ```bash
-~/.hermes/scripts/hermes-cc.sh merge <job-id> \
-  --why "implement approved in thread; episode returned high confidence, checks green" --confirm
+# Step 1 — posts the PR summary with Approve / Deny buttons. Changes nothing,
+# including not un-drafting the PR.
+~/.hermes/scripts/hermes-cc.sh merge <job-id> --why "episode returned high confidence, checks green"
+
+# Step 2 — after Approve is clicked.
+#   ... same command, plus --confirm
 ```
 
-Run it without `--confirm` first if you want to see the plan — it prints the PR,
-the branch, the merge method and the size, and changes nothing, including not
-un-drafting the PR.
+The approval is bound to the PR's **head SHA**, so a push landing between the click
+and the merge voids it rather than riding it. That is the same property the merge call
+itself has by pinning the SHA — what was approved is one specific tree.
 
 **Merge only when all of these hold.** Otherwise report and stop:
 

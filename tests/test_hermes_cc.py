@@ -257,6 +257,25 @@ class Harness:
         self.db_dir.mkdir()
         self._counter = 0
 
+        # A stand-in for the gateway's dispatch-approval plugin. Since 2026-08-03 the
+        # write verbs demand a SIGNED approval, not just `--confirm` — so without a key
+        # here every confirmed case in this file would refuse for a reason it is not
+        # about. The gate itself is not tested here; it has its own suite
+        # (tests/test_dispatch_approval.py), including the forgery cases that prove an
+        # unsigned row does not pass. This harness only makes the other properties
+        # reachable again.
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+        self._approval_key = Ed25519PrivateKey.generate()
+        self.approval_pub = self.root / "dispatch-approval.pub"
+        self.approval_pub.write_text(
+            self._approval_key.public_key().public_bytes(
+                encoding=serialization.Encoding.Raw,
+                format=serialization.PublicFormat.Raw,
+            ).hex() + "\n"
+        )
+
     def cleanup(self) -> None:
         shutil.rmtree(self.root, ignore_errors=True)
 
@@ -268,7 +287,65 @@ class Harness:
         self._counter += 1
         return self.db_dir / f"db-{self._counter}.sqlite"
 
-    def run(self, args, *, env_extra=None, audit_log=None, timeout=20, stdin=None):
+    def _sign_pending(self, db_path: str) -> bool:
+        """Sign the newest undecided approval row, the way a Slack click would.
+
+        Returns False when there is nothing pending — which is not an error here: a
+        case may be exercising a refusal that happens before the request is minted.
+        """
+        import datetime as _dt
+
+        try:
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT nonce, payload_hash, expires_at FROM dispatch_approvals "
+                "WHERE decision IS NULL ORDER BY created_at DESC LIMIT 1"
+            ).fetchone()
+            if row is None:
+                conn.close()
+                return False
+            by = "U0TESTUSER"
+            msg = "|".join(["v1", row["nonce"], row["payload_hash"], "approve",
+                            by, row["expires_at"]]).encode("utf-8")
+            sig = self._approval_key.sign(msg).hex()
+            conn.execute(
+                "UPDATE dispatch_approvals SET decision='approve', decided_at=?, "
+                "decided_by=?, signature=? WHERE nonce=?",
+                (_dt.datetime.now(_dt.timezone.utc).isoformat(), by, sig, row["nonce"]),
+            )
+            conn.commit()
+            conn.close()
+            return True
+        except sqlite3.OperationalError:
+            return False
+
+    def run(self, args, *, env_extra=None, audit_log=None, timeout=20, stdin=None,
+            auto_approve=True):
+        # A `--confirm` invocation now needs a signed approval on file. Rather than
+        # reconstruct each verb's payload hash here — which would duplicate the very
+        # binding under test — the harness walks the real flow: run the same command
+        # WITHOUT --confirm so the script mints the pending row itself, sign that row,
+        # then run what the case actually asked for. The rehearsal's side effects are
+        # scrubbed afterwards so the case still sees only its own run.
+        if auto_approve and "--confirm" in args and "--dry-run" not in args:
+            pre_env = dict(env_extra or {})
+            db = pre_env.get("HERMES_CC_DB")
+            if db is None:
+                db = str(self.new_db())
+                pre_env["HERMES_CC_DB"] = db
+                env_extra = pre_env
+            plan_log = self.new_log("auto-approve")
+            self.run([a for a in args if a != "--confirm"],
+                     env_extra=pre_env, audit_log=plan_log, timeout=timeout,
+                     stdin=stdin, auto_approve=False)
+            self._sign_pending(db)
+            # The rehearsal talked to the stub curl; a case that counts requests must
+            # not see those. Same for the audit line, which went to its own file.
+            curl_log = (env_extra or {}).get("CC_TEST_CURL_LOG") or os.environ.get("CC_TEST_CURL_LOG")
+            if curl_log and Path(curl_log).exists():
+                Path(curl_log).write_text("")
+
         env = dict(os.environ)
         env["PATH"] = f"{self.bin}:{env.get('PATH', '')}"
         env["HOME"] = str(self.home)
@@ -280,6 +357,9 @@ class Harness:
         env["HERMES_CC_GH_API"] = "http://gh.invalid"
         env["CC_TEST_GH_API"] = "http://gh.invalid"
         env["HERMES_CC_PR_REQUIRED_JSON"] = str(self.pr_required_json)
+        env["HERMES_CC_APPROVAL_PUBKEY"] = str(self.approval_pub)
+        env["HERMES_CC_APPROVAL_PY"] = sys.executable
+        env["HERMES_CC_SLACK_API"] = "http://slack.invalid/api"
         env.pop("OP_SERVICE_ACCOUNT_TOKEN", None)
         # The suite itself runs inside a Claude Code session; every case must
         # start clean of the recursion-guard markers, or every dispatch would

@@ -6,6 +6,13 @@ HERMES_DIR    := $(HOME)/.hermes
 # separate dirs, so listing them here only created dead symlinks.
 HERMES_SKILLS := capture argo-api work karakeep obsidian reading research-gateway image-delivery homelab-ops homelab briefing-tts claude-dispatch
 
+# Gateway plugins symlinked into ~/.hermes/plugins/. Same durability argument as the
+# skills: a plugin that lives only under ~/.hermes/ is one `hermes update` away from
+# being unreviewable state. dispatch-approval holds the Ed25519 key that makes the
+# dispatch bridge's --confirm an artifact rather than an instruction — it must also be
+# enabled once, with `hermes plugins enable dispatch-approval`.
+HERMES_PLUGINS := dispatch-approval
+
 # Scheduled jobs run as user LaunchAgents, not macOS crontab — see the Setup
 # banner below for why. Templates live in launchd/, rendered into ~/Library/LaunchAgents.
 LAUNCHD_DIR   := $(HERMES_REPO)/launchd
@@ -83,6 +90,11 @@ _symlinks:
 	@$(MAKE) --no-print-directory _link \
 		SRC="$(HERMES_REPO)/config" \
 		DST="$(HERMES_DIR)/config"
+	@for plugin in $(HERMES_PLUGINS); do \
+		$(MAKE) --no-print-directory _link \
+			SRC="$(HERMES_REPO)/plugins/$$plugin" \
+			DST="$(HERMES_DIR)/plugins/$$plugin"; \
+	done
 	@for skill in $(HERMES_SKILLS); do \
 		$(MAKE) --no-print-directory _link \
 			SRC="$(HERMES_REPO)/skills/$$skill" \

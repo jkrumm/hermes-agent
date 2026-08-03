@@ -29,6 +29,7 @@ tailnet.
 | `cron/` | `~/.hermes/cron/` | symlink — Hermes-driven (LLM) cron jobs |
 | `scripts/` | `~/.hermes/scripts/` | symlink — Hermes cron pre-run scripts (security check requires they live under `HERMES_HOME/scripts/`). Also holds host-level shell scripts. |
 | `hooks/` | `~/.hermes/hooks/` | symlink — add hooks here |
+| `plugins/{name}/` | `~/.hermes/plugins/{name}/` | symlink per plugin — actual dir is `dispatch-approval` (the Ed25519 signer behind the dispatch bridge's approval buttons). **`HERMES_PLUGINS` in the Makefile is the source of truth.** A plugin also has to be enabled once (`hermes plugins enable <name>`, recorded under `plugins.enabled` in `config.yaml`); the symlink alone does nothing. Same durability argument as skills — a plugin living only under `~/.hermes/` is unreviewable state one `hermes update` away from surprise. |
 | `config/` | `~/.hermes/config/` | symlink — tracked agent-facing config. Today just `dispatch-repos.json`, the dispatch policy `hermes-cc.sh` resolves a repo against — root, `deny` list, default tier and per-repo ceilings. It decides what an unattended episode may do, so it is deliberately in git and not runtime state. |
 | `skills/{name}/` | `~/.hermes/skills/{name}/` | symlink per skill — actual dirs are `capture`, `argo-api`, `work`, `karakeep`, `obsidian`, `reading`, `research-gateway`, `image-delivery`, `homelab-ops`, `homelab`, `briefing-tts`, `claude-dispatch` (the former infrastructure/schedule/slack/tasks/weather/garmin-health/strength skills were consolidated into `argo-api/references/*.md` — now incl. `walking-pad.md`; they are no longer separate dirs and were dropped from `HERMES_SKILLS`). **`HERMES_SKILLS` in the Makefile is the source of truth — this list must match it.** |
 | `USER.md` | `~/.hermes/memories/USER.md` | copied — Hermes writes to it |
@@ -137,6 +138,26 @@ Design: `docs/dispatch-bridge.md`. The episode itself is sideclaw's `dispatch` j
   Exit 0 because printing the plan *is* the successful outcome of that request; a non-zero
   code would read as "the dispatch failed" to whatever parses it. `--why` is separate and
   mandatory: it is the audit record of why an unattended episode was allowed to write.
+- **`--confirm` became an artifact instead of an instruction (2026-08-03).** It was a flag
+  on the same invocation, set by the same agent it constrains — the script's header said
+  so plainly, and called the fix "an approval artifact minted outside the agent and bound
+  to the repo + brief hash". That is now built. The plan branch posts **Approve / Deny
+  buttons** into the origin channel; the click lands in the gateway process, which signs
+  it with an **Ed25519 key minted at startup and held in RAM only** (`plugins/dispatch-approval/`,
+  public half at `~/.hermes/dispatch-approval.pub`). `--confirm` refuses (exit 4) without
+  a valid signature. **The point is not "who clicked" — it is that a click is not text.**
+  All Slack senders here are trusted (owner decision, below); the residual risk is hostile
+  *content* relayed by a trusted one, and injected prose cannot mint a signature or cause
+  a Slack interaction payload to exist. Every column of `dispatch_approvals` is writable
+  by this uid, the agent's included, so **only the signature is consulted** — the forged-row
+  case is the centre of `tests/test_dispatch_approval.py`. It does not defend against a
+  wholly-compromised Hermes with a debugger on the gateway; that was never the claim.
+  Bound to `verb|repo|tier|payload|why` — so editing the brief, or swapping the stated
+  reason the button showed, voids it — plus single-use and a 30-minute TTL. **Fails closed
+  everywhere**: no plugin, no key, no gateway, expired, spent, or hash mismatch all refuse.
+  A gateway restart mints a new key and so voids pending approvals, deliberately.
+  Enable once with `hermes plugins enable dispatch-approval`; `make setup` symlinks it
+  (`HERMES_PLUGINS`), and it must live in this repo for the same durability reason skills do.
 - **Structural ceilings, because `--max-budget-usd` is API-only and does not cap a Max
   session:** 20 dispatches per UTC day counted from the `dispatches` table, of which at
   most 5 may be `implement` (its own ceiling — a 30-minute writing episode and a 90-second
@@ -168,6 +189,13 @@ Design: `docs/dispatch-bridge.md`. The episode itself is sideclaw's `dispatch` j
   (`hermes-cc.sh`'s `sync_record` and `dispatch-sweep.py`) — whichever one closes a given
   dispatch has to leave the row in the same shape, and the briefing/watchdog projections want
   a column read, not a JSON parse.
+- **`merge` now needs the button too (2026-08-03), reversing half of the decision below.**
+  The original argument — Johannes approved the change at `implement`, so asking again
+  trains a rubber stamp — holds for the *change* and not for the *diff*, which did not
+  exist when he approved. So the merge approval is the **informative** one: its button
+  message carries the PR title and link, branch, file/line counts and merge method, and
+  the approval is bound to the **head SHA**, so a push between click and merge voids it
+  rather than riding it. Everything else below still stands.
 - **`merge <job-id>` lands the draft PR, with no human on GitHub (owner decision, 2026-08-02).**
   It inverts a statement sideclaw's `openPullRequest` makes in a comment — "un-drafting is not
   something the episode can do for itself" — so the bounds carry the weight the human used to.
@@ -206,8 +234,14 @@ Design: `docs/dispatch-bridge.md`. The episode itself is sideclaw's `dispatch` j
   is why `watchdog-poll.py` and `briefing-coverage.py` mark non-`jkrumm` GitHub items as
   third-party rather than trying to authenticate the messenger.
 - **Tests:** `tests/test_hermes_cc.py` (130 cases, stubbed job server and stubbed GitHub —
-  never a real one of either), `tests/test_raw_agent_guard.py` and
+  never a real one of either), `tests/test_dispatch_approval.py` (21 checks on the signed
+  gate; its centre is the **forged-row** case — an `approve` row written the way a
+  compromised agent would write it must still refuse — plus wrong-key, expired, spent,
+  brief-edited and why-edited), `tests/test_raw_agent_guard.py` and
   `tests/test_repo_write_guard.py` (the guard that makes the bridge non-optional). Run with `~/.hermes/hermes-agent/venv/bin/python3`.
+  Note `test_hermes_cc.py`'s harness now walks the real plan→sign→confirm flow for any
+  `--confirm` case (`Harness.run(auto_approve=...)`) rather than duplicating the payload
+  hash — the gate is not what that file tests, but it is in the way of everything it does.
   **The other half of the bridge is tested in sideclaw**, which had no suite at all until
   2026-08-03: `sideclaw/tests/` (`bun test`, 175 cases) covers the bounds this side cannot
   reach — worktree isolation and its post-crash sweep, the diff-refusal ladder, the added-lines

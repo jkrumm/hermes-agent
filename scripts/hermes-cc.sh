@@ -281,9 +281,12 @@ audit() {
     *) mode="read" ;;
   esac
   mkdir -p "$(dirname "$AUDIT_LOG")" 2>/dev/null || true
-  printf '%s | verb=%s | mode=%s | tier=%s | args=%s | target=%s | rc=%s | dur=%ss | why=%s\n' \
+  # `approved_by` is the Slack user id whose click signed this invocation, and it is
+  # the only field here the agent could not have written for itself — which is exactly
+  # why it belongs in the log. Absent (`-`) on every ungated verb.
+  printf '%s | verb=%s | mode=%s | tier=%s | args=%s | target=%s | rc=%s | dur=%ss | approved_by=%s | why=%s\n' \
     "$ts" "${VERB:--}" "$mode" "${TIER:--}" "$(redact "${AUDIT_ARGS:--}")" "$AUDIT_TARGET" \
-    "$rc" "$dur" "$(redact "${WHY:--}")" \
+    "$rc" "$dur" "${APPROVED_BY:--}" "$(redact "${WHY:--}")" \
     >> "$AUDIT_LOG" 2>/dev/null || true
   exit "$rc"
 }
@@ -611,6 +614,30 @@ CREATE TABLE IF NOT EXISTS dispatches (
 );
 CREATE INDEX IF NOT EXISTS idx_dispatches_open ON dispatches(status) WHERE reported_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_dispatches_created ON dispatches(created_at);
+
+-- The approval ledger for gated verbs. A row is minted here by the plan branch and
+-- decided by a Slack button click, which lands in the gateway process — see
+-- plugins/dispatch-approval/. Note what is NOT trusted: every column on this table is
+-- writable by anything running as this uid, the agent included. Only the signature
+-- column means anything, and it is verified against a public key whose private half
+-- never leaves gateway memory. The rest of the row is rendering and sweep convenience.
+-- (No backticks in this string: DB_SCHEMA is double-quoted shell, so they would run.)
+CREATE TABLE IF NOT EXISTS dispatch_approvals (
+    nonce TEXT PRIMARY KEY,
+    verb TEXT NOT NULL,
+    repo TEXT NOT NULL,
+    tier TEXT NOT NULL,
+    payload_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    channel TEXT,
+    decision TEXT,
+    decided_at TEXT,
+    decided_by TEXT,
+    signature TEXT,
+    spent_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_approvals_hash ON dispatch_approvals(payload_hash);
 "
 
 # Every DB helper passes values as bound parameters from the environment. No verb
@@ -720,6 +747,237 @@ budget_text() {
   printf 'budget: %s/%s dispatches today · implement %s/%s\n' \
     "$BUDGET_USED" "$MAX_DISPATCHES_PER_DAY" "$BUDGET_IMPL" "$MAX_IMPLEMENT_PER_DAY"
 }
+
+# =============================================================================
+# SIGNED APPROVAL
+# =============================================================================
+#
+# What `--confirm` alone could never be. The flag is supplied by the same agent it
+# constrains, so it is an instruction; this is an artifact. A Slack button click is
+# witnessed by the gateway process, which signs it with an Ed25519 key whose private
+# half exists only in that process's memory and is minted fresh at every start
+# (plugins/dispatch-approval/). This script holds only the public half.
+#
+# The threat this closes is the one the bridge actually has: prompt injection reaching
+# a brief. Injection produces words. Words cannot mint a signature, and they cannot
+# cause a Slack interaction payload to exist. Every other column on `dispatch_approvals`
+# is writable by this uid and is therefore treated as untrusted decoration — the
+# signature is the only thing consulted.
+#
+# It does NOT defend against a wholly-compromised Hermes with a debugger on the gateway.
+# That was never the claim, and the script's header says so about `--confirm` too.
+#
+# FAILS CLOSED, EVERYWHERE. No public key, no plugin, no gateway, an expired row, a
+# hash that does not match the brief in hand, an already-spent approval, a missing
+# verifier interpreter — every one of them refuses the verb. The cost of this
+# machinery being broken is that nothing writes, never that something writes unchecked.
+APPROVAL_TTL_MINUTES="${HERMES_CC_APPROVAL_TTL:-30}"
+APPROVAL_PUBKEY="${HERMES_CC_APPROVAL_PUBKEY:-$HERMES_HOME/dispatch-approval.pub}"
+# The verifier needs `cryptography`, which the system python3 does not have and the
+# gateway's venv does. Resolved rather than assumed so a moved install fails with a
+# sentence instead of a traceback.
+APPROVAL_PY="${HERMES_CC_APPROVAL_PY:-$HERMES_HOME/hermes-agent/venv/bin/python3}"
+
+# Must agree byte-for-byte with payload_hash() in plugins/dispatch-approval/__init__.py.
+# tests/test_dispatch_approval.py asserts the two implementations agree; if you change
+# one, the test fails rather than the gate silently never matching.
+#
+# `why` is in the hash for the same reason the brief is. The button message shows
+# Johannes the stated reason, so that is what he approves; if --confirm could carry a
+# different one, the audit log would record a justification nobody ever saw. Binding it
+# means changing the reason costs a fresh approval, exactly like changing the brief.
+approval_hash() {
+  A_VERB="$1" A_REPO="$2" A_TIER="$3" A_BODY="$4" A_WHY="${5:-}" python3 -c '
+import hashlib, os
+h = hashlib.sha256()
+for part in (os.environ["A_VERB"], os.environ["A_REPO"], os.environ["A_TIER"],
+             os.environ["A_BODY"], os.environ["A_WHY"]):
+    h.update(part.encode("utf-8")); h.update(b"\x00")
+print(h.hexdigest())
+'
+}
+
+# Post the plan with Approve/Deny buttons. Best effort by design: if Slack is
+# unreachable the row is still on file, the caller still sees its plan, and the verb
+# still refuses for want of a signature. A failure here must not look like a refusal.
+post_approval_buttons() {
+  local nonce="$1" verb="$2" repo="$3" tier="$4" chan="$5" why="$6" detail="${7:-}"
+  [ -n "$chan" ] || { warn_approval "no --origin-channel, so no buttons could be posted"; return 0; }
+  local token="${SLACK_BOT_TOKEN:-}"
+  if [ -z "$token" ] && command -v secrets-run >/dev/null 2>&1; then
+    token=$(secrets-run read op://hermes/slack/bot-token 2>/dev/null || true)
+  fi
+  [ -n "$token" ] || { warn_approval "no SLACK_BOT_TOKEN, so no buttons could be posted"; return 0; }
+
+  local payload
+  payload=$(P_NONCE="$nonce" P_VERB="$verb" P_REPO="$repo" P_TIER="$tier" \
+            P_CHAN="$chan" P_THREAD="$ORIGIN_THREAD" P_WHY="$why" P_DETAIL="$detail" \
+            P_TTL="$APPROVAL_TTL_MINUTES" python3 -c '
+import json, os
+# The detail line is what makes a merge click a decision rather than a rubber stamp:
+# without the PR, its size and its link, the human is approving a job id.
+parts = [":lock: *Approval needed* — `%s` %s on `%s`"
+         % (os.environ["P_VERB"], os.environ["P_TIER"], os.environ["P_REPO"])]
+if os.environ.get("P_DETAIL"):
+    parts.append(os.environ["P_DETAIL"])
+parts.append("*Why:* %s" % (os.environ["P_WHY"] or "(none given)"))
+parts.append("_Expires in %s min._" % os.environ["P_TTL"])
+text = "\n".join(parts)
+body = {
+    "channel": os.environ["P_CHAN"],
+    "text": text,
+    "blocks": [
+        {"type": "section", "text": {"type": "mrkdwn", "text": text}},
+        {"type": "actions", "elements": [
+            {"type": "button", "style": "primary",
+             "text": {"type": "plain_text", "text": "Approve"},
+             "action_id": "hermes_cc_approve", "value": os.environ["P_NONCE"]},
+            {"type": "button", "style": "danger",
+             "text": {"type": "plain_text", "text": "Deny"},
+             "action_id": "hermes_cc_deny", "value": os.environ["P_NONCE"]},
+        ]},
+    ],
+}
+if os.environ.get("P_THREAD"):
+    body["thread_ts"] = os.environ["P_THREAD"]
+print(json.dumps(body))
+') || { warn_approval "could not build the button payload"; return 0; }
+
+  # Token on stdin as a curl config, never argv — this machine runs triage that reads
+  # `ps` output, same rule the merge verb follows for the GitHub credential.
+  local out
+  out=$(printf 'header = "Authorization: Bearer %s"\n' "$token" | \
+        curl -sS -m 15 -K - \
+             -H 'Content-type: application/json; charset=utf-8' \
+             -X POST --data "$payload" \
+             "${HERMES_CC_SLACK_API:-https://slack.com/api}/chat.postMessage" 2>/dev/null) || {
+    warn_approval "Slack post failed"; return 0; }
+  printf '%s' "$out" | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+sys.exit(0 if d.get("ok") else 1)
+' 2>/dev/null || warn_approval "Slack rejected the button message: $(printf '%s' "$out" | head -c 200)"
+  return 0
+}
+
+warn_approval() {
+  [ "$JSON" = 1 ] || printf 'note: %s\n' "$1" >&2
+}
+
+# Mint the pending row and ask. Returns the nonce on stdout.
+mint_approval() {
+  local verb="$1" repo="$2" tier="$3" body="$4" why="${5:-}"
+  local nonce hash
+  nonce=$(python3 -c 'import secrets; print(secrets.token_hex(16))') \
+    || precond_err "could not mint an approval nonce"
+  hash=$(approval_hash "$verb" "$repo" "$tier" "$body" "$why") \
+    || precond_err "could not hash the approval payload"
+
+  # Supersede any older pending request for the identical payload, so a caller that
+  # re-plans the same thing twice does not leave two live buttons that both work.
+  A_NONCE="$nonce" A_VERB="$verb" A_REPO="$repo" A_TIER="$tier" A_HASH="$hash" \
+  A_CHAN="$ORIGIN_CHANNEL" A_TTL="$APPROVAL_TTL_MINUTES" db_py '
+import datetime as dt
+now = dt.datetime.now(dt.timezone.utc)
+exp = now + dt.timedelta(minutes=int(os.environ["A_TTL"]))
+conn.execute("DELETE FROM dispatch_approvals WHERE payload_hash = ? AND decision IS NULL",
+             (os.environ["A_HASH"],))
+conn.execute(
+    "INSERT INTO dispatch_approvals(nonce,verb,repo,tier,payload_hash,created_at,expires_at,channel) "
+    "VALUES(?,?,?,?,?,?,?,?)",
+    (os.environ["A_NONCE"], os.environ["A_VERB"], os.environ["A_REPO"], os.environ["A_TIER"],
+     os.environ["A_HASH"], now.isoformat(), exp.isoformat(), os.environ["A_CHAN"] or None),
+)
+' || precond_err "could not record the approval request in $DB_PATH"
+
+  post_approval_buttons "$nonce" "$verb" "$repo" "$tier" "$ORIGIN_CHANNEL" "$WHY" "$APPROVAL_DETAIL"
+  printf '%s' "$nonce"
+}
+
+# The gate. Refuses unless a signed, unexpired, unspent approval exists for exactly
+# this payload — and marks it spent in the same statement that accepts it, so an
+# approval is good for one invocation.
+require_signed_approval() {
+  local verb="$1" repo="$2" tier="$3" body="$4" why="${5:-}"
+  local hash
+  hash=$(approval_hash "$verb" "$repo" "$tier" "$body" "$why") \
+    || precond_err "could not hash the approval payload"
+
+  [ -f "$APPROVAL_PUBKEY" ] || policy_err \
+    "no approval public key at $APPROVAL_PUBKEY — the dispatch-approval plugin is not loaded, so no click can be verified. Check 'hermes plugins list' and the gateway log, then re-plan."
+  [ -x "$APPROVAL_PY" ] || policy_err \
+    "no verifier interpreter at $APPROVAL_PY (needs the 'cryptography' module). Set HERMES_CC_APPROVAL_PY if the venv moved."
+
+  local verdict
+  verdict=$(A_HASH="$hash" A_PUB="$APPROVAL_PUBKEY" A_PY="$APPROVAL_PY" DB_PATH="$DB_PATH" \
+    "$APPROVAL_PY" -c '
+import datetime as dt, os, sqlite3, sys
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+from cryptography.exceptions import InvalidSignature
+
+pub = Ed25519PublicKey.from_public_bytes(bytes.fromhex(open(os.environ["A_PUB"]).read().strip()))
+conn = sqlite3.connect(os.environ["DB_PATH"]); conn.row_factory = sqlite3.Row
+now = dt.datetime.now(dt.timezone.utc)
+
+rows = conn.execute(
+    "SELECT * FROM dispatch_approvals WHERE payload_hash = ? AND spent_at IS NULL "
+    "ORDER BY decided_at DESC", (os.environ["A_HASH"],)).fetchall()
+if not rows:
+    print("none"); sys.exit(0)
+
+for r in rows:
+    if r["decision"] is None:
+        continue
+    if r["decision"] != "approve":
+        print("denied"); sys.exit(0)
+    if not r["signature"]:
+        continue
+    try:
+        exp = dt.datetime.fromisoformat(r["expires_at"])
+    except Exception:
+        continue
+    if exp.tzinfo is None:
+        exp = exp.replace(tzinfo=dt.timezone.utc)
+    if exp < now:
+        continue
+    # v1 canonical form — mirrors canonical_message() in the plugin.
+    msg = "|".join(["v1", r["nonce"], r["payload_hash"], r["decision"],
+                    r["decided_by"] or "", r["expires_at"]]).encode("utf-8")
+    try:
+        pub.verify(bytes.fromhex(r["signature"]), msg)
+    except (InvalidSignature, ValueError):
+        continue
+    # Spend it here, guarded, so two concurrent invocations cannot both claim it.
+    cur = conn.execute("UPDATE dispatch_approvals SET spent_at = ? WHERE nonce = ? AND spent_at IS NULL",
+                       (now.isoformat(), r["nonce"]))
+    conn.commit()
+    if cur.rowcount == 1:
+        print("ok " + (r["decided_by"] or "?")); sys.exit(0)
+print("pending"); sys.exit(0)
+') || precond_err "could not check the approval ledger in $DB_PATH"
+
+  case "$verdict" in
+    ok\ *)
+      APPROVED_BY="${verdict#ok }"
+      return 0 ;;
+    denied)
+      policy_err "that request was denied in Slack. Nothing was dispatched." ;;
+    pending)
+      policy_err "the approval for this request has not been clicked yet (or it expired). Re-plan to get a fresh set of buttons." ;;
+    none)
+      policy_err "no approval on file for this exact request. Run the verb WITHOUT --confirm first: it posts Approve/Deny buttons in Slack, and --confirm only works once Approve has been clicked. Note the approval is bound to the brief — any edit to it needs a fresh approval." ;;
+    *)
+      precond_err "unexpected approval verdict: $verdict" ;;
+  esac
+}
+
+APPROVED_BY=""
+# Optional extra line for the approval message, set by a verb that has something worth
+# showing before the click. Reset by every caller that does not.
+APPROVAL_DETAIL=""
 
 record_dispatch() {
   JOB_ID="$1" R_TIER="$TIER" R_REPO="$2" R_BRIEF="$BRIEF" R_WHY="$WHY" \
@@ -887,8 +1145,20 @@ cmd_dispatch() {
 
   if awaiting_confirm; then PLANNED=1; fi
   if [ "$DRY_RUN" = 1 ] || [ "$PLANNED" = 1 ]; then
+    # A rehearsal asks nobody for anything. Only the gated stop-to-ask mints an
+    # approval request, and it does so before the plan is printed so the plan can
+    # say the buttons are waiting.
+    if [ "$PLANNED" = 1 ] && [ "$DRY_RUN" != 1 ]; then
+      mint_approval "dispatch" "$name" "$TIER" "$BRIEF" "$WHY" >/dev/null
+    fi
     emit_plan "$name"
     return 0
+  fi
+
+  # The gate, before anything is spent or submitted. It refuses unless a Slack button
+  # was actually clicked for this exact brief — see the SIGNED APPROVAL section.
+  if tier_is_gated; then
+    require_signed_approval "dispatch" "$name" "$TIER" "$BRIEF" "$WHY"
   fi
 
   # The refusal is checked after validation so a refused invocation does not
@@ -1266,11 +1536,24 @@ print(",".join(bad))
     || policy_err "$owner/$repo allows no merge method this verb can use (squash, rebase, merge commit all disabled)."
 
   # --- the gate --------------------------------------------------------------
+  # The approval binds the HEAD SHA, not just the job id. That is the same property
+  # the merge call itself has by pinning the SHA: a push landing between the click and
+  # the merge voids the approval rather than riding it. What was approved is one
+  # specific tree, not "whatever this branch says later".
+  local merge_payload="${job_id}@${pr_head_sha}"
   if [ "$CONFIRM" != 1 ]; then PLANNED=1; fi
   if [ "$DRY_RUN" = 1 ] || [ "$CONFIRM" != 1 ]; then
+    if [ "$CONFIRM" != 1 ] && [ "$DRY_RUN" != 1 ]; then
+      APPROVAL_DETAIL="*<https://github.com/$owner/$repo/pull/$pr|#$pr — $pr_title>*
+\`$pr_head\` → \`$pr_base\` · $pr_files file(s), $lines line(s) · $method"
+      mint_approval "merge" "$owner/$repo" "pr#$pr" "$merge_payload" "$WHY" >/dev/null
+      APPROVAL_DETAIL=""
+    fi
     emit_merge_plan "$owner/$repo" "$pr" "$pr_title" "$pr_head" "$pr_base" "$method" "$pr_files" "$lines"
     return 0
   fi
+
+  require_signed_approval "merge" "$owner/$repo" "pr#$pr" "$merge_payload" "$WHY"
 
   # --- land it ---------------------------------------------------------------
   # Ready-for-review first: a draft cannot be merged, and this is the step that

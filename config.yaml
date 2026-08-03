@@ -26,13 +26,13 @@ agent:
   task_completion_guidance: true
   environment_probe: true
   environment_hint: ''
+  verify_on_stop: false
   gateway_timeout_warning: 900
   clarify_timeout: 600
   gateway_notify_interval: 180
   gateway_auto_continue_freshness: 3600
   image_input_mode: auto
   disabled_toolsets: []
-  verify_on_stop: false
 terminal:
   backend: local
   modal_mode: auto
@@ -46,6 +46,7 @@ terminal:
   singularity_image: docker://nikolaik/python-nodejs:python3.11-nodejs20
   modal_image: nikolaik/python-nodejs:python3.11-nodejs20
   daytona_image: nikolaik/python-nodejs:python3.11-nodejs20
+  vercel_runtime: node24
   container_cpu: 1
   container_memory: 5120
   container_disk: 51200
@@ -55,7 +56,6 @@ terminal:
   docker_extra_args: []
   docker_run_as_host_user: false
   persistent_shell: true
-  vercel_runtime: node24
 web:
   backend: tavily
   search_backend: ''
@@ -84,8 +84,8 @@ checkpoints:
   max_file_size_mb: 10
   auto_prune: false
   retention_days: 7
-  delete_orphans: true
   min_interval_hours: 24
+  delete_orphans: true
 file_read_max_chars: 100000
 tool_output:
   max_bytes: 50000
@@ -243,8 +243,6 @@ display:
     last_lines: 2
   interim_assistant_messages: true
   tool_progress_command: false
-  tool_progress_overrides:
-    slack: 'off'
   tool_preview_length: 0
   ephemeral_system_ttl: 0
   platforms:
@@ -259,6 +257,8 @@ display:
       - context_pct
       - cwd
   copy_shortcut: auto
+  tool_progress_overrides:
+    slack: 'off'
   tool_progress: new
 dashboard:
   theme: default
@@ -283,18 +283,11 @@ tts:
     voice_id: pNInz6obpgDQGcFmaJgB
     model_id: eleven_multilingual_v2
   openai:
-    # Gemini 3.1 Flash TTS (voice "Charon", EU-resident via IU) served by the
-    # audio-gateway (VPS, tailnet-only). The gateway runs LLM text-prep (chunking
-    # + DE/EN expression tags) → native Gemini generateContent → MP3. The native
-    # Hermes openai TTS provider just POSTs /v1/audio/speech; the gateway routes
-    # any model matching /gemini.*tts/ to the Gemini synth pipeline.
     model: gemini-3.1-flash-tts-preview
     voice: Charon
     base_url: https://audio-gateway.jkrumm.com/v1
     api_key: not-needed
     speed: 1.0
-    # Do NOT pre-truncate — the gateway chunks longform itself (briefings would
-    # otherwise be cut at the OpenAI default 4096 cap).
     max_text_length: 32000
   xai:
     voice_id: eve
@@ -318,9 +311,6 @@ stt:
     model: base
     language: ''
   openai:
-    # gpt-4o-transcribe (DE/EN steering) served by the audio-gateway (VPS,
-    # tailnet-only). The gateway injects the German-or-English STT prompt bias
-    # when the client sends none, and downgrades the upstream response_format to json.
     model: gpt-4o-transcribe
     base_url: https://audio-gateway.jkrumm.com/v1
     api_key: not-needed
@@ -370,50 +360,18 @@ prefill_messages_file: ''
 goals:
   max_turns: 20
 skills:
-  # Our domain skills live in this repo and are symlinked into ~/.hermes/skills/.
-  # v0.16.0's skill-security check resolves a skill's realpath and warns (and may
-  # later block) when it lands outside a trusted dir — symlink targets do. Trust
-  # the repo skills dir here so the resolved realpath is recognised. The symlink
-  # in ~/.hermes/skills/ and this external entry resolve to the same path, which
-  # skills_tool dedups (by realpath on load, by name on listing) — no duplicates.
   external_dirs:
     - ~/SourceRoot/hermes-agent/skills
   template_vars: true
   inline_shell: false
   inline_shell_timeout: 10
   guard_agent_created: false
-  # Bundled skills kept out of this profile. Matched by exact skill name against
-  # the frontmatter name (skills_tool._is_skill_disabled), NOT by category dir —
-  # so the Apple category needs its four leaf skills listed individually.
-  # Deleting them is not enough: they are in ~/.hermes/skills/.bundled_manifest,
-  # so `hermes update` re-seeds anything it does not find. This list is what
-  # makes the removal stick.
-  #
-  # Apple: notes live in the Obsidian vault and tasks in TickTick, so Notes /
-  # Reminders automation would be a second place for the same thing. FindMy and
-  # iMessage are not jobs this agent has. Songwriting: unused.
-  # `mcp` (fastmcp / mcporter / oauth-gateway) needs no entry — it ships under
-  # optional-skills/, which is only ever seeded on an explicit
-  # `hermes skills repair-official`, never automatically.
   disabled:
     - apple-notes
     - apple-reminders
     - findmy
     - imessage
     - songwriting-and-ai-music
-    # kanban: the multi-agent task-board feature (kanban: block below, kanban
-    # toolset) has never been used. kanban.db has zero rows in every table —
-    # tasks, task_events, task_runs — since the board was created; `hermes
-    # kanban stats`/`boards`/`list` all confirm empty. The gateway's periodic
-    # "reaped N zombie worker(s)" log lines look like dispatch evidence but
-    # are not: reap_worker_zombies() is a generic os.waitpid(-1, WNOHANG)
-    # reaper for any child of the gateway process, run once per dispatch
-    # tick — unrelated to whether a kanban task ever ran. orchestrator_profile
-    # and default_assignee are both unset, so nothing was ever wired to route
-    # work onto the board either. Disabling only drops the skill doc from the
-    # agent's context; the dispatcher below still ticks every 60s against an
-    # empty board — leave `kanban:` and the toolset entries alone, turning the
-    # feature itself off is a separate decision.
     - kanban
 curator:
   enabled: true
@@ -434,13 +392,6 @@ slack:
   bot_token: ${SLACK_BOT_TOKEN}
   app_token: ${SLACK_APP_TOKEN}
   allow_bots: all
-  # Upstream default (every read site is .get("reply_in_thread", True)). One
-  # Slack thread per conversation == one session/context window: build_session_key
-  # appends thread_ts to the key, so each top-level message opens a thread with a
-  # fresh, bounded window. With `false` every top-level message instead collapsed
-  # into ONE never-resetting channel-wide session (observed: 213 messages over
-  # 6 days) while thread replies got isolated windows — no visual cue which you
-  # were in. Continuing a topic now means replying inside its thread.
   reply_in_thread: true
   reply_broadcast: false
   group_sessions_per_user: true
@@ -485,97 +436,23 @@ matrix:
   free_response_rooms: ''
   allowed_rooms: ''
 approvals:
-  # Upstream's own default. An auxiliary LLM judges low-risk dangerous-pattern
-  # hits and auto-approves them; it fail-CLOSES to the human prompt whenever the
-  # verdict is ambiguous or the judge call errors, so the worst case is the
-  # `manual` behaviour we had before. Everything below `deny` (and the hardline
-  # floor) is out of the judge's reach entirely.
   mode: smart
-  # Also the upstream default. Approvals arrive as a Slack message; 60s expired
-  # (= denied) before a phone was reached.
   timeout: 300
   cron_mode: deny
-  # Unconditional floor, evaluated BEFORE the yolo / mode=off short-circuit and
-  # before smart mode ever runs (check_all_command_guards) — the LLM judge
-  # cannot override an entry here, and neither can /yolo.
-  #
-  # Semantics (tools/approval.py _match_user_deny_rule): case-insensitive
-  # fnmatch globs matched against the WHOLE normalized command, so every entry
-  # needs leading and trailing `*`. Matching runs over the same de-obfuscated
-  # variants the dangerous-pattern detector uses (`her\mes`, `con''fig`,
-  # `${IFS}` separators, `$HOME`/absolute-path folding all normalize first) and
-  # `*` spans newlines and shell operators — unlike command_allowlist, a
-  # compound or piped command does NOT disable the match.
-  #
-  # What normalization does NOT do, and every entry below has to survive:
-  # whitespace runs are never collapsed (`${IFS}` expands to ONE space, and the
-  # backslash-newline strip actively CREATES a double space out of the most
-  # natural long-command spelling), and quotes are only removed when the pair is
-  # empty — `-X 'DELETE'` keeps its quotes. So a literal single space between
-  # two words is a bypass waiting to happen: put `*` or `?` there instead.
-  # A miss here is total fail-open, not a downgrade to the smart judge — none of
-  # these shapes trips a dangerous pattern either.
   deny:
-    # The path that rewrote this file. `hermes config set` has no approval gate
-    # at all — it is not a filesystem-write shape, so no dangerous pattern sees
-    # it — and it round-trips the YAML through plain PyYAML, destroying every
-    # comment. `set`/`unset`/`edit`/`migrate` are the writing subcommands;
-    # show/get/path/check stay allowed. The `*` before the subcommand (not a
-    # space) is what makes `hermes config  set`, a tab, and the line-continuation
-    # spelling match too; the trailing `set ` is what keeps `hermes config get
-    # model.settings` out.
-    - "*hermes*config*set *"
-    - "*hermes*config*unset *"
-    - "*hermes*config*edit*"
-    - "*hermes*config*migrate*"
-    # This file, by any spelling, read included. The terminal-side dangerous
-    # patterns only know the ~/.hermes/ spelling, so the symlink target
-    # (~/SourceRoot/hermes-agent/config.yaml) and a bare relative `config.yaml`
-    # were ungated. fnmatch has no alternation, so "write verb AND path" cannot
-    # be expressed without enumerating verbs — and any enumeration leaks (a
-    # `python3 -c` one-liner is not in it). One path-only glob is leak-free
-    # instead; the cost is that reading any config.yaml is blocked too, which
-    # no Hermes skill does.
-    - "*config.yaml*"
-    - "*gh repo delete*"
-    # Hermes reads container state through argo, never by driving docker. The
-    # `*` after `docker` covers the modern management-command spelling
-    # (`docker container rm -f`), which Docker's own docs have preferred since
-    # 1.13 and which the legacy-only glob missed entirely.
-    - "*docker*rm -f*"
-    - "*docker*rm --force*"
-    - "*docker rm *$(*"
-    - "*docker stop *$(*"
-    - "*docker*prune*"
-    # NOT here: `curl -X DELETE` / `-X PUT`. A tier of ten globs covering those
-    # was written and then removed, deliberately — record of why, so it does not
-    # get re-added on the next pass:
-    #   1. It broke real, documented flows. Deleting a TickTick task
-    #      (skills/argo-api/references/tasks.md) and PUT /user-profile
-    #      (references/garmin-health.md) are the agent acting on Johannes's own
-    #      data through a bearer-authenticated personal API. A `deny` entry is
-    #      unconditional — the reply is "cannot be executed, not even with
-    #      --yolo, do NOT retry or rephrase" — so there is no human path either.
-    #      A deny that blocks the owner's own routine writes is a bug.
-    #   2. It did not actually close the shape. `curl -sX 'DELETE'` has neither
-    #      an `-x` token nor an `xdelete` run and walked straight through. The
-    #      wider `*-x*delete*` catches it but also fires on `-X GET … jq
-    #      '.output'` and `-X POST … @input.json` (both contain `put` after an
-    #      `-x`), i.e. it trades a bypass for false denials on ordinary reads.
-    # Mutating HTTP against a bearer API is not the failure class this list is
-    # for. `deny` is the unconditional floor for actions with no recovery path
-    # and no legitimate agent use — the entries above. Ordinary API writes stay
-    # with the smart judge, which can escalate to a human.
+    - '*hermes*config*set *'
+    - '*hermes*config*unset *'
+    - '*hermes*config*edit*'
+    - '*hermes*config*migrate*'
+    - '*config.yaml*'
+    - '*gh repo delete*'
+    - '*docker*rm -f*'
+    - '*docker*rm --force*'
+    - '*docker rm *$(*'
+    - '*docker stop *$(*'
+    - '*docker*prune*'
   mcp_reload_confirm: true
   destructive_slash_confirm: true
-# command_allowlist is deliberately EMPTY — do not let it come back.
-# It held one entry, "script execution via -e/-c flag", which is a risk-REASON
-# label the approval prompt displays, not a command pattern. Persisted as an
-# allowlist entry it blanket-auto-approved every `python3 -c` / `perl -e` /
-# `ruby -e` / `node -e` with no prompt — precisely the classification of the
-# command that rewrote this config. The list is also loaded once at module
-# import and entries are only ever added, never removed, so a bad entry keeps
-# auto-approving inside a running gateway until it is restarted.
 hooks_auto_accept: false
 security:
   allow_private_urls: false
@@ -659,27 +536,6 @@ x_search:
   timeout_seconds: 180
   retries: 2
 secrets:
-  # Headless secret injection (v0.19 SecretSource interface). This Mac mini has
-  # no interactive `op` session — a direct `op read` would hang on the biometric
-  # prompt — so secrets resolve from the age-encrypted offline cache through the
-  # dotfiles `secrets-run` shim. `secrets.onepassword` is deliberately NOT used:
-  # it needs either interactive `op` (hangs headless) or a standing
-  # OP_SERVICE_ACCOUNT_TOKEN, which is a live credential with continuous vault
-  # read access — strictly weaker than a sealed cache whose contents are the
-  # explicit `dotfiles-private/headless.refs` allowlist (T0/T1 only,
-  # op://Private/* refused at seed time).
-  #
-  # `secrets-run export` emits `export K='V'`; the bulk parser wants bare
-  # `K=V` (it strips one layer of quotes itself), hence the sed. Measured
-  # 0.29s for 26 refs — helper_timeout_seconds is headroom over the 3s default.
-  # This replaces scripts/gateway-cache-launch.sh: secrets now resolve for EVERY
-  # hermes invocation (gateway, CLI, cron), not just the launchd-started gateway.
-  command:
-    enabled: true
-    command: "$HOME/.local/bin/secrets-run export --env-file=$HOME/.hermes/.env.tpl | sed 's/^export //'"
-    helper_timeout_seconds: 15
-    # Cache is the source of truth — a rotated ref wins over a stale inherited env.
-    override_existing: true
   bitwarden:
     enabled: false
     access_token_env: BWS_ACCESS_TOKEN
@@ -688,6 +544,12 @@ secrets:
     override_existing: true
     auto_install: true
     server_url: ''
+  command:
+    enabled: true
+    command: $HOME/.local/bin/secrets-run export --env-file=$HOME/.hermes/.env.tpl
+      | sed 's/^export //'
+    helper_timeout_seconds: 15
+    override_existing: true
 paste_collapse_threshold: 5
 paste_collapse_threshold_fallback: 5
 paste_collapse_char_threshold: 2000
@@ -697,10 +559,6 @@ homelab_api:
   api_key: ${HOMELAB_API_KEY}
 terminal_backend: local
 platform_toolsets:
-  # image_gen (FAL.ai) is intentionally absent — image generation is pending a
-  # wiring to the image-gen gateway (image-gateway.jkrumm.com). Image delivery
-  # (persisting/sharing an image already in hand) is live via the
-  # image-delivery skill.
   cli:
     - browser
     - clarify
@@ -738,6 +596,13 @@ platform_toolsets:
 known_plugin_toolsets:
   cli:
     - spotify
+plugins:
+  enabled:
+    - dispatch-approval
+  disabled: []
+  entries:
+    dispatch-approval:
+      allow_tool_override: false
 
 # ── Fallback Model ────────────────────────────────────────────────────
 # Automatic provider failover when primary is unavailable.

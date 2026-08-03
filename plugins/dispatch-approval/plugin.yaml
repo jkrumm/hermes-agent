@@ -1,0 +1,8 @@
+name: dispatch-approval
+version: 1.0.0
+description: >-
+  Signs dispatch-bridge approvals that arrive as Slack Block Kit button clicks.
+  Holds an Ed25519 private key in gateway memory only and writes the public half
+  to $HERMES_HOME/dispatch-approval.pub, so hermes-cc.sh can verify that an
+  approval came from a real click rather than from the agent that wants it.
+author: jkrumm
