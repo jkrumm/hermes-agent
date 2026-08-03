@@ -416,3 +416,22 @@ and a push attempt under the worker's own env failing in under a second.
 - sideclaw is live on `:7705` with `SIDECLAW_WORKER_BACKEND=max`;
   `POST /api/jobs` gates on `isJobTool(body.tool)`, so a new tool is a
   registration plus a handler.
+
+## Verified live (2026-08-03)
+
+- **Read-tier isolation.** An `investigate` episode into `dispatch-scratch` logged
+  `read worktree created` with `baseRef: HEAD`, ran 16s to a correct high-confidence
+  verdict, and left nothing: no worktree registration, no `dispatch/*` branch, no
+  directory under the worktree root, and a clean live checkout.
+- **The sweeper reads `merged_at`.** Hermes merged job `554a9476` in-turn 67s after
+  dispatching it, before the 5-minute sweep. The sweeper's message rendered as
+  `Dispatch verdict — dispatch-scratch (already merged)`, artifact line `— merged
+  2026-08-03 06:34 UTC`, trailer `next none (merged)` — not the episode's own
+  `nextAction`, which was the stale "review the draft PR" instruction this fixes.
+- **The sweeper wakes Hermes on an unmerged PR.** A second episode (`a163d97a`) was
+  dispatched with an explicit instruction not to merge. At 06:40:41 the sweeper sent
+  the verdict as Hermes's own bot (dropped by Slack ingest, as designed) and then
+  posted the nudge through argo as the HomeLab bot; Hermes answered in-thread at
+  **06:40:47**, six seconds later. The nudge carried repo, PR URL, tier and job id and
+  **no episode-authored prose** — the boundary the sentinel test pins, holding in
+  production.
