@@ -36,6 +36,7 @@ import json
 import logging
 import os
 import sqlite3
+import sys
 from pathlib import Path
 from typing import Any, Optional
 
@@ -97,8 +98,60 @@ def canonical_message(
     ).encode("utf-8")
 
 
+def _is_gateway_process() -> bool:
+    """Is this the process that will actually receive Slack clicks?
+
+    `register()` runs in every process that discovers plugins, not just the gateway —
+    a CLI invocation, a cron subprocess. Only the gateway wires Socket Mode, so only
+    the gateway can ever sign anything, and a key published by any other process is a
+    key no click will ever match.
+    """
+    argv = " ".join(sys.argv)
+    return "gateway" in argv and ("run" in sys.argv or "start" in sys.argv)
+
+
+def _publish_public_key() -> None:
+    """Write the public half where hermes-cc.sh looks for it.
+
+    Atomic: hermes-cc.sh may read at any moment, and a half-written key fails
+    verification in a way that looks like tampering rather than like a race.
+    """
+    path = _hermes_home() / _PUBKEY_FILENAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".pub.tmp")
+    tmp.write_text(_PUBLIC_KEY_HEX + "\n", encoding="utf-8")
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, path)
+    logger.info("[dispatch-approval] published public key at %s", path)
+
+
+def _ensure_published() -> None:
+    """Republish if the file on disk is not ours.
+
+    This is the guarantee, and it is deliberately not the argv heuristic above: a
+    process that is handling a click IS the gateway, whatever its argv looks like. It
+    self-heals the failure this exists because of — on 2026-08-03 a non-gateway process
+    minted its own key at startup and overwrote the file, so every signature the real
+    gateway produced afterwards verified against the wrong key and every approved
+    merge refused as "not clicked yet". Cheap: one small read per click.
+    """
+    if not _PUBLIC_KEY_HEX:
+        return
+    path = _hermes_home() / _PUBKEY_FILENAME
+    try:
+        if path.read_text(encoding="utf-8").strip() == _PUBLIC_KEY_HEX:
+            return
+    except OSError:
+        pass
+    logger.warning(
+        "[dispatch-approval] published key was not ours (another process overwrote it) "
+        "— republishing before signing"
+    )
+    _publish_public_key()
+
+
 def _ensure_key() -> None:
-    """Mint the keypair and publish the public half. Called once, at register()."""
+    """Mint the keypair. Called once, at register()."""
     global _SIGNING_KEY, _PUBLIC_KEY_HEX
     if _SIGNING_KEY is not None:
         return
@@ -112,17 +165,14 @@ def _ensure_key() -> None:
         format=serialization.PublicFormat.Raw,
     )
     _PUBLIC_KEY_HEX = raw.hex()
+    logger.info("[dispatch-approval] signing key minted")
 
-    # Written atomically: hermes-cc.sh may read this file at any moment, and a
-    # half-written key would fail verification in a way that looks like tampering
-    # rather than like a race.
-    path = _hermes_home() / _PUBKEY_FILENAME
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".pub.tmp")
-    tmp.write_text(_PUBLIC_KEY_HEX + "\n", encoding="utf-8")
-    os.chmod(tmp, 0o644)
-    os.replace(tmp, path)
-    logger.info("[dispatch-approval] signing key minted, public half at %s", path)
+    # Publish only from the gateway. Any other process would be handing hermes-cc.sh a
+    # key that nothing can ever sign with.
+    if _is_gateway_process():
+        _publish_public_key()
+    else:
+        logger.debug("[dispatch-approval] not the gateway — key not published")
 
 
 def _approver_ids() -> Optional[set]:
@@ -212,6 +262,28 @@ async def _replace_message(response_url: str, text: str) -> None:
         logger.warning("[dispatch-approval] could not update message: %s", exc)
 
 
+def _valid_for(expires_at: Optional[str]) -> str:
+    """"Valid for another 28 min" beats an ISO timestamp with microseconds on it.
+
+    Nobody reading a phone notification wants to subtract
+    2026-08-03T10:18:04.248013+00:00 from the current time in their head.
+    """
+    if not expires_at:
+        return "Spend it soon."
+    try:
+        exp = dt.datetime.fromisoformat(expires_at)
+    except ValueError:
+        return "Spend it soon."
+    if exp.tzinfo is None:
+        exp = exp.replace(tzinfo=dt.timezone.utc)
+    mins = int((exp - dt.datetime.now(dt.timezone.utc)).total_seconds() // 60)
+    if mins <= 0:
+        return "Already expired — re-plan for a fresh one."
+    if mins == 1:
+        return "Valid for another minute."
+    return f"Valid for another {mins} min."
+
+
 def _make_handler(decision: str):
     async def _handler(ack, body, action) -> None:
         await ack()
@@ -244,6 +316,10 @@ def _make_handler(decision: str):
             )
             return
 
+        # A click proves this process is the gateway, so this is the authoritative
+        # moment to make sure the published key is ours.
+        _ensure_published()
+
         try:
             result = _record_decision(nonce, decision, user_id)
         except Exception as exc:
@@ -271,7 +347,7 @@ def _make_handler(decision: str):
         if decision == "approve":
             text = (
                 f":white_check_mark: *Approved* — `{verb}` {tier} on `{repo}`\n"
-                f"Approved by <@{user_id}>. Valid until {result.get('expires_at', '?')}."
+                f"Approved by <@{user_id}>. {_valid_for(result.get('expires_at'))}"
             )
         else:
             text = f":x: *Denied* — `{verb}` {tier} on `{repo}`. Denied by <@{user_id}>."

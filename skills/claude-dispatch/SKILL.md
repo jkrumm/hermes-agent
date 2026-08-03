@@ -272,33 +272,29 @@ not a transient error to retry around.
 `merge <job-id>` takes the draft PR an `implement` episode opened, marks it ready
 for review, merges it into the default branch and deletes the branch.
 
-**You do not ask again in words — but the button is still required.** This used to be
-fully autonomous, on the argument that Johannes approved the change when he confirmed
-the `implement`, and that asking twice trains a rubber stamp. That argument holds for
-the *change*; it does not hold for the *diff*, because at implement time the code did
-not exist yet. So the merge approval is deliberately the informative one: its button
-message carries the PR title and link, the branch, the file and line counts and the
-merge method. One click on something he can actually read, not a second interrogation.
+**You may run it on your own judgement** — and that is not a contradiction of the rule
+above, it is the consequence of it: Johannes already approved this change when he
+confirmed the `implement`. Merging is finishing the thing he said yes to, not a second
+decision. Asking again for every PR would train him to rubber-stamp.
 
-Do not narrate it as a fresh decision or re-argue the case in the thread. Post the
-merge plan, let the button do the asking.
+**No button here.** The signed approval gates `dispatch --tier implement`, not `merge`
+— that asymmetry is deliberate. Dispatch is where an unattended episode starts writing
+from a brief that may trace to text you did not author; merge lands a diff he already
+authorized, and the verb re-runs every bound against the current head, pins the head
+SHA on the merge call, and caps itself at 3/day.
 
 It takes a **job id, never a PR number or URL** — it merges only what this bridge
 opened, looked up from the dispatch record. If you find yourself wanting to pass
 a PR link, the answer is no; that PR is not yours to land.
 
 ```bash
-# Step 1 — posts the PR summary with Approve / Deny buttons. Changes nothing,
-# including not un-drafting the PR.
-~/.hermes/scripts/hermes-cc.sh merge <job-id> --why "episode returned high confidence, checks green"
-
-# Step 2 — after Approve is clicked.
-#   ... same command, plus --confirm
+~/.hermes/scripts/hermes-cc.sh merge <job-id> \
+  --why "implement approved in thread; episode returned high confidence, checks green" --confirm
 ```
 
-The approval is bound to the PR's **head SHA**, so a push landing between the click
-and the merge voids it rather than riding it. That is the same property the merge call
-itself has by pinning the SHA — what was approved is one specific tree.
+Run it without `--confirm` first if you want to see the plan — it prints the PR,
+the branch, the merge method and the size, and changes nothing, including not
+un-drafting the PR.
 
 **Merge only when all of these hold.** Otherwise report and stop:
 

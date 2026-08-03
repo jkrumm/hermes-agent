@@ -25,6 +25,8 @@ The cases:
   - editing the brief after approval refuses (the hash binds the payload)
   - editing --why after approval refuses (the button showed that reason)
   - a missing public key refuses rather than falling back to instruction-level
+  - only the gateway publishes a signing key, and a clobbered one is republished
+    before signing (the 2026-08-03 outage, as a test)
 
 Run:
 
@@ -38,6 +40,7 @@ import datetime as dt
 import importlib.util
 import json
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -311,6 +314,55 @@ def test_why_edit_voids_approval(h, approver):
           f"an edited --why must not ride an old approval, got {r.returncode}")
 
 
+def test_only_the_gateway_publishes_its_key(h, approver):
+    """The 2026-08-03 outage, as a test.
+
+    `register()` runs in every process that discovers plugins — a CLI call, a cron
+    subprocess — but only the gateway wires Socket Mode and can therefore ever sign.
+    The first build published unconditionally, so a non-gateway process overwrote the
+    file with a key nothing would ever sign with, and every approved merge afterwards
+    refused as "not clicked yet". Two properties keep that closed: don't publish unless
+    we are the gateway, and republish on the way to signing if the file is not ours.
+    """
+    import importlib
+
+    home = Path(tempfile.mkdtemp(prefix="pubkey-"))
+    env_backup = os.environ.get("HERMES_HOME")
+    os.environ["HERMES_HOME"] = str(home)
+    argv_backup = sys.argv[:]
+    try:
+        # A CLI-shaped process must not publish.
+        sys.argv = ["hermes", "plugins", "list"]
+        mod = importlib.util.module_from_spec(_pspec)
+        _pspec.loader.exec_module(mod)
+        mod._ensure_key()
+        check(not (home / "dispatch-approval.pub").exists(),
+              "a non-gateway process must not publish a signing key")
+        cli_key = mod._PUBLIC_KEY_HEX
+
+        # A gateway-shaped process must.
+        sys.argv = ["hermes", "gateway", "run", "--replace"]
+        gw = importlib.util.module_from_spec(_pspec)
+        _pspec.loader.exec_module(gw)
+        gw._ensure_key()
+        pub = home / "dispatch-approval.pub"
+        check(pub.exists() and pub.read_text().strip() == gw._PUBLIC_KEY_HEX,
+              "the gateway publishes its own key")
+
+        # And if something clobbers it, the next click republishes.
+        pub.write_text(cli_key + "\n")
+        gw._ensure_published()
+        check(pub.read_text().strip() == gw._PUBLIC_KEY_HEX,
+              "a clobbered key is republished by the process that signs")
+    finally:
+        sys.argv = argv_backup
+        if env_backup is None:
+            os.environ.pop("HERMES_HOME", None)
+        else:
+            os.environ["HERMES_HOME"] = env_backup
+        shutil.rmtree(home, ignore_errors=True)
+
+
 def test_missing_pubkey_refuses(h, approver):
     """No plugin, no gateway, no key — the verb refuses rather than degrading to the
     instruction-level flag it replaced."""
@@ -338,6 +390,7 @@ CASES = [
     test_approval_is_single_use,
     test_brief_edit_voids_approval,
     test_why_edit_voids_approval,
+    test_only_the_gateway_publishes_its_key,
     test_missing_pubkey_refuses,
 ]
 

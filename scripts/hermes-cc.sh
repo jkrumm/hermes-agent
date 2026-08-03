@@ -893,7 +893,7 @@ conn.execute(
 )
 ' || precond_err "could not record the approval request in $DB_PATH"
 
-  post_approval_buttons "$nonce" "$verb" "$repo" "$tier" "$ORIGIN_CHANNEL" "$WHY" "$APPROVAL_DETAIL"
+  post_approval_buttons "$nonce" "$verb" "$repo" "$tier" "$ORIGIN_CHANNEL" "$WHY"
   printf '%s' "$nonce"
 }
 
@@ -975,9 +975,6 @@ print("pending"); sys.exit(0)
 }
 
 APPROVED_BY=""
-# Optional extra line for the approval message, set by a verb that has something worth
-# showing before the click. Reset by every caller that does not.
-APPROVAL_DETAIL=""
 
 record_dispatch() {
   JOB_ID="$1" R_TIER="$TIER" R_REPO="$2" R_BRIEF="$BRIEF" R_WHY="$WHY" \
@@ -1536,24 +1533,17 @@ print(",".join(bad))
     || policy_err "$owner/$repo allows no merge method this verb can use (squash, rebase, merge commit all disabled)."
 
   # --- the gate --------------------------------------------------------------
-  # The approval binds the HEAD SHA, not just the job id. That is the same property
-  # the merge call itself has by pinning the SHA: a push landing between the click and
-  # the merge voids the approval rather than riding it. What was approved is one
-  # specific tree, not "whatever this branch says later".
-  local merge_payload="${job_id}@${pr_head_sha}"
+  # NOT gated on a signed approval, deliberately (owner decision, restored 2026-08-03).
+  # Johannes approved the change when he confirmed the `implement`; merging is finishing
+  # the thing he said yes to. A second click per PR trains a rubber stamp, which is worth
+  # less than the bounds this verb already carries — job-id lookup rather than a PR
+  # number, every implement-time check re-run against the current head, a pinned head SHA
+  # on the merge call itself, and its own 3/day ceiling.
   if [ "$CONFIRM" != 1 ]; then PLANNED=1; fi
   if [ "$DRY_RUN" = 1 ] || [ "$CONFIRM" != 1 ]; then
-    if [ "$CONFIRM" != 1 ] && [ "$DRY_RUN" != 1 ]; then
-      APPROVAL_DETAIL="*<https://github.com/$owner/$repo/pull/$pr|#$pr — $pr_title>*
-\`$pr_head\` → \`$pr_base\` · $pr_files file(s), $lines line(s) · $method"
-      mint_approval "merge" "$owner/$repo" "pr#$pr" "$merge_payload" "$WHY" >/dev/null
-      APPROVAL_DETAIL=""
-    fi
     emit_merge_plan "$owner/$repo" "$pr" "$pr_title" "$pr_head" "$pr_base" "$method" "$pr_files" "$lines"
     return 0
   fi
-
-  require_signed_approval "merge" "$owner/$repo" "pr#$pr" "$merge_payload" "$WHY"
 
   # --- land it ---------------------------------------------------------------
   # Ready-for-review first: a draft cannot be merged, and this is the step that

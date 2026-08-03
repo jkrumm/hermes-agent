@@ -156,6 +156,18 @@ Design: `docs/dispatch-bridge.md`. The episode itself is sideclaw's `dispatch` j
   reason the button showed, voids it — plus single-use and a 30-minute TTL. **Fails closed
   everywhere**: no plugin, no key, no gateway, expired, spent, or hash mismatch all refuse.
   A gateway restart mints a new key and so voids pending approvals, deliberately.
+  **Only the gateway may publish the public key, and this is the one thing that has
+  already broken.** `register()` runs in every process that discovers plugins — a CLI
+  call, a cron subprocess — and the first build published unconditionally, so a
+  non-gateway process overwrote the file with a key nothing would ever sign with. The
+  symptom is maximally confusing: the click works, the row carries a valid signature,
+  and `--confirm` still refuses as *"has not been clicked yet"*. Two properties close
+  it, both tested: publish only when argv says `gateway run`, and republish on the way
+  to signing whenever the file on disk is not ours (a process handling a click **is**
+  the gateway, whatever its argv looks like). If a merge or dispatch ever refuses
+  despite a visible Approve in Slack, check `grep 'published public key'` against
+  `Wired 2 plugin action handler` in `~/.hermes/logs/agent.log` — a publish with no
+  matching wire line is this bug.
   Enable once with `hermes plugins enable dispatch-approval`; `make setup` symlinks it
   (`HERMES_PLUGINS`), and it must live in this repo for the same durability reason skills do.
 - **Structural ceilings, because `--max-budget-usd` is API-only and does not cap a Max
@@ -189,13 +201,15 @@ Design: `docs/dispatch-bridge.md`. The episode itself is sideclaw's `dispatch` j
   (`hermes-cc.sh`'s `sync_record` and `dispatch-sweep.py`) — whichever one closes a given
   dispatch has to leave the row in the same shape, and the briefing/watchdog projections want
   a column read, not a JSON parse.
-- **`merge` now needs the button too (2026-08-03), reversing half of the decision below.**
-  The original argument — Johannes approved the change at `implement`, so asking again
-  trains a rubber stamp — holds for the *change* and not for the *diff*, which did not
-  exist when he approved. So the merge approval is the **informative** one: its button
-  message carries the PR title and link, branch, file/line counts and merge method, and
-  the approval is bound to the **head SHA**, so a push between click and merge voids it
-  rather than riding it. Everything else below still stands.
+- **`merge` is deliberately NOT gated on the signed approval.** It was, for about an
+  hour on 2026-08-03, on the argument that the implement approval covers the *change*
+  and not the *diff* — which did not exist yet when it was approved. Reverted the same
+  day (owner decision): a second click per PR trains the rubber stamp this file already
+  warned about, and it buys little against the bounds the verb already carries — job-id
+  lookup rather than a PR number, every implement-time check re-run against the current
+  head, a pinned head SHA on the merge call itself, and its own 3/day ceiling. Gating
+  `dispatch` is what earns its keep, because that is where an unattended episode starts
+  writing from a brief that may trace to third-party text.
 - **`merge <job-id>` lands the draft PR, with no human on GitHub (owner decision, 2026-08-02).**
   It inverts a statement sideclaw's `openPullRequest` makes in a comment — "un-drafting is not
   something the episode can do for itself" — so the bounds carry the weight the human used to.
