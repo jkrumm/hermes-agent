@@ -209,10 +209,16 @@ Design: `docs/dispatch-bridge.md`. The episode itself is sideclaw's `dispatch` j
   never a real one of either), `tests/test_raw_agent_guard.py` and
   `tests/test_repo_write_guard.py` (the guard that makes the bridge non-optional). Run with `~/.hermes/hermes-agent/venv/bin/python3`.
   **The other half of the bridge is tested in sideclaw**, which had no suite at all until
-  2026-08-03: `sideclaw/tests/` (`bun test`, 117 cases) covers the bounds this side cannot
+  2026-08-03: `sideclaw/tests/` (`bun test`, 175 cases) covers the bounds this side cannot
   reach — worktree isolation and its post-crash sweep, the diff-refusal ladder, the added-lines
-  secret scan, and `pushBranch`'s four refusals against a local bare `origin` rather than a
-  mock. It is mutation-verified; `sideclaw/CLAUDE.md` § "Tests" says how and why.
+  secret scan, `pushBranch`'s four refusals against a local bare `origin` rather than a mock,
+  the nonce fence around the untrusted brief, the salvage discrimination, and the worker's CLI
+  flag vector. It is mutation-verified; `sideclaw/CLAUDE.md` § "Tests" says how and why.
+  **Also fixed there on 2026-08-03: a dispatched repo could execute code in its own episode**
+  — a `.claude/settings.json` in the target repo ran hooks (before the model's first turn, and
+  on every Bash call) and its `env` block overrode the handler's environment, `GIT_DENY_CREDENTIALS_ENV`
+  included. Both closed in sideclaw; `docs/dispatch-bridge.md` § "Verified live" records the
+  end-to-end proof against a hostile fixture.
 
 > **The GitHub credential is `op://mini/github/token`, and it needs three permissions.**
 > `Contents: write` (the branch push, via the git credential helper) **plus** `Issues: write`

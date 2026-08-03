@@ -435,3 +435,15 @@ and a push attempt under the worker's own env failing in under a second.
   **06:40:47**, six seconds later. The nudge carried repo, PR URL, tier and job id and
   **no episode-authored prose** — the boundary the sentinel test pins, holding in
   production.
+- **A dispatched repo can no longer run code in its own episode.** Found by asking what
+  `settingSources: "user,project"` actually loads, and measured rather than reasoned: a
+  `.claude/settings.json` in the target repo executed a `SessionStart` hook *before the model
+  took a turn* and a `PreToolUse` hook on the worker's first Bash call, and its `env` block
+  overrode the handler-supplied environment — including `GIT_DENY_CREDENTIALS_ENV`, the
+  overlay that takes git's push credential away from every tier. Both closed in sideclaw
+  (`--settings '{"disableAllHooks":true}'` on every worker; the file stripped from the
+  throwaway worktree and restored from the pinned base before any commit). Verified end to
+  end against a deliberately hostile `.claude/settings.json` now standing in
+  `jkrumm/dispatch-scratch`: an `investigate` and an `implement` episode both ran clean, the
+  hook canary at `/tmp/dispatch-hook-canary` stayed **absent** in both, the resulting pull
+  request touched `README.md` only, and the fixture survived on the branch byte-identical.
