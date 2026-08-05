@@ -94,7 +94,16 @@ level needs its `index.md`. `Areas/Gaming/Wild Rift.md` is light-linted
 (dead-link check only).
 
 **No escaped pipes inside table cells.** `[[note\|Alias]]` in a markdown table
-fails the linter's wikilink parser. Put aliased links outside the table.
+fails the linter's wikilink parser. Put aliased links outside the table, or use
+a plain bold name in the cell.
+
+**Stats live in two places — update both.** Each champion note carries its
+numbers in frontmatter (`winRate`, `pickRate`, `banRate`, `statDate`) *and* in
+its per-rank table; the summary row for that champion is in
+`Areas/Gaming/Wild Rift.md`. If you refresh stats, update all three. (A
+Dataview block would remove this dual-write, but it was deliberately not used —
+it doesn't render outside Obsidian, which matters for the planned phone
+read-access.)
 
 **Validate — 0 errors required:**
 ```bash
