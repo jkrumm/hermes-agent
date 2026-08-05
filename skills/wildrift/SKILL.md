@@ -27,11 +27,16 @@ builds, bans and matchups is this skill's job.
 |-|-|
 | `Areas/Gaming/Wild Rift.md` | Draft cheat sheet — pool table, ban rules, fallbacks |
 | `wiki/gaming/wildrift/index.md` | MOC + how to read the numbers |
-| `wiki/gaming/wildrift/thresh.md` | Thresh — build, runes, matchups, ban note |
+| `wiki/gaming/wildrift/thresh.md` | Thresh — what he does, why each item, situational buys, matchups, ban note |
 | `wiki/gaming/wildrift/pyke.md` | Pyke — same shape |
 | `wiki/gaming/wildrift/rammus.md` | Rammus — same shape |
 | `wiki/gaming/wildrift/hecarim.md` | Hecarim — same shape |
-| `wiki/gaming/wildrift/items.md` | Patch 7.2 item system + situational buy table |
+| `wiki/gaming/wildrift/items.md` | 7.2 item system — boot tiers, component-first buying, healing reduction |
+| `wiki/gaming/wildrift/sourcing.md` | Which sources are current vs stale, the rank buckets, where the pros are |
+
+Each champion note has a **Why these items** table giving the mechanism behind
+every core buy. Prefer quoting that over the win rate — mechanism survives a
+patch, a tier list doesn't.
 
 All paths are relative to `~/SourceRoot/brain/`.
 
@@ -41,12 +46,18 @@ All paths are relative to `~/SourceRoot/brain/`.
   not for matches, not for anything. CN Diamond+ aggregate data is the only
   objective source that exists, and every third-party site resells it. Never
   claim a "global" win rate; there isn't one.
-- **Rank level changes everything.** Rank tiers are an ordinal `0..4`,
-  ascending in skill. The same champion swings hard across it: **Hecarim is
-  ~45% win rate at tier 0 and ~53.7% at tier 4.** Always qualify advice by rank
-  tier. Default to tier 2 unless Johannes names one.
-- **The precise CN tier names are not documented.** Don't put a name like
-  "Diamond" or "Challenger" on a rank level — only the ordering is verified.
+- **No build data exists anywhere.** The CN feed carries champion win/pick/ban
+  rates and *nothing else* — no items, no runes, no skill orders. Every build
+  page (including the vault notes) is editorial judgement, not measurement. Say
+  so if asked where a build comes from.
+- **Rank tiers, from Tencent's own page:** `钻石以上` Diamond+, `大师以上`
+  Master+, `王者` Sovereign, `峡谷之巅` Rift Summit. The notes quote **Master+**
+  by default. A fifth bucket exists in the API and is discarded by Riot's own
+  frontend — never quote it.
+- **There is no low-elo data at all.** The floor is Diamond. If asked how a
+  champion does below that, say plainly that nobody measures it.
+- **Rank still changes the answer.** Hecarim runs ~48% at Diamond+ and ~53.7%
+  at Rift Summit, with ban rate 8.6% → 36.7%. Qualify advice by tier.
 - **`strengthLevel` is Tencent's grade, lower is better**, and it blends win
   rate with play rate. Rammus at grade 4 on a 55% win rate is the proof — it's
   punishing his low pick rate, not his strength. Don't quote it as power.
@@ -61,7 +72,7 @@ All paths are relative to `~/SourceRoot/brain/`.
 | Thresh | `10130` | Support | Flat ~51% at every rank — the safe main |
 | Pyke | `10124` | Support | Almost never banned (<3%); rewards mechanics |
 | Rammus | `10064` | Jungle | Best win rate in the pool; counterpick, not blind pick |
-| Hecarim | `10019` | Jungle | Hard skill check — 45% low rank, 54% high |
+| Hecarim | `10019` | Jungle | Rewards mastery — 48% Diamond+, 54% Rift Summit |
 
 Position codes, if a number ever carries one: `1=mid, 2=baron, 3=dragon,
 4=support, 5=jungle`.
