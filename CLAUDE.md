@@ -31,7 +31,7 @@ tailnet.
 | `hooks/` | `~/.hermes/hooks/` | symlink — add hooks here |
 | `plugins/{name}/` | `~/.hermes/plugins/{name}/` | symlink per plugin — actual dir is `dispatch-approval` (the Ed25519 signer behind the dispatch bridge's approval buttons). **`HERMES_PLUGINS` in the Makefile is the source of truth.** A plugin also has to be enabled once (`hermes plugins enable <name>`, recorded under `plugins.enabled` in `config.yaml`); the symlink alone does nothing. Same durability argument as skills — a plugin living only under `~/.hermes/` is unreviewable state one `hermes update` away from surprise. |
 | `config/` | `~/.hermes/config/` | symlink — tracked agent-facing config. Today just `dispatch-repos.json`, the dispatch policy `hermes-cc.sh` resolves a repo against — root, `deny` list, default tier and per-repo ceilings. It decides what an unattended episode may do, so it is deliberately in git and not runtime state. |
-| `skills/{name}/` | `~/.hermes/skills/{name}/` | symlink per skill — actual dirs are `capture`, `argo-api`, `work`, `karakeep`, `obsidian`, `reading`, `research-gateway`, `image-delivery`, `homelab-ops`, `homelab`, `briefing-tts`, `claude-dispatch` (the former infrastructure/schedule/slack/tasks/weather/garmin-health/strength skills were consolidated into `argo-api/references/*.md` — now incl. `walking-pad.md`; they are no longer separate dirs and were dropped from `HERMES_SKILLS`). **`HERMES_SKILLS` in the Makefile is the source of truth — this list must match it.** |
+| `skills/{name}/` | `~/.hermes/skills/{name}/` | symlink per skill — actual dirs are `capture`, `argo-api`, `work`, `karakeep`, `obsidian`, `reading`, `wildrift`, `research-gateway`, `image-delivery`, `homelab-ops`, `homelab`, `briefing-tts`, `claude-dispatch` (the former infrastructure/schedule/slack/tasks/weather/garmin-health/strength skills were consolidated into `argo-api/references/*.md` — now incl. `walking-pad.md`; they are no longer separate dirs and were dropped from `HERMES_SKILLS`). **`HERMES_SKILLS` in the Makefile is the source of truth — this list must match it.** |
 | `USER.md` | `~/.hermes/memories/USER.md` | copied — Hermes writes to it |
 
 > **Skill trust (v0.16.0+).** Skills are symlinked into `~/.hermes/skills/`, but v0.16.0's skill-security check resolves each skill's *realpath* and warns — and may later **block** — when it lands outside a trusted dir (our symlink targets do). `config.yaml` therefore sets `skills.external_dirs: [~/SourceRoot/hermes-agent/skills]` so the resolved realpath is trusted. The symlink and the external entry resolve to the same path, which `skills_tool` dedups (by realpath on load, by name on listing) — no duplicate-skill collisions. If a future update reintroduces the "skill file is outside the trusted skills directory" warning, confirm this key is still populated.
@@ -485,6 +485,31 @@ Two skills make Hermes the front door to Johannes's second brain. Roles are deli
 **Bundled-skill collision (obsidian).** Upstream ships a stock bundled `obsidian` skill (generic, filesystem-first) listed in `.bundled_manifest`. Our local `obsidian` (symlinked from this repo) has the same name; the stock one was removed from `~/.hermes/skills/note-taking/obsidian/` so ours is canonical. It **re-seeds on `hermes update`** — `/hermes-update` carries the `rm -rf ~/.hermes/skills/note-taking/obsidian` reconciliation step. In `hermes skills list` ours may show source `builtin` (name is in the manifest) — cosmetic; an empty *category* column confirms the top-level symlink (ours) is loaded.
 
 **Kobo / e-reader (planned, Phase 4).** Reading selected vault notes on the Kobo via KOReader will use **Readeck** (single Go binary; `iceyear/readeck.koplugin` does bidirectional highlight + progress sync; OPDS at `/opds`) as a dedicated reading surface — *not* KaraKeep (its koplugin is save-only) and *not* Wallabag (no highlight sync-back). Hermes will push curated Obsidian/KaraKeep content into Readeck and pull highlights back to Obsidian. Not built yet.
+
+## Wild Rift (champion pool tracker)
+
+`skills/wildrift/SKILL.md` answers and maintains Johannes's four-champion Wild Rift pool —
+Thresh, Pyke (support), Rammus, Hecarim (jungle). **Vault-first:** builds, runes, matchup
+tables, ban notes and a dated stats snapshot all live at
+`~/SourceRoot/brain/wiki/gaming/wildrift/{index,thresh,pyke,rammus,hecarim,items}.md` plus the
+human draft surface `Areas/Gaming/Wild Rift.md`. Reads answer from the notes; the open web
+(via `research-gateway`) is only for *refreshing* a note when a patch has moved. No secret,
+no external API. Vault writes follow the `obsidian` skill's CLI-first/filesystem-fallback
+contract and the same `git -C ~/SourceRoot/brain …` commit exemption other second-brain
+writes use (never push — the LaunchAgent syncs).
+
+**Why never a build site directly:** tirith's trusted-pipeline hosts
+(`_ALLOWED_PIPELINE_HOSTS`) and the cron scanner's `_trusted_api_suffixes` allowlist exactly
+`argo.jkrumm.com`, `karakeep.jkrumm.com`, `research.jkrumm.com` — no Tencent/Riot/build-site
+host is trusted, so every web fetch routes through `research-gateway`. **Stats are
+China-server only** (Riot publishes no Wild Rift API at all) and swing hard by rank tier
+(ordinal 0-4) — Hecarim runs ~45% win rate at tier 0 vs ~53.7% at tier 4 — so every answer
+must be qualified by rank.
+
+An Argo `/wildrift/*` endpoint group (daily CN ingest, `/champions`, `/bans`, `/diff`,
+`/sync`) is **built but not deployed**; the skill documents it as a future upgrade and
+explicitly tells the agent not to call it. Shipping it would replace the dated snapshot with
+a live feed and make patch diffs real rather than a research call.
 
 ## Local Modifications to Upstream
 
