@@ -104,9 +104,16 @@ to this vault too.
 level needs its `index.md`. `Areas/Gaming/Wild Rift.md` is light-linted
 (dead-link check only).
 
-**No escaped pipes inside table cells.** `[[note\|Alias]]` in a markdown table
-fails the linter's wikilink parser. Put aliased links outside the table, or use
-a plain bold name in the cell.
+**Two opposite pipe rules — both bite silently.** A `|` inside a table cell is a
+column separator, so:
+
+| Construct | In a table cell | Why |
+|-|-|-|
+| Aliased wikilink | **Don't use it.** `[[note\|Alias]]` | Even escaped, it fails the vault linter's wikilink parser. Use a plain bold name and link outside the table |
+| Sized image | **Must escape:** `![\|28](url)` | Unescaped `![\|28]` splits the cell — the image vanishes and the table silently gains a phantom column |
+
+Both failures are invisible in the diff and only show up when the note renders.
+Check a table by rendering it, not by reading it.
 
 **Stats live in two places — update both.** Each champion note carries its
 numbers in frontmatter (`winRate`, `pickRate`, `banRate`, `statDate`) *and* in
@@ -121,12 +128,21 @@ read-access.)
 node ~/SourceRoot/brain/.scripts/vault-lint.mjs
 ```
 
-**Icons are remote, never local.** Item and rune icons are
-`https://img.jkrumm.com/blog/wildrift/{items,runes,spells}/<slug>.webp` URLs
-already embedded in the notes. The slug is the item name lowercased with all
-non-letters stripped — `Dead Man's Plate` → `deadmansplate`. Render with a
-transform prefix and **`f:png`** to keep transparency:
-`https://img.jkrumm.com/rs:fit:40/f:png/blog/wildrift/items/thornmail.webp`.
+**Icons are remote, never local.** Item, rune, spell and champion art live at
+`https://img.jkrumm.com/blog/wildrift/{items,runes,spells,champions}/<slug>.webp`.
+The slug is the item name lowercased with all non-letters stripped —
+`Dead Man's Plate` → `deadmansplate`. Use the full name: `tearofthegoddess`, not
+`tear`.
+
+Request **one rendition per icon** and size in Obsidian, rather than minting a
+CDN variant per display size:
+
+```
+![\|28](https://img.jkrumm.com/rs:fit:96/f:png/blog/wildrift/items/thornmail.webp)
+```
+
+`rs:fit:96` for icons, `rs:fit:144` for champion art. **`f:png` is required** —
+the CDN defaults to JPEG, which turns icon transparency into a black box.
 **Never download an image into the vault.** If a build gains an item with no
 mirrored icon, write the item name as plain text and say so in the reply — do
 not invent a URL, it will 404 silently.
