@@ -491,8 +491,8 @@ Two skills make Hermes the front door to Johannes's second brain. Roles are deli
 `skills/wildrift/SKILL.md` answers and maintains Johannes's four-champion Wild Rift pool —
 Thresh, Pyke (support), Rammus, Hecarim (jungle). **Vault-first:** builds, runes, matchup
 tables, ban notes and a dated stats snapshot all live at
-`~/SourceRoot/brain/wiki/gaming/wildrift/{index,thresh,pyke,rammus,hecarim,items}.md` plus the
-human draft surface `Areas/Gaming/Wild Rift.md`. Reads answer from the notes; the open web
+`~/SourceRoot/brain/Areas/Gaming/Wild Rift/{Wild Rift,Thresh,Pyke,Rammus,Hecarim,Items,Sourcing}.md`
+— the curated human surface, not `wiki/`. Reads answer from the notes; the open web
 (via `research-gateway`) is only for *refreshing* a note when a patch has moved. No secret,
 no external API. Vault writes follow the `obsidian` skill's CLI-first/filesystem-fallback
 contract and the same `git -C ~/SourceRoot/brain …` commit exemption other second-brain

@@ -23,16 +23,18 @@ builds, bans and matchups is this skill's job.
 
 ## Where everything lives
 
+Everything lives in **`Areas/Gaming/Wild Rift/`** — the curated human surface,
+not `wiki/`. These are pages Johannes reads directly.
+
 | Note | Holds |
 |-|-|
-| `Areas/Gaming/Wild Rift.md` | Draft cheat sheet — pool table, ban rules, fallbacks |
-| `wiki/gaming/wildrift/index.md` | MOC + how to read the numbers |
-| `wiki/gaming/wildrift/thresh.md` | Thresh — what he does, why each item, situational buys, matchups, ban note |
-| `wiki/gaming/wildrift/pyke.md` | Pyke — same shape |
-| `wiki/gaming/wildrift/rammus.md` | Rammus — same shape |
-| `wiki/gaming/wildrift/hecarim.md` | Hecarim — same shape |
-| `wiki/gaming/wildrift/items.md` | 7.2 item system — boot tiers, component-first buying, healing reduction |
-| `wiki/gaming/wildrift/sourcing.md` | Which sources are current vs stale, the rank buckets, where the pros are |
+| `Wild Rift.md` | Folder note — draft cheat sheet: pool table, ban rules, fallbacks |
+| `Thresh.md` | Thresh — what he does, why each item, situational buys, matchups, ban note |
+| `Pyke.md` | Pyke — same shape |
+| `Rammus.md` | Rammus — same shape |
+| `Hecarim.md` | Hecarim — same shape |
+| `Items.md` | 7.2 item system — boot tiers, component-first buying, healing reduction |
+| `Sourcing.md` | Which sources are current vs stale, the rank buckets, where the pros are |
 
 Each champion note has a **Why these items** table giving the mechanism behind
 every core buy. Prefer quoting that over the win rate — mechanism survives a
@@ -99,10 +101,12 @@ Obsidian.app is down. Load `skills/obsidian/SKILL.md` before writing.
 **Pull before writing** — `git -C ~/SourceRoot/brain pull`. The MacBook writes
 to this vault too.
 
-**`wiki/` is strict-linted.** Every note under `wiki/gaming/wildrift/` needs
-`type` + `description` frontmatter, every `[[wikilink]]` must resolve, and each
-level needs its `index.md`. `Areas/Gaming/Wild Rift.md` is light-linted
-(dead-link check only).
+**These are curated pages, so lint is light** — dead links only, no forced
+`type`/`description`. **One exception applies here:** the four champion notes
+declare `type: champion`, and the lint enforces that any note declaring it keeps
+`patch`, `statDate` and `heroId`. Those are the keys you read; dropping one on a
+refresh is an error, not a warning. Preserve the whole frontmatter block when
+rewriting a section.
 
 **Two opposite pipe rules — both bite silently.** A `|` inside a table cell is a
 column separator, so:
@@ -118,7 +122,7 @@ Check a table by rendering it, not by reading it.
 **Stats live in two places — update both.** Each champion note carries its
 numbers in frontmatter (`winRate`, `pickRate`, `banRate`, `statDate`) *and* in
 its per-rank table; the summary row for that champion is in
-`Areas/Gaming/Wild Rift.md`. If you refresh stats, update all three. (A
+`Areas/Gaming/Wild Rift/Wild Rift.md`. If you refresh stats, update all three. (A
 Dataview block would remove this dual-write, but it was deliberately not used —
 it doesn't render outside Obsidian, which matters for the planned phone
 read-access.)
@@ -159,7 +163,7 @@ git -C ~/SourceRoot/brain commit -m "wildrift: refresh Hecarim build (patch 7.2b
 
 ### "what should I ban?" / "was soll ich bannen"
 
-Read-only, answer from the vault. `Areas/Gaming/Wild Rift.md` has the draft
+Read-only, answer from the vault. `Areas/Gaming/Wild Rift/Wild Rift.md` has the draft
 rules; the per-champion notes have the counter tables. The short version, which
 you should still verify against the notes rather than reciting from here:
 Morgana covers both supports, Olaf is the Rammus ban, Poppy is the Hecarim ban.
@@ -177,7 +181,7 @@ say plainly that you're going outside the notes.
 
 ### "refresh my `<champ>` build" / "baue mir den X build neu"
 
-1. Read the note: `obsidian read path="wiki/gaming/wildrift/<champ>.md"`. Note
+1. Read the note: `obsidian read path="Areas/Gaming/Wild Rift/<Champ>.md"`. Note
    its `patch:` frontmatter field.
 2. Establish the current patch via `research-gateway`. If it matches the note,
    say so and stop — don't churn the vault for nothing.
