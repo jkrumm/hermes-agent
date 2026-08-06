@@ -81,18 +81,10 @@ argument is in `Draft Guide.md` — read it rather than reciting this paragraph.
   not for matches, not for anything. CN Diamond+ aggregate data is the only
   objective source that exists, and every third-party site resells it. Never
   claim a "global" win rate; there isn't one.
-- **Know which layer a claim comes from.** `Sourcing.md` has the table; the
-  short version:
-
-  | Layer | Status |
-  |-|-|
-  | Win / pick / ban rates | **Measured** — the Tencent CN feed |
-  | Item stats, costs, passives | **Factual** — Riot patch notes |
-  | Build order, situational buys, matchups | **Editorial** — somebody's judgement |
-
-  Say so if asked where a build comes from. The single exception is
-  **wrchina.gg**, which reads item and rune sets off the CN top-player
-  leaderboard — when a note quotes a per-build win rate, that is the source.
+- **Know which layer a claim comes from.** Win/pick/ban rates are **measured**;
+  item stats and costs are **factual**; build order, situational buys and
+  matchup reads are **editorial** — somebody's judgement. Say so if asked where
+  a build comes from. `Sourcing.md` has the full table and the exceptions.
 - **Rank tiers, from Tencent's own page:** `钻石以上` Diamond+, `大师以上`
   Master+, `王者` Sovereign, `峡谷之巅` Rift Summit. The notes quote **Master+**
   by default. A fifth bucket exists in the API and is discarded by Riot's own
@@ -148,19 +140,10 @@ it's the thing that decides whether a note is stale.
 
 ## Item and rune data — where to look it up
 
-For "what does item X actually do" or "what does it cost", in order:
-
-1. **`Sourcing.md`** first — it names the current sources and their gaps.
-2. **`items_7_2b.yml`** in `changchiyou/wildrift-gold-efficiency` on GitHub —
-   patch-versioned item table with typed stats, gold cost, passive names and
-   gold efficiency. Its per-item `image` URLs are **not** trustworthy.
-3. **`wiki.leagueoflegends.com`**, `Module:WRItemData/data` — full mechanics
-   prose. It has **not** done the 7.2 enchant→item migration, so every tier-3
-   boot and ex-enchant is missing from it. Note the host: the
-   `leagueoflegends.fandom.com` mirror has the same page name and is ten months
-   stale.
-
-Reach all three through `research-gateway`, not a direct fetch.
+**Read `Sourcing.md`.** It carries the current source list, which one is
+authoritative for what, and the gaps in each — that note is maintained, this
+skill would go stale. Reach anything it names through `research-gateway`, never
+a direct fetch.
 
 ## Writing to the vault
 
@@ -236,23 +219,25 @@ git -C ~/SourceRoot/brain commit -m "wildrift: refresh Hecarim build (patch 7.2b
 
 ## You cannot dispatch a Claude Code episode at the vault
 
-`brain` is on the **deny** list in `config/dispatch-repos.json`, alongside
-`dotfiles-private` and `homelab-private`. `claude-dispatch` will refuse it at
-every tier and that refusal is deliberate — do not offer to "add it".
+`brain` is on the **deny** list in `config/dispatch-repos.json`. `claude-dispatch`
+refuses it at every tier — do not offer to "add it".
 
-Two reasons worth knowing, so you can explain rather than just refuse:
+Claude Code genuinely is better at vault writes than you are: it loads the
+repo's rules, runs the lint, and can mirror icons to the CDN. So the refusal is
+not about capability, and saying it is would be wrong. It is about two things:
 
-- The vault is the store you read your own answers back out of. An episode
-  driven by a brief assembled from Slack text could rewrite it, and you would
-  then quote the result as fact.
-- `implement` ends in a **draft PR**, and the vault is direct-to-master with a
-  five-minute sync LaunchAgent. The artifact would be the wrong shape even if
-  the tier were allowed.
+- **`implement` ends in a draft PR.** The vault is direct-to-master with a
+  five-minute sync LaunchAgent, so the artifact is the wrong shape here — the
+  tier doesn't fit the repo even setting trust aside.
+- **A bad vault write is quiet.** In a code repo a wrong change shows up in a
+  diff, a PR and CI. Here it becomes a sentence in a note that you later read
+  back and quote as fact, with nothing to contradict it.
 
-So a big patch migration — new champions, a rebuilt guide, new CDN icons — is
-**Johannes's own Claude Code session working inside `brain`**, not something you
-hand off. The repo carries a `wildrift-refresh` skill for exactly that. Your
-lane is answering from the notes and doing bounded refreshes yourself.
+**What to do instead when a refresh is too big for you:** say so, and say what
+it needs. A patch that moves most of the pool wants Johannes's own Claude Code
+session in `brain`, where the `wildrift-refresh` skill carries the procedure.
+Telling him "7.3 landed, eleven notes are stale, this needs a session" is a
+useful answer, not a failure.
 
 ## Workflows
 
