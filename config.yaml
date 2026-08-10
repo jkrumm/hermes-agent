@@ -1,6 +1,6 @@
 model:
   provider: custom
-  default: DeepSeek-V4-Flash
+  default: gpt-5.6-luna
   api_key: ${OPENAI_API_KEY}
   base_url: ${OPENAI_BASE_URL}
   api_mode: chat_completions
@@ -138,14 +138,14 @@ auxiliary:
     download_timeout: 30
   web_extract:
     provider: custom
-    model: DeepSeek-V4-Flash
+    model: gpt-5.6-luna
     base_url: ${OPENAI_BASE_URL}
     api_key: ${OPENAI_API_KEY}
     timeout: 360
     context_length: 200000
   compression:
     provider: custom
-    model: DeepSeek-V4-Flash
+    model: gpt-5.6-luna
     base_url: ${OPENAI_BASE_URL}
     api_key: ${OPENAI_API_KEY}
     timeout: 120
@@ -159,7 +159,7 @@ auxiliary:
     timeout: 30
   approval:
     provider: custom
-    model: DeepSeek-V4-Flash
+    model: gpt-5.6-luna
     base_url: ${OPENAI_BASE_URL}
     api_key: ${OPENAI_API_KEY}
     timeout: 30
@@ -173,7 +173,7 @@ auxiliary:
     timeout: 30
   title_generation:
     provider: custom
-    model: DeepSeek-V4-Flash
+    model: gpt-5.6-luna
     base_url: ${OPENAI_BASE_URL}
     api_key: ${OPENAI_API_KEY}
     timeout: 30

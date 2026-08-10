@@ -171,7 +171,7 @@ is a `skills_list`.
 - 404 on guessed API paths → skill SKILL.md missing or not loaded
 - An auxiliary model 404/`not found` (title generation, compression) → non-blocking, but
   check the model name in `config.yaml` still exists on the endpoint. Auxiliaries are
-  `DeepSeek-V4-Flash`; any log line naming a `gpt-*` auxiliary is stale config, not a bug.
+  `gpt-5.6-luna`; any log line naming `DeepSeek-V4-Flash` is stale config, not a bug.
 - `Command Approval Required` / `blocked` on a routine argo curl → a tirith patch didn't
   re-apply; see the `hermes-update` skill.
 

@@ -1,6 +1,6 @@
 # Hermes Agent — Mac Mini M2 Pro
 
-Personal AI assistant running 24/7 on Mac Mini. Slack as interface, DeepSeek-V4-Flash as brain (EU; `claude-sonnet-4-6-eu` failover), eleven skill domains (`HERMES_SKILLS` in the Makefile is the count).
+Personal AI assistant running 24/7 on Mac Mini. Slack as interface, gpt-5.6-luna as brain (EU; `claude-sonnet-4-6-eu` failover), eleven skill domains (`HERMES_SKILLS` in the Makefile is the count).
 
 **Hermes docs**: https://hermes-agent.nousresearch.com/docs/
 
@@ -16,7 +16,7 @@ Mac Mini M2 Pro — Hermes Agent (always-on)
   │     STT: gpt-4o-transcribe (German/English steered).
   ├→ Homelab — Docker containers, CouchDB, backups (via Tailscale)
   ├→ VPS — Production apps, ClickStack (via Tailscale)
-  ├→ IU unified endpoint — DeepSeek-V4-Flash (primary + auxiliaries, OpenAI-compat, EU; claude-sonnet-4-6-eu failover)
+  ├→ IU unified endpoint — gpt-5.6-luna (primary + auxiliaries, OpenAI-compat, EU; claude-sonnet-4-6-eu failover)
   └→ Google AI Studio (direct, own key) — gemini-2.5-flash (vision)
 ```
 
@@ -170,7 +170,7 @@ tail -20 ~/.hermes/logs/gateway.log  # watch for successful Slack connection
 
 ### 9. Verify
 
-- [x] Send message in `#hermes` on Slack — get response via DeepSeek-V4-Flash
+- [x] Send message in `#hermes` on Slack — get response via gpt-5.6-luna
 - [x] Send voice memo in Slack — get transcribed via audio-gateway (`gpt-4o-transcribe`)
 - [x] TTS audio generation — Gemini Charon via audio-gateway, MP3 output
 - [x] Backup agent — daily 03:00 rsync to `homelab:/mnt/hdd/backups/hermes/`, pings UK

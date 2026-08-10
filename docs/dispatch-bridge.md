@@ -14,7 +14,7 @@ in this document follows from that split.
 Hermes finds things — a red monitor, an OTEL error burst, a stray skill, a GitHub
 issue going stale. It routes them well (`capture` already decides GitHub-issue vs
 TickTick correctly). Then it stops, because triage needs to *read the repo* and
-DeepSeek-V4-Flash with a `terminal` tool is the wrong instrument for that. Today
+gpt-5.6-luna with a `terminal` tool is the wrong instrument for that. Today
 the loop closes only when Johannes opens Claude Code by hand.
 
 The capability gap is not intelligence, it is **context**. Every repo on the mini

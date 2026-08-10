@@ -78,7 +78,7 @@ the check is quiet and the target is only needed if a legacy line ever reappears
 
 ## Dispatch Bridge — handing repo work to Claude Code
 
-Hermes observes well and reads repos badly: DeepSeek-V4-Flash with a `terminal` tool cannot
+Hermes observes well and reads repos badly: gpt-5.6-luna with a `terminal` tool cannot
 use a repo's `CLAUDE.md`, `.claude/rules/` or `.claude/skills/`, and that context is exactly
 what triage needs. `scripts/hermes-cc.sh` is the bounded client that hands the episode to
 Claude Code instead — the same closed-verb-set shape as `hermes-ops.sh`, for the same reason.
