@@ -1,0 +1,119 @@
+diff --git a/agent/transports/chat_completions.py b/agent/transports/chat_completions.py
+index 275a66db3..74bfe0612 100644
+--- a/agent/transports/chat_completions.py
++++ b/agent/transports/chat_completions.py
+@@ -188,6 +188,90 @@ def _is_openai_api_base_url(base_url: Any) -> bool:
+     return host == "api.openai.com"
+ 
+ 
++# Kept in sync by hand with the same literal in hermes_cli/runtime_provider.py
++# (patches/runtime-provider-iu-responses-api.patch), which routes this host's
++# OpenAI leg onto the Responses API. Both are local patches over upstream, so
++# there is no shared module to hang one constant off.
++_IU_UNIFIED_ENDPOINT_HOST = "unified-endpoint-main.app.iu-it.org"
++# Efforts the IU gateway accepts, per model family. Probed against the live
++# endpoint 2026-08-14:
++#   gpt-5.6-luna + 'max'  -> "Unsupported value: 'reasoning_effort' does not
++#                            support 'max' with this model. Supported values
++#                            are: 'none', 'low', 'medium', 'high', 'xhigh'."
++#   claude-sonnet-4-6-eu + 'xhigh' -> "effort='xhigh' is not supported by this
++#                            model" (LiteLLM -> Anthropic); none/low/medium/high OK.
++_IU_EFFORTS_OPENAI = ("none", "low", "medium", "high", "xhigh")
++_IU_EFFORTS_ANTHROPIC = ("none", "low", "medium", "high")
++
++
++def _apply_iu_reasoning_effort(
++    api_kwargs: dict[str, Any], model: str, params: dict[str, Any],
++) -> dict[str, Any]:
++    """Reconcile top-level ``reasoning_effort`` with what the IU gateway takes.
++
++    Upstream's ``CustomProfile`` already puts ``reasoning_effort`` on the wire
++    top-level for custom providers — the correct spelling here, since this
++    gateway (Azure OpenAI + LiteLLM behind one OpenAI-compatible URL) rejects
++    the ``extra_body {"reasoning": ...}`` form with ``Unknown parameter:
++    'reasoning'``. What upstream cannot know is which values each leg of the
++    gateway accepts, and it emits the configured value unconditionally.
++
++    Two live-verified refusals this reconciles (2026-08-14):
++
++    * The Azure-backed gpt-5.x models refuse *any* effort as soon as the
++      request carries function tools — "Function tools with reasoning_effort
++      are not supported for gpt-5.6-luna in /v1/chat/completions. To use
++      function tools, use /v1/responses or set reasoning_effort to 'none'".
++      Hermes always sends tools, so a configured effort 400s **every** turn
++      and burns the retry budget into the fallback model. The key is dropped
++      instead; ``model.api_mode: codex_responses`` is the way to actually
++      raise a GPT's effort on this endpoint.
++    * The Anthropic leg refuses ``xhigh``/``max`` ("effort='xhigh' is not
++      supported by this model") but takes tools and effort together happily.
++      That one is clamped down rather than dropped, so a failover never turns
++      a config value into a 400.
++
++    Anything outside this host is left exactly as upstream built it.
++    """
++    # Exact hostname, never containment: a lookalike host
++    # (unified-endpoint-main.app.iu-it.org.example.test) must not inherit
++    # this endpoint's quirks. Same contract as the sibling patch's check.
++    try:
++        from urllib.parse import urlparse
++
++        host = (urlparse(str(params.get("base_url") or "").strip()).hostname or "").lower()
++    except Exception:
++        return api_kwargs
++    if host != _IU_UNIFIED_ENDPOINT_HOST:
++        return api_kwargs
++    is_anthropic = "claude" in (model or "").lower()
++    if api_kwargs.get("tools") and not is_anthropic:
++        api_kwargs.pop("reasoning_effort", None)
++        return api_kwargs
++    effort = api_kwargs.get("reasoning_effort")
++    if effort is None:
++        cfg = _reasoning_config_for_model(model, params.get("reasoning_config"))
++        if not isinstance(cfg, dict):
++            return api_kwargs
++        effort = "none" if cfg.get("enabled") is False else cfg.get("effort")
++    effort = str(effort or "").strip().lower()
++    allowed = _IU_EFFORTS_ANTHROPIC if is_anthropic else _IU_EFFORTS_OPENAI
++    if effort not in allowed:
++        # Clamp to the strongest supported level at or below the request.
++        ladder = ("none", "low", "medium", "high", "xhigh", "max")
++        if effort not in ladder:
++            return api_kwargs
++        effort = next(
++            (e for e in reversed(allowed) if ladder.index(e) <= ladder.index(effort)),
++            None,
++        )
++        if effort is None:
++            api_kwargs.pop("reasoning_effort", None)
++            return api_kwargs
++    api_kwargs["reasoning_effort"] = effort
++    return api_kwargs
++
++
+ def _model_consumes_thought_signature(model: Any) -> bool:
+     """True when the outgoing model is a Gemini family model that requires
+     ``extra_content`` (thought_signature) to be replayed on tool calls.
+@@ -414,8 +498,12 @@ class ChatCompletionsTransport(ProviderTransport):
+         # ── Provider profile: single-path when present ──────────────────
+         _profile = params.get("provider_profile")
+         if _profile:
+-            return self._build_kwargs_from_profile(
+-                _profile, model, sanitized, tools, params
++            return _apply_iu_reasoning_effort(
++                self._build_kwargs_from_profile(
++                    _profile, model, sanitized, tools, params
++                ),
++                model,
++                params,
+             )
+ 
+         # ── Legacy fallback (unregistered / unknown provider) ───────────
+@@ -594,7 +682,7 @@ class ChatCompletionsTransport(ProviderTransport):
+             session_id=params.get("session_id"),
+         )
+ 
+-        return api_kwargs
++        return _apply_iu_reasoning_effort(api_kwargs, model, params)
+ 
+     def _build_kwargs_from_profile(self, profile, model, sanitized, tools, params):
+         """Build API kwargs using a ProviderProfile — single path, no legacy flags.

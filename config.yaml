@@ -3,9 +3,9 @@ model:
   default: gpt-5.6-luna
   api_key: ${OPENAI_API_KEY}
   base_url: ${OPENAI_BASE_URL}
-  api_mode: chat_completions
-  context_length: 256000
-  reasoning_effort: medium
+  api_mode: codex_responses
+  context_length: 850000
+  reasoning_effort: high
   tool_use_enforcement: true
 fallback_providers:
   - provider: custom
@@ -13,10 +13,11 @@ fallback_providers:
     base_url: ${OPENAI_BASE_URL}
     api_key: ${OPENAI_API_KEY}
     api_mode: chat_completions
-    context_length: 200000
+    context_length: 300000
 toolsets:
   - hermes-cli
 agent:
+  reasoning_effort: high
   max_turns: 90
   gateway_timeout: 1800
   restart_drain_timeout: 180
@@ -104,7 +105,8 @@ tool_loop_guardrails:
     idempotent_no_progress: 5
 compression:
   enabled: true
-  threshold: 0.18
+  threshold: 0.5
+  threshold_tokens: 240000
   target_ratio: 0.2
   protect_last_n: 20
   hygiene_hard_message_limit: 400
@@ -142,7 +144,7 @@ auxiliary:
     base_url: ${OPENAI_BASE_URL}
     api_key: ${OPENAI_API_KEY}
     timeout: 360
-    context_length: 200000
+    context_length: 850000
   compression:
     provider: custom
     model: gpt-5.6-luna
@@ -150,7 +152,7 @@ auxiliary:
     api_key: ${OPENAI_API_KEY}
     timeout: 120
     api_mode: chat_completions
-    context_length: 200000
+    context_length: 850000
   skills_hub:
     provider: auto
     model: ''

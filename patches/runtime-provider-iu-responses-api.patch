@@ -1,0 +1,23 @@
+diff --git a/hermes_cli/runtime_provider.py b/hermes_cli/runtime_provider.py
+index bc8b25924..53c057b14 100644
+--- a/hermes_cli/runtime_provider.py
++++ b/hermes_cli/runtime_provider.py
+@@ -128,6 +128,18 @@ def _detect_api_mode_for_url(base_url: str) -> Optional[str]:
+     hostname = base_url_hostname(base_url)
+     if hostname == "api.x.ai":
+         return "codex_responses"
++    # IU unified endpoint: an Azure OpenAI relay under the same Responses-API
++    # mandate as the official host — "Function tools with reasoning_effort are
++    # not supported for gpt-5.6-luna in /v1/chat/completions. To use function
++    # tools, use /v1/responses" (live, 2026-08-14). Without this the endpoint
++    # falls to chat_completions and every configured reasoning effort has to
++    # be stripped to keep tool calls working. The path prefix is part of the
++    # match: only the OpenAI-compatible leg of the gateway speaks Responses,
++    # the /anthropic leg is handled by the suffix rules below.
++    if hostname == "unified-endpoint-main.app.iu-it.org" and normalized.endswith(
++        "/openai/v1"
++    ):
++        return "codex_responses"
+     # Official OpenAI host family: canonical api.openai.com plus the
+     # data-residency regional hosts (us./eu.api.openai.com). Same API
+     # surface, same Responses-API mandate. Shared predicate — see

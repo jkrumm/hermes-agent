@@ -42,6 +42,8 @@ Files touched (all are `.patch` files applied with `git apply` — no full-file 
 | `run_agent.py` | `patches/run-agent-third-party-endpoint-token-refresh.patch` | broaden third-party endpoint skip to all non-anthropic.com hosts |
 | `tools/tirith_security.py` | `patches/tirith-hermes-guards.patch` | two local rules: allowlist argo-only pipelines past tirith **and** block download-then-execute (renamed from `tirith-allowlist-argo-pipes.patch` at v0.19.0) |
 | `tools/cronjob_tools.py` | `patches/cronjob-tools-allowlist-argo-bearer.patch` | allowlist argo bearer curls past the cron-prompt scanner |
+| `hermes_cli/runtime_provider.py` | `patches/runtime-provider-iu-responses-api.patch` | route the IU endpoint's `/openai/v1` leg onto `codex_responses` — the only surface there that takes function tools + a reasoning effort |
+| `agent/transports/chat_completions.py` | `patches/transport-iu-reasoning-effort.patch` | clamp/strip the top-level `reasoning_effort` upstream emits to what each leg of the IU gateway accepts |
 | `tools/tts_tool.py` | `patches/tts-tool-audio-title.patch` | name the audio file from the audio-gateway's `X-Audio-Title` header (DeepSeek-V4-Pro title from the gateway's prep step) instead of `tts_<timestamp>` |
 
 > **STT is not patched.** `tools/transcription_tools.py` (native `openai` STT → `gpt-4o-transcribe`) is pointed at the audio-gateway purely via `config.yaml`. TTS uses the stock native `openai` provider (→ Gemini Charon via the audio-gateway) plus the one small `tts-tool-audio-title` patch above for the filename. After an update, confirm `config.yaml`'s `tts.openai` / `stt.openai` `base_url` still reads `https://audio-gateway.jkrumm.com/v1`.
@@ -49,7 +51,7 @@ Files touched (all are `.patch` files applied with `git apply` — no full-file 
 ### Re-apply procedure
 
 ```bash
-# All six are .patch files. Use --3way so upstream context shifts get auto-merged.
+# All eight are .patch files. Use --3way so upstream context shifts get auto-merged.
 cd ~/.hermes/hermes-agent
 for p in ~/SourceRoot/hermes-agent/patches/*.patch; do
   echo "=== $(basename "$p")"
