@@ -25,7 +25,7 @@ If clean: jump straight to **Restart**. If conflicts or upstream rewrote a custo
 
 ## Known local modifications
 
-Six local mods. Source-of-truth list (with re-apply commands and *why* each is needed) lives in `~/SourceRoot/hermes-agent/CLAUDE.md` under "Local Modifications to Upstream". This file is the operational playbook.
+One `.patch` file per patched upstream file — `ls ~/SourceRoot/hermes-agent/patches/` is the count, and `make patch-check` asserts every one of them is applied to the live checkout. Do not restate the number in prose: it has drifted at four of the last five updates, and a stale count reads as "a patch is missing" when nothing is wrong. Source-of-truth list (with re-apply commands and *why* each is needed) lives in `~/SourceRoot/hermes-agent/CLAUDE.md` under "Local Modifications to Upstream". This file is the operational playbook.
 
 > The `auxiliary-client-gpt5-max-completion-tokens` patch was **retired at v0.15.1** — upstream rewrote `_build_call_kwargs` to omit `max_tokens` by default for non-Anthropic custom endpoints, which supersedes it. The `slack-audio-mime-ext` patch was **retired at v0.18.2** — upstream's own `_resolve_slack_audio_ext()` helper now does the same MIME→extension mapping more thoroughly. The `_resolve_thread_ts` **synthetic-thread guard hunk** was **retired at v0.19.0** with the switch to `reply_in_thread: true` — it was already unreachable (upstream's flat-reply branch returns first) and would have been actively harmful once threads were on. Two more went at **v0.20.1**, both to upstream shipping the same fix: `auxiliary-client-anthropic-mode-respect` (upstream's own `wrap_base` keeps the raw `/anthropic` for the Anthropic wrap while `custom_base` stays `/v1` — a superset of ours, since it also keeps the OpenAI-wire fallback correct) and `scheduler-skip-resolver-for-slack-ids` (upstream replaced the inline `resolve_channel_name` call with a shared `resolve_send_target()` that short-circuits every explicit raw Slack ID before the directory is consulted). See CLAUDE.md for all five retirement notes.
 >
@@ -51,7 +51,7 @@ Files touched (all are `.patch` files applied with `git apply` — no full-file 
 ### Re-apply procedure
 
 ```bash
-# All eight are .patch files. Use --3way so upstream context shifts get auto-merged.
+# Use --3way so upstream context shifts get auto-merged. Glob, never a hardcoded list.
 cd ~/.hermes/hermes-agent
 for p in ~/SourceRoot/hermes-agent/patches/*.patch; do
   echo "=== $(basename "$p")"
@@ -282,7 +282,7 @@ Only then `cp /tmp/new-patches/*.patch ~/SourceRoot/hermes-agent/patches/`, dele
 
 ### What `hermes update` does on its own
 
-`hermes update` stashes your working changes, pulls upstream, then tries to re-apply the stash. Expect conflicts on the six patched files — that is normal. The CLI prints the stash ref (`Restore your changes later with: git stash apply <sha>`); keep it as a fallback. After conflicts surface, the CLI resets the working tree clean — re-apply via the loop above.
+`hermes update` stashes your working changes, pulls upstream, then tries to re-apply the stash. Expect conflicts on the patched files — that is normal. The CLI prints the stash ref (`Restore your changes later with: git stash apply <sha>`); keep it as a fallback. After conflicts surface, the CLI resets the working tree clean — re-apply via the loop above.
 
 **If the Node half of the update fails, check `fnm default` first.** v0.19.1 raised
 `package.json` to `node >=22.22.0` **and** `npm <11.10.0 || >=11.17.0`. When the resolved
