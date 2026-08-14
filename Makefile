@@ -1,5 +1,7 @@
 HERMES_REPO   := $(shell pwd)
 HERMES_DIR    := $(HOME)/.hermes
+# Upstream Hermes checkout the patches/ dir is applied to (see `make patch-check`).
+HERMES_SRC    := $(HERMES_DIR)/hermes-agent
 # Standalone skills symlinked into ~/.hermes/skills/. The former infrastructure,
 # schedule, slack, tasks, weather, garmin-health and strength skills were
 # consolidated into argo-api/references/*.md (commit 3087645) — they are no longer
@@ -282,6 +284,22 @@ bad=sorted({(j.get("name"),s) for j in d.get("jobs",[]) for s in (j.get("skills"
 [print("    ✗ cron skill \"%s\" missing [job: %s]" % (s,n)) for n,s in bad];\
 print("    ✓ cron job skills resolve") if not bad else None' 2>/dev/null \
 		|| echo "    ✗ cron job skills [could not read jobs.json]"
+	@$(MAKE) --no-print-directory patch-check
+	@# Hermes writes into this repo through the skill symlinks during ordinary
+	@# foreground use — it has authored whole nested skills under skills/homelab/
+	@# and patched skills/homelab-ops/references/ in place. Those edits are real
+	@# work and they are protected from the background curator (they resolve under
+	@# skills.external_dirs), but nothing commits them and the watchdog's
+	@# stray_skill source cannot see them: it skips symlinked top-level dirs, and
+	@# would exclude anything under external_dirs anyway. Git is the only thing
+	@# that notices, so ask it.
+	@d=$$(git -C "$(HERMES_REPO)" status --porcelain -- skills 2>/dev/null); \
+	if [ -z "$$d" ]; then \
+		echo "    ✓ skills/ committed"; \
+	else \
+		echo "    ✗ skills/ has uncommitted agent-written content [read it, then commit or delete]"; \
+		echo "$$d" | sed 's/^/        /'; \
+	fi
 	@echo "  CC skills (per-repo, auto-loaded by Claude Code inside this dir)"
 	@for skill in hermes-update hermes-validate; do \
 		if [ -d ".claude/skills/$$skill" ]; then \
@@ -291,6 +309,52 @@ print("    ✓ cron job skills resolve") if not bad else None' 2>/dev/null \
 		fi; \
 	done
 	@echo ""
+
+# ============================================================================
+# Local patches
+# ============================================================================
+
+# Asserts every patch in patches/ is currently applied to the live checkout.
+#
+# `git apply --reverse --check` succeeds exactly when a patch is already
+# present, so this proves applied-ness without a worktree, without writing
+# anything, and in milliseconds — cheap enough for `make status` to run on
+# every invocation. It is the fast half of the guarantee the /hermes-update
+# skill's byte-compare gives: that check also proves no *unpatched* local edit
+# exists, which needs a scratch worktree and belongs in the update flow.
+#
+# Two distinct failures, deliberately reported apart, because the fixes differ:
+#   not applied  — an update reset the tree and the re-apply loop was skipped
+#                  or silently failed. Re-run the loop.
+#   drifted      — the live file was edited past what the patch records. The
+#                  patch is now the STALE half, and the next update's re-apply
+#                  would silently revert the newer work. Regenerate it:
+#                  git -C $(HERMES_SRC) diff HEAD -- <file> > patches/<name>.patch
+.PHONY: patch-check
+patch-check:
+	@if [ ! -d "$(HERMES_SRC)/.git" ]; then \
+		echo "    ✗ local patches [$(HERMES_SRC) is not a git checkout]"; exit 0; \
+	fi; \
+	ok=0; bad=""; \
+	for p in "$(HERMES_REPO)"/patches/*.patch; do \
+		[ -e "$$p" ] || continue; \
+		n=$$(basename "$$p"); \
+		f=$$(sed -n 's|^--- a/||p' "$$p" | head -1); \
+		if git -C "$(HERMES_SRC)" apply --reverse --check "$$p" >/dev/null 2>&1; then \
+			ok=$$((ok+1)); \
+		elif [ -n "$$f" ] && ! git -C "$(HERMES_SRC)" diff --quiet HEAD -- "$$f" 2>/dev/null; then \
+			bad="$$bad\n        · $$n [drifted — $$f is edited past the patch; regenerate]"; \
+		else \
+			bad="$$bad\n        · $$n [not applied — re-run the re-apply loop]"; \
+		fi; \
+	done; \
+	total=$$(ls "$(HERMES_REPO)"/patches/*.patch 2>/dev/null | wc -l | tr -d ' '); \
+	if [ -z "$$bad" ]; then \
+		echo "    ✓ local patches ($$ok/$$total applied)"; \
+	else \
+		echo "    ✗ local patches ($$ok/$$total applied)"; \
+		printf "$$bad\n"; \
+	fi
 
 # ============================================================================
 # Helpers (lifted from dotfiles Makefile)
@@ -341,6 +405,7 @@ help:
 	@echo ""
 	@echo "  make setup           Mac Mini-only — config symlinks, LaunchAgents, CC skills"
 	@echo "  make status          Verify symlinks, audio-gateway, LaunchAgents, CC skills"
+	@echo "  make patch-check     Assert every patches/*.patch is applied to the live checkout"
 	@echo "  make cron-migrate    One-time — drop the superseded crontab entries"
 	@echo "  make agents-teardown Unload + remove the liveness/backup LaunchAgents"
 	@echo ""
