@@ -11,6 +11,35 @@ reference. For a burst pull 40–60 messages, not 10.
 
 ---
 
+## BetterStack "New incident for …" — external monitor, not UptimeKuma
+
+**Trigger:** a bare `New incident for <Name>` message in `#alerts` with no emoji,
+no URL, no "No heartbeat" wording. The bot user is **Better Stack**, NOT the UptimeKuma webhook (match on the
+display name; this repo is public, so the workspace user id is not recorded here).
+
+- **What it is:** BetterStack's external monitor (display name `HomeLab - Uptime`) probes a public homelab URL from outside and posts
+  the incident via its Slack integration. This is the *external* view — it can
+  fire while every internal UptimeKuma monitor stays green.
+- **First check:** the homelab watchdog log
+  (`ssh homelab "tail -80 /var/log/homelab_watchdog.log"`) — the watchdog
+  polls the same BetterStack monitor and will have logged
+  `⚠️ BetterStack still down after 2 retries` + the diagnosis line
+  (`External monitor down, internal healthy — external access path issue`) +
+  its recovery action (`restarting cloudflared + caddy`).
+- **Typical resolution:** the watchdog self-heals within minutes by restarting
+  cloudflared + caddy. Verify externally with a public probe
+  (`curl -o /dev/null -w "%{http_code}" https://img-origin.jkrumm.com/rs:fit:100/misc/monitor-probe.jpg` → 200).
+  cloudflared/caddy logs are usually clean — the blip is on the Cloudflare
+  edge or BetterStack's probe network, not the tunnel.
+- **Collateral:** while the watchdog is busy with recovery its 10-min push
+  heartbeat lands late → `HomeLab Watchdog - Push` (id 41) may flap Pending
+  for seconds and self-clear. Harmless; Pending alone does not notify.
+- **No ops verb needed.** Do not restart anything — the watchdog owns this
+  recovery path. If the watchdog log shows escalation past state 2 (Docker
+  restart / reboot path), then escalate.
+
+---
+
 ## Scheduler job failure — `torrent-app` transaction bug
 
 **Trigger:** `*Scheduler job failed*` naming `record_speed_history` with
@@ -58,7 +87,7 @@ across many monitors at once — can start with one HTTP monitor and cascade to
 
 ---
 
-## VPN stack down after Watchtower — `make up`, not a socket restart
+## VPN stack down after Watchtower — `make up` in homelab-private
 
 **Trigger:** `gluetun`/`qbittorrent`/`prowlarr`/`flaresolverr`/`torrent-app`/
 `shelfmark` show down/exited after a nightly Watchtower run.
@@ -67,7 +96,25 @@ across many monitors at once — can start with one HTTP monitor and cascade to
   genuinely stopped, not just a stale UptimeKuma pool — `containers homelab`
   will show `state != running` for the VPN stack, not `running` with stale
   monitors.
-- **Verb:** `redeploy homelab homelab --why "VPN stack down after Watchtower" --confirm`.
+- **Root cause:** the VPN stack is deployed from `homelab-private`, not `homelab`,
+  and is deliberately excluded from Watchtower. `redeploy homelab homelab` only
+  covers the `homelab` stack and will NOT start the VPN containers (verified
+  2026-08-07). Its compose details stay in that repo — do not restate them here.
+- **Watchdog self-heals first:** `vpn-watchdog` (5-min check, log via
+  `logs homelab vpn-watchdog-logs`) logs `VPN unhealthy (running=false,
+  health=unhealthy)` + `Consecutive failures: N/3 before self-healing
+  attempt`. After 3 consecutive failures it runs its own vpn-cycle; the
+  stack typically recovers ~15 min after the Watchtower pass WITHOUT manual
+  action (observed 2026-08-07: recovered, all 6 containers running, gluetun
+  healthy, monitors back to green). Verify before touching anything.
+- **Fix (manual fallback):** full VPN cycle on the private stack:
+  `ssh homelab "cd ~/homelab-private && make up"` — gluetun recreate →
+  exit-country validation → all VPN dependents + torrent-app rebuild.
+  This is the sanctioned path (homelab-private redeploy is deliberately NOT
+  an ops verb; `make up` is its safe entry point).
+- **Verify:** `containers homelab` shows all 6 running (gluetun `healthy`),
+  then `status` → `down=0` (UptimeKuma docker monitors lag a check interval
+  or two — up to ~1 min).
 
 ---
 
@@ -149,8 +196,18 @@ push monitor or its watchdog monitor.
   means the agent is gone, not the line. A watchdog DOWN is the more serious
   signal.
 - Almost always a single missed heartbeat window that self-clears on the next
-  push (a few minutes). No ops verb covers this — it's a mini-local launchd
-  agent, check its state directly if it doesn't self-clear.
+  push (a few minutes).
+- **If it does NOT self-clear** (verified 2026-08-06): all three linewatch
+  agents (`com.jkrumm.linewatch-{collector,heartbeat,watchdog}`) were booted
+  out of the GUI domain — plists exist in `~/Library/LaunchAgents`, overrides
+  say `enabled`, but `launchctl print gui/501/<label>` says "Could not find
+  service". Classic teardown-then-reboot state; the agents never re-registered
+  at login. Tells in the agent logs: `watchdog.exit reason=SIGTERM` /
+  collector `event:stopped` at the same second for all three.
+  **Fix: `hermes-ops.sh launchd-repair <label> --why "…" --confirm` for each of
+  the three labels.** Verify beats resume within ~1 min (`kuma-db heartbeats
+  <id>`; Home Line - Push = 207, Home Line - Watchdog = 208). A fresh
+  heartbeat with `sample 30s old` + collector cycles = fully recovered.
 
 ## Mac Mini — hermes gateway restarted / not answering
 
