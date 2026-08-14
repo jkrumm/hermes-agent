@@ -1,8 +1,8 @@
 diff --git a/tools/cronjob_tools.py b/tools/cronjob_tools.py
-index 5f1a56d25..53bd1ede5 100644
+index 6fb94b35b..af4cc0d4b 100644
 --- a/tools/cronjob_tools.py
 +++ b/tools/cronjob_tools.py
-@@ -187,11 +187,16 @@ def _strip_legitimate_emoji_zwj(prompt: str) -> str:
+@@ -188,11 +188,16 @@ def _strip_legitimate_emoji_zwj(prompt: str) -> str:
  
  
  def _strip_cron_safe_constructs(prompt: str) -> str:
@@ -23,7 +23,7 @@ index 5f1a56d25..53bd1ede5 100644
  
      Uses ``re.sub`` so EVERY occurrence is scrubbed, not just the first — a
      cron job that loads 2+ GitHub skills (e.g. github-issues +
-@@ -207,7 +212,7 @@ def _strip_cron_safe_constructs(prompt: str) -> str:
+@@ -208,7 +213,7 @@ def _strip_cron_safe_constructs(prompt: str) -> str:
      trusted construct and fall through to the exfil detectors, while
      legitimately quoted bare-host URLs stay exempt.
      """
@@ -32,7 +32,7 @@ index 5f1a56d25..53bd1ede5 100644
          rf'curl\s+[^\n;&|$`]*(?:-H|--header)\s+["\']Authorization:\s*token\s+{_CRON_SECRET_VAR_RE}["\']'
          r'\s+["\']?https://api\.github\.com(?::\d+)?(?:/|\s|$|["\'])[^\s;&|$`]*',
          'curl https://api.github.com/user',
-@@ -215,6 +220,45 @@ def _strip_cron_safe_constructs(prompt: str) -> str:
+@@ -216,6 +221,45 @@ def _strip_cron_safe_constructs(prompt: str) -> str:
          flags=re.IGNORECASE,
      )
  

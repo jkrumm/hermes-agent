@@ -1,8 +1,8 @@
 diff --git a/run_agent.py b/run_agent.py
-index 9a6542925..159beb1e1 100644
+index 12e7da647..6792d87fb 100644
 --- a/run_agent.py
 +++ b/run_agent.py
-@@ -5323,10 +5323,13 @@ class AIAgent:
+@@ -5881,10 +5881,13 @@ class AIAgent:
          # Other anthropic_messages providers (MiniMax, Alibaba, etc.) use their own keys.
          if self.provider != "anthropic":
              return False

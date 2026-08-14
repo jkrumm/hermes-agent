@@ -25,9 +25,9 @@ If clean: jump straight to **Restart**. If conflicts or upstream rewrote a custo
 
 ## Known local modifications
 
-Eight local mods. Source-of-truth list (with re-apply commands and *why* each is needed) lives in `~/SourceRoot/hermes-agent/CLAUDE.md` under "Local Modifications to Upstream". This file is the operational playbook.
+Six local mods. Source-of-truth list (with re-apply commands and *why* each is needed) lives in `~/SourceRoot/hermes-agent/CLAUDE.md` under "Local Modifications to Upstream". This file is the operational playbook.
 
-> The `auxiliary-client-gpt5-max-completion-tokens` patch was **retired at v0.15.1** — upstream rewrote `_build_call_kwargs` to omit `max_tokens` by default for non-Anthropic custom endpoints, which supersedes it. The `slack-audio-mime-ext` patch was **retired at v0.18.2** — upstream's own `_resolve_slack_audio_ext()` helper now does the same MIME→extension mapping more thoroughly. The `_resolve_thread_ts` **synthetic-thread guard hunk** was **retired at v0.19.0** with the switch to `reply_in_thread: true` — it was already unreachable (upstream's flat-reply branch returns first) and would have been actively harmful once threads were on. See CLAUDE.md for all three retirement notes.
+> The `auxiliary-client-gpt5-max-completion-tokens` patch was **retired at v0.15.1** — upstream rewrote `_build_call_kwargs` to omit `max_tokens` by default for non-Anthropic custom endpoints, which supersedes it. The `slack-audio-mime-ext` patch was **retired at v0.18.2** — upstream's own `_resolve_slack_audio_ext()` helper now does the same MIME→extension mapping more thoroughly. The `_resolve_thread_ts` **synthetic-thread guard hunk** was **retired at v0.19.0** with the switch to `reply_in_thread: true` — it was already unreachable (upstream's flat-reply branch returns first) and would have been actively harmful once threads were on. Two more went at **v0.20.1**, both to upstream shipping the same fix: `auxiliary-client-anthropic-mode-respect` (upstream's own `wrap_base` keeps the raw `/anthropic` for the Anthropic wrap while `custom_base` stays `/v1` — a superset of ours, since it also keeps the OpenAI-wire fallback correct) and `scheduler-skip-resolver-for-slack-ids` (upstream replaced the inline `resolve_channel_name` call with a shared `resolve_send_target()` that short-circuits every explicit raw Slack ID before the directory is consulted). See CLAUDE.md for all five retirement notes.
 >
 > **Secrets no longer come from a launch wrapper (v0.19.0+).** `scripts/gateway-cache-launch.sh` is gone; Hermes resolves its own secrets via `secrets.command` in `config.yaml` (→ the dotfiles `secrets-run` cache). After any update, confirm `hermes gateway status` prints `Command helper: applied 26 secrets`. If that line is missing the gateway will start **credential-less** (the source degrades with a warning rather than failing closed) — check `secrets-run export --env-file=~/.hermes/.env.tpl` by hand before debugging anything else.
 >
@@ -37,10 +37,8 @@ Files touched (all are `.patch` files applied with `git apply` — no full-file 
 
 | File | Patch | Kind |
 |-|-|-|
-| `agent/auxiliary_client.py` | `patches/auxiliary-client-anthropic-mode-respect.patch` | respect `api_mode: anthropic_messages` for custom base URLs |
 | `plugins/platforms/slack/adapter.py` | `patches/slack-cannot-reply-to-message.patch` | mrkdwn normalization + `cannot_reply_to_message` retry (3 hunks; the synthetic-thread guard was **retired at v0.19.0**) |
 | `gateway/platforms/base.py` | `patches/slack-media-inline-reply-anchor.patch` | pass text reply anchor to media senders so attachments don't thread |
-| `cron/scheduler.py` | `patches/scheduler-skip-resolver-for-slack-ids.patch` | skip channel resolver for raw `C…` IDs |
 | `run_agent.py` | `patches/run-agent-third-party-endpoint-token-refresh.patch` | broaden third-party endpoint skip to all non-anthropic.com hosts |
 | `tools/tirith_security.py` | `patches/tirith-hermes-guards.patch` | two local rules: allowlist argo-only pipelines past tirith **and** block download-then-execute (renamed from `tirith-allowlist-argo-pipes.patch` at v0.19.0) |
 | `tools/cronjob_tools.py` | `patches/cronjob-tools-allowlist-argo-bearer.patch` | allowlist argo bearer curls past the cron-prompt scanner |
@@ -51,7 +49,7 @@ Files touched (all are `.patch` files applied with `git apply` — no full-file 
 ### Re-apply procedure
 
 ```bash
-# All eight are .patch files. Use --3way so upstream context shifts get auto-merged.
+# All six are .patch files. Use --3way so upstream context shifts get auto-merged.
 cd ~/.hermes/hermes-agent
 for p in ~/SourceRoot/hermes-agent/patches/*.patch; do
   echo "=== $(basename "$p")"
@@ -59,8 +57,9 @@ for p in ~/SourceRoot/hermes-agent/patches/*.patch; do
 done
 ```
 
-> Glob the directory rather than hardcoding names — the list has churned twice now
-> (two retirements, one rename), and a stale hardcoded loop silently skips a patch.
+> Glob the directory rather than hardcoding names — the list has churned at four of the
+> last five updates (four retirements, one rename), and a stale hardcoded loop silently
+> skips a patch.
 
 **`git apply --3way` STAGES what it applies.** So right after the loop, plain `git diff`
 is *empty* and `git status` shows `M`/`UU` — it looks like nothing landed. Always diff
@@ -155,19 +154,26 @@ doc's claim about it (CLAUDE.md asserted `reply_in_thread: true`; it had been `f
 since `1e753e9`, which inverted the whole analysis).
 
 **"Dormant" is a legitimate third verdict** — distinct from both "needed" and "retire".
-Two patches are unreachable under the *current* config but become load-bearing again if
-the config moves back:
+Two patches were unreachable under the *current* config but would become load-bearing
+again if the config moved back:
 
 | Patch | Gate that makes it unreachable today |
 |-|-|
 | `run-agent-third-party-endpoint-token-refresh` | `self.api_mode != "anthropic_messages"` → returns before the patched line (live: `chat_completions`); `self.provider != "anthropic"` would too (live: `custom`) |
-| `auxiliary-client-anthropic-mode-respect` | same `api_mode` branch is never entered |
+| ~~`auxiliary-client-anthropic-mode-respect`~~ | same gate — **retired at v0.20.1**, upstream shipped its own `wrap_base` fix |
+| `slack-media-inline-reply-anchor` | `reply_in_thread: true` → `_resolve_thread_ts` returns the same `thread_id` with or without `reply_to` |
 
-Both were genuinely live until `0e17b0d` (2026-05-21) moved the brain off
-`provider: anthropic` + the IU `/anthropic` base URL. Keep them, but say *dormant* in
-CLAUDE.md — a present-tense "without this, every call 401s" reads as a live dependency
-and stops the next reader from questioning it. To decide: read the guards **above** the
-hunk, then check the live `config.yaml` value each one keys off.
+Both anthropic ones were genuinely live until `0e17b0d` (2026-05-21) moved the brain off
+`provider: anthropic` + the IU `/anthropic` base URL. Keep a dormant patch, but say
+*dormant* in CLAUDE.md — a present-tense "without this, every call 401s" reads as a live
+dependency and stops the next reader from questioning it. To decide: read the guards
+**above** the hunk, then check the live `config.yaml` value each one keys off.
+
+**Dormant is not permanent shelter.** A dormant patch is still a patch you carry through
+every update, so re-ask the *supersession* question on it each time, not just the
+reachability one — `auxiliary-client-anthropic-mode-respect` sat dormant for three
+releases and was retired the moment upstream fixed the same bug, which nothing about its
+dormancy would have surfaced.
 
 Fastest way to settle "is this still load-bearing" for a scanner/validator patch is to
 run it both ways in-process rather than reason about it — import the function from the
@@ -196,9 +202,15 @@ output:
 (cd /tmp/hermes-verify && PYTHONPATH=/tmp/hermes-verify $PY -c "import tools.cronjob_tools as m; print(m.__file__)")
 ```
 
-Done that way, the cron-scanner allowlist was confirmed at both v0.19.0 and v0.19.1:
+Done that way, the cron-scanner allowlist was confirmed at v0.19.0, v0.19.1 and v0.20.1:
 identical inputs, argo/karakeep/research curls `OK` in the live tree and `Blocked` in
 pristine, while evil-host and mixed-fence curls stayed `Blocked` in both.
+
+**Spell the GitHub control case as `Authorization: token $VAR`, not `Bearer`.** Upstream's
+strip only exempts the `token` form, so a `Bearer`-spelled `api.github.com` curl is
+blocked in *both* trees — which, in a differential run whose whole point is spotting
+upstream regressions, reads exactly like one. Cost at v0.20.1: a detour reading upstream's
+regex to discover the test input was wrong, not the code.
 
 **Renaming a patch file? Grep the code for its old name.** Patched hunks carry
 `# LOCAL MODIFICATION (patches/<name>.patch)` headers pointing at their own source file.
@@ -221,6 +233,29 @@ Three more at v0.19.1, same shape — upstream and the patch both editing one sp
 - *Adjacent independent statement* (`gateway/platforms/base.py`): upstream added an `if _non_image_media: logger.info(…)` block exactly where the patch assigns `_media_reply_anchor`. Fix: keep both, log block first.
 - *New parameters + changed return* (`tools/tts_tool.py`): upstream gave `_generate_openai_tts` an `instructions` kwarg and a `language` → `extra_body={"lang_code": …}` passthrough, and made it return `output_path`. Fix: keep every upstream kwarg, keep the patch's raw-response title read and `Optional[str]` return — then **update the call site**, which upstream also touched (`audio_title = _generate_openai_tts(…, instructions=instructions)` merges both sides). A conflict on a signature is a standing order to re-check callers.
 - *Upstream rewrote its own half of a shared helper* (`tools/cronjob_tools.py`): the GitHub strip in `_strip_cron_safe_constructs` went `re.search`+`str.replace` → repeated `re.sub` with a tighter host anchor. The patch carries the **old** upstream text plus our argo block, so a naive "keep ours" silently reverts upstream's hardening. Fix: take upstream's version verbatim for its half and re-append our block on top of its result. This is the conflict class most likely to cause a silent regression — when the `ours` side contains upstream code your patch merely *carried along*, prefer `theirs`.
+
+**Both conflicts at v0.20.1 were a different class, and it is the one to check for first:
+upstream had implemented the patch's *purpose*, and the conflict was the two fixes
+colliding.** Neither wanted merging — both wanted retiring. The tell is that the `ours`
+side already achieves what the patch's comment says the patch is for, usually via a
+differently-named variable or a helper extracted since:
+- `agent/auxiliary_client.py`: our patch made `custom_base` itself keep the raw
+  `/anthropic` under `api_mode: anthropic_messages`. Upstream added a *separate*
+  `wrap_base`, passed as `wrap_base or custom_base` into `_wrap_if_needed`. Same
+  destination, and upstream's is a superset — `custom_base` stays `/v1`, so the plain
+  OpenAI client and the OpenAI-wire fallback (taken when the anthropic SDK is missing)
+  keep working, which ours would have pointed at `/anthropic/chat/completions`.
+- `cron/scheduler.py`: our patch guarded a `resolve_channel_name` call that upstream
+  had *deleted*, replacing the whole block with a shared `resolve_send_target()`. Its
+  early return on an explicit ref makes the guard structurally unreachable.
+
+Resolution for this class is `ours`, then delete the patch file and write the retirement
+note — **not** a hand-port. Two checks separate it from a genuine merge, both cheap:
+after taking `ours`, the file should drop off `git diff HEAD --name-only` entirely (it is
+now byte-identical to upstream); and the patch's stated failure mode should be
+reproducible against the pristine tree only via upstream's new symbol. When the retired
+patch is referenced elsewhere in prose ("same defensive posture as X"), grep for its name
+before committing — a retirement leaves dangling cross-references in CLAUDE.md.
 
 After resolving, always sanity-check: `grep -rn "^<<<<<<<\|^=======$\|^>>>>>>>"` across the touched files (loosely — grep `======` alone also matches legitimate RST-style section underlines in docstrings/tests, so eyeball hits before assuming they're conflict markers) and `python3 -c "import ast; ast.parse(open('<file>').read())"` per file to catch syntax breaks before moving on.
 
@@ -245,7 +280,7 @@ Only then `cp /tmp/new-patches/*.patch ~/SourceRoot/hermes-agent/patches/`, dele
 
 ### What `hermes update` does on its own
 
-`hermes update` stashes your working changes, pulls upstream, then tries to re-apply the stash. Expect conflicts on the eight patched files — that is normal. The CLI prints the stash ref (`Restore your changes later with: git stash apply <sha>`); keep it as a fallback. After conflicts surface, the CLI resets the working tree clean — re-apply via the loop above.
+`hermes update` stashes your working changes, pulls upstream, then tries to re-apply the stash. Expect conflicts on the six patched files — that is normal. The CLI prints the stash ref (`Restore your changes later with: git stash apply <sha>`); keep it as a fallback. After conflicts surface, the CLI resets the working tree clean — re-apply via the loop above.
 
 **If the Node half of the update fails, check `fnm default` first.** v0.19.1 raised
 `package.json` to `node >=22.22.0` **and** `npm <11.10.0 || >=11.17.0`. When the resolved
@@ -312,6 +347,14 @@ ignore the one that eventually matters.
   prompt. Use `secrets-run` — same interface, age-encrypted offline cache.
 - **`hermes gateway install` prints `Bootstrap failed: 5: Input/output error`** several
   times and still succeeds. Trust `hermes gateway status`, not that output.
+- **A version bump leaves the launchd plist stale, and `gateway restart` does not fix
+  it.** After restarting into v0.20.1, `gateway status` reported `⚠ Service definition is
+  stale relative to the current Hermes install`. The gateway is running and healthy —
+  what is stale is the plist's record of the install, so a *crash* restart would come up
+  on the old definition. The repair is the command status names, `hermes gateway start`
+  (it rewrites the definition and defers the reload to a transient launchd job that
+  survives its own bootout); re-check until status reads `✓ Service definition matches`.
+  Do not reach for `launchctl` or hand-edit the plist.
 - **Sessions for API-server requests aren't written to `~/.hermes/sessions/`**, and the
   terminal tool's *command text* is never logged — only `tool terminal completed`. Don't
   plan a verification that depends on recovering the executed command; test the guard

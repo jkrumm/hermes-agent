@@ -1,8 +1,8 @@
 diff --git a/gateway/platforms/base.py b/gateway/platforms/base.py
-index d7654ff6c..ed221b2fb 100644
+index 1a044d152..bf7fd1c2f 100644
 --- a/gateway/platforms/base.py
 +++ b/gateway/platforms/base.py
-@@ -6167,6 +6167,13 @@ class BasePlatformAdapter(ABC):
+@@ -6624,6 +6624,13 @@ class BasePlatformAdapter(ABC):
                          self.name,
                          len(_non_image_media),
                      )
@@ -16,7 +16,7 @@ index d7654ff6c..ed221b2fb 100644
                  for media_path, is_voice in _non_image_media:
                      if human_delay > 0:
                          await asyncio.sleep(human_delay)
-@@ -6176,6 +6183,7 @@ class BasePlatformAdapter(ABC):
+@@ -6633,6 +6640,7 @@ class BasePlatformAdapter(ABC):
                              media_result = await self.send_voice(
                                  chat_id=event.source.chat_id,
                                  audio_path=media_path,
@@ -24,7 +24,7 @@ index d7654ff6c..ed221b2fb 100644
                                  metadata=_final_thread_metadata,
                              )
                          elif ext in _VIDEO_EXTS:
-@@ -6188,12 +6196,14 @@ class BasePlatformAdapter(ABC):
+@@ -6645,12 +6653,14 @@ class BasePlatformAdapter(ABC):
                              media_result = await self.send_video(
                                  chat_id=event.source.chat_id,
                                  video_path=media_path,
@@ -39,7 +39,7 @@ index d7654ff6c..ed221b2fb 100644
                                  metadata=_final_thread_metadata,
                              )
  
-@@ -6218,12 +6228,14 @@ class BasePlatformAdapter(ABC):
+@@ -6675,12 +6685,14 @@ class BasePlatformAdapter(ABC):
                              file_result = await self.send_video(
                                  chat_id=event.source.chat_id,
                                  video_path=file_path,

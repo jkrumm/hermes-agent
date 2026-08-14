@@ -1,5 +1,5 @@
 diff --git a/tools/tirith_security.py b/tools/tirith_security.py
-index a07d3f817..d8615b89a 100644
+index a284c6d40..7cd700b5a 100644
 --- a/tools/tirith_security.py
 +++ b/tools/tirith_security.py
 @@ -25,6 +25,8 @@ import json
@@ -11,7 +11,7 @@ index a07d3f817..d8615b89a 100644
  import shutil
  import stat
  import subprocess
-@@ -719,6 +721,756 @@ def ensure_installed(*, log_failures: bool = True):
+@@ -720,6 +722,756 @@ def ensure_installed(*, log_failures: bool = True):
      return None  # Not available yet; commands will fail-open until ready
  
  
@@ -768,7 +768,7 @@ index a07d3f817..d8615b89a 100644
  # ---------------------------------------------------------------------------
  # Main API
  # ---------------------------------------------------------------------------
-@@ -744,6 +1496,91 @@ def check_command_security(command: str) -> dict:
+@@ -745,6 +1497,91 @@ def check_command_security(command: str) -> dict:
      if not cfg["tirith_enabled"]:
          return {"action": "allow", "findings": [], "summary": ""}
  
@@ -860,7 +860,7 @@ index a07d3f817..d8615b89a 100644
      # Circuit breaker: if tirith has crashed _CRASH_LIMIT times in a row,
      # stop trying for the rest of the process.  Without this, a corrupted
      # or missing binary causes every tool call to hit the same spawn failure
-@@ -752,6 +1589,11 @@ def check_command_security(command: str) -> dict:
+@@ -753,6 +1590,11 @@ def check_command_security(command: str) -> dict:
      if _circuit_open:
          return {"action": "allow", "findings": [], "summary": "tirith disabled (circuit breaker)"}
  
