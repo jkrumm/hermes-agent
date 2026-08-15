@@ -73,17 +73,23 @@
     "  dotfiles-private, homelab-private — private by construction. Their whole point is",
     "    that their contents are not referenced from anywhere else; an agent-readable",
     "    episode inside them would undo that.",
-    "  brain — the personal vault. Read-only would be technically safe, but journal and",
-    "    personal notes are not triage material, and the obsidian skill already owns that",
-    "    door with conventions this tool does not implement.",
+    "",
+    "brain moved from `deny` to `tiers.investigate` (2026-08-15). Read-only",
+    "and worktree-isolated, so an episode here cannot write to the vault. `investigate` is the",
+    "only path that loads the vault's own rule hierarchy (brain/CLAUDE.md, AGENTS.md, voice.md),",
+    "which is what a drift or quality audit of the vault needs — the obsidian skill reads the",
+    "same files but not those rules. Read reach is not widened: the obsidian skill already reads",
+    "the whole vault. `implement` stays out — it opens a draft PR, and brain is direct-to-master.",
+    "Writes to the vault still go only through the obsidian skill, and the voice pass or any",
+    "rewrite of a curated page (Areas/, Projects/) stays human.",
     "",
     "A name in `deny` that also appears in `tiers` is a contradiction, not a precedence",
     "question — hermes-cc.sh refuses to run rather than pick a winner."
   ],
   "root": "~/SourceRoot",
   "defaultTier": "implement",
-  "deny": ["dotfiles-private", "homelab-private", "brain"],
+  "deny": ["dotfiles-private", "homelab-private"],
   "tiers": {
-    "investigate": ["dotfiles", "vps", "homelab"]
+    "investigate": ["dotfiles", "vps", "homelab", "brain"]
   }
 }
