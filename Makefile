@@ -6,7 +6,7 @@ HERMES_SRC    := $(HERMES_DIR)/hermes-agent
 # schedule, slack, tasks, weather, garmin-health and strength skills were
 # consolidated into argo-api/references/*.md (commit 3087645) — they are no longer
 # separate dirs, so listing them here only created dead symlinks.
-HERMES_SKILLS := capture argo-api work karakeep obsidian reading wildrift research-gateway image-delivery homelab-ops homelab briefing-tts claude-dispatch
+HERMES_SKILLS := capture argo-api work karakeep obsidian reading wildrift research-gateway image-delivery homelab-ops homelab hermes-gateway briefing-tts claude-dispatch
 
 # Gateway plugins symlinked into ~/.hermes/plugins/. Same durability argument as the
 # skills: a plugin that lives only under ~/.hermes/ is one `hermes update` away from
