@@ -40,6 +40,12 @@ CC = "~/.hermes/scripts/hermes-cc.sh"
 
 # Shapes that MUST be blocked. Each is a way an LLM might spell "just run claude".
 ATTACKS = [
+    # --- the 2026-08-25 newline bypass ---------------------------------------
+    # Same root cause as the repo-write guard: `\n` was shlex whitespace, so a
+    # multi-line block collapsed into one argv and only line 1 was ever scanned.
+    'cd /Users/jkrumm/SourceRoot/sideclaw\nclaude -p "triage this"',
+    "echo starting\nclaude_iu -p x",
+    "cd /tmp\r\nopencode run x",
     # the literal observed failure
     'claude -p "Untersuche dieses Repository. Warum laeuft ein Job nicht weiter?"',
     # absolute / resolved paths
@@ -82,6 +88,7 @@ ATTACKS = [
 # Shapes that MUST be allowed. These are real commands from this fleet's skills;
 # every one of them is something Hermes does on an ordinary day.
 LEGITIMATE = [
+    "echo hi\ngrep -r claude ~/.hermes/skills",
     # the sanctioned path itself — if this ever blocks, the guard has eaten its own tail
     f"{CC} dispatch sideclaw --wait --json",
     f"{CC} dispatch sideclaw --json --brief-file /tmp/b.txt",

@@ -54,6 +54,19 @@ VAULT = "~/SourceRoot/brain"
 
 # Shapes that MUST be blocked.
 ATTACKS = [
+    # --- the 2026-08-25 newline bypass ---------------------------------------
+    # A multi-line block is the most common LLM spelling, and it walked straight
+    # through: shlex treated `\n` as whitespace, so the whole block tokenized as a
+    # single argv starting with `cd` and nothing past line 1 was ever scanned.
+    # This is the exact command shape that landed `3d78916` on dotfiles-private.
+    "cd /Users/jkrumm/SourceRoot/dotfiles-private\n"
+    "git add tailscale-acl.jsonc tailscale-serve.mini.conf\n"
+    'git commit -m "feat: expose Hermes WebUI to tagged phone"\n'
+    "git push",
+    "echo starting\ngit push",
+    "cd /tmp\r\ngit push",
+    "cd /tmp\n\n\ngh pr create --title x",
+    "cd /Users/jkrumm/SourceRoot/argo\ngit commit -am wip",
     # --- the literal observed failure, and its parts -------------------------
     "cd /Users/jkrumm/SourceRoot/dispatch-scratch && git add -A && "
     'git commit -m "docs: explain repo purpose" && git push',
@@ -131,6 +144,12 @@ ATTACKS = [
 # Shapes that MUST be allowed. Reading a repo is the agent's job; so is filing an
 # issue, and so is committing the vault.
 LEGITIMATE = [
+    # a newline is a separator, but only OUTSIDE quotes — a multi-line commit
+    # message and an `sh -c "..."` body must survive the split intact
+    'git -C ~/SourceRoot/brain commit -m "note\n\nwith a body"',
+    "cd ~/SourceRoot/brain\ngit add .\ngit commit -m sync",
+    "git log --oneline -5\ngit status\ngit diff",
+    "gh issue create --title x\ngh issue list",
     # --- every inspection the triage skills actually use ----------------------
     "git log --oneline -10",
     'git log --pretty=format:"%h %ad %s" --date=format:"%H:%M:%S" -10',

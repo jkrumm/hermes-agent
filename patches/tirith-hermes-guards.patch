@@ -1,5 +1,5 @@
 diff --git a/tools/tirith_security.py b/tools/tirith_security.py
-index a284c6d40..7cd700b5a 100644
+index a284c6d40..0c9c265a0 100644
 --- a/tools/tirith_security.py
 +++ b/tools/tirith_security.py
 @@ -25,6 +25,8 @@ import json
@@ -11,7 +11,7 @@ index a284c6d40..7cd700b5a 100644
  import shutil
  import stat
  import subprocess
-@@ -720,6 +722,756 @@ def ensure_installed(*, log_failures: bool = True):
+@@ -720,6 +722,771 @@ def ensure_installed(*, log_failures: bool = True):
      return None  # Not available yet; commands will fail-open until ready
  
  
@@ -153,8 +153,21 @@ index a284c6d40..7cd700b5a 100644
 +    possible. Returns [] on anything unparseable — the caller then defers.
 +    """
 +    try:
-+        lex = shlex.shlex(command, posix=True, punctuation_chars=True)
++        # `\n` and `\r` must be PUNCTUATION, not whitespace. shlex's default
++        # whitespace set contains them, and `whitespace_split=True` then silently
++        # welds the next line onto the current argv — so `cd /repo\ngit commit -m x`
++        # tokenized as one segment beginning `cd`, the loop below hit the `cd` branch,
++        # and every git write on line 2+ was never scanned. Observed live 2026-08-25:
++        # a multi-line block committed and pushed to `dotfiles-private` with no block,
++        # no approval and no audit line. It is the same root cause the download guard
++        # was hardened against on 2026-07-24 ("newlines weren't segment separators —
++        # a multi-line command block is the MOST common LLM spelling"); the two guards
++        # written afterwards did not inherit the lesson. Moving the two characters into
++        # punctuation_chars keeps them separators OUTSIDE quotes only, so `sh -c "..."`
++        # recursion and multi-line commit messages are unaffected.
++        lex = shlex.shlex(command, posix=True, punctuation_chars="();<>|&\n\r")
 +        lex.whitespace_split = True
++        lex.whitespace = " \t"
 +        tokens = list(lex)
 +    except ValueError:
 +        return []
@@ -166,7 +179,9 @@ index a284c6d40..7cd700b5a 100644
 +    # side becomes its own argv and is scanned at position 0.
 +    segments, current = [], []
 +    for tok in tokens:
-+        if tok in (";", "|", "&", "&&", "||", "(", ")", "\n"):
++        # A run of newlines (and a CRLF pair) accumulates into ONE punctuation token,
++        # so match on "is nothing but newline characters" rather than a literal "\n".
++        if tok in (";", "|", "&", "&&", "||", "(", ")") or (tok and not tok.strip("\r\n")):
 +            if current:
 +                segments.append(current)
 +            current = []
@@ -768,7 +783,7 @@ index a284c6d40..7cd700b5a 100644
  # ---------------------------------------------------------------------------
  # Main API
  # ---------------------------------------------------------------------------
-@@ -745,6 +1497,91 @@ def check_command_security(command: str) -> dict:
+@@ -745,6 +1512,91 @@ def check_command_security(command: str) -> dict:
      if not cfg["tirith_enabled"]:
          return {"action": "allow", "findings": [], "summary": ""}
  
@@ -860,7 +875,7 @@ index a284c6d40..7cd700b5a 100644
      # Circuit breaker: if tirith has crashed _CRASH_LIMIT times in a row,
      # stop trying for the rest of the process.  Without this, a corrupted
      # or missing binary causes every tool call to hit the same spawn failure
-@@ -753,6 +1590,11 @@ def check_command_security(command: str) -> dict:
+@@ -753,6 +1605,11 @@ def check_command_security(command: str) -> dict:
      if _circuit_open:
          return {"action": "allow", "findings": [], "summary": "tirith disabled (circuit breaker)"}
  
