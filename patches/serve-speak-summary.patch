@@ -1,5 +1,5 @@
 diff --git a/hermes_cli/web_server.py b/hermes_cli/web_server.py
-index a6ddf3306e..218182b807 100644
+index a6ddf3306e..dfb1ff324b 100644
 --- a/hermes_cli/web_server.py
 +++ b/hermes_cli/web_server.py
 @@ -5566,6 +5566,51 @@ def _split_text_for_speak_stream(text: str, cap: int) -> list:
@@ -115,22 +115,44 @@ index a6ddf3306e..218182b807 100644
                  cleaned = _strip_markdown_for_tts(sentence)
                  if not cleaned:
                      continue
-@@ -5688,8 +5761,20 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
+@@ -5688,8 +5761,41 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
          # Text frames feed synthesis; done ends the text; stop/disconnect
          # (or any unparseable frame) is barge-in.
          try:
++            # Read-aloud of a finished reply arrives as ONE big text frame
++            # followed (in a separate frame, or the same one) by `done`; a
++            # live voice conversation streams short deltas. So: hold a first
++            # text frame that is long enough, and decide on the next frame —
++            # `done` with nothing more → summary; more text → normal session.
 +            first_frame = True
++            held: Optional[str] = None
              while True:
-                 frame = json.loads(await ws.receive_text())
-+                if (
-+                    first_frame
-+                    and summary_min_chars
-+                    and frame.get("done")
-+                    and len(str(frame.get("text") or "").strip()) >= summary_min_chars
-+                ):
-+                    summary_text.append(str(frame["text"]))
-+                    text_q.put(_SPEAK_SUMMARY)
+-                frame = json.loads(await ws.receive_text())
++                if held is not None:
++                    try:
++                        raw = await asyncio.wait_for(ws.receive_text(), timeout=1.0)
++                    except asyncio.TimeoutError:
++                        text_q.put(held)
++                        held = None
++                        continue
++                    frame = json.loads(raw)
++                    if frame.get("done") and not frame.get("text"):
++                        summary_text.append(held)
++                        text_q.put(_SPEAK_SUMMARY)
++                        held = None
++                        continue
++                    text_q.put(held)
++                    held = None
++                else:
++                    frame = json.loads(await ws.receive_text())
++                text = str(frame.get("text") or "")
++                if first_frame and summary_min_chars and len(text.strip()) >= summary_min_chars:
 +                    first_frame = False
++                    if frame.get("done"):
++                        summary_text.append(text)
++                        text_q.put(_SPEAK_SUMMARY)
++                    else:
++                        held = text
 +                    continue
 +                first_frame = False
                  if frame.get("text"):
