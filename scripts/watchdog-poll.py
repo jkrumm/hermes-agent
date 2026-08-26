@@ -764,7 +764,24 @@ def poll_stray_skills() -> list[dict[str, Any]]:
 
 def reconcile(conn: sqlite3.Connection, source: str, observed: list[dict[str, Any]],
               now: dt.datetime, gate_min: int, reminder_h: int | None,
-              track_resolution: bool = True) -> tuple[list[dict], list[dict], list[dict]]:
+              track_resolution: bool = True,
+              deliver: bool = True) -> tuple[list[dict], list[dict], list[dict]]:
+    """Fold `observed` into the events table and return (new, reminders, resolved).
+
+    `deliver=False` means the caller already knows the digest will be suppressed
+    (quiet hours or vacation). Rows are still inserted, refreshed and resolved —
+    only the notification BOOKKEEPING is withheld, so nothing is marked notified
+    that nobody was told about.
+
+    WHY THAT MATTERS. It used to poll, stamp `notified_at`/`last_reminder_at`, and
+    then have compose_slack_body() return "" — burning the notification. With a
+    cooldown at or near 24h that is not a delayed message, it is a permanently
+    silent one: the next eligible emit lands at the same wall-clock hour, i.e. back
+    inside the same quiet window, forever. Observed 2026-08-24: a Slack socket died
+    at 03:44, its `hermes_log` signature (24h cooldown) fired into the quiet window,
+    and the resulting 48-hour / ~17,300-line reconnect flood never reached the
+    digest once. The gap was found by hand two days later.
+    """
     cur = conn.cursor()
     obs_ids = {o["external_id"] for o in observed}
 
@@ -803,6 +820,8 @@ def reconcile(conn: sqlite3.Connection, source: str, observed: list[dict[str, An
         if age_min < gate_min:
             continue
         if row["notified_at"] is None:
+            if not deliver:
+                continue  # stays un-notified; fires as NEW on the first delivering poll
             new_events.append(dict(row))
             cur.execute("UPDATE events SET notified_at=? WHERE id=?", (now.isoformat(), row["id"]))
         elif reminder_h:
@@ -821,6 +840,8 @@ def reconcile(conn: sqlite3.Connection, source: str, observed: list[dict[str, An
                 dispatch = _dispatch_status(conn, row["dispatch_id"])
                 if dispatch is not None and dispatch["reported_at"] is None:
                     continue
+                if not deliver:
+                    continue  # anchor untouched — re-checked cheaply next poll
                 d = dict(row)
                 if dispatch is not None:
                     d["dispatch_summary"] = _dispatch_summary(dispatch["status"], dispatch["verdict_json"])
@@ -879,12 +900,24 @@ def aggregate_slack_batch(msgs: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def upsert_grouped(conn: sqlite3.Connection, source: str, groups: list[dict[str, Any]],
                    now: dt.datetime, flap_threshold: int = SLACK_FLAP_THRESHOLD,
-                   cooldown_hours: int = SLACK_REEMIT_COOLDOWN_HOURS) -> list[dict]:
+                   cooldown_hours: int = SLACK_REEMIT_COOLDOWN_HOURS,
+                   deliver: bool = True) -> list[dict]:
     """Upsert by dedup key with batch flap threshold + re-emit cooldown.
 
     A group surfaces only if (a) count in this batch >= flap_threshold, AND
     (b) we haven't surfaced this dedup key within the cooldown window.
     Always records to the DB so cumulative trends are queryable later.
+
+    `deliver=False` withholds the emission and its bookkeeping — see reconcile()
+    for why stamping a notification nobody received is permanently, not
+    temporarily, silencing.
+
+    A signature that RECURS after sweep_stale_grouped() resolved it re-opens, the
+    way reconcile() has always re-opened a state event. Without that the row stays
+    resolved forever while last_reminder_at keeps ticking, so it is invisible to
+    every reader that filters on `resolved_at IS NULL` — the morning briefing's
+    open list among them. The Session-is-closed signature sat in exactly that
+    state from 2026-06-23 until it was found by hand.
     """
     cur = conn.cursor()
     out: list[dict] = []
@@ -905,12 +938,23 @@ def upsert_grouped(conn: sqlite3.Connection, source: str, groups: list[dict[str,
                 (source, g["external_id"]),
             ).fetchone()
 
+        if row["resolved_at"] is not None:
+            cur.execute(
+                "UPDATE events SET resolved_at=NULL, first_seen=?, notified_at=NULL, "
+                "last_reminder_at=NULL, reminder_count=0 WHERE id=?",
+                (now.isoformat(), row["id"]),
+            )
+            row = cur.execute(
+                "SELECT * FROM events WHERE source=? AND external_id=?",
+                (source, g["external_id"]),
+            ).fetchone()
+
         last_emit = row["last_reminder_at"] or row["notified_at"]
         cooldown_passed = True
         if last_emit:
             cooldown_passed = (now - dt.datetime.fromisoformat(last_emit)).total_seconds() >= cooldown_hours * 3600
 
-        should_emit = g["count"] >= flap_threshold and cooldown_passed
+        should_emit = deliver and g["count"] >= flap_threshold and cooldown_passed
 
         if should_emit:
             display_title = f"{g['title']} (×{g['count']} in batch)"
@@ -1124,20 +1168,27 @@ def fmt_block(label: str, items: list[dict[str, Any]]) -> str:
 
 
 def _run_poll(conn: sqlite3.Connection, now: dt.datetime, env: dict[str, str],
-              ) -> tuple[list[dict], list[dict], list[dict]]:
-    """Run the full polling pipeline against `conn`. Returns (new, reminders, resolved)."""
+              deliver: bool = True) -> tuple[list[dict], list[dict], list[dict]]:
+    """Run the full polling pipeline against `conn`. Returns (new, reminders, resolved).
+
+    `deliver=False` when the caller already knows the digest will be suppressed
+    (quiet hours / vacation). The poll still runs in full — cursors advance, rows
+    are inserted, refreshed and resolved — but nothing is stamped as notified, so
+    the backlog fires on the first delivering poll instead of being consumed by a
+    message that was never sent. See reconcile() for the failure this closes.
+    """
     now_iso = now.isoformat()
     all_new: list[dict] = []
     all_rem: list[dict] = []
     all_res: list[dict] = []
 
-    n, r, res = reconcile(conn, "uk", poll_uk(env), now, UK_DOWN_GATE_MIN, REM_HOURS["uk"])
+    n, r, res = reconcile(conn, "uk", poll_uk(env), now, UK_DOWN_GATE_MIN, REM_HOURS["uk"], deliver=deliver)
     all_new += n; all_rem += r; all_res += res
 
     for host in ("homelab", "vps"):
         src = f"docker_{host}"
         n, r, res = reconcile(conn, src, poll_docker(env, host), now,
-                              DOCKER_UNHEALTHY_GATE_MIN, REM_HOURS[src])
+                              DOCKER_UNHEALTHY_GATE_MIN, REM_HOURS[src], deliver=deliver)
         all_new += n; all_rem += r; all_res += res
 
     for host, remote_cmd in OP_REF_HOSTS.items():
@@ -1151,24 +1202,25 @@ def _run_poll(conn: sqlite3.Connection, now: dt.datetime, env: dict[str, str],
             # Network blip / unreachable host this cycle — skip reconciling so it
             # can neither page as a missing secret nor auto-resolve a real one.
             continue
-        n, r, res = reconcile(conn, src, observed, now, 0, REM_HOURS[src])
+        n, r, res = reconcile(conn, src, observed, now, 0, REM_HOURS[src], deliver=deliver)
         all_new += n; all_rem += r; all_res += res
 
     gh = poll_github(env)
     for kind in ("github_pr", "github_issue"):
-        n, r, res = reconcile(conn, kind, gh[kind], now, 0, REM_HOURS[kind])
+        n, r, res = reconcile(conn, kind, gh[kind], now, 0, REM_HOURS[kind], deliver=deliver)
         all_new += n; all_rem += r; all_res += res
 
-    n, r, res = reconcile(conn, "hermes_cron", poll_hermes_cron(), now, 0, REM_HOURS["hermes_cron"])
+    n, r, res = reconcile(conn, "hermes_cron", poll_hermes_cron(), now, 0, REM_HOURS["hermes_cron"], deliver=deliver)
     all_new += n; all_rem += r; all_res += res
 
-    n, r, res = reconcile(conn, "stray_skill", poll_stray_skills(), now, 0, REM_HOURS["stray_skill"])
+    n, r, res = reconcile(conn, "stray_skill", poll_stray_skills(), now, 0, REM_HOURS["stray_skill"], deliver=deliver)
     all_new += n; all_rem += r; all_res += res
 
     log_groups = poll_hermes_logs(conn, now, now_iso)
     if log_groups:
         all_new += upsert_grouped(conn, "hermes_log", log_groups, now,
-                                  flap_threshold=1, cooldown_hours=REM_HOURS["hermes_log"])
+                                  flap_threshold=1, cooldown_hours=REM_HOURS["hermes_log"],
+                                  deliver=deliver)
 
     for cur_key, ch_id, src, skip_uk in [
         ("slack_alert_ts", CH_ALERTS, "slack_alert", True),
@@ -1182,7 +1234,7 @@ def _run_poll(conn: sqlite3.Connection, now: dt.datetime, env: dict[str, str],
             continue
         if msgs:
             groups = aggregate_slack_batch(msgs)
-            all_new += upsert_grouped(conn, src, groups, now)
+            all_new += upsert_grouped(conn, src, groups, now, deliver=deliver)
         if latest and latest != since:
             cursor_set(conn, cur_key, latest, now_iso)
 
@@ -1200,6 +1252,11 @@ def main(argv: list[str] | None = None) -> int:
     state = load_state()
     quiet = in_quiet_hours(state)
     vacation = vacation_active(state)
+    # compose_slack_body() suppresses on either, so tell the poll up front rather
+    # than letting it stamp notifications for a message that will never be sent.
+    # --slack-body is the production path; the block-printing path below always
+    # delivers to its caller, so it stays deliver=True.
+    deliver = not (quiet or vacation) if emit_slack_body else True
     now = dt.datetime.now(dt.timezone.utc)
     now_iso = now.isoformat()
 
@@ -1217,7 +1274,7 @@ def main(argv: list[str] | None = None) -> int:
         DB_PATH = tmp_db
         try:
             conn = db_connect()
-            all_new, all_rem, all_res = _run_poll(conn, now, env)
+            all_new, all_rem, all_res = _run_poll(conn, now, env, deliver=deliver)
             conn.commit()
             conn.close()
         finally:
@@ -1225,7 +1282,7 @@ def main(argv: list[str] | None = None) -> int:
             shutil.rmtree(tmpdir, ignore_errors=True)
     else:
         conn = db_connect()
-        all_new, all_rem, all_res = _run_poll(conn, now, env)
+        all_new, all_rem, all_res = _run_poll(conn, now, env, deliver=deliver)
         conn.commit()
         conn.close()
 
