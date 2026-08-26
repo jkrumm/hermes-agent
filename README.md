@@ -81,7 +81,7 @@ curl -s https://audio-gateway.jkrumm.com/health
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash
-hermes --version  # should show v0.20.1+ (the version this repo's patches target)
+hermes --version  # should show v0.20.5+ (the version this repo's patches target)
 ```
 
 ### 3. 1Password Vault

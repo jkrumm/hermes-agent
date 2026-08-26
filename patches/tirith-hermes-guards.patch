@@ -1,5 +1,5 @@
 diff --git a/tools/tirith_security.py b/tools/tirith_security.py
-index a284c6d40..0c9c265a0 100644
+index a284c6d400..0c9c265a08 100644
 --- a/tools/tirith_security.py
 +++ b/tools/tirith_security.py
 @@ -25,6 +25,8 @@ import json

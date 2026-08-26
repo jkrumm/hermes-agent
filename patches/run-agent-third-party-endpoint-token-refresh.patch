@@ -1,8 +1,8 @@
 diff --git a/run_agent.py b/run_agent.py
-index 12e7da647..6792d87fb 100644
+index c6638b6cac..4257d6ec7f 100644
 --- a/run_agent.py
 +++ b/run_agent.py
-@@ -5881,10 +5881,13 @@ class AIAgent:
+@@ -6280,10 +6280,13 @@ class AIAgent:
          # Other anthropic_messages providers (MiniMax, Alibaba, etc.) use their own keys.
          if self.provider != "anthropic":
              return False
@@ -14,7 +14,7 @@ index 12e7da647..6792d87fb 100644
 +        # on any endpoint that isn't api.anthropic.com.
 +        from agent.anthropic_adapter import _is_third_party_anthropic_endpoint
          _base = getattr(self, "_anthropic_base_url", "") or ""
--        if "azure.com" in _base:
+-        if base_url_host_matches(_base, "azure.com"):
 +        if _is_third_party_anthropic_endpoint(_base):
              return False
  

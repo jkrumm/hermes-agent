@@ -1,8 +1,8 @@
 diff --git a/agent/transports/chat_completions.py b/agent/transports/chat_completions.py
-index 275a66db3..74bfe0612 100644
+index bec0f9a82b..cc3c40e8a1 100644
 --- a/agent/transports/chat_completions.py
 +++ b/agent/transports/chat_completions.py
-@@ -188,6 +188,90 @@ def _is_openai_api_base_url(base_url: Any) -> bool:
+@@ -234,6 +234,90 @@ def _is_openai_api_base_url(base_url: Any) -> bool:
      return host == "api.openai.com"
  
  
@@ -93,7 +93,7 @@ index 275a66db3..74bfe0612 100644
  def _model_consumes_thought_signature(model: Any) -> bool:
      """True when the outgoing model is a Gemini family model that requires
      ``extra_content`` (thought_signature) to be replayed on tool calls.
-@@ -414,8 +498,12 @@ class ChatCompletionsTransport(ProviderTransport):
+@@ -509,8 +593,12 @@ class ChatCompletionsTransport(ProviderTransport):
          # ── Provider profile: single-path when present ──────────────────
          _profile = params.get("provider_profile")
          if _profile:
@@ -108,8 +108,8 @@ index 275a66db3..74bfe0612 100644
              )
  
          # ── Legacy fallback (unregistered / unknown provider) ───────────
-@@ -594,7 +682,7 @@ class ChatCompletionsTransport(ProviderTransport):
-             session_id=params.get("session_id"),
+@@ -711,7 +799,7 @@ class ChatCompletionsTransport(ProviderTransport):
+             cache_scope_id=params.get("cache_scope_id"),
          )
  
 -        return api_kwargs

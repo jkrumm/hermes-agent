@@ -204,7 +204,7 @@ output:
 (cd /tmp/hermes-verify && PYTHONPATH=/tmp/hermes-verify $PY -c "import tools.cronjob_tools as m; print(m.__file__)")
 ```
 
-Done that way, the cron-scanner allowlist was confirmed at v0.19.0, v0.19.1 and v0.20.1:
+Done that way, the cron-scanner allowlist was confirmed at v0.19.0, v0.19.1, v0.20.1 and v0.20.5:
 identical inputs, argo/karakeep/research curls `OK` in the live tree and `Blocked` in
 pristine, while evil-host and mixed-fence curls stayed `Blocked` in both.
 

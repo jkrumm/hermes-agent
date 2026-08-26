@@ -1,8 +1,8 @@
 diff --git a/tools/tts_tool.py b/tools/tts_tool.py
-index 9338afced..8a04d57aa 100644
+index 3aa4875922..1a7e03f51c 100644
 --- a/tools/tts_tool.py
 +++ b/tools/tts_tool.py
-@@ -1803,6 +1803,31 @@ def _tts_response_format_from_path(output_path: str) -> str:
+@@ -1812,6 +1812,31 @@ def _tts_response_format_from_path(output_path: str) -> str:
  # Provider: OpenAI TTS (also used by every OpenAI-compatible TTS endpoint —
  # DeepInfra delegates here via _generate_deepinfra_tts).
  # ===========================================================================
@@ -34,7 +34,7 @@ index 9338afced..8a04d57aa 100644
  def _generate_openai_tts(
      text: str,
      output_path: str,
-@@ -1814,7 +1839,7 @@ def _generate_openai_tts(
+@@ -1823,7 +1848,7 @@ def _generate_openai_tts(
      voice: Optional[str] = None,
      speed: Optional[float] = None,
      instructions: Optional[str] = None,
@@ -43,7 +43,7 @@ index 9338afced..8a04d57aa 100644
      """Generate audio via the OpenAI ``audio.speech.create`` SDK shape.
  
      Optional kwargs let OpenAI-compatible backends (DeepInfra etc.) reuse
-@@ -1841,8 +1866,15 @@ def _generate_openai_tts(
+@@ -1850,8 +1875,15 @@ def _generate_openai_tts(
              unaffected.
  
      Returns:
@@ -60,7 +60,7 @@ index 9338afced..8a04d57aa 100644
      # Only resolve the OpenAI auth chain when the caller didn't pass explicit
      # credentials. OpenAI-compatible backends (DeepInfra) pass api_key /
      # base_url / model / voice through and never hit the managed-gateway path.
-@@ -1907,10 +1939,15 @@ def _generate_openai_tts(
+@@ -1916,10 +1948,15 @@ def _generate_openai_tts(
              create_kwargs["instructions"] = instructions
          if language:
              create_kwargs["extra_body"] = {"lang_code": language}
@@ -80,7 +80,7 @@ index 9338afced..8a04d57aa 100644
      finally:
          close = getattr(client, "close", None)
          if callable(close):
-@@ -3246,6 +3283,9 @@ def _text_to_speech_single(
+@@ -3258,6 +3295,9 @@ def _text_to_speech_single(
      # Ensure parent directory exists
      file_path.parent.mkdir(parents=True, exist_ok=True)
      file_str = str(file_path)
@@ -90,7 +90,7 @@ index 9338afced..8a04d57aa 100644
  
      try:
          # Generate audio with the configured provider
-@@ -3292,7 +3332,9 @@ def _text_to_speech_single(
+@@ -3304,7 +3344,9 @@ def _text_to_speech_single(
                      "error": "OpenAI provider selected but 'openai' package not installed."
                  }, ensure_ascii=False)
              logger.info("Generating speech with OpenAI TTS...")
@@ -101,7 +101,7 @@ index 9338afced..8a04d57aa 100644
  
          elif provider == "deepinfra":
              try:
-@@ -3448,6 +3490,15 @@ def _text_to_speech_single(
+@@ -3460,6 +3502,15 @@ def _text_to_speech_single(
          elif provider in {"elevenlabs", "openai", "mistral", "gemini"}:
              voice_compatible = want_opus and file_str.endswith(".ogg")
  

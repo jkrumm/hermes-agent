@@ -215,7 +215,7 @@ auxiliary:
     max_concurrency: 3
 display:
   compact: false
-  personality: kawaii
+  personality: ''
   resume_display: full
   resume_exchanges: 10
   resume_max_user_chars: 300
@@ -351,10 +351,10 @@ delegation:
   api_key: ''
   api_mode: ''
   inherit_mcp_toolsets: true
-  max_iterations: 50
+  max_iterations: 250
   child_timeout_seconds: 600
   reasoning_effort: ''
-  max_concurrent_children: 3
+  max_concurrent_children: 10
   max_spawn_depth: 1
   orchestrator_enabled: true
   subagent_auto_approve: false
@@ -555,7 +555,7 @@ secrets:
 paste_collapse_threshold: 5
 paste_collapse_threshold_fallback: 5
 paste_collapse_char_threshold: 2000
-_config_version: 33
+_config_version: 39
 homelab_api:
   base_url: https://argo.jkrumm.com/api
   api_key: ${HOMELAB_API_KEY}
