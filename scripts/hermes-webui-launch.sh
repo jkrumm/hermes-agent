@@ -68,6 +68,25 @@ export HERMES_HOME="$HOME/.hermes"
 export HERMES_WEBUI_HOST="127.0.0.1"
 export HERMES_WEBUI_PORT="8789"
 
+# The WebUI runs its OWN in-process agent, and that agent reads the same
+# ~/.hermes/config.yaml the gateway does — including `base_url: ${OPENAI_BASE_URL}`
+# and 25 other `${...}` placeholders. config.yaml's `secrets.command` source is
+# applied by `hermes_cli.main` at startup, and the WebUI is not that entry point: it
+# imports the agent modules from `server.py` directly, so the placeholders reach the
+# HTTP client UNEXPANDED. The symptom names nothing useful — the UI says
+# "Error: Connection error.", and the log says
+# `base_url=${OPENAI_BASE_URL} exception_chain=APIConnectionError <- UnsupportedProtocol`,
+# which is httpx refusing a URL whose scheme is the literal `$`. Every model call
+# fails, the fallback fails identically because it shares the placeholder, and the
+# gateway meanwhile looks perfectly healthy because IT resolved its secrets fine.
+#
+# So the launcher resolves them instead. Same .env.tpl, same cache, same 26 refs —
+# the WebUI is a Hermes front-end running the agent with its full toolset, so it
+# needs the same credentials the gateway does; there is no smaller set that works.
+# `secrets-run run` adds to the environment rather than replacing it, so the
+# password exported above survives.
+#
 # --foreground keeps the server as launchd's direct child, so KeepAlive tracks the
 # real process instead of a bootstrap shim that exits 0 after spawning it.
-exec "$REPO/start.sh" --foreground
+exec "$SECRETS_RUN" run --env-file="$HOME/.hermes/.env.tpl" -- \
+  "$REPO/start.sh" --foreground

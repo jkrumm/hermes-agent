@@ -457,6 +457,21 @@ it with `set -a` *after* inheriting the launcher's environment, so a stale file 
 overrides everything exported — including the password. That is not hypothetical: it is
 precisely how a rotation would appear to succeed and change nothing.
 
+**The launcher resolves the gateway's whole `.env.tpl`, not just the password — and that
+is load-bearing.** The WebUI runs its **own in-process agent**, reading the same
+`~/.hermes/config.yaml`, whose `base_url: ${OPENAI_BASE_URL}` and 25 sibling
+placeholders are expanded by `secrets.command` **at `hermes_cli.main` startup**. The
+WebUI is not that entry point — `server.py` imports the agent modules directly — so the
+placeholders reached httpx unexpanded and every model call died. The symptom names
+nothing: the UI says *"Error: Connection error."*, and the log says
+`base_url=${OPENAI_BASE_URL} exception_chain=APIConnectionError <- UnsupportedProtocol`
+— httpx refusing a URL whose scheme is a literal `$`. The fallback model fails
+identically, because it shares the same placeholder, and the **gateway looks perfectly
+healthy throughout** since it resolved its own secrets normally. So the launcher wraps
+`start.sh` in `secrets-run run --env-file=~/.hermes/.env.tpl`. There is no smaller set
+that works: the WebUI runs the agent with its full toolset, so it needs what the gateway
+needs.
+
 **The launcher has no fallback, deliberately.** `secrets-run read op://mini/hermes-webui/password`
 is the only source; an unresolvable ref exits 78 with instructions and the service does not
 start. A "use 1Password, else read this file" ladder is how a bootstrap becomes the real
