@@ -298,15 +298,11 @@ tts:
     voice_id: pNInz6obpgDQGcFmaJgB
     model_id: eleven_multilingual_v2
   openai:
-    # audio-gateway routes by model id: elevenlabs/* → Replicate lane (no prep
-    # LLM, ~1 s per sentence — the chat path), gemini-*-tts → Gemini lane.
-    # Briefings use elevenlabs/v3 via the briefing-tts skill, not this default.
-    # Voice is one of ElevenLabs' fixed names (Mark, Roger, Drew, Paul, Bradford, …).
     model: elevenlabs/flash-v2.5
     voice: Mark
     base_url: https://audio-gateway.jkrumm.com/v1
     api_key: not-needed
-    speed: 1.0
+    speed: 1
     max_text_length: 32000
   xai:
     voice_id: eve
@@ -325,9 +321,6 @@ tts:
     voice: en_US-lessac-medium
 stt:
   enabled: true
-  # Upstream defaults stt.language to 'en', which is then forced onto every
-  # German voice message. Empty = let the provider auto-detect (the gateway's
-  # STT_PROMPT already steers DE/EN).
   language: ''
   local:
     model: base
@@ -345,12 +338,18 @@ stt:
     diarize: false
   provider: openai
 voice:
+  # Desktop: relay speech through `hermes serve` instead of calling the gateway
+  # from the app. Client-direct plays sentence by sentence with no lookahead
+  # (voice-playback.ts pump: synthesize → play → synthesize), so every sentence
+  # boundary is a full gateway round trip of silence. The relay WS schedules
+  # PCM back-to-back and prefetches on the server. STT relays too.
+  client_direct: false
   record_key: ctrl+b
   max_recording_seconds: 120
-  auto_tts: false
+  auto_tts: true
   beep_enabled: true
   silence_threshold: 200
-  silence_duration: 3.0
+  silence_duration: 3
 human_delay:
   mode: 'off'
   min_ms: 800
@@ -439,7 +438,7 @@ discord:
     ambient_path: ''
     ambient_gain: 0.18
     duck_gain: 0.06
-    speech_gain: 1.0
+    speech_gain: 1
     ack_enabled: true
     ack_phrases:
       - Let me look into that.
@@ -534,7 +533,7 @@ streaming:
   edit_interval: 0.8
   buffer_threshold: 24
   cursor: ' ▉'
-  fresh_final_after_seconds: 60.0
+  fresh_final_after_seconds: 60
 sessions:
   auto_prune: false
   retention_days: 90
@@ -552,7 +551,7 @@ updates:
 lsp:
   enabled: true
   wait_mode: document
-  wait_timeout: 5.0
+  wait_timeout: 5
   install_strategy: auto
 x_search:
   model: grok-4.20-reasoning
@@ -635,6 +634,8 @@ custom_providers:
     models:
       gpt-5.6-luna:
         context_length: 850000
+wake_word:
+  enabled: false
 
 # ── Fallback Model ────────────────────────────────────────────────────
 # Automatic provider failover when primary is unavailable.
