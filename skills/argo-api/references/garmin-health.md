@@ -65,6 +65,11 @@ curl -s -X PUT -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: app
 
 **"Recovery score?" / "Am I recovered?"**
 → `/recovery` for the latest composite. For trend: `/recovery/series?dateFrom=...`
+→ **Check `components` before quoting the number.** If `components.hrv` or
+  `components.sleep` is `null`, only RHR contributed and the composite is partial —
+  it reads as a bad night when it is really a missing measurement. Say so
+  ("Score unvollständig, nur RHR-Anteil eingeflossen") rather than presenting the
+  low value at face value.
 
 **"Training load?" / "Am I overtraining?"**
 → `/training-load` returns ACWR series. Use `/recovery` for the day's load-adjusted state.

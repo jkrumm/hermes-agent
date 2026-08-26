@@ -451,6 +451,13 @@ Blocker check: any note where `resolvable && !resolved`.
 
 ### `/m365/calendar/upcoming` — **bare array, no wrapper**
 
+> **`start`/`end` are UTC — convert to Europe/Berlin before narrating a time.**
+> CEST is UTC+2 in summer, CET UTC+1 in winter, so `UTC 08:45` is the `10:45`
+> standup. Reading the raw value aloud shifts every work meeting an hour or two
+> earlier, and it looks plausible — which is why it survives review. The personal
+> Google calendar (`/api/calendar`) does not have this problem; only this endpoint.
+
+
 ```ts
 Array<{
   id: string,
