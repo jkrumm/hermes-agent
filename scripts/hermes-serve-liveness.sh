@@ -28,6 +28,14 @@ STATUS=$(/usr/bin/curl -s --max-time 10 "$BASE/api/status" 2>/dev/null)
 [[ -z "$STATUS" ]] && exit 0
 
 # jq -e exits non-zero on false/null, so this is both the parse and the assertion.
-/usr/bin/echo "$STATUS" | /opt/homebrew/bin/jq -e '.auth_required == true' >/dev/null 2>&1 || exit 0
+#
+# `printf`, not `/usr/bin/echo` — there IS no /usr/bin/echo on this macOS, only
+# /bin/echo, and the absolute path was wrong on the first write. The failure mode is
+# the reason to care: the missing binary made the pipeline fail, `|| exit 0` swallowed
+# it, and the script exited 0 having pinged nothing. A heartbeat that dies silently
+# and reports success is worse than one that crashes — the monitor would have gone
+# DOWN with the script itself looking fine. printf is a shell builtin; no path to be
+# wrong about.
+printf '%s' "$STATUS" | /opt/homebrew/bin/jq -e '.auth_required == true' >/dev/null 2>&1 || exit 0
 
 /usr/bin/curl -fsS --max-time 10 "$PUSH_URL" >/dev/null
