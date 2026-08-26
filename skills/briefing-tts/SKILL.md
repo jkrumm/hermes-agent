@@ -1,6 +1,6 @@
 ---
 name: briefing-tts
-description: "TTS audio synthesis via the VPS audio-gateway (https://audio-gateway.jkrumm.com/v1) — ElevenLabs v3 for briefings/long-form (expressive, titled), ElevenLabs Flash v2.5 for short replies, voice \"Roger\", OpenAI-compatible /v1/audio/speech. Use for any spoken output: morning/evening briefings, voice memos, ad-hoc TTS."
+description: "TTS audio synthesis via the VPS audio-gateway (https://audio-gateway.jkrumm.com/v1) — ElevenLabs v3 for briefings/long-form (expressive, titled), ElevenLabs Flash v2.5 for short replies, voice \"Mark\", OpenAI-compatible /v1/audio/speech. Use for any spoken output: morning/evening briefings, voice memos, ad-hoc TTS."
 version: 2.0.0
 metadata:
   hermes:
@@ -32,7 +32,7 @@ vps` / `logs vps <name>` verbs, which resolve the live name for you.
 | Briefings, long-form, anything worth listening to | `elevenlabs/v3` | prep LLM (spoken-form numbers/dates, ~110-word chunks, sparse audio tags, **title**), parallel synth, one continuous MP3 | ~10 s per 40 s of audio |
 | Short replies, confirmations | `elevenlabs/flash-v2.5` | one synthesis call, no prep, no title | ~1.2 s |
 
-Voice is `Roger` for both (ElevenLabs fixed voice list: Roger, Drew, Paul,
+Voice is `Mark` for both (ElevenLabs fixed voice list: Mark, Roger, Drew, Paul,
 Bradford, James, Mark, Clyde, …; unknown names fall back to the gateway default).
 The chat/desktop/Slack-reply path uses Flash through `config.yaml` → `tts.openai`;
 this skill is the briefing path and pins `elevenlabs/v3` explicitly.
@@ -48,7 +48,7 @@ but it is ~10× slower per second of audio and no longer the default.
 ```json
 {
   "model": "elevenlabs/v3",
-  "voice": "Roger",
+  "voice": "Mark",
   "input": "the whole briefing text — do not pre-chunk",
   "response_format": "mp3"
 }
@@ -112,7 +112,7 @@ text = """Guten Morgen. Heute ist ... (the whole briefing, plain prose, no markd
 
 payload = json.dumps({
     "model": "elevenlabs/v3",
-    "voice": "Roger",
+    "voice": "Mark",
     "input": text,
     "response_format": "mp3",
 }).encode("utf-8")
@@ -138,7 +138,7 @@ For a short phrase, a curl one-liner on Flash:
 ```bash
 curl -s -X POST https://audio-gateway.jkrumm.com/v1/audio/speech \
   -H "Content-Type: application/json" \
-  -d '{"model":"elevenlabs/flash-v2.5","voice":"Roger","input":"Erledigt.","response_format":"mp3"}' \
+  -d '{"model":"elevenlabs/flash-v2.5","voice":"Mark","input":"Erledigt.","response_format":"mp3"}' \
   -o /tmp/short.mp3
 ```
 

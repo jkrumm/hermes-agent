@@ -301,9 +301,9 @@ tts:
     # audio-gateway routes by model id: elevenlabs/* → Replicate lane (no prep
     # LLM, ~1 s per sentence — the chat path), gemini-*-tts → Gemini lane.
     # Briefings use elevenlabs/v3 via the briefing-tts skill, not this default.
-    # Voice is one of ElevenLabs' fixed names (Roger, Drew, Paul, Bradford, …).
+    # Voice is one of ElevenLabs' fixed names (Mark, Roger, Drew, Paul, Bradford, …).
     model: elevenlabs/flash-v2.5
-    voice: Roger
+    voice: Mark
     base_url: https://audio-gateway.jkrumm.com/v1
     api_key: not-needed
     speed: 1.0

@@ -11,7 +11,7 @@ an OpenAI-compatible VPS Docker container at `https://audio-gateway.jkrumm.com/v
 over the tailnet (Cloudflare grey-cloud DNS → VPS over Tailscale). Hermes only points its
 native `openai` TTS/STT providers at it in `config.yaml` — this repo no longer installs or
 patches any audio service, and `make setup` here has no `dotfiles` dependency. TTS = ElevenLabs via
-the IU Replicate route — `elevenlabs/flash-v2.5` (voice "Roger") for chat replies, `elevenlabs/v3`
+the IU Replicate route — `elevenlabs/flash-v2.5` (voice "Mark") for chat replies, `elevenlabs/v3`
 for briefings (`skills/briefing-tts`), US-routed; STT = `gpt-4o-transcribe`. The gateway routes
 by model id, so the vendor lives in one `config.yaml` field (`tts.openai.model`). Rationale and
 numbers: `modelpick/docs/decisions/audio-stack.md`. There is no
