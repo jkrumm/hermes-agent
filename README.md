@@ -10,9 +10,9 @@ Personal AI assistant running 24/7 on Mac Mini. Slack as interface, gpt-5.6-luna
 Slack (Socket Mode)
   ↓
 Mac Mini M2 Pro — Hermes Agent (always-on)
-  ├→ audio-gateway (https://audio-gateway.jkrumm.com/v1) — OpenAI-compatible audio, EU-resident via IU.
+  ├→ audio-gateway (https://audio-gateway.jkrumm.com/v1) — OpenAI-compatible audio via IU (STT EU, TTS US via Replicate).
   │     VPS Docker container, reached over the tailnet. No local audio service.
-  │     TTS: Gemini 3.1 Flash, voice "Charon" (prep + chunk + MP3 internally).
+  │     TTS: ElevenLabs via IU Replicate — flash-v2.5 for replies, v3 for briefings, voice "Mark".
   │     STT: gpt-4o-transcribe (German/English steered).
   ├→ Homelab — Docker containers, CouchDB, backups (via Tailscale)
   ├→ VPS — Production apps, ClickStack (via Tailscale)
@@ -172,7 +172,7 @@ tail -20 ~/.hermes/logs/gateway.log  # watch for successful Slack connection
 
 - [x] Send message in `#hermes` on Slack — get response via gpt-5.6-luna
 - [x] Send voice memo in Slack — get transcribed via audio-gateway (`gpt-4o-transcribe`)
-- [x] TTS audio generation — Gemini Charon via audio-gateway, MP3 output
+- [x] TTS audio generation — ElevenLabs (flash-v2.5 / v3, voice Mark) via audio-gateway, MP3 output
 - [x] Backup agent — daily 03:00 rsync to `homelab:/mnt/hdd/backups/hermes/`, pings UK
 - [x] Liveness agent — every 5 min, pings UK if gateway running + Slack connected
 
