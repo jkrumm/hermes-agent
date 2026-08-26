@@ -787,6 +787,19 @@ Numbers here are **probed against the live IU endpoint**, not read off a model c
 
 **Compaction triggers at 240,000 tokens**, set as an absolute `compression.threshold_tokens` rather than as a ratio, because the ratio alone is not readable: `context_length` is 850,000 (the probed cap minus headroom), the configured `threshold` is upstream's 0.50, and the *lower* of the two governs. Two ratio traps worth knowing before touching those numbers — a window **under 512K** gets its threshold floored at **0.75** by `_SMALL_CTX_THRESHOLD_PERCENT` (so the old `256000` + `threshold: 0.18` pair really triggered at 192k, not the 46k the arithmetic suggests), and the auxiliary compression model's own `context_length` **clamps the trigger down to itself** (`conversation_compression.py`, `if aux_context < threshold`) — which is why `auxiliary.compression.context_length` is 850,000 too and not the default 200,000. Staying under 240k also keeps prompts below the **272k mark where OpenAI bills input at 2× and output at 1.5×**.
 
+## Shell script conventions
+
+**Under `set -euo pipefail`, any `$(producer | head -c N)` substitution dies with
+SIGPIPE (141) once `producer`'s output exceeds `N` bytes** — `head` closes the pipe
+early, `producer` gets SIGPIPE, and `pipefail` turns the whole substitution non-zero,
+which `set -e` treats as a script-ending failure. This bit `dotfiles/brain/brain-backup.sh`
+in production: a `PROMPT="$(git diff --cached | head -c 20000)"` line aborted the nightly
+job before its commit, on the first diff over 20 KB, with no log line at all (the crash
+happens before the first `echo`). Guard the truncation **inside** the substitution, not
+after the whole assignment: `$(git diff --cached | head -c 20000 || true)`. A sibling
+line guarded the same way (`| tail -1 ... || true`) never tripped. Any new script here
+piping an unbounded producer into `head -c`/`tail -c` under `pipefail` needs this guard.
+
 ## Setup
 
 ```bash

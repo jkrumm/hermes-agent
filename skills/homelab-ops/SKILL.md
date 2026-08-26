@@ -171,6 +171,12 @@ Every path ends in a Tier B verb or an escalation. Nothing ends in raw shell.
 - **Absence of an answer is not a clean bill.** `sync-drift` with `ok:false` and a
   `--json` object with `ok:false` both mean "I could not look". Never render that as
   "nothing to see".
+- **A direct `op read` on the mini hangs** — same root cause the global secrets model
+  documents (headless, no biometric human to answer the prompt). `secrets-run` only
+  covers refs seeded into `headless.refs`; an ad-hoc lookup outside that set (e.g. a
+  BetterStack or Cloudflare monitoring token pulled for a one-off diagnostic, not
+  wired into any service's `.env.tpl`) is not in the cache. Run it via
+  `ssh homelab "op read 'op://…'"` instead — never locally.
 
 ## What this skill will NOT do
 

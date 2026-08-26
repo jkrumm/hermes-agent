@@ -330,6 +330,40 @@ flipping Down→Up a second apart.
 
 ---
 
+## kuma-db raw-read gotchas
+
+Applies whenever a raw `kuma-db` read replaces or supplements a Tier A verb —
+either the verb doesn't cover the shape you need, or (see the last bullet)
+`hermes-ops.sh` itself is unreachable.
+
+- **Heartbeat rows are NEWEST-first.** `kuma-db heartbeats <id>` returns newest
+  first — `head` is the latest beat, `tail` is the oldest. Reading the tail
+  during an outage surfaces old healthy rows and looks like "everything fine"
+  while the monitor is actually down.
+- **`heartbeat.time` is TEXT, not epoch ms.** `datetime(h.time/1000,'unixepoch')`
+  coerces the ISO string and prints 1970 for every row. The column already
+  renders as a readable timestamp — order by `h.id DESC`, never by time math.
+- **`monitor` has no `status` column.** Derive current state from the latest
+  `heartbeat` row per `monitor_id` (`1` = up, `0`/`2` = down/pending) — there is
+  nothing to `SELECT status FROM monitor`.
+- **A multi-monitor `IN (...)` query silently degenerates to one monitor.**
+  `WHERE monitor_id IN (...) ORDER BY h.monitor_id, h.time DESC LIMIT n` fills
+  the entire result with the FIRST monitor's rows, not one row per monitor.
+  Query one monitor at a time.
+- **The push-state race.** When a Down event and its recovery beat land within
+  ~100 ms of each other, the heartbeat table already records `status 1`, but
+  the monitor stays DOWN until the NEXT beat (up to a full interval). Not a
+  broken pusher — wait for the next beat instead of restarting or re-syncing.
+- **When the VPS itself is the outage, argo is down with it** (argo runs on
+  the VPS) — `hermes-ops.sh status` failing IS the diagnostic, not a broken
+  API. `kuma-db` still works (it reads the homelab-side kuma DB directly), so
+  fall back to `kuma-db heartbeats <id>` / `kuma-db monitor-config` to date
+  the outage window. An unauthenticated `curl .../api/summary` returning
+  `401` means argo is back up (auth required, not unreachable); `000`/timeout
+  means still down.
+
+---
+
 ## Push monitor created but never wired — `heartbeat-gaps` said unwired, now what
 
 **Trigger:** `heartbeat-gaps` (or a raw `uptime1d`/`uptime30d` both at 0)

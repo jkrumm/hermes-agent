@@ -5,7 +5,7 @@ version: 1.0.0
 metadata:
   hermes:
     tags: [tailscale, tailnet, serve, funnel, acl, magicdns, collie, rb, unreachable, vpn, device]
-    related_skills: [homelab-ops, homelab-watchdog, argo-api]
+    related_skills: [homelab-ops, argo-api]
 ---
 
 # Tailscale Diagnostics
