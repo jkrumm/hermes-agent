@@ -1,12 +1,25 @@
 model:
   provider: custom
   default: gpt-5.6-luna
-  api_key: ${OPENAI_API_KEY}
   base_url: ${OPENAI_BASE_URL}
   api_mode: codex_responses
-  context_length: 850000
   reasoning_effort: high
   tool_use_enforcement: true
+  key_env: HERMES_CUSTOM_CUSTOM_API_KEY
+providers:
+  custom:
+    name: Custom
+    base_url: https://unified-endpoint-main.app.iu-it.org/openai/v1
+    model: gpt-5.6-luna
+    discover_models: false
+    models:
+      gpt-5.6-luna:
+        context_length: 850000
+      gpt-5.6-terra: {}
+      gpt-5.6-sol: {}
+      DeepSeek-V4-Pro: {}
+    context_length: 850000
+    key_env: HERMES_CUSTOM_CUSTOM_API_KEY
 fallback_providers:
   - provider: custom
     model: claude-sonnet-4-6-eu
@@ -17,7 +30,6 @@ fallback_providers:
 toolsets:
   - hermes-cli
 agent:
-  reasoning_effort: high
   max_turns: 90
   gateway_timeout: 1800
   restart_drain_timeout: 180
@@ -34,6 +46,7 @@ agent:
   gateway_auto_continue_freshness: 3600
   image_input_mode: auto
   disabled_toolsets: []
+  reasoning_effort: high
 terminal:
   backend: local
   modal_mode: auto
@@ -138,13 +151,6 @@ auxiliary:
     api_key: ${GEMINI_API_KEY}
     timeout: 120
     download_timeout: 30
-  web_extract:
-    provider: custom
-    model: gpt-5.6-luna
-    base_url: ${OPENAI_BASE_URL}
-    api_key: ${OPENAI_API_KEY}
-    timeout: 360
-    context_length: 850000
   compression:
     provider: custom
     model: gpt-5.6-luna
@@ -205,6 +211,13 @@ auxiliary:
     base_url: ''
     api_key: ''
     timeout: 600
+  web_extract:
+    provider: custom
+    model: gpt-5.6-luna
+    base_url: ${OPENAI_BASE_URL}
+    api_key: ${OPENAI_API_KEY}
+    timeout: 360
+    context_length: 850000
   session_search:
     provider: auto
     model: ''
@@ -285,8 +298,12 @@ tts:
     voice_id: pNInz6obpgDQGcFmaJgB
     model_id: eleven_multilingual_v2
   openai:
-    model: gemini-3.1-flash-tts-preview
-    voice: Charon
+    # audio-gateway routes by model id: elevenlabs/* → Replicate lane (no prep
+    # LLM, ~1 s per sentence — the chat path), gemini-*-tts → Gemini lane.
+    # Briefings use elevenlabs/v3 via the briefing-tts skill, not this default.
+    # Voice is one of ElevenLabs' fixed names (Roger, Drew, Paul, Bradford, …).
+    model: elevenlabs/flash-v2.5
+    voice: Roger
     base_url: https://audio-gateway.jkrumm.com/v1
     api_key: not-needed
     speed: 1.0
@@ -308,7 +325,10 @@ tts:
     voice: en_US-lessac-medium
 stt:
   enabled: true
-  provider: openai
+  # Upstream defaults stt.language to 'en', which is then forced onto every
+  # German voice message. Empty = let the provider auto-detect (the gateway's
+  # STT_PROMPT already steers DE/EN).
+  language: ''
   local:
     model: base
     language: ''
@@ -323,6 +343,7 @@ stt:
     language_code: ''
     tag_audio_events: false
     diarize: false
+  provider: openai
 voice:
   record_key: ctrl+b
   max_recording_seconds: 120
@@ -605,6 +626,15 @@ plugins:
   entries:
     dispatch-approval:
       allow_tool_override: false
+custom_providers:
+  - name: Unified-endpoint-main.app.iu-it.org
+    base_url: https://unified-endpoint-main.app.iu-it.org/openai/v1
+    key_env: HERMES_CUSTOM_UNIFIED_ENDPOINT_MAIN_APP_IU_IT_ORG_API_KEY
+    model: gpt-5.6-luna
+    api_mode: codex_responses
+    models:
+      gpt-5.6-luna:
+        context_length: 850000
 
 # ── Fallback Model ────────────────────────────────────────────────────
 # Automatic provider failover when primary is unavailable.

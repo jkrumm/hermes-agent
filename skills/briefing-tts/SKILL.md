@@ -1,21 +1,21 @@
 ---
 name: briefing-tts
-description: "TTS audio synthesis via the VPS audio-gateway (https://audio-gateway.jkrumm.com/v1) — Gemini 3.1 Flash TTS, voice \"Charon\", OpenAI-compatible /v1/audio/speech. Use for any spoken output: morning/evening briefings, voice memos, ad-hoc TTS."
-version: 1.0.0
+description: "TTS audio synthesis via the VPS audio-gateway (https://audio-gateway.jkrumm.com/v1) — ElevenLabs v3 for briefings/long-form (expressive, titled), ElevenLabs Flash v2.5 for short replies, voice \"Roger\", OpenAI-compatible /v1/audio/speech. Use for any spoken output: morning/evening briefings, voice memos, ad-hoc TTS."
+version: 2.0.0
 metadata:
   hermes:
-    tags: [tts, audio, briefing, gemini, audio-gateway, mp3, voice]
+    tags: [tts, audio, briefing, elevenlabs, audio-gateway, mp3, voice]
     related_skills: [argo-api, homelab-ops]
 ---
 
 # Briefing TTS
 
-Audio synthesis via the VPS audio-gateway. Single backend: Gemini 3.1 Flash
-TTS, voice "Charon" (German + English native), EU-resident via IU. OpenAI-
-compatible `/v1/audio/speech` endpoint. This is a stray from the native
-`text_to_speech` tools — those are NOT reliably registered in every session
-(especially cron), so this skill calls the gateway directly via curl/urllib
-instead. Same pattern works interactively and in cron.
+Audio synthesis via the VPS audio-gateway, OpenAI-compatible `/v1/audio/speech`.
+The gateway routes by **model id** and owns everything behind it (prep LLM,
+chunking, concatenation, title); the caller sends the whole text in one request.
+This skill exists because the native `text_to_speech` tools are NOT reliably
+registered in every session (especially cron), so it calls the gateway directly
+via urllib/curl. Same pattern works interactively and in cron.
 
 **API base:** `https://audio-gateway.jkrumm.com/v1`
 **Health:** `GET https://audio-gateway.jkrumm.com/health` → `{"ok":true,"service":"audio-gateway"}`
@@ -25,38 +25,57 @@ vps` / `logs vps <name>` verbs, which resolve the live name for you.
 
 ---
 
+## Which model
+
+| Use | `model` | What the gateway does | Latency |
+|-|-|-|-|
+| Briefings, long-form, anything worth listening to | `elevenlabs/v3` | prep LLM (spoken-form numbers/dates, ~110-word chunks, sparse audio tags, **title**), parallel synth, one continuous MP3 | ~10 s per 40 s of audio |
+| Short replies, confirmations | `elevenlabs/flash-v2.5` | one synthesis call, no prep, no title | ~1.2 s |
+
+Voice is `Roger` for both (ElevenLabs fixed voice list: Roger, Drew, Paul,
+Bradford, James, Mark, Clyde, …; unknown names fall back to the gateway default).
+The chat/desktop/Slack-reply path uses Flash through `config.yaml` → `tts.openai`;
+this skill is the briefing path and pins `elevenlabs/v3` explicitly.
+`gemini-3.1-flash-tts-preview` (voice `Charon`) is still served for comparison,
+but it is ~10× slower per second of audio and no longer the default.
+
+---
+
 ## Endpoint
 
 `POST /v1/audio/speech`
 
 ```json
 {
-  "model": "gemini-3.1-flash-tts-preview",
-  "voice": "Charon",
-  "input": "text to speak",
+  "model": "elevenlabs/v3",
+  "voice": "Roger",
+  "input": "the whole briefing text — do not pre-chunk",
   "response_format": "mp3"
 }
 ```
 
-Returns raw MP3 bytes — no base64 wrapping, write directly to file. `model`
-must match the config's exact id; anything not matching `/gemini.*tts/i`
-(e.g. a bare `gemini-3.1-flash`) is silently remapped by the gateway to its
-configured default, so a typo won't error, it'll just silently work anyway.
-Voice/model come from `config.yaml` → `tts.openai` — don't restate them
-elsewhere as a second source of truth.
+Returns raw MP3 bytes — no base64 wrapping, write directly to file. Optional
+fields: `language` (`de`/`en`, else auto-detected from the text), `speed`
+(0.7–1.2), `instructions` (a short delivery hint the prep LLM folds in; v3 only).
+A model id that matches nothing is silently remapped to the gateway default, so a
+typo won't error — check the id.
+
+Response header **`X-Audio-Title`** (URL-encoded, v3 only) carries a 3–6-word
+title the prep LLM derived from the content, in the text's language — use it for
+the filename when no convention below applies.
 
 ---
 
 ## Pitfalls
 
-### 1. Gemini backend fails on long text (503 / InternalServerError)
-The IU Gemini backend rejects texts longer than ~2-3 sentences even through
-the gateway. **Always chunk** input into 1-3 sentence pieces (~40-80 words
-each) and concatenate the resulting MP3 bytes. Six chunks of ~50 words is a
-reliable split; each call takes ~5-10s.
+### 1. Don't chunk on the caller side anymore
+The old Gemini backend 503'd on long text, so this skill used to split into
+40–80-word pieces and concatenate MP3 bytes. The ElevenLabs lane chunks
+server-side with cross-chunk prosody continuity — sending pieces yourself now
+*hurts* (no continuity, no title, repeated prep). One request, whole text.
 
-If **every** request 503s, even a short phrase — that's the IU Gemini
-upstream being down entirely, not a chunking problem. See
+If a request 502s with `proxy_error`, the Replicate upstream failed for that
+prediction — retry once; if health is fine but every request fails, see
 `references/audio-gateway-troubleshooting.md`.
 
 ### 2. `text_to_speech` / `text_to_speech_fast` tools aren't always registered
@@ -79,53 +98,47 @@ inside the Python script instead of shelling out to curl.
 
 ---
 
-## Canonical Pattern — Chunked Synthesis
+## Canonical Pattern — One Request
 
 Write a Python script, run it:
 
 ```python
-import json, urllib.request, os
+import json, urllib.request, urllib.parse, os
 
 AUDIO_DIR = "/Users/jkrumm/.hermes/cache/audio"
 os.makedirs(AUDIO_DIR, exist_ok=True)
 
-chunks = [
-    "Sentence one. Sentence two.",
-    "Sentence three. Sentence four.",
-    # ... more chunks, each 40-80 words
-]
+text = """Guten Morgen. Heute ist ... (the whole briefing, plain prose, no markdown)"""
 
-all_audio = b""
-for i, chunk in enumerate(chunks):
-    payload = json.dumps({
-        "model": "gemini-3.1-flash-tts-preview",
-        "voice": "Charon",
-        "input": chunk,
-        "response_format": "mp3"
-    }).encode("utf-8")
+payload = json.dumps({
+    "model": "elevenlabs/v3",
+    "voice": "Roger",
+    "input": text,
+    "response_format": "mp3",
+}).encode("utf-8")
 
-    req = urllib.request.Request(
-        "https://audio-gateway.jkrumm.com/v1/audio/speech",
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST"
-    )
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        all_audio += resp.read()
-    print(f"Chunk {i+1}/{len(chunks)}: done")
+req = urllib.request.Request(
+    "https://audio-gateway.jkrumm.com/v1/audio/speech",
+    data=payload,
+    headers={"Content-Type": "application/json"},
+    method="POST",
+)
+with urllib.request.urlopen(req, timeout=180) as resp:
+    audio = resp.read()
+    title = urllib.parse.unquote(resp.headers.get("X-Audio-Title", "") or "")
 
-out_path = os.path.join(AUDIO_DIR, "output.mp3")
+out_path = os.path.join(AUDIO_DIR, "Morning Briefing Thu 14.05.26.mp3")  # see conventions below
 with open(out_path, "wb") as f:
-    f.write(all_audio)
-print(f"Total: {len(all_audio)} bytes -> {out_path}")
+    f.write(audio)
+print(f"{len(audio)} bytes, title={title!r} -> {out_path}")
 ```
 
-For a single short phrase (< 40 words), a curl one-liner also works:
+For a short phrase, a curl one-liner on Flash:
 
 ```bash
 curl -s -X POST https://audio-gateway.jkrumm.com/v1/audio/speech \
   -H "Content-Type: application/json" \
-  -d '{"model":"gemini-3.1-flash-tts-preview","voice":"Charon","input":"Hallo Welt","response_format":"mp3"}' \
+  -d '{"model":"elevenlabs/flash-v2.5","voice":"Roger","input":"Erledigt.","response_format":"mp3"}' \
   -o /tmp/short.mp3
 ```
 
@@ -140,8 +153,8 @@ MEDIA:/Users/jkrumm/.hermes/cache/audio/filename.mp3
 The delivery system picks it up and attaches the MP3. (The native
 `text_to_speech` tool names its output from the gateway's `X-Audio-Title`
 header instead — see the repo `CLAUDE.md`'s `tts-tool-audio-title.patch`
-note. That doesn't apply here: with the curl/urllib pattern above you name
-the file yourself, per the conventions below.)
+note. With the urllib pattern above you name the file yourself, per the
+conventions below, and can fall back to the header title for ad-hoc audio.)
 
 ---
 
