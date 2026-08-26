@@ -434,10 +434,23 @@ repo, so the checkout can be deleted and re-cloned without losing setup:
 | Launcher (env + secret resolution) | `scripts/hermes-webui-launch.sh` |
 | Service definition | `launchd/com.jkrumm.hermes-webui.plist.template` |
 | Heartbeat | `scripts/hermes-webui-liveness.sh` + its own plist template |
-| Tailnet ingress | `dotfiles-private/tailscale-serve.mini.conf` (`:8789`) |
-| Reachability | `dotfiles-private/tailscale-acl.jsonc` (`tag:phone → tag:mac tcp:8789`) |
+| Tailnet ingress, phone | `dotfiles-private/tailscale-serve.mini.conf` (`:8789`) + ACL `tag:phone → tag:mac tcp:8789` |
+| Tailnet ingress, Macs | `dotfiles/config/Caddyfile` → `hermes-web.test` ⇒ `https://hermes-web.mini.jkrumm.com` |
 | Password | `op://mini/hermes-webui/password` |
 | Monitor | homelab `uptime-kuma/monitors.yaml` → `Hermes WebUI - Push` |
+
+**Two doors, and both stay.** `https://mini.dinosaur-sole.ts.net:8789` is the
+`tailscale serve` row — tailscaled mints its own cert, so it needs no Cloudflare, no
+DNS token and no Caddy, and it is what the **phone** is configured against.
+`https://hermes-web.mini.jkrumm.com` is the mini's Caddy clean door, and it is the one
+the **MacBook** uses. That split is forced by the ACL, not by taste: the serve row's
+grant is `tag:phone → tag:mac`, and **both Macs are `tag:mac`** — so widening it to
+reach the MacBook would equally hand the *work* laptop a UI that reads every Hermes
+session, memory and log. The clean door is already scoped to the additive `tag:devhost`,
+which the mini alone carries, so it expresses exactly the distinction the port grant
+cannot. Adding it was one `hermes-web.test` block; `caddy-tailnet.sh` derives the
+hostname from the Caddyfile automatically. **No `portdoor` flag** — that would make Caddy
+bind 8789 on the tailnet interface and collide head-on with the serve row.
 
 **`.env` in the clone must not exist, and `make status` asserts that.** `start.sh` sources
 it with `set -a` *after* inheriting the launcher's environment, so a stale file silently
