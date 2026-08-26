@@ -344,6 +344,11 @@ voice:
   # boundary is a full gateway round trip of silence. The relay WS schedules
   # PCM back-to-back and prefetches on the server. STT relays too.
   client_direct: false
+  # Read-aloud of a finished reply longer than this speaks a one-sentence
+  # gateway summary ("Todo erstellt …") instead of the whole text. Live voice
+  # conversation is unaffected (text arrives incrementally there). Served by
+  # patches/serve-speak-summary.patch; 0 = off.
+  speak_summary_min_chars: 250
   record_key: ctrl+b
   max_recording_seconds: 120
   auto_tts: true

@@ -1,0 +1,138 @@
+diff --git a/hermes_cli/web_server.py b/hermes_cli/web_server.py
+index a6ddf3306e..218182b807 100644
+--- a/hermes_cli/web_server.py
++++ b/hermes_cli/web_server.py
+@@ -5566,6 +5566,51 @@ def _split_text_for_speak_stream(text: str, cap: int) -> list:
+     return pieces
+ 
+ 
++_SPEAK_SUMMARY = object()  # text_q sentinel: "speak a summary of the held text"
++
++
++def _speak_summary_min_chars(streamer) -> int:
++    """``voice.speak_summary_min_chars``: replies at least this long are spoken as a
++    one-sentence summary instead of read out in full (0 = off, the default).
++
++    Only the OpenAI-compatible streamer can do it — the audio-gateway behind
++    it owns the summarising LLM via its non-standard ``summarize`` request
++    field; every other provider keeps full speech.
++    """
++    from tools.tts_streaming import OpenAIStreamer
++
++    if not isinstance(streamer, OpenAIStreamer):
++        return 0
++    try:
++        from hermes_cli.config import load_config
++
++        raw = (load_config().get("voice") or {}).get("speak_summary_min_chars", 0)
++        return max(0, int(raw or 0))
++    except Exception:
++        return 0
++
++
++def _stream_speech_summary(streamer, text: str):
++    """Yield PCM for a spoken summary of *text* — one gateway call with
++    ``summarize: true``, same wire as ``OpenAIStreamer.stream`` otherwise."""
++    from openai import OpenAI
++    from tools.tts_streaming import get_env_value, resolve_openai_audio_api_key
++
++    section = streamer.section
++    client = OpenAI(
++        api_key=(section.get("api_key") or resolve_openai_audio_api_key()),
++        base_url=(section.get("base_url") or get_env_value("OPENAI_BASE_URL") or None),
++    )
++    with client.audio.speech.with_streaming_response.create(
++        model=section.get("model", "gpt-4o-mini-tts"),
++        voice=section.get("voice", "alloy"),
++        input=text,
++        response_format="pcm",
++        extra_body={"summarize": True},
++    ) as response:
++        yield from response.iter_bytes()
++
++
+ @app.websocket("/api/audio/speak-stream")
+ async def speak_stream_ws(ws: "WebSocket") -> None:
+     """Streaming TTS for the desktop: text in, raw int16 PCM frames out.
+@@ -5585,6 +5630,12 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
+                binary PCM frames, then ``{"type": "end"}``
+       server → ``{"type": "fallback"}`` when the configured provider has no
+                chunked API — the client uses the POST endpoint instead.
++
++    Spoken-summary mode (``voice.speak_summary_min_chars`` > 0): when the FIRST
++    frame carries the whole text together with ``done`` — a finished reply
++    being read aloud, not a live voice conversation — and the text is at least
++    that long, the session speaks a one-sentence summary from the gateway
++    instead of reading the reply out.
+     """
+     if not _ws_auth_ok(ws):
+         await ws.close(code=4401)
+@@ -5617,6 +5668,8 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
+     except Exception:
+         _log.exception("speak-stream provider resolution failed")
+         streamer, cap = None, 0
++    summary_min_chars = _speak_summary_min_chars(streamer) if streamer else 0
++    summary_text: list = []
+     if streamer is None:
+         with contextlib.suppress(Exception):
+             await ws.send_json({"type": "fallback"})
+@@ -5648,8 +5701,10 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
+         idle_poll_seconds = 0.5
+         idle_polls_before_force_flush = 4  # ~2s of silence
+ 
+-        def _sentences():
++        def _sentences(initial):
+             idle_polls = 0
++            if initial is not None:
++                yield from chunker.feed(initial)
+             while not stop.is_set():
+                 try:
+                     delta = text_q.get(timeout=idle_poll_seconds)
+@@ -5668,7 +5723,25 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
+                 yield from chunker.feed(delta)
+ 
+         try:
+-            for sentence in _sentences():
++            # The first item decides the mode: a summary sentinel speaks one
++            # gateway-condensed sentence and ends; anything else is the first
++            # delta of a normal sentence-by-sentence session.
++            first = None
++            while not stop.is_set():
++                try:
++                    first = text_q.get(timeout=idle_poll_seconds)
++                    break
++                except queue.Empty:
++                    continue
++            if stop.is_set():
++                return
++            if first is _SPEAK_SUMMARY:
++                for chunk in _stream_speech_summary(streamer, summary_text[0]):
++                    if stop.is_set():
++                        return
++                    loop.call_soon_threadsafe(chunks.put_nowait, chunk)
++                return
++            for sentence in _sentences(first):
+                 cleaned = _strip_markdown_for_tts(sentence)
+                 if not cleaned:
+                     continue
+@@ -5688,8 +5761,20 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
+         # Text frames feed synthesis; done ends the text; stop/disconnect
+         # (or any unparseable frame) is barge-in.
+         try:
++            first_frame = True
+             while True:
+                 frame = json.loads(await ws.receive_text())
++                if (
++                    first_frame
++                    and summary_min_chars
++                    and frame.get("done")
++                    and len(str(frame.get("text") or "").strip()) >= summary_min_chars
++                ):
++                    summary_text.append(str(frame["text"]))
++                    text_q.put(_SPEAK_SUMMARY)
++                    first_frame = False
++                    continue
++                first_frame = False
+                 if frame.get("text"):
+                     text_q.put(str(frame["text"]))
+                 if frame.get("stop"):
