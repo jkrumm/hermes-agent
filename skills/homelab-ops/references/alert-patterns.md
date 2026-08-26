@@ -185,6 +185,10 @@ nothing` message.
 - **Verb:** `devhost-health --why "..." --confirm` forces a fresh heartbeat
   without waiting a launchd interval. Usually self-resolves within one
   interval regardless.
+- **If the heartbeat names memory pressure instead** (kernel WARN/CRITICAL,
+  swap growth, a possible Jetsam kill), that is a different diagnosis path —
+  see `references/macos-host-pressure.md` before concluding it's a push/DNS
+  issue.
 
 ## Home Line push / watchdog
 
