@@ -215,7 +215,7 @@ auxiliary:
     max_concurrency: 3
 display:
   compact: false
-  personality: ''
+  personality: kawaii
   resume_display: full
   resume_exchanges: 10
   resume_max_user_chars: 300
