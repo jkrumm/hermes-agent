@@ -358,6 +358,12 @@ with real history that just had a gap.
 `docker pull failed ... unexpected status from GET request to
 https://rollhook.jkrumm.com/v2/<service>/manifests/sha256:<digest>: 502 Bad Gateway`.
 
+A different rollout-window artifact — an HTTP health probe 404ing for a few minutes
+during a healthy rolling replacement, not a registry pull failure — is
+`skills/rollhook-deploys/SKILL.md`'s "Fourth pattern: health-probe 404s during a
+rollout". IMAGE_TAG validation rejections and unhealthy-container rollbacks also
+live there.
+
 - **Root cause class:** the zot registry (behind Cloudflare) returned a
   transient 502 while the deploy agent's pull raced a concurrent push — the
   manifest GET hit mid-write or an origin blip. The deploy agent marks the
