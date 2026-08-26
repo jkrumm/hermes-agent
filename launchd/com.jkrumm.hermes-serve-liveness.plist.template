@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.jkrumm.hermes-serve-liveness</string>
+  <!-- Its own agent, not folded into the gateway or WebUI heartbeat: three
+       services that fail independently need three signals, or one failure masks
+       another. This one additionally asserts /api/status reports auth_required. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>__HOME__/SourceRoot/hermes-agent/scripts/hermes-serve-liveness.sh</string>
+  </array>
+  <key>StartInterval</key><integer>300</integer>
+  <key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>__HOME__/Library/Logs/hermes-serve-liveness.log</string>
+  <key>StandardErrorPath</key><string>__HOME__/Library/Logs/hermes-serve-liveness.err</string>
+</dict>
+</plist>

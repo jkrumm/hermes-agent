@@ -269,12 +269,12 @@ dashboard:
     client_id: ''
     portal_url: ''
   basic_auth:
-    username: ''
+    username: ${HERMES_DASHBOARD_BASIC_AUTH_USERNAME}
     password_hash: ''
-    password: ''
-    secret: ''
-    session_ttl_seconds: 0
-  public_url: ''
+    password: ${HERMES_DASHBOARD_BASIC_AUTH_PASSWORD}
+    secret: ${HERMES_DASHBOARD_BASIC_AUTH_SECRET}
+    session_ttl_seconds: 43200
+  public_url: https://hermes-api.mini.jkrumm.com
 privacy:
   redact_pii: false
 tts:

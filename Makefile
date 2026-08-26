@@ -20,7 +20,8 @@ HERMES_PLUGINS := dispatch-approval
 LAUNCHD_DIR   := $(HERMES_REPO)/launchd
 LAUNCHAGENTS  := $(HOME)/Library/LaunchAgents
 HERMES_PLISTS := com.jkrumm.hermes-liveness com.jkrumm.hermes-backup \
-                 com.jkrumm.hermes-webui com.jkrumm.hermes-webui-liveness
+                 com.jkrumm.hermes-webui com.jkrumm.hermes-webui-liveness \
+                 com.jkrumm.hermes-serve com.jkrumm.hermes-serve-liveness
 # Labels this repo used to install and no longer does. `_agents` unloads and
 # removes each one, so a rename can never leave two agents racing the same port.
 # com.parantoux.hermes-webui: hand-written into ~/Library/LaunchAgents by the
@@ -84,6 +85,9 @@ _symlinks:
 	@$(MAKE) --no-print-directory _link \
 		SRC="$(HERMES_REPO)/.env.tpl" \
 		DST="$(HERMES_DIR)/.env.tpl"
+	@$(MAKE) --no-print-directory _link \
+		SRC="$(HERMES_REPO)/serve.env.tpl" \
+		DST="$(HERMES_DIR)/serve.env.tpl"
 	@$(MAKE) --no-print-directory _link \
 		SRC="$(HERMES_REPO)/SOUL.md" \
 		DST="$(HERMES_DIR)/SOUL.md"
@@ -308,6 +312,22 @@ status:
 		echo "    ✓ webui push url (UptimeKuma heartbeat)"; \
 	else \
 		echo "    ✗ webui push url [op://hermes/uptime-kuma/webui-push-url unresolved]"; \
+	fi
+	@# `hermes serve` auth. Counted, not spot-checked: an UNSET ${VAR} in
+	@# config.yaml expands to the literal string "${VAR}", which is truthy — so a
+	@# partial render would give serve a known-constant password rather than no
+	@# password. The launcher refuses on the same count; this makes it visible.
+	@n=$$(timeout 20 "$(HOME)/.local/bin/secrets-run" export --env-file="$(HERMES_DIR)/serve.env.tpl" 2>/dev/null | grep -c '^export ' || true); \
+	w=$$(grep -cE '^[A-Za-z_][A-Za-z0-9_]*=' "$(HERMES_REPO)/serve.env.tpl"); \
+	if [ "$$n" -ge "$$w" ]; then \
+		echo "    ✓ serve auth ($$n/$$w refs via secrets-run cache)"; \
+	else \
+		echo "    ✗ serve auth [$$n/$$w refs — op://mini/hermes-serve/* unseeded]"; \
+	fi
+	@if timeout 15 "$(HOME)/.local/bin/secrets-run" read op://hermes/uptime-kuma/serve-push-url >/dev/null 2>&1; then \
+		echo "    ✓ serve push url (UptimeKuma heartbeat)"; \
+	else \
+		echo "    ✗ serve push url [op://hermes/uptime-kuma/serve-push-url unresolved]"; \
 	fi
 	@# Every skill a cron job preloads must actually resolve. The scheduler only
 	@# logs a WARNING and runs anyway when one doesn't (cron/scheduler.py: "skill

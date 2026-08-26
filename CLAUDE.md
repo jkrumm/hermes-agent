@@ -53,6 +53,8 @@ tailnet.
 - `scripts/hermes-backup.sh` — daily 03:00 (`com.jkrumm.hermes-backup`, `StartCalendarInterval`), rsyncs `~/.hermes/` → `homelab:/mnt/hdd/backups/hermes/`, pings `$UPTIME_PUSH_BACKUP` on success. Holds a `mkdir`-based single-instance lock (`~/Library/Caches/hermes-backup.lock`) so two overlapping runs can never race one another's `rsync --delete`.
 - `scripts/hermes-webui-launch.sh` — the `ProgramArguments` of `com.jkrumm.hermes-webui` (KeepAlive, 30s throttle). Resolves the WebUI password from `op://mini/hermes-webui/password`, exports the non-secret config as literals, and `exec`s the clone's `start.sh --foreground`. See § *Hermes WebUI*.
 - `scripts/hermes-webui-liveness.sh` — every 5 min (`com.jkrumm.hermes-webui-liveness`), asserts `/health` → 200 **and** unauthenticated `/` → non-2xx, then pings `op://hermes/uptime-kuma/webui-push-url`.
+- `scripts/hermes-serve-launch.sh` — the `ProgramArguments` of `com.jkrumm.hermes-serve` (KeepAlive, 30s throttle). Counts the three `serve.env.tpl` refs, refuses below the full set, then execs `hermes serve --host 127.0.0.1 --port 9119 --skip-build` under both templates. See § *`hermes serve`*.
+- `scripts/hermes-serve-liveness.sh` — every 5 min (`com.jkrumm.hermes-serve-liveness`), asserts `/api/status` reports `auth_required: true`, then pings `op://hermes/uptime-kuma/serve-push-url`.
 
 Templates live in `launchd/`, rendered into `~/Library/LaunchAgents` by `make setup`
 (`_agents` → `_render-plists`, `__HOME__` substituted; unchanged content is a no-op,
@@ -439,7 +441,7 @@ repo, so the checkout can be deleted and re-cloned without losing setup:
 | Password | `op://mini/hermes-webui/password` |
 | Monitor | homelab `uptime-kuma/monitors.yaml` → `Hermes WebUI - Push` |
 
-**Two doors, and both stay.** `https://mini.dinosaur-sole.ts.net:8789` is the
+**Two doors, and both stay.** `https://mini.<tailnet>.ts.net:8789` is the
 `tailscale serve` row — tailscaled mints its own cert, so it needs no Cloudflare, no
 DNS token and no Caddy, and it is what the **phone** is configured against.
 `https://hermes-web.mini.jkrumm.com` is the mini's Caddy clean door, and it is the one
@@ -506,6 +508,71 @@ make about itself. Every other MacMini monitor is push for the same reason.
 > agent optimises for the thing working now**, and every property that only matters
 > later — rotation, ownership, rotation of logs, a monitor — has to be someone else's
 > checklist.
+
+## `hermes serve` — the backend Hermes Desktop connects to
+
+Upstream's **own** desktop client (`hermes desktop`, Electron, in-tree at
+`apps/desktop/`) does not talk to the Slack gateway and **cannot** use the
+OpenAI-compatible API on `:8642`. It speaks to `hermes serve`: a JSON-RPC/WebSocket
+backend, default `:9119`, whose two load-bearing routes are `GET /api/status` (auth
+discovery) and `WS /api/ws` (the live session). `:8642` has no `/api/ws` at all —
+that is the whole reason argo's dashboard chat can use it and Desktop cannot.
+`hermes dashboard` is the same server with a browser UI bolted on; `serve` is the
+headless form. **It is a separate process from `hermes gateway` and upstream expects
+both to run** — Slack does not move to it.
+
+| Piece | Where |
+|-|-|
+| Launcher | `scripts/hermes-serve-launch.sh` |
+| Service + heartbeat plists | `launchd/com.jkrumm.hermes-serve{,-liveness}.plist.template` |
+| Auth refs | `serve.env.tpl` → `op://mini/hermes-serve/{username,password,session-secret}` |
+| Door | `dotfiles/config/Caddyfile` → `hermes-api.test` ⇒ `https://hermes-api.mini.jkrumm.com` |
+| Monitor | homelab → `Hermes Serve - Push` |
+
+**Client side:** Desktop keeps a connection registry — *Settings → Gateways → Add
+connection → Remote gateway* — persisted to Electron `userData/connection.json`
+(`mode: local | remote | cloud | ssh`). `HERMES_DESKTOP_REMOTE_URL` /
+`HERMES_DESKTOP_REMOTE_TOKEN` are the app-wide **override**, not the normal route,
+and setting the URL without the token is a hard error.
+
+**In remote mode the mini is the execution boundary.** Terminal commands, file
+operations and every tool run there; the MacBook is only drawing the UI. That is the
+point, but it means Desktop-on-MacBook browses the *mini's* filesystem.
+
+**`serve.env.tpl` is deliberately NOT `.env.tpl`, and the split is the interesting
+part.** `secrets-run` fails **atomically** on any unresolvable ref, and config.yaml's
+`secrets.command` renders `.env.tpl` at gateway startup — so a ref added there before
+it is sealed into the offline cache does not degrade the gateway, it renders **zero**
+secrets and brings it up credential-less at the next restart. The same file is what
+`hermes-liveness.sh` counts against, so the gap would also suppress the heartbeat and
+page for a gateway that was fine until it restarted. A second template scopes the
+blast radius to the one service the refs belong to: serve refuses to start and nothing
+else notices.
+
+**An unset `${VAR}` in config.yaml expands to the LITERAL STRING `${VAR}`** —
+verified against `hermes_cli.config._expand_env_vars` — and that string is *truthy*.
+So a serve that started with its auth refs unresolved would come up with the password
+literally `${HERMES_DASHBOARD_BASIC_AUTH_PASSWORD}`: a known constant that
+authenticates. The launcher therefore **counts** the rendered refs and refuses below
+the full set rather than spot-checking one, and `make status` reports the same count.
+
+**Auth engages despite the loopback bind, on purpose.** Upstream turns the gate on for
+a non-loopback bind **or** an operator-declared `dashboard.public_url` — the second
+clause exists exactly for "reverse proxy in front of loopback", which is this. Do not
+add a second auth layer in Caddy; it breaks Desktop's `/api/status` discovery
+handshake. `--insecure` is a documented no-op since the June 2026 hardening.
+
+**The heartbeat asserts `auth_required`, not liveness.** `/api/status` is a *public*
+path by design — it is how a client discovers whether auth is needed — so a serve with
+a misconfigured auth provider answers 200 and looks healthy while exposing a socket
+that drives the agent. `hermes-serve-liveness.sh` requires `auth_required == true`
+before it pings.
+
+> **Three front-ends now share one `~/.hermes` and one `state.db`**: the Slack
+> gateway, the third-party WebUI's in-process agent, and `hermes serve`. Upstream
+> sanctions gateway + serve; the WebUI is the addition. Nothing has misbehaved, but if
+> sessions ever start behaving oddly — vanishing, interleaving, locking — this is the
+> first thing to suspect, and `hermes serve --isolated` is the documented escape.
 
 ## Gateway HTTP Exposure (argo dashboard chat)
 

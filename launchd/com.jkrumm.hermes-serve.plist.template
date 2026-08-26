@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.jkrumm.hermes-serve</string>
+  <!-- `hermes serve` — the JSON-RPC/WebSocket backend Hermes Desktop connects to,
+       on loopback :9119 behind the Caddy door. A THIRD long-lived process against
+       one ~/.hermes: the Slack gateway, the WebUI's in-process agent, and this.
+       Upstream expects serve and gateway to coexist (they are separate commands
+       with separate ports and the docs say to run both), so the pairing is
+       sanctioned rather than improvised — but it is the reason session-store
+       contention is worth watching if sessions ever start behaving oddly. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>__HOME__/SourceRoot/hermes-agent/scripts/hermes-serve-launch.sh</string>
+  </array>
+  <!-- Same shape as com.jkrumm.hermes-webui: a long-lived server, so KeepAlive,
+       with a 30s throttle because the launcher's exit 78 (auth refs unresolved) is
+       a configuration state a human has to clear, not a transient worth spinning on. -->
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>30</integer>
+  <key>RunAtLoad</key><true/>
+  <key>WorkingDirectory</key><string>__HOME__/.hermes/hermes-agent</string>
+  <key>StandardOutPath</key><string>__HOME__/Library/Logs/hermes-serve.log</string>
+  <key>StandardErrorPath</key><string>__HOME__/Library/Logs/hermes-serve.err</string>
+</dict>
+</plist>
