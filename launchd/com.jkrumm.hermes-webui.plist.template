@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.jkrumm.hermes-webui</string>
+  <!-- The Hermes WebUI service. Supersedes com.parantoux.hermes-webui, the plist the
+       agent hand-wrote into ~/Library/LaunchAgents on 2026-08-25 — untracked, under a
+       foreign reverse-DNS prefix, logging into ~/.hermes where nothing rotates it, and
+       reading its password from a plaintext .env inside a third-party checkout. Every
+       one of those is fixed here; `make agents-teardown` removes the old label. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>__HOME__/SourceRoot/hermes-agent/scripts/hermes-webui-launch.sh</string>
+  </array>
+  <!-- KeepAlive, unlike the two heartbeat agents: this is a long-lived server, not a
+       periodic job. Paired with a 30s throttle so a launcher that exits 78 because the
+       password ref will not resolve retries slowly instead of spinning — the refusal is
+       a configuration state a human has to clear, not a transient. -->
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>30</integer>
+  <key>RunAtLoad</key><true/>
+  <key>WorkingDirectory</key><string>__HOME__/SourceRoot/hermes-webui</string>
+  <!-- ~/Library/Logs, matching hermes-{liveness,backup} and declared in
+       dotfiles/scripts/log-rotate.sh. The superseded plist wrote to
+       ~/.hermes/webui-launchd-std{out,err}.log, which that script does not glob. -->
+  <key>StandardOutPath</key><string>__HOME__/Library/Logs/hermes-webui.log</string>
+  <key>StandardErrorPath</key><string>__HOME__/Library/Logs/hermes-webui.err</string>
+</dict>
+</plist>

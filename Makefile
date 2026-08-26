@@ -19,7 +19,14 @@ HERMES_PLUGINS := dispatch-approval
 # banner below for why. Templates live in launchd/, rendered into ~/Library/LaunchAgents.
 LAUNCHD_DIR   := $(HERMES_REPO)/launchd
 LAUNCHAGENTS  := $(HOME)/Library/LaunchAgents
-HERMES_PLISTS := com.jkrumm.hermes-liveness com.jkrumm.hermes-backup
+HERMES_PLISTS := com.jkrumm.hermes-liveness com.jkrumm.hermes-backup \
+                 com.jkrumm.hermes-webui com.jkrumm.hermes-webui-liveness
+# Labels this repo used to install and no longer does. `_agents` unloads and
+# removes each one, so a rename can never leave two agents racing the same port.
+# com.parantoux.hermes-webui: hand-written into ~/Library/LaunchAgents by the
+# agent on 2026-08-25 under a foreign reverse-DNS prefix, superseded by
+# com.jkrumm.hermes-webui.
+HERMES_PLISTS_RETIRED := com.parantoux.hermes-webui
 
 # TTS/STT is served by the audio-gateway (https://audio-gateway.jkrumm.com/v1),
 # a VPS Docker container reached over the tailnet — Hermes only points its native
@@ -126,6 +133,14 @@ _agents:
 	@echo "  LaunchAgents (liveness + backup, both ping UptimeKuma)..."
 	@chmod +x $(HERMES_REPO)/scripts/hermes-liveness.sh $(HERMES_REPO)/scripts/hermes-backup.sh
 	@mkdir -p "$(LAUNCHAGENTS)"
+	@for label in $(HERMES_PLISTS_RETIRED); do \
+		PLIST="$(LAUNCHAGENTS)/$$label.plist"; \
+		if [ -f "$$PLIST" ]; then \
+			launchctl bootout "gui/$$(id -u)/$$label" 2>/dev/null || launchctl unload "$$PLIST" 2>/dev/null || true; \
+			rm -f "$$PLIST"; \
+			echo "  → removed retired agent $$label"; \
+		fi; \
+	done
 	@$(MAKE) --no-print-directory _render-plists PLISTS="$(HERMES_PLISTS)"
 	@$(MAKE) --no-print-directory _legacy-cron-warn
 
@@ -270,6 +285,29 @@ status:
 	done
 	@if crontab -l 2>/dev/null | grep -q "hermes-liveness.sh\|hermes-backup.sh"; then \
 		echo "    ✗ legacy crontab entries [double-firing — run make cron-migrate]"; \
+	fi
+	@# The WebUI clone must carry no .env: start.sh sources it with `set -a` after
+	@# inheriting the launcher's environment, so a stale file silently overrides the
+	@# password resolved from 1Password — the exact way a rotation fails to take.
+	@if [ -f "$(HOME)/SourceRoot/hermes-webui/.env" ]; then \
+		echo "    ✗ hermes-webui/.env present [overrides the launcher — delete it]"; \
+	elif [ -d "$(HOME)/SourceRoot/hermes-webui" ]; then \
+		echo "    ✓ hermes-webui clone (no stale .env)"; \
+	else \
+		echo "    ✗ hermes-webui clone missing [git clone the upstream repo]"; \
+	fi
+	@# The one secret the WebUI needs. Checked separately from the gateway's 26 refs
+	@# because it is resolved by the launcher at start, not by config.yaml, so a
+	@# missing seed shows up as a service that will not boot rather than a bad turn.
+	@if timeout 15 "$(HOME)/.local/bin/secrets-run" read op://mini/hermes-webui/password >/dev/null 2>&1; then \
+		echo "    ✓ webui password (op://mini/hermes-webui/password)"; \
+	else \
+		echo "    ✗ webui password [op://mini/hermes-webui/password unresolved — see CLAUDE.md]"; \
+	fi
+	@if timeout 15 "$(HOME)/.local/bin/secrets-run" read op://hermes/uptime-kuma/webui-push-url >/dev/null 2>&1; then \
+		echo "    ✓ webui push url (UptimeKuma heartbeat)"; \
+	else \
+		echo "    ✗ webui push url [op://hermes/uptime-kuma/webui-push-url unresolved]"; \
 	fi
 	@# Every skill a cron job preloads must actually resolve. The scheduler only
 	@# logs a WARNING and runs anyway when one doesn't (cron/scheduler.py: "skill

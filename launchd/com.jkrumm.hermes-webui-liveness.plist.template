@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.jkrumm.hermes-webui-liveness</string>
+  <!-- Heartbeat for the WebUI, deliberately a separate agent from
+       com.jkrumm.hermes-liveness. The two services fail independently — the gateway can
+       be wedged while the WebUI serves, and vice versa — so folding the probe into the
+       gateway's heartbeat would let either failure mask the other. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>__HOME__/SourceRoot/hermes-agent/scripts/hermes-webui-liveness.sh</string>
+  </array>
+  <!-- 300s against a 360s monitor: one skipped tick cannot page on its own. -->
+  <key>StartInterval</key><integer>300</integer>
+  <key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>__HOME__/Library/Logs/hermes-webui-liveness.log</string>
+  <key>StandardErrorPath</key><string>__HOME__/Library/Logs/hermes-webui-liveness.err</string>
+</dict>
+</plist>
