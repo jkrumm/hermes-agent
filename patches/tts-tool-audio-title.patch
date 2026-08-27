@@ -1,5 +1,5 @@
 diff --git a/tools/tts_tool.py b/tools/tts_tool.py
-index 3aa4875922..1a7e03f51c 100644
+index 3aa4875922..b4ee55f13e 100644
 --- a/tools/tts_tool.py
 +++ b/tools/tts_tool.py
 @@ -1812,6 +1812,31 @@ def _tts_response_format_from_path(output_path: str) -> str:
@@ -101,15 +101,17 @@ index 3aa4875922..1a7e03f51c 100644
  
          elif provider == "deepinfra":
              try:
-@@ -3460,6 +3502,15 @@ def _text_to_speech_single(
+@@ -3460,6 +3502,17 @@ def _text_to_speech_single(
          elif provider in {"elevenlabs", "openai", "mistral", "gemini"}:
              voice_compatible = want_opus and file_str.endswith(".ogg")
  
 +        # LOCAL MODIFICATION: rename the auto-named tts_<timestamp> file to the
-+        # audio-gateway title so the Slack attachment shows a real name. Only when
-+        # the caller didn't pin an explicit output_path. See
-+        # patches/tts-tool-audio-title.patch.
-+        if audio_title and not output_path:
++        # audio-gateway title so the Slack attachment shows a real name. Applies
++        # when the caller didn't pin an output_path, and to the gateway's own
++        # auto voice-reply temp files (tts_reply_<uuid>, build_auto_tts_output_path)
++        # — those callers read the returned file_path, so a rename is honoured.
++        # See patches/tts-tool-audio-title.patch.
++        if audio_title and (not output_path or os.path.basename(str(output_path)).startswith("tts_reply_")):
 +            _renamed = _rename_with_title(file_str, audio_title)
 +            if _renamed:
 +                file_str = _renamed

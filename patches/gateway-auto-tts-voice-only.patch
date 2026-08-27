@@ -1,0 +1,17 @@
+diff --git a/gateway/run.py b/gateway/run.py
+index b219097a03..f401d8f085 100644
+--- a/gateway/run.py
++++ b/gateway/run.py
+@@ -22589,7 +22589,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
+             # ``voice.auto_tts`` is synced into the adapter on gateway startup.
+             # It is the fallback only when the chat has no explicit mode;
+             # otherwise the chat-level all/voice_only/off choice takes precedence.
+-            or (voice_mode is None and adapter_auto_tts)
++            # LOCAL MODIFICATION (patches/gateway-auto-tts-voice-only.patch):
++            # the global default means "voice reply to voice input", the same
++            # rule the adapter-side auto-TTS applies — not "speak every reply
++            # in every chat". Chats that want everything spoken use /voice all.
++            or (voice_mode is None and adapter_auto_tts and is_voice_input)
+         )
+         if not should:
+             logger.debug(
