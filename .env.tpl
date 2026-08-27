@@ -43,9 +43,14 @@ GEMINI_API_KEY=op://hermes/google-ai-studio/api-key
 # Tavily — web search, extract, crawl (replaces browser-based search)
 TAVILY_API_KEY=op://hermes/tavily/API_KEY
 
-# Voice — api_key the native openai TTS/STT tools send to audio-gateway.
-# audio-gateway runs with PROXY_API_KEY empty (tailnet gates access), so any value works.
-VOICE_TOOLS_OPENAI_KEY=not-needed
+# Voice — fallback api_key for the native openai TTS/STT tools, only consulted by
+# hermes-agent's _resolve_openai_audio_client_config() when config.yaml's
+# tts.openai.api_key / stt.openai.api_key is unset — both are set directly there
+# (config.yaml:304,331), so this ref is currently inert, kept as a safety net.
+# audio-gateway runs with PROXY_API_KEY empty (tailnet gates access) and maps the
+# bearer value to a caller name via AUDIO_CALLER_TOKENS — "hermes" attributes
+# audio-gateway traces/usage to this agent, not a real credential.
+VOICE_TOOLS_OPENAI_KEY=hermes
 
 # GitHub — issue creation, repo queries (watchdog, Phase 3)
 GITHUB_TOKEN=op://hermes/github/token

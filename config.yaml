@@ -301,7 +301,7 @@ tts:
     model: elevenlabs/flash-v2.5
     voice: Mark
     base_url: https://audio-gateway.jkrumm.com/v1
-    api_key: not-needed
+    api_key: hermes
     speed: 1
     max_text_length: 32000
   xai:
@@ -328,7 +328,7 @@ stt:
   openai:
     model: gpt-4o-transcribe
     base_url: https://audio-gateway.jkrumm.com/v1
-    api_key: not-needed
+    api_key: hermes
   mistral:
     model: voxtral-mini-latest
   elevenlabs:
