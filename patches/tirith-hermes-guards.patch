@@ -1,5 +1,5 @@
 diff --git a/tools/tirith_security.py b/tools/tirith_security.py
-index a284c6d400..0c9c265a08 100644
+index a284c6d400..377dfaebb9 100644
 --- a/tools/tirith_security.py
 +++ b/tools/tirith_security.py
 @@ -25,6 +25,8 @@ import json
@@ -32,7 +32,7 @@ index a284c6d400..0c9c265a08 100644
 +# bearer.patch). Any foreign host or shell metaprogramming → fall through.
 +
 +_ALLOWED_PIPELINE_HOSTS = frozenset({
-+    "argo.jkrumm.com", "karakeep.jkrumm.com", "research.jkrumm.com",
++    "argo.jkrumm.com", "karakeep.jkrumm.com", "research.jkrumm.com", "hyperdx.jkrumm.com",
 +})
 +
 +# LOCAL MODIFICATION (patches/tirith-hermes-guards.patch):

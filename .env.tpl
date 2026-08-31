@@ -72,6 +72,13 @@ KARAKEEP_API_KEY=op://hermes/karakeep/api-key
 # https://research.jkrumm.com is hardcoded in the skill (like argo / karakeep).
 RESEARCH_API_KEY=op://vps/research-gateway/API_SECRET
 
+# HyperDX/ClickStack (observability, Tailscale-only at hyperdx.jkrumm.com, on the
+# VPS). Bearer for the `hyperdx` skill's MCP + REST v2 calls — a dedicated read-only
+# HyperDX **user access key** (not the OTLP ingestion key), provisioned by
+# `make hyperdx-agent-setup` in the vps repo. Same credential the sideclaw `otel`
+# MCP tool uses for Claude Code sessions. Base URL is hardcoded in the skill.
+HYPERDX_AGENT_ACCESS_KEY=op://vps/clickstack/AGENT_ACCESS_KEY
+
 # UptimeKuma push URLs — pinged on success by hermes-liveness.sh, hermes-backup.sh,
 # and watchdog-slack.py. Push monitors created manually in UK UI; URLs stored in
 # 1Password after creation. Watchdog monitor interval ~2700s (45 min) — 30 min cron
