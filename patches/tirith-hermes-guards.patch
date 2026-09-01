@@ -11,7 +11,7 @@ index a284c6d400..377dfaebb9 100644
  import shutil
  import stat
  import subprocess
-@@ -720,6 +722,771 @@ def ensure_installed(*, log_failures: bool = True):
+@@ -720,6 +722,772 @@ def ensure_installed(*, log_failures: bool = True):
      return None  # Not available yet; commands will fail-open until ready
  
  
@@ -33,6 +33,7 @@ index a284c6d400..377dfaebb9 100644
 +
 +_ALLOWED_PIPELINE_HOSTS = frozenset({
 +    "argo.jkrumm.com", "karakeep.jkrumm.com", "research.jkrumm.com", "hyperdx.jkrumm.com",
++    "audio-gateway.jkrumm.com",
 +})
 +
 +# LOCAL MODIFICATION (patches/tirith-hermes-guards.patch):
@@ -783,7 +784,7 @@ index a284c6d400..377dfaebb9 100644
  # ---------------------------------------------------------------------------
  # Main API
  # ---------------------------------------------------------------------------
-@@ -745,6 +1512,91 @@ def check_command_security(command: str) -> dict:
+@@ -745,6 +1513,91 @@ def check_command_security(command: str) -> dict:
      if not cfg["tirith_enabled"]:
          return {"action": "allow", "findings": [], "summary": ""}
  
@@ -875,7 +876,7 @@ index a284c6d400..377dfaebb9 100644
      # Circuit breaker: if tirith has crashed _CRASH_LIMIT times in a row,
      # stop trying for the rest of the process.  Without this, a corrupted
      # or missing binary causes every tool call to hit the same spawn failure
-@@ -753,6 +1605,11 @@ def check_command_security(command: str) -> dict:
+@@ -753,6 +1606,11 @@ def check_command_security(command: str) -> dict:
      if _circuit_open:
          return {"action": "allow", "findings": [], "summary": "tirith disabled (circuit breaker)"}
  
