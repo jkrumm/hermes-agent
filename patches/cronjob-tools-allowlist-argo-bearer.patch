@@ -15,10 +15,10 @@ index 5fd0619458..a3b460d79f 100644
 -    exemption for arbitrary Authorization-header exfiltration.
 +    - the GitHub `Authorization: token $GITHUB_TOKEN` fallback (api.github.com)
 +    - argo.jkrumm.com / karakeep.jkrumm.com / research.jkrumm.com / hyperdx.jkrumm.com
-+      bearer curls (this deployment's trusted personal APIs)
++      / audio-gateway.jkrumm.com bearer curls (this deployment's trusted personal APIs)
 +
-+    Allows the bundled GitHub + argo + karakeep + research + hyperdx skill fallbacks
-+    without opening a blanket exemption for arbitrary Authorization-header
++    Allows the bundled GitHub + argo + karakeep + research + hyperdx + podcast skill
++    fallbacks without opening a blanket exemption for arbitrary Authorization-header
 +    exfiltration.
  
      Uses ``re.sub`` so EVERY occurrence is scrubbed, not just the first — a
@@ -32,25 +32,26 @@ index 5fd0619458..a3b460d79f 100644
          rf'curl\s+[^\n;&|$`]*(?:-H|--header)\s+["\']Authorization:\s*token\s+{_CRON_SECRET_VAR_RE}["\']'
          r'\s+["\']?https://api\.github\.com(?::\d+)?(?:/|\s|$|["\'])[^\s;&|$`]*',
          'curl https://api.github.com/user',
-@@ -216,6 +221,46 @@ def _strip_cron_safe_constructs(prompt: str) -> str:
+@@ -216,6 +221,47 @@ def _strip_cron_safe_constructs(prompt: str) -> str:
          flags=re.IGNORECASE,
      )
  
 +    # Local patch (Hermes-agent local mod, see ~/SourceRoot/hermes-agent/patches/):
-+    # argo.jkrumm.com, karakeep.jkrumm.com, research.jkrumm.com and
-+    # hyperdx.jkrumm.com are this deployment's trusted personal APIs. Bundled
-+    # skills curl them with `Authorization: Bearer $HOMELAB_API_KEY` /
-+    # `$KARAKEEP_API_KEY` / `$RESEARCH_API_KEY` / `$HYPERDX_AGENT_ACCESS_KEY` —
-+    # GET and POST (including multi-line shell
-+    # continuations with embedded JSON). The upstream `exfil_curl_*` patterns
-+    # flag these because they're indistinguishable from real exfil at the regex
-+    # level. Strategy: replace any bash code fence (``` ... ```) whose only
-+    # http(s) host(s) are allowlisted with a sanitized placeholder, then also
-+    # strip single-line allowlisted curls outside fences. Real exfil to a
-+    # non-allowlisted host stays flagged: it lives either outside a clean fence
-+    # or on a line carrying a foreign host.
-+    _trusted_api_host = r'(?:argo|karakeep|research|hyperdx)\.jkrumm\.com'
-+    _trusted_api_suffixes = ('argo.jkrumm.com', 'karakeep.jkrumm.com', 'research.jkrumm.com', 'hyperdx.jkrumm.com')
++    # argo.jkrumm.com, karakeep.jkrumm.com, research.jkrumm.com, hyperdx.jkrumm.com
++    # and audio-gateway.jkrumm.com are this deployment's trusted personal APIs.
++    # Bundled skills curl them with `Authorization: Bearer $HOMELAB_API_KEY` /
++    # `$KARAKEEP_API_KEY` / `$RESEARCH_API_KEY` / `$HYPERDX_AGENT_ACCESS_KEY` /
++    # `hermes` (the podcast skill's caller label, not a secret) — GET and POST
++    # (including multi-line shell continuations with embedded JSON). The
++    # upstream `exfil_curl_*` patterns flag these because they're
++    # indistinguishable from real exfil at the regex level. Strategy: replace
++    # any bash code fence (``` ... ```) whose only http(s) host(s) are
++    # allowlisted with a sanitized placeholder, then also strip single-line
++    # allowlisted curls outside fences. Real exfil to a non-allowlisted host
++    # stays flagged: it lives either outside a clean fence or on a line
++    # carrying a foreign host.
++    _trusted_api_host = r'(?:argo|karakeep|research|hyperdx|audio-gateway)\.jkrumm\.com'
++    _trusted_api_suffixes = ('argo.jkrumm.com', 'karakeep.jkrumm.com', 'research.jkrumm.com', 'hyperdx.jkrumm.com', 'audio-gateway.jkrumm.com')
 +
 +    def _sanitize_trusted_api_fence(match):
 +        body = match.group(0)

@@ -71,6 +71,7 @@ Your output is converted from Markdown to Slack mrkdwn automatically. Follow the
 | **Research / "look this up", "recherchier mal", compare, verify, latest on X, library/version/API questions** — do the research *now* and report with sources | `skill_view('research-gateway')` → submit to research-gateway, poll, return the cited report |
 | **AI spend / cost / token usage** — "what have I spent on AI", "how many tokens this month", cache hit rate | `skill_view('argo-api')` → `GET /usage/headline`, then curl with `terminal` |
 | **Voice memo / TTS** — user asks for "voice memo", "speak this", "send me a voice", "audio reply", a short spoken status reply, OR a scheduled long-form briefing / German narration | call the `text_to_speech` tool with the message you want spoken. One tool, one path: Gemini 3.1 Flash (Charon voice) via the audio-gateway. It speaks German and English natively, adds expressive delivery, and chunks longform itself — no length limit to worry about. NEVER curl an audio endpoint. |
+| **Podcast** — "mach mir einen Podcast", "Podcast über …", "als Podcast", "Hörbuch/Audio-Briefing zu …", turning a note/article/plan into something to listen to | `skill_view('podcast')` → submit source + brief to the audio-gateway's podcast pipeline, poll, publish into Audiobookshelf |
 | **Ad-hoc SQL** — "run a quick SQL", "count X in the database", aggregations not covered by a named endpoint | `skill_view('argo-api')` → POST `/query` with `{"sql": "…"}`. Read-only. |
 | Anything else on the argo API, or unsure | `skill_view('argo-api')` → full endpoint reference |
 
@@ -96,7 +97,7 @@ Querying/completing *existing* TickTick tasks goes via `argo-api` (`references/t
 1. There is exactly **one** TTS tool: `text_to_speech`. Use it for everything spoken — short voice memos, status replies, and scheduled long-form briefings alike. There is no separate "fast" tool.
 2. Write the spoken `text` in **German by default** — it is Johannes's language. Gemini Charon speaks German and English natively. Even when the source material (a document, article or briefing input) is in English, narrate it **in German** unless Johannes explicitly asked for English. Never translate German down to English. Keep proper nouns and technical terms (product names, APIs) as they are.
 3. Don't worry about length or chunking. The audio-gateway chunks longform itself; just write clean paragraphs separated by blank lines for natural section beats. Don't add inline pause markers or prosody tags — the gateway's prep step handles delivery.
-4. **NEVER** curl an audio endpoint. **NEVER** use the `terminal` tool to hit `/v1/audio/speech` or any TTS URL directly. Only the registered `text_to_speech` tool.
+4. **NEVER** curl an audio endpoint. **NEVER** use the `terminal` tool to hit `/v1/audio/speech` or any TTS URL directly. Only the registered `text_to_speech` tool. **Exception:** `/v1/podcasts*` — that's a job API for produced two-host episodes, not TTS, and there is no native tool for it. Use the `podcast` skill's `terminal`/`curl` flow for those.
 5. The tool takes a single `text` argument and delivers the MP3 as a Slack audio attachment.
 
 Never run docker commands locally. Each skill has the curl commands ready — just fill in the values and run.
