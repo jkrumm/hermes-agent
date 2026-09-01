@@ -33,3 +33,7 @@ __pycache__/
 # Un-scrubbed archive of untracked skills pulled off the mini before deletion
 # (real tailnet IPs / 1Password vault UUIDs — never let this enter git).
 .skill-archive/
+
+# Cron runtime state — per-fire single-instance locks + catch-up ledger
+cron/.fire-*.lock
+cron/catch_up_occurrences

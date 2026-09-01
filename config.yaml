@@ -70,6 +70,7 @@ terminal:
   docker_extra_args: []
   docker_run_as_host_user: false
   persistent_shell: true
+  font_family: JetBrainsMono Nerd Font
 web:
   backend: tavily
   search_backend: ''
@@ -338,12 +339,18 @@ stt:
     diarize: false
   provider: openai
 voice:
+  record_key: ctrl+b
+  max_recording_seconds: 120
+  auto_tts: true
   # Desktop: relay speech through `hermes serve` instead of calling the gateway
   # from the app. Client-direct plays sentence by sentence with no lookahead
   # (voice-playback.ts pump: synthesize → play → synthesize), so every sentence
   # boundary is a full gateway round trip of silence. The relay WS schedules
   # PCM back-to-back and prefetches on the server. STT relays too.
   client_direct: false
+  beep_enabled: true
+  silence_threshold: 200
+  silence_duration: 3
   # Read-aloud of a finished reply longer than this speaks a one-sentence
   # gateway summary ("Todo erstellt …") instead of the whole text. Live voice
   # conversation is unaffected (text arrives incrementally there). Served by
@@ -351,12 +358,8 @@ voice:
   # 1.4 s + ~15 chars/s, the summary ~4.5 s to first sound + one ~4 s sentence,
   # so anything past ~110 chars is quicker AND shorter as a summary.
   speak_summary_min_chars: 120
-  record_key: ctrl+b
-  max_recording_seconds: 120
-  auto_tts: true
-  beep_enabled: true
-  silence_threshold: 200
-  silence_duration: 3
+wake_word:
+  enabled: false
 human_delay:
   mode: 'off'
   min_ms: 800
@@ -482,6 +485,15 @@ approvals:
     - '*docker*prune*'
   mcp_reload_confirm: true
   destructive_slash_confirm: true
+command_allowlist:
+  - script execution via -e/-c flag
+plugins:
+  enabled:
+    - dispatch-approval
+  disabled: []
+  entries:
+    dispatch-approval:
+      allow_tool_override: false
 hooks_auto_accept: false
 security:
   allow_private_urls: false
@@ -625,13 +637,6 @@ platform_toolsets:
 known_plugin_toolsets:
   cli:
     - spotify
-plugins:
-  enabled:
-    - dispatch-approval
-  disabled: []
-  entries:
-    dispatch-approval:
-      allow_tool_override: false
 custom_providers:
   - name: Unified-endpoint-main.app.iu-it.org
     base_url: https://unified-endpoint-main.app.iu-it.org/openai/v1
@@ -641,8 +646,6 @@ custom_providers:
     models:
       gpt-5.6-luna:
         context_length: 850000
-wake_word:
-  enabled: false
 
 # ── Fallback Model ────────────────────────────────────────────────────
 # Automatic provider failover when primary is unavailable.

@@ -370,7 +370,7 @@ global CLAUDE.md → "Headless secrets"). `.env.tpl` stays the single list of
 `KEY=op://vault/item/field` refs — it is now consumed by the `command` source instead of
 by an `op run` wrapper. The `sed` exists because `secrets-run export` emits
 `export K='V'` while the bulk parser wants bare `K=V` (it strips one quote layer itself).
-Measured 0.29s for 26 refs, well inside the budget (the source's default is a tight 3s).
+Measured 0.29s for 27 refs, well inside the budget (the source's default is a tight 3s).
 
 **Why not `secrets.onepassword`** (also shipped in v0.19): it authenticates either via an
 interactive `op` session — which **hangs** on this headless mini's biometric prompt, the
@@ -410,8 +410,8 @@ regression is monitored rather than merely accepted:
   empty or absent `.env.tpl` makes the assertion vacuous (`WANT=0`) — a gateway with no
   secrets can't reach Slack, so the connected-check below catches that case anyway.
 
-Manual check after any secrets change: `Command helper: applied 26 secrets` in
-`hermes gateway status`, and `✓ secrets (26 refs …)` from `make status`.
+Manual check after any secrets change: `Command helper: applied 27 secrets` in
+`hermes gateway status`, and `✓ secrets (27 refs …)` from `make status`.
 
 > **launchd now works.** Earlier notes claimed `launchctl` couldn't bootstrap
 > `ai.hermes.gateway` (`Bootstrap failed: 5: I/O error`) and that the gateway fell back to
@@ -747,7 +747,7 @@ a live feed and make patch diffs real rather than a research call.
 
 ## Local Modifications to Upstream
 
-Re-apply after `hermes update`: **one `.patch` file per patched upstream file** (each applied with `git apply --3way`; `/hermes-update` carries the loop). `ls patches/` is the count and `make patch-check` proves they are applied — the number is deliberately not restated here, having drifted at four of the last five updates. All of them are regenerated against the current upstream baseline (**v0.20.5**, upstream `c0b5a8e1`) so they re-apply cleanly on minor upstream bumps; only a structural rewrite of a touched function needs a hand-rewrite.
+Re-apply after `hermes update`: **one `.patch` file per patched upstream file** (each applied with `git apply --3way`; `/hermes-update` carries the loop). `ls patches/` is the count and `make patch-check` proves they are applied — the number is deliberately not restated here, having drifted at four of the last five updates. All of them are regenerated against the current upstream baseline (**v0.21.0**, upstream `b6f42c667a`) so they re-apply cleanly on minor upstream bumps; only a structural rewrite of a touched function needs a hand-rewrite.
 
 > **Retired patch — `auxiliary-client-gpt5-max-completion-tokens` (dropped at v0.15.1).** It forced `max_completion_tokens` for `gpt-5*`/`gpt-4o`/`o-series` models by name in `_build_call_kwargs`. v0.15.1 rewrote that function to **omit `max_tokens` entirely** for non-Anthropic custom endpoints (it only sets it for Anthropic-compat endpoints, where it's mandatory) — so the patch's target block no longer exists, and its defensive goal (never send `max_tokens` to a gpt-5 aux on the IU endpoint → HTTP 503) is now achieved by upstream's omit-by-default behavior. The direct-OpenAI `max_completion_tokens` case is handled by upstream's separate `auxiliary_max_tokens_param` helper. The current config (DeepSeek-V4-Flash auxiliaries, `chat_completions`) never hit this path regardless. Patch file deleted from `patches/`.
 
