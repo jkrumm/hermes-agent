@@ -192,9 +192,18 @@ When `status: done`, report:
 Slack's upload size/time makes that a bad experience for a long-form file. Link to
 Audiobookshelf instead; only attach directly for a short (<5 min) episode.
 
-On `status: failed`, show the `error` field **verbatim** — don't paraphrase it away
-— and don't retry blindly. A failed run burned real synthesis cost; resubmitting
-without understanding why repeats that.
+On `status: failed`, show the `error` field **verbatim** — don't paraphrase it away.
+If the error reads like a transport hiccup (socket closed, timed out, 502/503 from
+an upstream) retry ONCE without re-uploading anything:
+
+```bash
+curl -s -X POST "https://audio-gateway.jkrumm.com/v1/podcasts/$JOB/retry" \
+  -H "Authorization: Bearer hermes" -H "x-audio-source: hermes" | jq .
+# → { "id": "<new job id>", "status": "queued", "retry_of": "<old id>" } — poll the NEW id
+```
+
+The gateway keeps the source, so the retry is a new job with the identical request.
+A second failure with the same error is not a hiccup — report it, don't loop.
 
 The mp3 carries chapters and cover art, so once published it's a real episode, not
 a bare audio file — worth saying so the first time Johannes sees one.
