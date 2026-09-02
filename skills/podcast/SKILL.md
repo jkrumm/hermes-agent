@@ -14,7 +14,7 @@ The audio-gateway's podcast pipeline (`audio-gateway.jkrumm.com`, VPS, reached o
 the tailnet) turns a block of source text into a scripted two-host conversation,
 synthesizes it, masters it into one MP3 with chapters and cover art, and — on
 request — uploads the finished episode into Audiobookshelf so it shows up as a real
-podcast episode in Plappa/Prologue. This is a **job API, not TTS** — it is not the
+podcast episode in Plappa. This is a **job API, not TTS** — it is not the
 `text_to_speech` tool and not `briefing-tts`'s single-shot `/v1/audio/speech`; it
 runs a multi-stage pipeline (script → synthesis → mastering → cover → publish) that
 takes minutes, so it is submit-then-poll like `research-gateway`.
@@ -185,7 +185,7 @@ When `status: done`, report:
 - **Title** and **duration** in minutes (`duration_seconds / 60`, rounded).
 - **Chapter list** — `chapters[].title`, one per line.
 - The **Audiobookshelf link** from `abs.url` — say the episode is in the Podcasts
-  library, playable in Plappa/Prologue.
+  library, playable in Plappa.
 - **Cost** (`cost_usd`, the ElevenLabs share; the writers' room adds roughly 3–4 USD on top).
 
 **Do not attach the MP3 via `MEDIA:`** for anything over ~5 minutes of audio —
