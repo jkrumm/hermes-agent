@@ -1,6 +1,6 @@
 ---
 name: podcast
-description: Turn source notes (a brain note, a saved article, pasted text) into a long-form, two-host German podcast episode via the audio-gateway's podcast pipeline, and publish it into Audiobookshelf. Use when Johannes asks for "mach mir einen Podcast", "Podcast über …", "als Podcast", "Hörbuch/Audio-Briefing zu …", "mach daraus was zum Anhören", or wants a plan/article/research turned into something to listen to (e.g. on a drive). Submit-and-poll (async); the job runs server-side, roughly 1 minute per 3 minutes of finished audio.
+description: Turn source notes (a brain note, a saved article, pasted text) into a long-form, two-host German podcast episode via the audio-gateway's podcast pipeline, and publish it into Audiobookshelf. Use when Johannes asks for "mach mir einen Podcast", "Podcast über …", "als Podcast", "Hörbuch/Audio-Briefing zu …", "mach daraus was zum Anhören", or wants a plan/article/research turned into something to listen to (e.g. on a drive). Submit-and-poll (async); the job runs server-side for 15–25 minutes (a writers' room of several models, then per-turn synthesis), and the finished episode is announced here in Slack with its Audiobookshelf link.
 version: 1.0.0
 metadata:
   hermes:
@@ -89,7 +89,7 @@ BODY=$(jq -n \
   --arg brief "Johannes plant genau diese Reise mit dem Camper; sprich ihn direkt an, gib Rat." \
   --arg title "" \
   '{source: $source, brief: $brief, title: $title, language: "de", minutes: 20,
-    series: "Hermes Briefings", publish: true, cover: true}
+    series: "Brain Sonderausgabe", publish: true, cover: true}
    | if .title == "" then del(.title) else . end')
 
 JOB=$(curl -s -X POST "https://audio-gateway.jkrumm.com/v1/podcasts" \
@@ -100,28 +100,38 @@ JOB=$(curl -s -X POST "https://audio-gateway.jkrumm.com/v1/podcasts" \
 `minutes` is a target (5–60, default 20) — pick it from how much source material
 there is and what Johannes asked for ("kurz" → 5-10, "ausführlich" → 30-45).
 
-**Reply immediately** with the job id and an estimate (~1 min per 3 min of target
-audio, so `minutes: 20` ≈ 6-7 min) before polling — don't make Johannes wait in
-silence while the job runs.
+**Reply immediately** with the job id and the honest estimate: **15–25 minutes**
+(the script alone is a writers' room — Opus 5 plans, Opus 4.6 writes, Gemini and
+GPT review, Opus 4.6 revises — then ~120 turns of synthesis, mastering, cover,
+publish). Don't make Johannes wait in silence.
 
-### 3. Poll
+### 3. Poll — in short chunks
 
-Every 20s, capped at ~15 minutes (45 iterations), showing the current stage:
+The `terminal` tool is capped at **180 seconds per command**, so never loop for
+the whole job in one call. One chunk = up to 6 polls, 20 s apart (~2 minutes):
 
 ```bash
-for i in $(seq 1 45); do
+for i in $(seq 1 6); do
   R=$(curl -s "https://audio-gateway.jkrumm.com/v1/podcasts/$JOB" \
       -H "Authorization: Bearer hermes" -H "x-audio-source: hermes")
   ST=$(echo "$R" | jq -r '.status')
-  echo "stage: $(echo "$R" | jq -r '.progress.stage // .status')"
+  echo "$(date +%H:%M:%S) $ST $(echo "$R" | jq -r '.progress | select(. != null) | "\(.stage) \(.done)/\(.total)"')"
   [ "$ST" = "done" ] || [ "$ST" = "failed" ] && break
   sleep 20
 done
+echo "$R" | jq '{status, error, title, duration_seconds, cost_usd, abs}'
 ```
 
+Run **at most 4 chunks** (≈ 8–10 minutes of your own run time). If the job is
+still running after that, stop polling and tell Johannes: the episode will be
+announced in this channel with the Audiobookshelf link when it is done (the
+gateway posts it), and he can ask you "wie steht's um den Podcast" any time —
+then run ONE chunk against the job id and report. Never sit in a poll loop for
+the whole 20 minutes.
+
 `status` moves through `queued → scripting → synthesizing → mastering → cover →
-publishing → done` (or `failed` at any stage). If it's still running past the cap,
-tell Johannes it's taking long and that you'll check back — don't just stop silently.
+publishing → done` (or `failed` at any stage). `progress.stage` inside
+`scripting` is `outline → segment → review → revise → metadata`.
 
 ### 4. Present the result
 
@@ -147,7 +157,7 @@ echo "$R" | jq '{title, duration_seconds, chapters, cost_usd, abs}'
   "title": "...", "description": "...",
   "duration_seconds": 1260, "turns": 42,
   "chapters": [ { "title": "...", "start_ms": 0 }, ... ],
-  "cost_usd": 0.18,
+  "cost_usd": 2.26,                               // ElevenLabs characters only; writer tokens come on top
   "error": null,                                  // set only on status=failed
   "abs": { "url": "...", "library_item_id": "...", "episode_id": "..." } | null,
   "created_at": "...", "updated_at": "..."
@@ -157,7 +167,9 @@ echo "$R" | jq '{title, duration_seconds, chapters, cost_usd, abs}'
 Other calls: `GET /v1/podcasts/{id}/audio` → MP3 bytes, `/cover` → PNG, `/script`
 → JSON script (`?format=md` for a readable transcript), `GET /v1/podcasts` → latest
 50, `POST /v1/podcasts/{id}/publish` → re-run the Audiobookshelf publish for an
-already-finished job (e.g. it was submitted with `publish: false`).
+already-finished job (e.g. it was submitted with `publish: false`). The show in
+Audiobookshelf is "Brain Sonderausgabe" (library "Podcasts"); every episode carries
+chapters and cover art.
 
 Transcript, if Johannes wants to read along or check a fact before listening:
 ```bash
@@ -174,7 +186,7 @@ When `status: done`, report:
 - **Chapter list** — `chapters[].title`, one per line.
 - The **Audiobookshelf link** from `abs.url` — say the episode is in the Podcasts
   library, playable in Plappa/Prologue.
-- **Cost** (`cost_usd`).
+- **Cost** (`cost_usd`, the ElevenLabs share; the writers' room adds roughly 3–4 USD on top).
 
 **Do not attach the MP3 via `MEDIA:`** for anything over ~5 minutes of audio —
 Slack's upload size/time makes that a bad experience for a long-form file. Link to
