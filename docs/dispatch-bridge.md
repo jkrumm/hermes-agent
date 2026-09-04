@@ -408,7 +408,8 @@ and a push attempt under the worker's own env failing in under a second.
   `CLAUDE_CODE_OAUTH_TOKEN` from `op://mini/claude/oauth-token`: 3.0s, Max auth,
   no keychain, no herdr. **`dotfiles/scripts/remote-dev.sh:325-333` and the
   global CLAUDE.md are stale** — they still state the herdr indirection is
-  required for auth. It was, before that ref existed.
+  required for auth. It was, before that ref existed. (Re-checked 2026-09-04:
+  the comment block is still at those exact lines and still says so.)
 - CLI 2.1.220 carries every primitive this design needs: `--json-schema`,
   `--session-id <uuid>`, `--resume`, `--fork-session`,
   `--output-format stream-json`, `--permission-mode`, `--allowedTools`,
