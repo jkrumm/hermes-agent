@@ -10,27 +10,40 @@ metadata:
 
 # Podcast — long-form two-host episodes via the audio-gateway
 
-The audio-gateway's podcast pipeline (`audio-gateway.jkrumm.com`, VPS, reached over
-the tailnet) turns a block of source text into a scripted two-host conversation,
-synthesizes it, masters it into one MP3 with chapters and cover art, and — on
-request — uploads the finished episode into Audiobookshelf so it shows up as a real
+The audio-gateway's podcast pipeline (`http://localhost:7719` — the mini's
+second audio-gateway instance, dedicated to podcasts because it alone has the
+brain vault on disk; STT/TTS stays on the VPS container) researches the source
+(brain search, past episodes, the research gateway), has an editorial pass
+decide format/roles/tone/humor/length for THIS episode, writes a scripted
+two-host conversation, synthesizes it, masters it into one MP3 with chapters
+and cover art, writes the transcript back into the brain, and — on request —
+uploads the finished episode into Audiobookshelf so it shows up as a real
 podcast episode in Plappa. This is a **job API, not TTS** — it is not the
 `text_to_speech` tool and not `briefing-tts`'s single-shot `/v1/audio/speech`; it
-runs a multi-stage pipeline (script → synthesis → mastering → cover → publish) that
-takes minutes, so it is submit-then-poll like `research-gateway`.
+runs a multi-stage pipeline (research → editorial → script → synthesis →
+mastering → cover → publish → brain note) that takes minutes, so it is
+submit-then-poll like `research-gateway`.
 
 Use the terminal (`curl`). Don't say you lack tooling — turning source material into
 a produced episode is this skill.
 
-**Base URL:** `https://audio-gateway.jkrumm.com`
-**Auth:** the gateway is tailnet-gated (no public listener) and identifies the
-caller by a bearer label, not a credential — send both on every request:
+**Base URL:** `http://localhost:7719` (Hermes runs on the mini, same machine).
+**Auth:** the gateway is loopback/tailnet-gated (no public listener) and
+identifies the caller by a bearer label, not a credential — send both on every
+request:
 ```
 -H "Authorization: Bearer hermes" -H "x-audio-source: hermes"
 ```
 No secret to resolve — `hermes` is a literal caller label, the same one
 `config.yaml`'s `tts.openai.api_key` / `stt.openai.api_key` already use for the
 native voice tools.
+
+**New request fields** (all optional): `sourcePaths: string[]` — brain-relative
+note paths the gateway reads itself, making `source` optional when given;
+`research: boolean` (default `true`) — skip the research stage with `false`;
+`pinMinutes: boolean` (default `false`) — stop the editor deviating from
+`minutes`; `brainNote: boolean` (default `true`) — skip writing the transcript
+note back into the brain with `false`.
 
 ---
 
@@ -92,7 +105,7 @@ BODY=$(jq -n \
     series: "Brain Sonderausgabe", publish: true, cover: true}
    | if .title == "" then del(.title) else . end')
 
-JOB=$(curl -s -X POST "https://audio-gateway.jkrumm.com/v1/podcasts" \
+JOB=$(curl -s -X POST "http://localhost:7719/v1/podcasts" \
   -H "Authorization: Bearer hermes" -H "x-audio-source: hermes" \
   -H "Content-Type: application/json" -d "$BODY" | jq -r '.id')
 ```
@@ -112,7 +125,7 @@ the whole job in one call. One chunk = up to 6 polls, 20 s apart (~2 minutes):
 
 ```bash
 for i in $(seq 1 6); do
-  R=$(curl -s "https://audio-gateway.jkrumm.com/v1/podcasts/$JOB" \
+  R=$(curl -s "http://localhost:7719/v1/podcasts/$JOB" \
       -H "Authorization: Bearer hermes" -H "x-audio-source: hermes")
   ST=$(echo "$R" | jq -r '.status')
   echo "$(date +%H:%M:%S) $ST $(echo "$R" | jq -r '.progress | select(. != null) | "\(.stage) \(.done)/\(.total)"')"
@@ -131,7 +144,8 @@ the whole 20 minutes.
 
 `status` moves through `queued → scripting → synthesizing → mastering → cover →
 publishing → done` (or `failed` at any stage). `progress.stage` inside
-`scripting` is `outline → segment → review → revise → metadata`.
+`scripting` is `research → editorial → outline → segment → review → revise →
+metadata`.
 
 ### 4. Present the result
 
@@ -173,7 +187,7 @@ chapters and cover art.
 
 Transcript, if Johannes wants to read along or check a fact before listening:
 ```bash
-curl -s "https://audio-gateway.jkrumm.com/v1/podcasts/$JOB/script?format=md" \
+curl -s "http://localhost:7719/v1/podcasts/$JOB/script?format=md" \
   -H "Authorization: Bearer hermes" -H "x-audio-source: hermes"
 ```
 
@@ -197,7 +211,7 @@ If the error reads like a transport hiccup (socket closed, timed out, 502/503 fr
 an upstream) retry ONCE without re-uploading anything:
 
 ```bash
-curl -s -X POST "https://audio-gateway.jkrumm.com/v1/podcasts/$JOB/retry" \
+curl -s -X POST "http://localhost:7719/v1/podcasts/$JOB/retry" \
   -H "Authorization: Bearer hermes" -H "x-audio-source: hermes" | jq .
 # → { "id": "<new job id>", "status": "queued", "retry_of": "<old id>" } — poll the NEW id
 ```
@@ -220,9 +234,10 @@ a bare audio file — worth saying so the first time Johannes sees one.
   (latest 50).
 - **`502`** → the pipeline's upstream (script/synthesis/mastering) failed. Show the
   error, don't resubmit automatically — ask whether Johannes wants a retry.
-- **Non-2xx on submit / gateway unreachable** → it's tailnet-only; surface
-  "audio-gateway nicht erreichbar" rather than falling back to `text_to_speech`
-  (that tool cannot produce a two-host chaptered episode — it's a different
-  product, not a fallback for this one).
+- **Non-2xx on submit / gateway unreachable** → the mini instance may be down
+  (`launchctl print gui/501/com.jkrumm.audio-gateway`); surface "audio-gateway
+  nicht erreichbar" rather than falling back to `text_to_speech` (that tool
+  cannot produce a two-host chaptered episode — it's a different product, not a
+  fallback for this one).
 - **Still running past the poll cap** → don't hang forever. Keep the job id, tell
   Johannes it's still working, and offer to check back or poll again shortly.
