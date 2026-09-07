@@ -69,7 +69,8 @@ rename).
 
 ## Registering the Slack digest cron
 
-Not registered yet — do this by hand once the `#agents` channel exists:
+Registered 2026-09-07 as job `72aa2fb36307` (see the registry in `docs/scheduled-jobs.md`).
+The steps, kept for a re-install:
 
 1. Create the Slack channel `#agents`, invite the Hermes bot, and record its
    channel ID in this repo's `README.md` Channel Architecture table (the same

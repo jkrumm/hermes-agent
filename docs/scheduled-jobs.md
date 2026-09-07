@@ -1,6 +1,30 @@
-# Scheduled jobs — why LaunchAgents, the cron guard, editing a cron job
+# Scheduled jobs — the Hermes cron registry, why LaunchAgents, the cron guard, editing a cron job
 
-Moved verbatim out of `CLAUDE.md` (2026-09-04, size pass). `CLAUDE.md` § Symlink Map / Dispatch Bridge / Editing Rules points here — nothing was rewritten, only relocated.
+Moved verbatim out of `CLAUDE.md` (2026-09-04, size pass). `CLAUDE.md` § Symlink Map / Dispatch Bridge / Editing Rules points here — nothing was rewritten, only relocated. The registry table below was added 2026-09-07.
+
+## Registry — every Hermes cron job (`hermes cron list`)
+
+**This table is the git-tracked source of truth for what is registered.** `cron/jobs.json`
+is gitignored runtime state, so without this list a job created by hand (`hermes cron
+create` from a Slack turn) exists nowhere in git — the brain drift audit lived that way for
+three weeks. `make status` asserts the live set against these ids in both directions: a row
+with no live job is a schedule that silently stopped; a live enabled job absent here was never
+written down. Add a row (and the `cron/<name>.md` + `.prompt.txt` pair for an agent job) in
+the same commit that registers it.
+
+| Job id | Name | Schedule | Mode | Script / prompt | Skills | Delivery |
+|-|-|-|-|-|-|-|
+| `cc7900c424a9` | Morning briefing | `0 7 * * 1-5` | agent | `briefing-context.py` pre-run · `cron/morning-briefing.prompt.txt` | `argo-api`, `work` | `slack:C0AT6TH404R` #briefings |
+| `2d38c80e685c` | Evening report | `0 22 * * 1-4` | agent | `briefing-context.py` pre-run · `cron/evening-report.prompt.txt` | `argo-api`, `work` | `slack:C0AT6TH404R` #briefings |
+| `4b1faabda97d` | Watchdog | `*/30 * * * *` | no-agent | `watchdog-slack.py` → `watchdog-poll.py --slack-body` | — | `slack:C0ASRULFTSS` #watchdog |
+| `4dd759917dd1` | Dispatch sweep | `*/5 * * * *` | no-agent | `dispatch-sweep-cron.py` → `dispatch-sweep.py` | — | `slack:C0ASRULFTSS` #watchdog (per-dispatch origin thread via `hermes send`) |
+| `8fe7be4985d9` | Brain drift audit | `0 9 * * 6` | agent | `cron/brain-drift-audit.prompt.txt` | `claude-dispatch`, `obsidian` | `slack:C0ASRULFTSS` #watchdog |
+| `72aa2fb36307` | Agents overview | `*/30 * * * *` | no-agent | `agents-cron.py` → `agents-overview.py --slack-body` | — | `slack:C0BVDE5R562` #agents (Block Kit via `chat.postMessage`) |
+| `9909f808fe17` | Project narratives | `30 6 * * *` | no-agent | `narratives-cron.py` → `project-narratives.py --run` | — | `slack:C0BVDE5R562` #agents |
+
+Job ids are minted at `hermes cron create` and are stable for the life of the job — edit with
+`hermes cron edit <id>`, never delete + re-create (that changes the id and breaks this table,
+the prompt's own `cron/output/<id>/` history, and any doc that cites it).
 
 **These were macOS `crontab` entries until 2026-08-02, and the reason they are not
 is that `make setup` could never complete unattended.** Installing a crontab entry

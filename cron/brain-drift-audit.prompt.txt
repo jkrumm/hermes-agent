@@ -1,0 +1,11 @@
+Audit the brain vault for curated-surface drift, and report only what changed since the last audit.
+
+STEP 1 — read the previous verdict. Your own prior runs are on disk at ~/.hermes/cron/output/8fe7be4985d9/. Take the most recent file OTHER than the one being written now, and extract everything after its "## Response" heading. That is the previous findings list. If no prior file exists, treat this as a first run and say so.
+
+STEP 2 — dispatch. Open an investigate-tier episode in the brain repo via the claude-dispatch skill (read-only, worktree-isolated). Paste the previous findings list into the brief verbatim under a "PREVIOUS AUDIT" heading, so the episode can diff against it.
+
+The episode must: (a) run `node .scripts/vault-lint.mjs --drift` for the mechanical tells; (b) judge the curated surface (Areas/, Projects/) against voice.md and the "Curated pages are rewritten, not appended" rule in AGENTS.md for what lint cannot see — prose not in his voice, planning tense for events already past, pages restating a wiki/ note instead of linking down to it, superseded options kept as options; (c) classify every finding as NEW, STILL OPEN, or RESOLVED against the PREVIOUS AUDIT block; (d) state honestly how much of the curated surface it actually inspected.
+
+STEP 3 — report. Lead with the NEW findings, ranked worst first, with file:line anchors and the drift type. Then a one-line count of still-open and resolved. If nothing is new and nothing resolved, reply with a single line saying the vault held steady and give the open count — do not restate the standing findings.
+
+Propose only. Never edit, never commit. Every rewrite is a human decision.

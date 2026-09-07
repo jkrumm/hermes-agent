@@ -12,7 +12,7 @@ Source-of-truth for the watchdog cron registration. This file is documentation, 
 | Deliver | `slack:C0ASRULFTSS` (#watchdog) |
 | Name | `Watchdog` |
 
-`watchdog-slack.py` is a thin wrapper because Hermes invokes cron scripts as `python3 <path>` with no args. The real work lives in `watchdog-poll.py`. Empty stdout = silent delivery; non-empty stdout = Slack mrkdwn body sent verbatim. `watchdog.prompt.txt` is kept for reference but unused since the cut-over to `no_agent`.
+`watchdog-slack.py` is a thin wrapper because Hermes invokes cron scripts as `python3 <path>` with no args. The real work lives in `watchdog-poll.py`. Empty stdout = silent delivery; non-empty stdout = Slack mrkdwn body sent verbatim. The pre-`no_agent` `watchdog.prompt.txt` was deleted 2026-09-07 (unused since the cut-over).
 
 ## Sources monitored
 

@@ -231,12 +231,9 @@ with Full Disk Access); `make status` flags them until it succeeds.
 
 **Restic / B2:** Duplicati already mounts `/mnt:/source/mnt`, so `/mnt/hdd/backups/hermes/` is picked up by the existing B2 backup job.
 
-A third Hermes cron job (not a LaunchAgent, same mechanism as the agents-overview
-digest) is drafted but not yet registered: `scripts/narratives-cron.py` runs
-`project-narratives.py --run` daily, writing/committing one status page per
-active project into `~/SourceRoot/brain/wiki/engineering/projects/` and feeding
-a line into the morning briefing when something moved. See
-`docs/project-narratives.md`.
+Every Hermes cron job (seven — briefings, watchdog, dispatch sweep, brain drift audit,
+agents overview, project narratives) is listed with its id in the registry table in
+`docs/scheduled-jobs.md`; `make status` asserts the live set matches it.
 
 ## Phases
 
