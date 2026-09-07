@@ -28,7 +28,7 @@ Mac Mini M2 Pro — Hermes Agent (always-on)
 |-|-|-|-|-|
 | `#hermes` | C0ASRUD7K1U | read + write | HomeLab bot | Main conversation, HomeLab-triggered checks |
 | `#inbox` | C0AT6TB49HP | read + write | HomeLab bot | Johannes + HomeLab drops (voice memos, links, digests) → Hermes processes |
-| `#alerts` | C0AS1LAUQ3C | read + write | HomeLab bot, external monitors | Docker/UptimeKuma and other monitors fire in → Hermes triages and acts |
+| `#alerts` | C0AS1LAUQ3C | read + write | HomeLab bot, VPS app (A0BV9MG54TD), Argo app (A0BV9MFTM9R), external monitors | Docker/UptimeKuma and other monitors fire in → Hermes triages and acts |
 | `#watchdog` | C0ASRULFTSS | write only | — | Hermes posts its own proactive monitoring results (Phase 3) |
 | `#briefings` | C0AT6TH404R | write only | — | Hermes posts morning/evening audio (Phase 1) |
 | `#journal` | C0ATN8W6N2U | write only | — | Hermes posts structured journal entries (Phase 2) |
