@@ -1,21 +1,30 @@
 # Dispatch Bridge — Hermes hands work to Claude Code
 
-STATUS: all four phases built and committed (2026-08-02). See hermes-agent CLAUDE.md
-§ "Dispatch Bridge" and sideclaw CLAUDE.md § "Dispatch Tool" for what actually shipped,
-including the deviations recorded below.
-
 **The claim:** Hermes should never do repo work, and Claude Code should never
 watch for it. Hermes observes and decides; Claude Code executes bounded episodes
 inside one repo; a single dispatch record ties the two together. Everything else
 in this document follows from that split.
+
+**What shipped.** All five phases (investigate-only handler → bounded client →
+sweeper → `author`/`implement` tiers → `merge`) built and verified against
+`jkrumm/dispatch-scratch` between 2026-08-02 and 2026-08-03: an `implement`
+episode producing a pushed branch and draft PR in 24s, an `author` episode
+filing an issue, a failing episode leaving the live checkout byte-identical
+with worktree/branch/directory all gone, a push attempt under the worker's own
+env failing in under a second, read-tier worktree isolation holding with no
+branch or directory left behind, the sweeper correctly rendering a
+`merged`-vs-open verdict, the nudge-not-verdict wake path working end to end,
+and a dispatched repo's own hostile `.claude/settings.json` failing to run a
+hook or override the push-credential guard. See hermes-agent CLAUDE.md §
+"Dispatch Bridge" and sideclaw CLAUDE.md § "Dispatch Tool" for what runs today,
+including the deviations and decisions recorded below.
 
 ## Why this exists
 
 Hermes finds things — a red monitor, an OTEL error burst, a stray skill, a GitHub
 issue going stale. It routes them well (`capture` already decides GitHub-issue vs
 TickTick correctly). Then it stops, because triage needs to *read the repo* and
-gpt-5.6-luna with a `terminal` tool is the wrong instrument for that. Today
-the loop closes only when Johannes opens Claude Code by hand.
+gpt-5.6-luna with a `terminal` tool is the wrong instrument for that.
 
 The capability gap is not intelligence, it is **context**. Every repo on the mini
 carries a `CLAUDE.md`, `.claude/skills/`, `.claude/rules/`, and inherits the
@@ -68,10 +77,7 @@ Same pipeline, same record, three permission profiles. Not three features.
 | `implement` | write | branch + **draft PR** | `--why` **and** `--confirm` | 10–40min |
 
 Every tier runs in a handler-managed worktree, torn down when the episode ends —
-see the third deviation below for why the read tiers need one too.
-
-`investigate` is the tier that fixes the stated pain and it needs no approval
-theatre: it produces nothing outside its own throwaway checkout.
+see the deviations below for why the read tiers need one too.
 
 **`implement` always ends in a PR, in every repo, including direct-to-master
 ones.** This deviates from the repo's normal convention on purpose: a human wrote
@@ -79,10 +85,10 @@ the direct-to-master rule for their own commits, not for an unattended agent's.
 The episode never merges and never pushes to a default branch — landing the PR is
 the separate `merge` verb.
 
-### Three deviations from this design, all deliberate (Phase 4, 2026-08-02)
+## Three deviations from the original design, all deliberate
 
-**The session never creates the artifact; the handler does.** This design said
-`author` gets `gh issue create` and `implement` pushes its own branch. Built the
+**The session never creates the artifact; the handler does.** The original design
+had `author` run `gh issue create` and `implement` push its own branch. Built the
 other way round: the worker session holds **no GitHub credential at all**, and
 `dispatch-git.ts` — running in the sideclaw process, never in a session — resolves
 the token, commits, builds the push refspec and calls the API. The reason is the
@@ -96,21 +102,21 @@ check, single-branch refspec, no force flag) instead of a line in a prompt.
 **A handler-managed `git worktree add`, not the CLI's `--worktree`.** The handler
 has to know the worktree path to inspect the diff, apply the ceilings and tear it
 down on every exit path including a throw; `--worktree` hands that lifecycle to
-the CLI. Creating it explicitly also made the isolation claim *testable*, which is
-how it was verified: dirty the worktree, fail the run, watch the live checkout
-stay clean and the worktree, branch and directory all disappear.
+the CLI. Creating it explicitly also made the isolation claim *testable*: dirty
+the worktree, fail the run, watch the live checkout stay clean and the worktree,
+branch and directory all disappear.
 
-**The read tiers get a worktree too.** This design gave one only to `implement`,
-on the reading that a read-only session cannot damage anything. That reading is
-wrong, and the table above used to state it: `readOnly: true` removes Edit and
-Write, not `Bash`. So an `investigate` or `author` episode ran in the **live
-checkout** with a shell, holding a brief assembled from material anyone can write
-— a GitHub issue title reaches the watchdog digest, and a dispatched episode then
-reads the attacker's full body via `gh`. One injected `sed -i` and the edit lands
-in a repo other agents are working in and that deploys to the VPS on push. The
-third-party marking in the digest is instruction-level: it labels the content, it
-does not stop an episode acting on it, and neither does `--confirm`, which these
-two tiers do not have.
+**The read tiers get a worktree too.** The original design gave one only to
+`implement`, on the reading that a read-only session cannot damage anything. That
+reading is wrong: `readOnly: true` removes Edit and Write, not `Bash`. So an
+`investigate` or `author` episode ran in the **live checkout** with a shell,
+holding a brief assembled from material anyone can write — a GitHub issue title
+reaches the watchdog digest, and a dispatched episode then reads the attacker's
+full body via `gh`. One injected `sed -i` and the edit lands in a repo other
+agents are working in and that deploys to the VPS on push. The third-party
+marking in the digest is instruction-level: it labels the content, it does not
+stop an episode acting on it, and neither does `--confirm`, which these two
+tiers do not have.
 
 They now get `createReadWorktree` — a copy of **HEAD**, deleted in the same
 `finally`. Cut from HEAD rather than the default branch because a read tier is
@@ -160,23 +166,30 @@ CREATE TABLE dispatches (
   status            TEXT NOT NULL,          -- queued|running|done|failed|interrupted
   verdict_json      TEXT,
   artifact_url      TEXT,                   -- GitHub projection
+  merged_at         TEXT,                   -- denormalized, ALTER TABLE on every connect
   created_at        TEXT NOT NULL,
   finished_at       TEXT,
   reported_at       TEXT                    -- NULL ⇒ the sweeper still owes a message
 );
 ```
 
-`reported_at` is the whole delivery contract. A finished dispatch with
-`reported_at IS NULL` is an unpaid debt; the sweeper pays it and stamps it. A
-missed notification is retried on the next sweep instead of being lost — which is
-why this polls rather than taking a webhook.
+`reported_at` is the whole delivery contract: NULL means the sweeper still owes
+a message. A `--wait` that returns a terminal verdict stamps it, because handing
+the verdict to a live turn *is* the delivery; `status` deliberately does not,
+since a poll tells nobody. `artifact_url`/`merged_at` are denormalized out of the
+verdict into their own columns by **both** settlers (`hermes-cc.sh`'s
+`sync_record`, `dispatch-sweep.py`) — `CREATE TABLE IF NOT EXISTS` no-ops on an
+existing table, so the `ALTER TABLE`s run on every connect. sideclaw prunes jobs
+after 24h: `status` falls back to the row's `verdict_json` on a 404, and the
+sweeper counts consecutive 404s per row (`poll_misses`) — three in a row →
+status `lost`, one notice, never retried again.
 
 ## Component split
 
 **sideclaw owns the episode. Hermes owns the lifecycle.** Both halves are useful
 to other consumers, which is why neither lives in the other.
 
-### sideclaw — new `dispatch` job tool
+### sideclaw — the `dispatch` job tool
 
 `server/jobs/handlers/dispatch.ts` + `server/skills/dispatch.md`, registered as a
 job tool and exposed over MCP. It gets everything sideclaw already does for
@@ -218,15 +231,8 @@ Mirrors `hermes-ops.sh` exactly, because that pattern is already proven here:
   under `tests/`.
 - **`config/dispatch-repos.json`** — tracked policy: one root, a `deny` list, a
   `defaultTier`, and per-repo tier overrides. Repos are discovered under the root
-  rather than enumerated, because the enumeration rotted — it listed 22 repos
-  while 30 sat on disk, and a missing entry was indistinguishable from a
-  deliberate denial. `dotfiles-private`, `homelab-private` and `brain` are
-  denied and stay denied. `defaultTier` is `implement`; the only override left is
-  an `investigate` floor on `dotfiles`/`vps`/`homelab`. The `implement` allowlist
-  that briefly sat beside it was deleted for the same reason the inventory was —
-  a list you must edit before the tool can work is stale when it matters. What
-  bounds the tier is its shape (worktree, branch, draft PR, `--why` + `--confirm`)
-  and the separate `merge` verb, not a roster of repo names.
+  rather than enumerated — see *Decisions* below for why the old enumeration
+  rotted.
 - **`skills/claude-dispatch/SKILL.md`** — when to reach for which tier, and the
   hard rule that infra mutation is `homelab-ops`, never this.
 - **`scripts/dispatch-sweep.py`** — `no_agent` cron, every 5 min. Reads open
@@ -236,11 +242,11 @@ Mirrors `hermes-ops.sh` exactly, because that pattern is already proven here:
 
 ## The merge verb — where the human stopped being on GitHub
 
-Phase 5 (2026-08-02, owner decision). Every other verb produces a *proposal* a
-human reads before it means anything. `merge <job-id>` lands one, unattended.
-It inverts a design statement sideclaw's own `openPullRequest` makes in a
-comment — *"un-drafting is not something the episode can do for itself"* — so the
-question is what carries the weight the click used to.
+Every other verb produces a *proposal* a human reads before it means anything.
+`merge <job-id>` lands one, unattended (owner decision, 2026-08-02). It inverts a
+design statement sideclaw's own `openPullRequest` makes in a comment — *"un-drafting
+is not something the episode can do for itself"* — so the question is what
+carries the weight the click used to.
 
 Four things do, and the fourth is the one that generalizes:
 
@@ -252,10 +258,10 @@ Four things do, and the fourth is the one that generalizes:
    `dotfiles/config/pr-required-repos.json` — the single source of truth the
    branch-protection hook and `github-config.sh` already share — can never be
    auto-merged. This was the alternative to a second allowlist, and the reason is
-   the same one that killed the repo inventory: a list that must be edited when a
-   repo changes status is a list that is wrong most of the time. Here there is
-   nothing to edit. Adding a repo to that file removes its auto-merge in the same
-   commit that starts requiring review, and the two can never disagree.
+   the same one that killed the repo inventory (below): a list that must be edited
+   when a repo changes status is a list that is wrong most of the time. Here there
+   is nothing to edit. Adding a repo to that file removes its auto-merge in the
+   same commit that starts requiring review, and the two can never disagree.
 3. **Re-checked against the current head, not the inspected one.** Base is the
    default branch, head is a `dispatch/…` branch in this same repo (never a fork),
    no `.github/workflows|actions` path, sideclaw's own 40-file/2000-line episode
@@ -268,17 +274,19 @@ Four things do, and the fourth is the one that generalizes:
    of being refused — and `--confirm`'s absence stops it before that point, which
    is why the plan output can honestly say nothing changed on GitHub.
 
-Its ceiling is 3/day, tighter than the 5 implement episodes that can produce
-candidates: not everything that gets written should land. Its audit mode is
-`merged` and not `opened` — grepping the log for what actually reached a default
-branch is the reason the log exists.
+Its ceiling is 3/day (`HERMES_CC_MERGE_BUDGET`), tighter than the 5 `implement`
+episodes that can produce candidates: not everything that gets written should
+land. Its audit mode is `merged` and not `opened` — grepping the log for what
+actually reached a default branch is the reason the log exists. The GitHub
+credential goes in as a curl config on **stdin, never argv** — this machine runs
+triage that reads `ps` output, so a token in the process table is a real leak
+path, and a test asserts it never appears there.
 
 **What this does not solve.** `--confirm` is still instruction-level, and now it
 gates the most consequential verb in the script. The bounds above are structural
 and hold against a confused agent; none of them holds against an agent that has
 decided to lie, because it can pass `--confirm` itself. That was accepted
-knowingly. The thing that would change it is unchanged from Phase 4: an approval
-artifact minted outside the agent and bound to the repo plus a content hash.
+knowingly — the mitigation is the signed approval artifact, below.
 
 ## Return path, derived not chosen
 
@@ -298,22 +306,25 @@ Two delivery mechanisms, one message body:
 | under ~3 min (`investigate`) | Hermes polls in-turn and answers in the thread it is already in |
 | longer (`author`, `implement`) | the 5-min sweeper posts into `origin_thread_ts` |
 
-**ANSWERED at build time (2026-08-02), and the answer is the less convenient one.**
-Compound `slack:<C>:<thread_ts>` targets are real — `cron/scheduler.py` parses them via
-`_parse_target_ref`, and the channel directory already lists live ones. Delivery works:
-the sweeper uses `hermes send --to slack:<C>:<thread_ts>`, which reuses gateway
-credentials and needs no LLM.
+**A sweeper-delivered verdict does not enter the thread's session context.**
+`plugins/platforms/slack/adapter.py` drops the bot's own messages on ingest to
+prevent echo loops, keyed on the sender's user id — which a `chat.postMessage`
+with the Hermes bot token carries. So a sweeper-delivered verdict is visible to a
+human but invisible to the session. The compensation is in the skill: when a
+thread references a dispatch, Hermes re-reads it with `hermes-cc.sh status
+<job-id>`. The dispatch record is the durable copy; the Slack message is only a
+notification.
 
-But a message delivered that way does **not** enter the thread's session context.
-`plugins/platforms/slack/adapter.py:5381` drops the bot's own messages on ingest to
-prevent echo loops, keyed on the sender's user id — which a `chat.postMessage` with the
-Hermes bot token carries. Verified empirically: a threaded send succeeded and produced
-zero ingest events in the gateway log.
-
-So a sweeper-delivered verdict is visible to a human but invisible to the session. The
-compensation is in the skill: when a thread references a dispatch, Hermes re-reads it with
-`hermes-cc.sh status <job-id>`. The dispatch record is the durable copy; the Slack message
-is only a notification.
+**At-least-once for the verdict, at-most-once for the nudge.** Because the
+verdict posts as Hermes's own bot (dropped by ingest), a `done` + `implement` +
+`artifactUrl` + unmerged dispatch also gets a nudge via argo's Slack API (posting
+as the HomeLab bot, which Hermes *does* ingest), so Hermes can decide whether to
+`merge`. The nudge carries only bridge-owned fields (job id, repo, tier, artifact
+URL), never episode prose — a sentinel test asserts it, and a `merged_at` row
+rewrites the header/artifact/next line so it never says "review this draft PR"
+for one already merged. The nudge fires strictly after `reported_at` is stamped,
+best-effort, never raising — a nudge that gated the stamp would re-send the
+verdict *and* re-wake Hermes on the next sweep.
 
 ## Bounding
 
@@ -330,34 +341,31 @@ arbitrary code execution.
 2. **The brief is data, never command.** Passed as a file, never interpolated
    into a shell string — the `rd bg` base64 lesson, one level up.
 3. **`implement` needs `--why` and `--confirm`.** `--confirm` means Johannes
-   confirmed, which in Slack means Hermes had to ask first. That is the gate.
-4. **Worktree isolation** on `implement`, so a bad episode never touches the live
-   checkout other agents on the mini are using.
+   confirmed, which in Slack means Hermes had to ask first — see *the signed
+   approval artifact* below for what actually backs that now.
+4. **Worktree isolation** on every tier (see *deviations* above), so a bad
+   episode never touches the live checkout other agents on the mini are using.
 5. **The episode never merges and never pushes to a default branch.** Branch +
    draft PR only. Landing it is the separate `merge` verb, which the episode
-   cannot call — it re-checks every bound against the current head, pins the head
-   SHA, refuses any PR-required repo, and carries its own tighter daily ceiling.
+   cannot call.
 6. **No secrets in a brief.** The episode resolves its own via `secrets-run`.
 7. **A daily dispatch budget** in `hermes-cc.sh`. `--max-budget-usd` is API-only
    and does **not** cap a Max session, so the ceiling has to be structural:
-   `maxTurns`, timeout, sideclaw's concurrency cap, and a per-day count.
+   `maxTurns`, timeout, sideclaw's concurrency cap, and a per-day count (20/day,
+   ≤5 `implement`, ≤3 `merge`, 170s `--wait` cap — under the `terminal` tool's
+   180s default, so an in-turn verdict is delivered in-turn).
 
    **The ceilings are reported on the way up, not only when they refuse.** Every
    reporting path — dispatch, the `--dry-run` plan, `status`, `list` — carries a
    `budget` object with both counts, and a `budget.warning` naming the env var
-   once one is close. This is a correction, not a flourish: the first build
-   computed the counts *inside* the refusal path, so `implementToday` was absent
-   from every successful response and the only signal a caller ever got was an
-   exit 4 that told it nothing about how to proceed. A bound nobody can see
-   approaching does not read as a budget; it reads as the tool breaking. The
-   counts are re-read after the row is inserted so the number a caller sees
-   includes its own dispatch — otherwise it is always one behind the number the
-   next refusal will use. Both refusals and both warnings name
-   `HERMES_CC_DAILY_BUDGET` / `HERMES_CC_IMPLEMENT_BUDGET`, because an escape
-   hatch only discoverable by reading the script is not one. Raising a ceiling
-   stays Johannes's call — the skill forbids the agent composing an invocation
-   that sets either var.
-8. **Audit log on every invocation**, including refusals and dry runs.
+   once one is close. The first build computed the counts only inside the
+   refusal path, so a bound nobody can see approaching read as the tool
+   breaking, not as a budget. Counts are re-read after the row is inserted so a
+   caller's number includes its own dispatch. Raising a ceiling stays Johannes's
+   call — `HERMES_CC_{DAILY,IMPLEMENT,MERGE}_BUDGET`, and `claude-dispatch`
+   forbids the agent composing an invocation that sets any of them.
+8. **Audit log on every invocation**, including refusals and dry runs — five
+   modes: `opened`, `planned`, `dry-run`, `refused`, `merged`.
 
 ## Cost
 
@@ -366,9 +374,8 @@ Hermes deciding *whether* an episode is worth opening — it holds the state, so
 is the right place to make that call. Measured floor for a trivial `-p` run on
 the mini: 3.0s wall, ~25k cache-creation tokens (system prompt + `CLAUDE.md`
 discovery). `--bare` would cut that and is **unusable**: it hard-disables OAuth,
-flipping billing to API credits.
-
-Default model `sonnet` for every tier. `opus` only on explicit request.
+flipping billing to API credits. Default model `sonnet` for every tier; `opus`
+only on explicit request.
 
 ## Not this bridge
 
@@ -384,67 +391,112 @@ Default model `sonnet` for every tier. `opus` only on explicit request.
   Mid-run steering ("actually do X instead") is `rd bg` + `rd say`, which already
   exists and is the right tool for that shape.
 
-## Build phases
+## Decisions — why each bound is shaped this way
 
-| Phase | Lands | Proves |
-|-|-|-|
-| 1 | sideclaw `dispatch` handler (`investigate` only) + MCP tool | the episode contract and the schema-shaped verdict |
-| 2 | `hermes-cc.sh` + `claude-dispatch` skill + `dispatches` table + in-turn poll | Hermes can triage in a Slack thread |
-| 3 | `dispatch-sweep.py` cron + the watchdog and briefing projections | the return path closes without a human polling |
-| 4 | `author` and `implement` tiers, worktree + PR path | delegated code change with a review gate |
+**Repo resolution replaced an enumeration, and the enumeration is the lesson.**
+The first cut (2026-08-02) was a per-repo inventory where absence meant denial,
+and it rotted — 22 repos listed against 30 on disk, three of them unreachable
+since they were cloned, with no way to tell a stale omission from a deliberate
+one. Discovery under a confined root plus an explicit `deny` keeps the denials
+meaningful and stops the file needing an edit per clone. What did not change is
+the property that matters: a path never crosses the interface. Composing one
+from caller input is a step the old map lookup never took, so `resolve_repo`
+carries the weight now — the name must be a single segment (the old
+`[A-Za-z0-9_.-]` class admitted `.`/`..` harmlessly as dict keys and would not
+have as path components), and the resolved checkout's parent must **be** the
+resolved root, so a symlink planted in the root cannot point out of it. Both are
+regression-tested. `dotfiles-private`/`homelab-private` are denied and stay
+denied; `brain` is **not** — it moved to `tiers.investigate` on 2026-08-15
+(read-only, worktree-isolated, the one path that loads the vault's own rule
+hierarchy).
 
-Phase 1 and 2 together are the thing that removes the daily friction. Phase 4 is
-the one that can go wrong, and it went last on purpose.
+**There is no `implement` allowlist, deliberately.** One existed for about a day
+(`hermes-agent`, `sideclaw`, `usage-tracker`, the scratch target) and went the
+same way the repo inventory did: a list that must be edited before the tool can
+do its job is a list that will be stale exactly when it is needed. So an
+unattended episode can file a world-readable issue, or open a draft PR, on a
+public repo with no human gate — also an owner decision. What bounds `implement`
+is the shape of the tier (isolated worktree, `dispatch/…` branch, draft PR,
+`--why` **and** `--confirm`) rather than a roster of names, and nothing reaches a
+default branch without the separate `merge` verb. Worst unattended outcome is a
+draft PR nobody wanted, which costs one click.
 
-All four are built. What Phase 4 demonstrated rather than asserted, on
-`jkrumm/dispatch-scratch`: an `implement` episode producing a pushed branch and a
-draft PR in 24s; an `author` episode filing an issue; a failing episode leaving
-the live checkout byte-identical with the worktree, branch and directory gone;
-and a push attempt under the worker's own env failing in under a second.
+**`--confirm` became a signed artifact instead of an instruction (2026-08-03).**
+It started as a flag on the same invocation, set by the same agent it
+constrains — plainly not a bound. Now the plan branch posts **Approve/Deny
+buttons** into the origin channel; the click lands in the gateway, which signs it
+with an **Ed25519 key minted at startup, held in RAM only**
+(`plugins/dispatch-approval/`, public half at `~/.hermes/dispatch-approval.pub`)
+and **runs the approved verb itself** — the plan row stores the argv (minus the
+`--confirm`/`--wait` flags and minus the `--brief-file`/`--context-file`
+*paths*) plus the brief and context **bytes**; Approve re-runs `hermes-cc.sh …
+--confirm` in a subprocess (the same signature check as a hand-typed
+`--confirm`) and posts the outcome via `hermes send`. The point is not "who
+clicked" — it is that a click is not text. All Slack senders here are trusted
+(see `allow_bots`, below); the residual risk is hostile *content* relayed by a
+trusted one, and injected prose cannot mint a signature or cause a Slack
+interaction payload to exist. Every column of `dispatch_approvals` is writable
+by this uid, the agent's included, so only the signature is consulted — the
+forged-row case is the centre of `tests/test_dispatch_approval.py`.
 
-## Verified during design (2026-08-02)
+Bound to `verb|repo|tier|brief|why|context`, single-use, 30-min TTL, **fails
+closed** on no plugin / no key / no gateway / expired / spent / hash mismatch; a
+gateway restart voids pending approvals. The budget is checked before the gate
+spends the row, so an over-budget click refuses with the approval intact.
+**The one bug this has had:** `register()` runs in every process that discovers
+plugins — a CLI call, a cron subprocess — and the first build published the
+public key unconditionally, so a non-gateway process could overwrite it with a
+key nothing would ever sign with. Symptom: a visible Approve click, a validly
+signed row, and `--confirm` still refusing as *"has not been clicked yet"*. Two
+properties close it: publish only when argv says `gateway run`, and republish on
+the way to signing whenever the file on disk is not ours. Tell:
+`grep 'published public key'` vs `Wired 2 plugin action handler` in
+`~/.hermes/logs/agent.log` — a publish with no matching wire line means a
+non-gateway process overwrote the key. Enable once with
+`hermes plugins enable dispatch-approval`.
 
-- `claude -p` runs from a plain non-login `bash -c` on the mini with
-  `CLAUDE_CODE_OAUTH_TOKEN` from `op://mini/claude/oauth-token`: 3.0s, Max auth,
-  no keychain, no herdr. **`dotfiles/scripts/remote-dev.sh:325-333` and the
-  global CLAUDE.md are stale** — they still state the herdr indirection is
-  required for auth. It was, before that ref existed. (Re-checked 2026-09-04:
-  the comment block is still at those exact lines and still says so.)
-- CLI 2.1.220 carries every primitive this design needs: `--json-schema`,
-  `--session-id <uuid>`, `--resume`, `--fork-session`,
-  `--output-format stream-json`, `--permission-mode`, `--allowedTools`,
-  `--worktree`, `--agents`.
-- sideclaw is live on `:7705` with `SIDECLAW_WORKER_BACKEND=max`;
-  `POST /api/jobs` gates on `isJobTool(body.tool)`, so a new tool is a
-  registration plus a handler.
+**`merge` is deliberately NOT gated on the signed approval — reverted after
+about an hour on 2026-08-03.** It was gated briefly on the argument that the
+implement approval covers the *change* and not the *diff*, which did not exist
+yet when it was approved. Reverted the same day: a second click per PR trains
+the rubber stamp this design already warns about, and it buys little against the
+bounds the verb already carries (job-id lookup, every implement-time check
+re-run against the current head, a pinned head SHA, its own 3/day ceiling).
+Gating `dispatch` is what earns its keep, because that is where an unattended
+episode starts writing from a brief that may trace to third-party text.
 
-## Verified live (2026-08-03)
+**`slack.allow_bots: all` is deliberate — do not "fix" it (owner decision,
+2026-08-02).** Anything that can post in the workspace can reach an agent that
+can now merge to a default branch. Raised as a hole and rejected: HomeLab, VPS
+and Argo all post from inside the tailnet, they are Johannes's own infra, and
+gating them would break the self-healing premise the bridge exists to serve.
+`allow_bots` is load-bearing for live auto-triage — Hermes ingesting an
+UptimeKuma alert in `#alerts` and answering it — which the watchdog's own
+argo-API read of `#alerts` does not depend on at all. **The trust boundary is
+the workspace, not the human/bot distinction**; the real exposure is hostile
+*content* relayed by a trusted sender, which is why `watchdog-poll.py` and
+`briefing-coverage.py` mark non-`jkrumm` GitHub items as third-party instead of
+authenticating the messenger.
 
-- **Read-tier isolation.** An `investigate` episode into `dispatch-scratch` logged
-  `read worktree created` with `baseRef: HEAD`, ran 16s to a correct high-confidence
-  verdict, and left nothing: no worktree registration, no `dispatch/*` branch, no
-  directory under the worktree root, and a clean live checkout.
-- **The sweeper reads `merged_at`.** Hermes merged job `554a9476` in-turn 67s after
-  dispatching it, before the 5-minute sweep. The sweeper's message rendered as
-  `Dispatch verdict — dispatch-scratch (already merged)`, artifact line `— merged
-  2026-08-03 06:34 UTC`, trailer `next none (merged)` — not the episode's own
-  `nextAction`, which was the stale "review the draft PR" instruction this fixes.
-- **The sweeper wakes Hermes on an unmerged PR.** A second episode (`a163d97a`) was
-  dispatched with an explicit instruction not to merge. At 06:40:41 the sweeper sent
-  the verdict as Hermes's own bot (dropped by Slack ingest, as designed) and then
-  posted the nudge through argo as the HomeLab bot; Hermes answered in-thread at
-  **06:40:47**, six seconds later. The nudge carried repo, PR URL, tier and job id and
-  **no episode-authored prose** — the boundary the sentinel test pins, holding in
-  production.
-- **A dispatched repo can no longer run code in its own episode.** Found by asking what
-  `settingSources: "user,project"` actually loads, and measured rather than reasoned: a
-  `.claude/settings.json` in the target repo executed a `SessionStart` hook *before the model
-  took a turn* and a `PreToolUse` hook on the worker's first Bash call, and its `env` block
-  overrode the handler-supplied environment — including `GIT_DENY_CREDENTIALS_ENV`, the
-  overlay that takes git's push credential away from every tier. Both closed in sideclaw
-  (`--settings '{"disableAllHooks":true}'` on every worker; the file stripped from the
-  throwaway worktree and restored from the pinned base before any commit). Verified end to
-  end against a deliberately hostile `.claude/settings.json` now standing in
-  `jkrumm/dispatch-scratch`: an `investigate` and an `implement` episode both ran clean, the
-  hook canary at `/tmp/dispatch-hook-canary` stayed **absent** in both, the resulting pull
-  request touched `README.md` only, and the fixture survived on the branch byte-identical.
+**Tests.** `tests/test_hermes_cc.py` (134 cases, stubbed job server and stubbed
+GitHub — never a real one of either), `tests/test_dispatch_approval.py` (21
+checks on the signed gate, centred on the forged-row case),
+`tests/test_raw_agent_guard.py` (51/51 blocked, 42/42 allowed) and
+`tests/test_repo_write_guard.py` (71/71 blocked, 55/55 allowed) — the guards
+that make the bridge non-optional, detail in `docs/guards.md`. Run with
+`~/.hermes/hermes-agent/venv/bin/python3`. **The other half is tested in
+sideclaw**: `sideclaw/tests/` (`bun test`, mutation-verified) covers worktree
+isolation and its post-crash sweep, the diff-refusal ladder, the added-lines
+secret scan, `pushBranch`'s refusals against a local bare `origin`, the nonce
+fence around the untrusted brief, and the salvage discrimination — count owned
+by sideclaw, not restated here since it already drifted once.
+
+> **The GitHub credential is `op://mini/github/token`, and it needs three
+> permissions.** `Contents: write` (the branch push) **plus** `Issues: write`
+> and `Pull requests: write` (the artifact). A token holding only the first
+> pushes the branch and then fails at the last step with GitHub's own opaque
+> "Resource not accessible by personal access token"; `describeGithubFailure` in
+> sideclaw's `dispatch-git.ts` rewrites it to name both. sideclaw's `gho_`
+> `GITHUB_TOKEN` fallback is a token class retired from the git credential path
+> elsewhere for expiring silently — the op:// ref is tried first and the
+> fallback must not quietly become the real dependency.
