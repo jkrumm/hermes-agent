@@ -61,9 +61,10 @@ note back into the brain with `false`.
   `text_to_speech` tool (single voice, one request, seconds not minutes). This
   pipeline is for a produced, two-host, chaptered *episode*, not a quick reply.
   **Never** curl `/v1/audio/speech` from here — that's `briefing-tts`'s endpoint.
-- **Fetching or saving the source material itself** — use `obsidian` for a vault
-  note, `karakeep`/`reading` for a saved article, or just take Johannes's pasted
-  text. This skill only takes the *already-gathered* text as `source`.
+- **Re-gathering what the gateway can read itself** — a brain note is passed by
+  path in `sourcePaths` (the gateway searches and reads the vault on its own);
+  only material that is NOT in the brain (a `karakeep`/`reading` article, a URL,
+  Johannes's pasted text) goes through `source`.
 - **A quick fact or a single question** — `research-gateway` answers those with a
   cited report; a podcast is for material worth 5+ minutes of narration.
 
@@ -71,19 +72,21 @@ note back into the brain with `false`.
 
 ## Flow
 
-### 1. Gather the source
+### 1. Name the source
 
-Reuse existing skills rather than re-deriving the text:
-- A brain note → `obsidian` (read the note's full body).
-- A saved article → `karakeep`/`reading`.
-- Otherwise, Johannes's own pasted text.
+The gateway has its own research loop (brain search + read, past episodes, the
+research gateway), so don't gather what it can read itself:
+- A brain note → its vault-relative path in `sourcePaths` (use `obsidian search`
+  to find the path; do NOT paste the body).
+- A saved article → `karakeep`/`reading`, written to a file → `source`.
+- Johannes's pasted text → `source`.
 
-Write the source to a file — long text through `jq --rawfile` avoids every quoting
-problem a heredoc or an inline `-d` string would hit (source can run up to 200k
-chars):
+For `source`, write the text to a file — long text through `jq --rawfile` avoids
+every quoting problem a heredoc or an inline `-d` string would hit (source can
+run up to 200k chars):
 
 ```bash
-write_file /tmp/podcast-source.md   # the full note/article/pasted text
+write_file /tmp/podcast-source.md   # only the non-brain material, may be empty
 ```
 
 Compose a one-sentence `brief` naming the listener and what he wants — this is what
@@ -99,11 +102,13 @@ Audiobookshelf, not a file sitting on the gateway.
 ```bash
 BODY=$(jq -n \
   --rawfile source /tmp/podcast-source.md \
+  --argjson paths '["Areas/Travel/Northern Spain 2026/Northern Spain 2026.md"]' \
   --arg brief "Johannes plant genau diese Reise mit dem Camper; sprich ihn direkt an, gib Rat." \
   --arg title "" \
-  '{source: $source, brief: $brief, title: $title, language: "de", minutes: 20,
+  '{source: $source, sourcePaths: $paths, brief: $brief, title: $title, language: "de", minutes: 20,
     series: "Brain Sonderausgabe", publish: true, cover: true}
    | if .title == "" then del(.title) else . end')
+# `sourcePaths` may be [] and `source` may be empty — but not both.
 
 JOB=$(curl -s -X POST "http://localhost:7719/v1/podcasts" \
   -H "Authorization: Bearer hermes" -H "x-audio-source: hermes" \
