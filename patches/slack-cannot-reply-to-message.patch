@@ -1,5 +1,5 @@
 diff --git a/plugins/platforms/slack/adapter.py b/plugins/platforms/slack/adapter.py
-index 5cd278a3e6..fd20dd8873 100644
+index 5cd278a3e6..4d00fa2b0e 100644
 --- a/plugins/platforms/slack/adapter.py
 +++ b/plugins/platforms/slack/adapter.py
 @@ -18,6 +18,7 @@ import aiohttp
@@ -18,7 +18,7 @@ index 5cd278a3e6..fd20dd8873 100644
  
  import sys
  from pathlib import Path as _Path
-@@ -2003,6 +2005,14 @@ class SlackAdapter(BasePlatformAdapter):
+@@ -2003,6 +2005,21 @@ class SlackAdapter(BasePlatformAdapter):
          try:
              return await getattr(client_fn(), method)(**kwargs)
          except Exception as e:
@@ -26,14 +26,21 @@ index 5cd278a3e6..fd20dd8873 100644
 +            # the `_err_code` extraction and the branch below it — if Slack rejects
 +            # the thread parent (`cannot_reply_to_message`), retry the same call as
 +            # a plain channel message.
-+            _err_payload = getattr(e, "response", None) or {}
-+            _err_code = (
-+                _err_payload.get("error") if isinstance(_err_payload, dict) else None
-+            )
++            # A real SlackApiError.response is a SlackResponse/AsyncSlackResponse — dict-*like*
++            # via `.get()` but not a `dict` subclass, so `isinstance(..., dict)` never matched
++            # and this retry branch never fired. Mirror `_is_block_payload_rejection`'s
++            # duck-typed extraction instead.
++            _err_payload_get = getattr(getattr(e, "response", None), "get", None)
++            _err_code = None
++            if callable(_err_payload_get):
++                try:
++                    _err_code = _err_payload_get("error")
++                except Exception:
++                    _err_code = None
              if kwargs.get("blocks") and self._is_block_payload_rejection(e):
                  retry_kwargs = dict(kwargs)
                  if verb == "edit":
-@@ -2012,6 +2022,20 @@ class SlackAdapter(BasePlatformAdapter):
+@@ -2012,6 +2029,20 @@ class SlackAdapter(BasePlatformAdapter):
                  logger.info(
                      "[Slack] Block Kit payload rejected; retrying %s without blocks: %s", verb, e)
                  return await getattr(client_fn(), method)(**retry_kwargs)
@@ -54,7 +61,7 @@ index 5cd278a3e6..fd20dd8873 100644
              raise
  
      async def send(
-@@ -2839,6 +2863,20 @@ class SlackAdapter(BasePlatformAdapter):
+@@ -2839,6 +2870,20 @@ class SlackAdapter(BasePlatformAdapter):
          if not content:
              return content
          content = _wrap_markdown_tables(content)

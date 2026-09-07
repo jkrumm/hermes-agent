@@ -1,5 +1,5 @@
 diff --git a/tools/cronjob_prompt_scan.py b/tools/cronjob_prompt_scan.py
-index 90077d9832..6b17f1182d 100644
+index 90077d9832..43ab7593a2 100644
 --- a/tools/cronjob_prompt_scan.py
 +++ b/tools/cronjob_prompt_scan.py
 @@ -72,15 +72,18 @@ def _zwj_has_emoji_neighbour(text: str, idx: int) -> bool:
@@ -24,7 +24,7 @@ index 90077d9832..6b17f1182d 100644
          rf'curl\s+[^\n;&|$`]*(?:-H|--header)\s+["\']Authorization:\s*token\s+{_CRON_SECRET_VAR_RE}["\']'
          r'\s+["\']?https://api\.github\.com(?::\d+)?(?:/|\s|$|["\'])[^\s;&|$`]*',
          'curl https://api.github.com/user',
-@@ -88,6 +91,48 @@ def _strip_cron_safe_constructs(prompt: str) -> str:
+@@ -88,6 +91,66 @@ def _strip_cron_safe_constructs(prompt: str) -> str:
          flags=re.IGNORECASE,
      )
  
@@ -45,6 +45,16 @@ index 90077d9832..6b17f1182d 100644
 +    _trusted_api_host = r'(?:argo|karakeep|research|hyperdx|audio-gateway)\.jkrumm\.com'
 +    _trusted_api_suffixes = ('argo.jkrumm.com', 'karakeep.jkrumm.com', 'research.jkrumm.com', 'hyperdx.jkrumm.com', 'audio-gateway.jkrumm.com')
 +
++    def _host_is_trusted(host: str) -> bool:
++        # Exact match or a genuine subdomain — NOT a mere suffix match, which would let
++        # `evilargo.jkrumm.com` pass as trusted because it ends with `argo.jkrumm.com`.
++        h = host.lower()
++        return any(h == suffix or h.endswith('.' + suffix) for suffix in _trusted_api_suffixes)
++
++    def _all_hosts_trusted(body: str) -> bool:
++        other_hosts = re.findall(r'https?://([^\s"\'`/]+)', body, re.IGNORECASE)
++        return all(_host_is_trusted(h) for h in other_hosts)
++
 +    def _sanitize_trusted_api_fence(match):
 +        body = match.group(0)
 +        if not re.search(rf'https?://{_trusted_api_host}\b', body, re.IGNORECASE):
@@ -52,8 +62,7 @@ index 90077d9832..6b17f1182d 100644
 +        # Only sanitize fences where EVERY http(s) host is allowlisted — if any
 +        # foreign host appears alongside, leave the fence intact so the
 +        # downstream exfil patterns can flag a co-located evil curl.
-+        other_hosts = re.findall(r'https?://([^\s"\'`/]+)', body, re.IGNORECASE)
-+        if any(not h.lower().endswith(_trusted_api_suffixes) for h in other_hosts):
++        if not _all_hosts_trusted(body):
 +            return body
 +        return '```\n# [trusted API bash fence — sanitized by local allowlist]\n```'
 +
@@ -62,9 +71,18 @@ index 90077d9832..6b17f1182d 100644
 +        _sanitize_trusted_api_fence,
 +        result,
 +    )
++
++    def _sanitize_trusted_api_line(match):
++        line = match.group(0)
++        # Same all-hosts-must-be-trusted check as the fence handler — a foreign host
++        # co-located on the same line must not be hidden behind the trusted placeholder.
++        if not _all_hosts_trusted(line):
++            return line
++        return '# [trusted API curl — sanitized by local allowlist]'
++
 +    result = re.sub(
 +        rf'^.*\bcurl\b[^\n]*\bhttps?://{_trusted_api_host}\b[^\n]*$',
-+        '# [trusted API curl — sanitized by local allowlist]',
++        _sanitize_trusted_api_line,
 +        result,
 +        flags=re.IGNORECASE | re.MULTILINE,
 +    )

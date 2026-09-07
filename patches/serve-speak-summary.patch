@@ -1,8 +1,8 @@
 diff --git a/hermes_cli/web_routers/audio.py b/hermes_cli/web_routers/audio.py
-index ec49c90467..4acc98d433 100644
+index ec49c90467..8941a2ea93 100644
 --- a/hermes_cli/web_routers/audio.py
 +++ b/hermes_cli/web_routers/audio.py
-@@ -336,6 +336,54 @@ async def tts_lease(payload: TTSLeaseRequest, profile: Optional[str] = None):
+@@ -336,6 +336,59 @@ async def tts_lease(payload: TTSLeaseRequest, profile: Optional[str] = None):
      return {"ok": True, "lease": lease, "active": payload.active, **result}
  
  
@@ -37,27 +37,32 @@ index ec49c90467..4acc98d433 100644
 +    """Yield PCM for a spoken summary of *text* — one gateway call with
 +    ``summarize: true``, same wire as ``OpenAIStreamer.stream`` otherwise."""
 +    from openai import OpenAI
-+    from tools.tts_streaming import get_env_value, resolve_openai_audio_api_key
++    from tools.tts_streaming import _capped, get_env_value, resolve_openai_audio_api_key
 +
 +    section = streamer.section
 +    client = OpenAI(
 +        api_key=(section.get("api_key") or resolve_openai_audio_api_key()),
 +        base_url=(section.get("base_url") or get_env_value("OPENAI_BASE_URL") or None),
 +    )
-+    with client.audio.speech.with_streaming_response.create(
-+        model=section.get("model", "gpt-4o-mini-tts"),
-+        voice=section.get("voice", "alloy"),
-+        input=text,
-+        response_format="pcm",
-+        extra_body={"summarize": True},
-+    ) as response:
-+        yield from response.iter_bytes()
++    try:
++        with client.audio.speech.with_streaming_response.create(
++            model=section.get("model", "gpt-4o-mini-tts"),
++            voice=section.get("voice", "alloy"),
++            input=text,
++            response_format="pcm",
++            extra_body={"summarize": True},
++        ) as response:
++            yield from _capped(response.iter_bytes(), "spoken-summary streaming TTS")
++    finally:
++        close = getattr(client, "close", None)
++        if callable(close):
++            close()
 +
 +
  @router.websocket("/api/audio/speak-stream")
  async def speak_stream_ws(ws: "WebSocket") -> None:
      """Streaming TTS for the desktop: text in, raw int16 PCM frames out.
-@@ -353,6 +401,13 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
+@@ -353,6 +406,13 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
                 binary PCM frames, then ``{"type": "end"}``
        server → ``{"type": "fallback"}`` when the configured provider has no
                 chunked API — the client uses the POST endpoint instead.
@@ -71,7 +76,7 @@ index ec49c90467..4acc98d433 100644
      """
      if not _ws_auth_ok(ws):
          await ws.close(code=4401)
-@@ -384,6 +439,9 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
+@@ -384,6 +444,9 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
      except Exception:
          _log.exception("speak-stream provider resolution failed")
          streamer, cap = None, 0
@@ -81,7 +86,7 @@ index ec49c90467..4acc98d433 100644
      if streamer is None:
          with contextlib.suppress(Exception):
              await ws.send_json({"type": "fallback"})
-@@ -413,8 +471,12 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
+@@ -413,8 +476,12 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
          idle_poll_seconds = 0.5
          idle_polls_before_force_flush = 4  # ~2s of silence
  
@@ -95,7 +100,7 @@ index ec49c90467..4acc98d433 100644
              while not stop.is_set():
                  try:
                      delta = text_q.get(timeout=idle_poll_seconds)
-@@ -433,7 +495,25 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
+@@ -433,7 +500,41 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
                  yield from chunker.feed(delta)
  
          try:
@@ -113,16 +118,32 @@ index ec49c90467..4acc98d433 100644
 +            if stop.is_set():
 +                return
 +            if first is _SPEAK_SUMMARY:
-+                for chunk in _stream_speech_summary(streamer, summary_text[0]):
-+                    if stop.is_set():
-+                        return
-+                    loop.call_soon_threadsafe(chunks.put_nowait, chunk)
-+                return
++                try:
++                    for chunk in _stream_speech_summary(streamer, summary_text[0]):
++                        if stop.is_set():
++                            return
++                        loop.call_soon_threadsafe(chunks.put_nowait, chunk)
++                    return
++                except Exception as exc:
++                    # LOCAL MODIFICATION (patches/serve-speak-summary.patch): a summarizer
++                    # failure (backend down/timeout) must not end the session with no audio
++                    # at all — fall back to the full text, through the identical emit
++                    # mechanism the non-summary branch below uses.
++                    _log.warning(
++                        "speak-stream summary failed, falling back to full text: %s", exc)
++                    cleaned = _strip_markdown_for_tts(summary_text[0])
++                    if cleaned:
++                        for piece in _split_text_for_speak_stream(cleaned, cap):
++                            for chunk in streamer.stream(piece):
++                                if stop.is_set():
++                                    return
++                                loop.call_soon_threadsafe(chunks.put_nowait, chunk)
++                    return
 +            for sentence in _sentences(first):
                  cleaned = _strip_markdown_for_tts(sentence)
                  if not cleaned:
                      continue
-@@ -453,8 +533,41 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
+@@ -453,8 +554,41 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
          # Text frames feed synthesis; done ends the text; stop/disconnect
          # (or any unparseable frame) is barge-in.
          try:

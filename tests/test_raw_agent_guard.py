@@ -130,6 +130,30 @@ KNOWN_GAPS = [
     "C=claude; $C -p x",
 ]
 
+# Regression cases for the 2026-09-07 wrapper-operand bypass:
+# `_strip_agent_wrappers` skipped a wrapper's own FLAGS but not their operands,
+# so `env -u FOO claude -p x` resolved the wrapped program to `FOO` (an env
+# assignment name, not `claude`) and sailed past this guard entirely, while the
+# bare `env claude -p x` blocked correctly. Fixed by a per-wrapper
+# `_WRAPPER_VALUE_FLAGS` table that consumes one operand after a listed flag.
+WRAPPER_OPERAND_BYPASSES = [
+    "env -u FOO claude -p x",
+    "sudo -u root claude -p x",
+    "timeout -k 5 30 claude -p x",
+    "stdbuf -o0 claude -p x",
+    "nice -n 10 claude -p x",
+]
+
+# Must still block after the fix — proves the operand-consuming table doesn't
+# over-consume past the real wrapped program for shapes that already worked.
+WRAPPER_OPERAND_NO_REGRESSION = [
+    "env -i claude -p x",
+    "sudo -i claude -p x",
+    "timeout 300 claude -p x",
+    "nohup claude -p x",
+    "env FOO=1 claude -p x",
+]
+
 
 def _fuzz_inputs(n):
     """Random junk, plus junk with agent-ish substrings, to prove it never raises."""
@@ -150,6 +174,14 @@ def main():
         if not reason(cmd):
             failures.append(("MISSED", cmd))
 
+    for cmd in WRAPPER_OPERAND_BYPASSES:
+        if not reason(cmd):
+            failures.append(("MISSED", cmd))
+
+    for cmd in WRAPPER_OPERAND_NO_REGRESSION:
+        if not reason(cmd):
+            failures.append(("MISSED", cmd))
+
     for cmd in LEGITIMATE:
         r = reason(cmd)
         if r:
@@ -166,7 +198,12 @@ def main():
 
     closed = [c for c in KNOWN_GAPS if reason(c)]
 
-    print(f"attacks blocked       {len(ATTACKS) - sum(1 for k, _ in failures if k == 'MISSED')}/{len(ATTACKS)}")
+    attacks_missed = sum(1 for k, c in failures if k == "MISSED" and c in ATTACKS)
+    print(f"attacks blocked       {len(ATTACKS) - attacks_missed}/{len(ATTACKS)}")
+    wob_missed = sum(1 for k, c in failures if k == "MISSED" and c in WRAPPER_OPERAND_BYPASSES)
+    wonr_missed = sum(1 for k, c in failures if k == "MISSED" and c in WRAPPER_OPERAND_NO_REGRESSION)
+    print(f"wrapper-operand bypasses blocked {len(WRAPPER_OPERAND_BYPASSES) - wob_missed}/{len(WRAPPER_OPERAND_BYPASSES)}")
+    print(f"wrapper-operand no-regression    {len(WRAPPER_OPERAND_NO_REGRESSION) - wonr_missed}/{len(WRAPPER_OPERAND_NO_REGRESSION)}")
     print(
         f"legitimate allowed    {len(LEGITIMATE) - sum(1 for k, _ in failures if k == 'FALSE POSITIVE')}/{len(LEGITIMATE)}"
     )

@@ -1,5 +1,5 @@
 diff --git a/tools/tirith_security.py b/tools/tirith_security.py
-index 79cee1db48..c20fca8de3 100644
+index 79cee1db48..a2a04b1cc0 100644
 --- a/tools/tirith_security.py
 +++ b/tools/tirith_security.py
 @@ -11,6 +11,8 @@ import json
@@ -11,7 +11,7 @@ index 79cee1db48..c20fca8de3 100644
  import shutil
  import stat
  import subprocess
-@@ -455,6 +457,773 @@ def ensure_installed(*, log_failures: bool = True):
+@@ -455,6 +457,822 @@ def ensure_installed(*, log_failures: bool = True):
      return None  # not available yet; commands fail-open until ready
  
  
@@ -115,6 +115,28 @@ index 79cee1db48..c20fca8de3 100644
 +_AGENT_WRAPPERS = frozenset({"env", "timeout", "gtimeout", "nohup", "command", "stdbuf",
 +                             "nice", "time", "xargs", "sudo", "doas"})
 +
++# Wrapper flags that take a SEPARATE operand. Without this, `_strip_agent_wrappers`
++# skips the flag but reads the flag's own value as the wrapped program — so
++# `env -u FOO git commit -m x` resolved to program `FOO` and sailed past both hard
++# blocks, while the bare `env git commit -m x` blocked correctly. Only the separate
++# spelling matters: `--unset=FOO` is one `-`-prefixed token and is already skipped.
++# Deliberately per-wrapper and exhaustive-by-name: a flag NOT listed here consumes
++# nothing, so an unknown value-less flag (`env -i`, `sudo -i`) still resolves the
++# real program and still blocks. Over-consuming would be the dangerous direction.
++_WRAPPER_VALUE_FLAGS = {
++    "env": {"-u", "--unset", "-C", "--chdir", "-S", "--split-string"},
++    "timeout": {"-k", "--kill-after", "-s", "--signal"},
++    "gtimeout": {"-k", "--kill-after", "-s", "--signal"},
++    "nice": {"-n", "--adjustment"},
++    "stdbuf": {"-i", "--input", "-o", "--output", "-e", "--error"},
++    "sudo": {"-u", "--user", "-g", "--group", "-C", "--close-from", "-p", "--prompt",
++             "-r", "--role", "-t", "--type", "-U", "--other-user", "-D", "--chdir",
++             "-R", "--chroot", "--host"},
++    "doas": {"-u", "-C"},
++    "xargs": {"-a", "--arg-file", "-d", "--delimiter", "-E", "-I", "-i", "--replace",
++              "-L", "-l", "-n", "--max-args", "-P", "--max-procs", "-s", "--max-chars"},
++}
++
 +# Interpreters whose -c argument is another command line to scan recursively.
 +_AGENT_INTERPRETERS = frozenset({"sh", "bash", "zsh", "dash", "ksh"})
 +
@@ -136,9 +158,15 @@ index 79cee1db48..c20fca8de3 100644
 +        base = os.path.basename(tok)
 +        if base in _AGENT_WRAPPERS:
 +            i += 1
++            value_flags = _WRAPPER_VALUE_FLAGS.get(base, frozenset())
 +            # Skip that wrapper's own flags and a bare numeric duration (timeout 300 …).
 +            while i < len(tokens) and (tokens[i].startswith("-") or tokens[i].replace(".", "", 1).isdigit()):
++                takes_value = tokens[i] in value_flags
 +                i += 1
++                # LOCAL MODIFICATION (patches/tirith-hermes-guards.patch): consume the
++                # flag's operand too, else it is read as the wrapped program name.
++                if takes_value and i < len(tokens) and not tokens[i].startswith("-"):
++                    i += 1
 +            continue
 +        break
 +    return tokens[i:]
@@ -304,6 +332,14 @@ index 79cee1db48..c20fca8de3 100644
 +# that landed on dispatch-scratch's master — it inherits a working directory the
 +# command never states, so nothing about it can be verified from the command.
 +_VAULT_SUFFIX = os.path.join("SourceRoot", "brain")
++# LOCAL MODIFICATION (patches/tirith-hermes-guards.patch):
++# The canonical, expanded vault root. `_is_vault_path` used to accept any path
++# merely ENDING in `_VAULT_SUFFIX` (`endswith` / substring-with-separator), so
++# `/tmp/evilSourceRoot/brain` and `~/xSourceRoot/brain` both matched and rode
++# the exemption straight past `raw_repo_write`. Resolving the real root once
++# and requiring an exact match or a `root + os.sep` prefix closes that without
++# touching the exemption's actual scope.
++_VAULT_ABS = _dte_norm(os.path.expanduser(os.path.join("~", _VAULT_SUFFIX)))
 +
 +
 +def _is_vault_path(path: str) -> bool:
@@ -312,7 +348,7 @@ index 79cee1db48..c20fca8de3 100644
 +        return False
 +    expanded = os.path.expanduser(path.replace("$HOME", "~"))
 +    normalised = _dte_norm(expanded)
-+    return normalised.endswith(_VAULT_SUFFIX) or _VAULT_SUFFIX + os.sep in normalised + os.sep
++    return normalised == _VAULT_ABS or normalised.startswith(_VAULT_ABS + os.sep)
 +
 +
 +def _git_verb_is_write(tokens: list) -> str:
@@ -747,14 +783,27 @@ index 79cee1db48..c20fca8de3 100644
 +        return False
 +
 +    try:
-+        lex = shlex.shlex(command, posix=True, punctuation_chars=True)
++        # LOCAL MODIFICATION (patches/tirith-hermes-guards.patch):
++        # Same lexer shape as `_agent_segments` (and the same fix for the same
++        # bug): `punctuation_chars=True` leaves `\n`/`\r` in shlex's default
++        # whitespace set, so `whitespace_split=True` welds a multi-line command
++        # into ONE token stream and only the first stage (`curl ...`) ever got
++        # scanned — everything after the newline rode the allowlist verdict
++        # unchecked. Moving `\n`/`\r` into punctuation_chars makes them
++        # separators OUTSIDE quotes only, so a newline embedded in a quoted
++        # argument still doesn't split.
++        lex = shlex.shlex(command, posix=True, punctuation_chars="();<>|&\n\r")
 +        lex.whitespace_split = True
++        lex.whitespace = " \t"
 +        tokens = list(lex)
 +    except ValueError:
 +        return False
 +
 +    for tok in tokens:
-+        if tok in _UNSAFE_STANDALONE_TOKENS:
++        # A run of newline/CR characters collapses into one punctuation token
++        # (see `_agent_segments`) — treat it the same as any other unsafe
++        # standalone token rather than matching it as a literal `"\n"`.
++        if tok in _UNSAFE_STANDALONE_TOKENS or (tok and not tok.strip("\r\n")):
 +            return False
 +        if any(s in tok for s in _UNSAFE_SUBSTRINGS_IN_TOKEN):
 +            return False
@@ -785,16 +834,17 @@ index 79cee1db48..c20fca8de3 100644
  # --- Main API ---
  _MAX_FINDINGS = 50
  _MAX_SUMMARY_LEN = 500
-@@ -486,11 +1255,103 @@ def check_command_security(command: str) -> dict:
+@@ -484,13 +1302,107 @@ def check_command_security(command: str) -> dict:
+     Exit code determines the action; JSON enriches. Spawn failures/timeouts respect fail_open."""
+     global _crash_count
      cfg = _load_security_config()
-     if not cfg["tirith_enabled"]:
-         return _verdict("allow")
 +
 +    # LOCAL MODIFICATION (patches/tirith-hermes-guards.patch):
 +    # the three block-checks below (raw agent invocation, raw repo write,
-+    # download-then-execute) are deliberately placed BEFORE the circuit breaker
-+    # and the argo allowlist, so they still hold when tirith is
-+    # unavailable/fail-open and can never be bypassed by an allowlisted host.
++    # download-then-execute) are deliberately placed BEFORE the `tirith_enabled`
++    # early return, the circuit breaker and the argo allowlist, so they still
++    # hold when tirith is disabled in config, unavailable/fail-open, or bypassed
++    # by an allowlisted host. None of those three conditions may skip them.
 +    _agent_reason = _raw_agent_invocation_reason(command)
 +    if _agent_reason:
 +        return {
@@ -875,6 +925,9 @@ index 79cee1db48..c20fca8de3 100644
 +            }],
 +            "summary": "download-then-execute blocked (local hardening)",
 +        }
++
+     if not cfg["tirith_enabled"]:
+         return _verdict("allow")
 +
      # Circuit breaker: if tirith has crashed _CRASH_LIMIT times in a row, stop trying for the rest of the
      # process. Without this, a corrupted or missing binary causes every tool call to hit the same spawn
