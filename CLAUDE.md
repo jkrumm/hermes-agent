@@ -140,6 +140,20 @@ of an alert in `#alerts` depends on it. The real exposure is hostile *content* r
 trusted sender — hence `watchdog-poll.py` and `briefing-coverage.py` marking non-`jkrumm` GitHub
 items as third-party instead of authenticating the messenger.
 
+**But `require_mention: false` is not a decision — it makes every joined channel free-response.**
+Two channels were pure echo (Hermes restating a bot post its own pipeline had just made) and are
+now `slack.require_mention_channels`: `#media` (`C0AS5GUH5U4`) and `#updates` (`C0ARZJD824W`).
+Silencing is **inbound-only** — `hermes send`, cron delivery and dispatch verdicts still post
+there, and the dispatch nudge targets `origin_channel`, never these two; `watchdog-poll.py`
+already reads both `#alerts` and `#updates` out-of-band (`slack_alert`/`slack_update`), so
+nothing is lost. **`#alerts` deliberately stays free-response** — live auto-triage of the
+tailnet bots is exactly what `allow_bots: all` is for — but a `slack.channel_prompts` entry now
+caps it at one diagnosis per incident and requires the literal `NO_REPLY` on a recovery/`Up`/
+already-answered message. `NO_REPLY` (and `[SILENT]`) is a gateway-level marker
+(`gateway/response_filters.py`): the turn still runs and costs tokens, only the post is
+suppressed. A gate rejection returns **before** the message is stored, so a silenced channel is
+also an un-ingested one — read it back through `argo-api` → `references/slack.md`.
+
 **GitHub credential `op://mini/github/token` needs three grants** — `Contents: write` (push)
 **plus** `Issues: write` and `Pull requests: write` (the artifact). With only the first, the
 branch pushes and the last step fails as "Resource not accessible by personal access token".
@@ -598,6 +612,37 @@ non-OpenAI endpoint` one line above — that second line means the patch fell of
   own `context_length` **clamps the trigger down to itself** — hence
   `auxiliary.compression.context_length: 850000`, not the default 200,000. 240k also keeps
   prompts below the **272k mark where OpenAI bills input 2× and output 1.5×**.
+
+**Auxiliary lanes are separately routed — they are not the brain.** `auxiliary.<task>.{provider,
+model,base_url,api_key,api_mode}` picks a model per task; unset lanes fall through to `auto`, which
+means the flagship at `high`. Two are pinned off it deliberately:
+
+| Lane | Model | Why not `gpt-5.6-luna` |
+|-|-|-|
+| `title_generation` | `gemini-2.5-flash-lite`, OpenAI leg | `title_generator.py` hardcodes `temperature=0.3` and gpt-5.x accepts only the default — every title 503'd then self-healed on a retry-without-temperature. ~0.7s instead of a reasoning turn |
+| `approval` | `claude-haiku-4-5`, **native `/anthropic` leg** (`${ANTHROPIC_BASE_URL}`, `api_mode: anthropic_messages`) | same 503 (`approval_smart.py` hardcodes `temperature=0`), and this gates every risky terminal command. Measured **0.9s native vs 3.0s** for the same model through the OpenAI-compat shim. `provider` stays `custom`, never `anthropic`, so the auxiliary client never reaches for `~/.claude` OAuth |
+
+There is **no config key to drop `temperature`** — `_fixed_temperature_for_model` is hardcoded to
+Kimi/Arcee and ignores provider profiles, so repinning the model is the only fix. Pinning the
+Anthropic leg lazy-installs `anthropic==0.87.0` into the gateway venv on first use.
+`compression` and `web_extract` stay on luna: both need the 850k window.
+
+**Subagent routing (`delegation.*`) exists but is unused** — repo work goes to Claude Code via the
+dispatch bridge, and a Hermes child gets no `.claude/rules`, no `.claude/skills` and no PR artifact.
+It is worth considering only for read-heavy fan-out (parallel log/API triage). If one is ever
+pinned to a cheaper model: **`delegation.api_mode` is silently dropped unless `delegation.base_url`
+or `delegation.provider` is set too**, so `model: claude-*` alone inherits `codex_responses` and
+404s — the same trap the `fallback_providers` entry spells out `chat_completions` to avoid. A pin
+also costs the child its fallback chain and capability inheritance.
+
+**Core-tool deferral is on and wanted** (`tools.tool_search.enabled: auto`). 4 of 21 tools defer
+behind a 3-tool bridge — measured **−19.8% (~2,150 tokens) off the cached tool prefix every turn**
+on the real Slack toolset, not upstream's headline −49% (that is the desktop/GUI surface). It costs
++1 turn when a deferred tool is actually needed. `threshold_pct: 10` in `config.yaml` is now a
+*listing budget*, not an activation gate. Deferral can never empty `tools`, so it does not interact
+with the reasoning-effort patches. Watch `cronjob_manage`: it is 69% of the deferred mass and
+upstream measured 16/18 discovery — if Hermes ever claims it can't schedule something, drop that
+one name from `tools.tool_search.defer` rather than disabling the feature.
 
 Narrative: **`docs/model-context-reasoning.md`**.
 

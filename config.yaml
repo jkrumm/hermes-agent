@@ -108,6 +108,13 @@ tool_output:
   max_line_length: 2000
 tool_loop_guardrails:
   warnings_enabled: true
+  # `hard_stop_enabled: false` only applies to ATTENDED platforms. v0.21.0 added
+  # `non_interactive_hard_stop_enabled` (default true), which force-sets
+  # hard_stop_enabled=True for any platform outside {cli,tui,desktop,acp,subagent,
+  # api_server} — i.e. Slack and every cron job here. Deliberately left at the new
+  # default: on an unattended always-on box a runaway tool loop burning budget with
+  # nobody watching is worse than a truncated task. Set
+  # `non_interactive_hard_stop_enabled: false` to restore the old behaviour.
   hard_stop_enabled: false
   warn_after:
     exact_failure: 2
@@ -167,12 +174,21 @@ auxiliary:
     api_key: ''
     timeout: 30
   approval:
+    # The dangerous-command classifier, on the endpoint's NATIVE Anthropic leg.
+    # Why not gpt-5.6-luna: approval_smart.py hardcodes temperature=0 at the call
+    # site and gpt-5.x refuses any non-default temperature, so every risky command
+    # paid a 503 + retry plus a high-effort reasoning turn. Why the /anthropic leg
+    # rather than the OpenAI-compat shim: measured 0.9s vs 3.0s for the same model,
+    # no LiteLLM translation in between. provider stays `custom` (not `anthropic`)
+    # so the auxiliary client never reaches for ~/.claude OAuth credentials — the
+    # key is supplied explicitly. tirith and the four local guards remain the hard
+    # gate; this classifier is the soft second opinion.
     provider: custom
-    model: gpt-5.6-luna
-    base_url: ${OPENAI_BASE_URL}
-    api_key: ${OPENAI_API_KEY}
+    model: claude-haiku-4-5
+    base_url: ${ANTHROPIC_BASE_URL}
+    api_key: ${ANTHROPIC_API_KEY}
     timeout: 30
-    api_mode: chat_completions
+    api_mode: anthropic_messages
     context_length: 200000
   mcp:
     provider: auto
@@ -181,8 +197,14 @@ auxiliary:
     api_key: ''
     timeout: 30
   title_generation:
+    # NOT the flagship: title_generator.py hardcodes temperature=0.3 at the call
+    # site, and gpt-5.x refuses any non-default temperature — every title 503'd
+    # and self-healed via a retry-without-temperature (48 wasted round trips in
+    # one gateway window). A flash-lite also drops titling from a high-effort
+    # reasoning model to ~0.7s. Must stay api_mode: chat_completions — only the
+    # gpt-5.x leg of this endpoint speaks Responses.
     provider: custom
-    model: gpt-5.6-luna
+    model: gemini-2.5-flash-lite
     base_url: ${OPENAI_BASE_URL}
     api_key: ${OPENAI_API_KEY}
     timeout: 30
@@ -382,7 +404,10 @@ delegation:
   api_mode: ''
   inherit_mcp_toolsets: true
   max_iterations: 250
-  child_timeout_seconds: 600
+  # 0 = no cap, upstream's default since they found a fixed timeout killed
+  # legitimate heavy work mid-task. Our 600 was a copy of the OLD default and
+  # is a hard kill for a `high`-effort child.
+  child_timeout_seconds: 0
   reasoning_effort: ''
   max_concurrent_children: 10
   max_spawn_depth: 1
@@ -392,6 +417,12 @@ prefill_messages_file: ''
 goals:
   max_turns: 20
 skills:
+  # Agent-created skills land in the git repo, not under ~/.hermes/skills/.
+  # Because this path is also in external_dirs, the background curator refuses
+  # every autonomous mutation on it (is_external_skill_path), so a new skill is
+  # durable and reviewable by construction instead of being detected after the
+  # fact by watchdog-poll.py's stray_skill source.
+  create_dir: ~/SourceRoot/hermes-agent/skills
   external_dirs:
     - ~/SourceRoot/hermes-agent/skills
   template_vars: true
@@ -417,9 +448,29 @@ curator:
     keep: 5
 timezone: ''
 slack:
+  # require_mention: false makes EVERY channel Hermes is a member of a free-response
+  # channel — that is the default, not a decision. Two channels are pure echo surfaces
+  # (Hermes restating a bot post it just triggered itself), so they take the per-channel
+  # override; #alerts deliberately stays free-response because live auto-triage of the
+  # HomeLab/VPS/Argo bots is the point of `allow_bots: all`.
+  #   C0AS5GUH5U4 = #media    (podcast/image completions — Hermes is the producer)
+  #   C0ARZJD824W = #updates  (also polled out-of-band by watchdog-poll.py as slack_update)
+  # Silencing is inbound-only: `hermes send`, cron delivery and dispatch verdicts still
+  # post here, and the dispatch nudge targets origin_channel, never these two.
   require_mention: false
+  require_mention_channels: C0AS5GUH5U4,C0ARZJD824W
   free_response_channels: ''
   allowed_channels: ''
+  channel_prompts:
+    # #alerts — keep the triage, drop the chatter. NO_REPLY is the gateway's silent
+    # marker (gateway/response_filters.py): the turn runs, nothing is posted.
+    C0AS1LAUQ3C: >-
+      This is the automated alert channel. Answer only when an alert is NEW and
+      actionable, and then only once per incident with the diagnosis — not a running
+      commentary across several messages. For a recovery / resolved / "Up" / "green
+      again" message, for a heartbeat that returns, and for any message that merely
+      restates something you already answered in this channel, reply with exactly
+      NO_REPLY and nothing else.
   enabled: true
   bot_token: ${SLACK_BOT_TOKEN}
   app_token: ${SLACK_APP_TOKEN}
