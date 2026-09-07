@@ -2,6 +2,8 @@
 
 Personal AI assistant running 24/7 on Mac Mini. Slack as interface, gpt-5.6-luna as brain (EU; `claude-sonnet-4-6-eu` failover), eighteen skill domains (`HERMES_SKILLS` in the Makefile is the count).
 
+For repo-operating detail (dispatch bridge, secrets, patches, model routing), see `CLAUDE.md`.
+
 **Hermes docs**: https://hermes-agent.nousresearch.com/docs/
 
 ## Architecture
@@ -28,24 +30,24 @@ Mac Mini M2 Pro — Hermes Agent (always-on)
 |-|-|-|-|-|
 | `#hermes` | C0ASRUD7K1U | read + write | HomeLab bot | Main conversation, HomeLab-triggered checks |
 | `#inbox` | C0AT6TB49HP | read + write | HomeLab bot | Johannes + HomeLab drops (voice memos, links, digests) → Hermes processes |
-| `#alerts` | C0AS1LAUQ3C | read + write | HomeLab bot, VPS app (A0BV9MG54TD), Argo app (A0BV9MFTM9R), external monitors | Docker/UptimeKuma and other monitors fire in → Hermes triages and acts |
-| `#watchdog` | C0ASRULFTSS | write only | — | Hermes posts its own proactive monitoring results (Phase 3) |
-| `#briefings` | C0AT6TH404R | write only | — | Hermes posts morning/evening audio (Phase 1) |
-| `#journal` | C0ATN8W6N2U | write only | — | Hermes posts structured journal entries (Phase 2) |
-| `#news` | C0ASXJD0ZEG | write only | — | Daily digest (Phase 4) |
-| `#agents` | C0BVDE5R562 | write only | — | Agent overview digest (cron `72aa2fb36307`, every 30 min, only when something moved) — read-only view of every Claude Code/herdr agent, `docs/agents-overview.md` |
+| `#alerts` | C0AS1LAUQ3C | read + write, free-response | HomeLab bot, VPS app (A0BV9MG54TD), Argo app (A0BV9MFTM9R), external monitors | Docker/UptimeKuma and other monitors fire in → Hermes triages and acts, capped at one diagnosis per incident |
+| `#updates` | C0ARZJD824W | read only (`require_mention_channels`) | HomeLab bot | Silenced — Hermes was echoing its own pipeline's posts; still polled out-of-band by `watchdog-poll.py` |
+| `#media` | C0AS5GUH5U4 | read only (`require_mention_channels`) | — | Podcast/image completions — Hermes is the producer, not a conversant |
+| `#watchdog` | C0ASRULFTSS | write only | — | Hermes posts its own proactive monitoring results (cron `4b1faabda97d`) |
+| `#briefings` | C0AT6TH404R | write only | — | Morning/evening audio reports (cron `cc7900c424a9`, `2d38c80e685c`) |
+| `#agents` | C0BVDE5R562 | write only | — | Agent overview + project-narratives digests (crons `72aa2fb36307`, `9909f808fe17`), only when something moved — `docs/agents-overview.md` |
 
 ### Trigger Matrix
 
 | Source | Channel | What happens |
 |-|-|-|
 | Johannes message | `#hermes` | Hermes responds immediately |
-| Johannes voice memo / link | `#inbox` | Hermes transcribes / extracts + processes (Phase 2) |
+| Johannes voice memo / link | `#inbox` | Hermes transcribes / extracts + processes |
 | HomeLab bot drops digest/capture | `#inbox` | Hermes processes it the same as a manual drop |
 | Docker / UptimeKuma alert | `#alerts` | Hermes calls argo-api, checks state, responds or escalates |
 | External monitor alert | `#alerts` | Hermes triages, checks context, notifies if critical |
 | Cron job | `#hermes` / `#briefings` | Hermes posts proactive update or audio briefing |
-| Hermes monitoring loop | `#watchdog` | Hermes writes its own status checks (Phase 3, Hermes-initiated) |
+| Hermes monitoring loop | `#watchdog` | Hermes writes its own status checks |
 
 ### Bot Membership Rules
 
@@ -66,7 +68,7 @@ Mac Mini M2 Pro — Hermes Agent (always-on)
 | `cron/` | `~/.hermes/cron/` | symlink |
 | `hooks/` | `~/.hermes/hooks/` | symlink |
 
-## Phase 0 — Foundation Setup
+## Setup
 
 ### 1. Mac Mini Prerequisites
 
@@ -82,7 +84,7 @@ curl -s https://audio-gateway.jkrumm.com/health
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash
-hermes --version  # should show v0.20.5+ (the version this repo's patches target)
+hermes --version  # should show v0.21.0+ (the version this repo's patches target)
 ```
 
 ### 3. 1Password Vault
@@ -97,26 +99,19 @@ Existing items reused:
 
 ### 4. Create Slack App
 
-1. Go to https://api.slack.com/apps → Create New App → From scratch
-2. Name: `Hermes`, Workspace: your personal workspace
-3. **OAuth & Permissions** — add bot token scopes:
-   - `chat:write`, `app_mentions:read`, `channels:history`, `channels:read`
-   - `groups:history`, `im:history`, `im:read`, `im:write`
-   - `users:read`, `files:write`, `files:read`
-4. **Socket Mode** — enable, create app-level token (scope: `connections:write`)
-5. **Event Subscriptions** — enable, subscribe to bot events:
-   - `app_mention`, `message.channels`, `message.groups`, `message.im`
-6. Install to workspace, copy Bot Token + App Token to 1Password `hermes/slack`
+1. Go to https://api.slack.com/apps → Create New App → **From an app manifest**
+2. Paste `slack-app-manifest.json` (this repo's root — the source of truth for scopes, event
+   subscriptions and Socket Mode; do not hand-type a scope list, it drifts)
+3. Install to workspace, copy Bot Token + App Token to 1Password `hermes/slack`
 
 ### 5. Create Slack Channels
 
-Create these channels and invite the Hermes bot:
+Create these channels and invite the Hermes bot — see the Channel Architecture table above for
+the full set incl. `#alerts`, `#updates`, `#media`, `#agents`:
 - `#hermes` — interactive, main conversation
-- `#inbox` — journal captures, voice memos, links
-- `#journal` — structured journal output
-- `#watchdog` — infra alerts (Phase 3)
-- `#news` — daily news digest (Phase 4)
-- `#briefings` — morning/evening audio reports (Phase 1)
+- `#inbox` — captures, voice memos, links
+- `#watchdog` — infra alerts
+- `#briefings` — morning/evening audio reports
 
 ### 6. Deploy Config
 
@@ -177,11 +172,6 @@ tail -20 ~/.hermes/logs/gateway.log  # watch for successful Slack connection
 - [x] Backup agent — daily 03:00 rsync to `homelab:/mnt/hdd/backups/hermes/`, pings UK
 - [x] Liveness agent — every 5 min, pings UK if gateway running + Slack connected
 
-### Known Issues / TODOs
-
-- **`hermes gateway install` prints `Bootstrap failed: 5: Input/output error`** several times while repairing the service definition. That message is **noise** — it finishes with `✓ Service definition updated`, and `hermes gateway status` then reports `✓ Gateway is supervised by launchd`. Auto-start at login and auto-restart on crash do work. Check `gateway status` for the real state; never `launchctl load` the plist by hand.
-- **Secrets fail soft, not closed.** If `secrets.command` can't resolve, the gateway still starts — just credential-less — so treat `Command helper: applied N secrets` as a required check after any secrets change (see below).
-
 ### Secrets — no `.env`, no wrapper
 
 There is deliberately **no `~/.hermes/.env`** and no launch wrapper. Hermes resolves its own
@@ -195,8 +185,8 @@ This also means **every** hermes invocation gets secrets — gateway, CLI, and c
 so ad-hoc debugging works without hand-wrapping commands.
 
 ```bash
-make status                       # → ✓ secrets (26 refs via secrets-run cache)
-hermes gateway status             # → Command helper: applied 26 secrets
+make status                       # → ✓ secrets (29 refs via secrets-run cache)
+hermes gateway status             # → Command helper: applied 29 secrets
 
 # If either is missing, test the helper in isolation:
 secrets-run export --env-file=~/.hermes/.env.tpl | sed 's/^export //' | wc -l
@@ -235,12 +225,11 @@ Every Hermes cron job (seven — briefings, watchdog, dispatch sweep, brain drif
 agents overview, project narratives) is listed with its id in the registry table in
 `docs/scheduled-jobs.md`; `make status` asserts the live set matches it.
 
-## Phases
+## Handing work to Claude Code
 
-| Phase | Domain | Status |
-|-|-|-|
-| 0 | Foundation (Hermes + Slack + LLM + Voice) | **Done** (2026-04-14) |
-| 1 | Assistant (TickTick, Calendar, Briefings) | **Next** |
-| 2 | Journal (Voice memos, Obsidian, Mood) | Planned |
-| 3 | Watchdog (Docker, UptimeKuma, GitHub Issues) | Planned |
-| 4 | News (RSS, YouTube, Reddit, Dedup) | Planned |
+Hermes triages well but reads a repo badly — it has no access to a repo's `CLAUDE.md`,
+`.claude/rules/` or `.claude/skills/`. For anything that needs real repo context (a bug fix,
+an investigation, a PR), Hermes hands the episode to Claude Code via `scripts/hermes-cc.sh`
+(sideclaw's `dispatch` job tool) instead of attempting it itself — three tiers from a read-only
+verdict up to a branch + draft PR, gated by a Slack-signed approval for anything that writes.
+Full design and every bound: `docs/dispatch-bridge.md`.
