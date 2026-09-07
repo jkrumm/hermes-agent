@@ -34,10 +34,6 @@ Moved verbatim out of `CLAUDE.md` (2026-09-04, size pass). `CLAUDE.md` § Symlin
 **Host-level scripts (run by user LaunchAgents, not symlinked):**
 - `scripts/hermes-liveness.sh` — every 5 min (`com.jkrumm.hermes-liveness`, `StartInterval 300`), checks gateway state + Slack connection, pings `$UPTIME_PUSH_HERMES` on success.
 - `scripts/hermes-backup.sh` — daily 03:00 (`com.jkrumm.hermes-backup`, `StartCalendarInterval`), rsyncs `~/.hermes/` → `homelab:/mnt/hdd/backups/hermes/`, pings `$UPTIME_PUSH_BACKUP` on success. Holds a `mkdir`-based single-instance lock (`~/Library/Caches/hermes-backup.lock`) so two overlapping runs can never race one another's `rsync --delete`.
-- `scripts/hermes-webui-launch.sh` — the `ProgramArguments` of `com.jkrumm.hermes-webui` (KeepAlive, 30s throttle). Resolves the WebUI password from `op://mini/hermes-webui/password`, exports the non-secret config as literals, and `exec`s the clone's `start.sh --foreground`. See § *Hermes WebUI*.
-- `scripts/hermes-webui-liveness.sh` — every 5 min (`com.jkrumm.hermes-webui-liveness`), asserts `/health` → 200 **and** unauthenticated `/` → non-2xx, then pings `op://hermes/uptime-kuma/webui-push-url`.
-- `scripts/hermes-serve-launch.sh` — the `ProgramArguments` of `com.jkrumm.hermes-serve` (KeepAlive, 30s throttle). Counts the three `serve.env.tpl` refs, refuses below the full set, then execs `hermes serve --host 127.0.0.1 --port 9119 --skip-build` under both templates. See § *`hermes serve`*.
-- `scripts/hermes-serve-liveness.sh` — every 5 min (`com.jkrumm.hermes-serve-liveness`), asserts `/api/status` reports `auth_required: true`, then pings `op://hermes/uptime-kuma/serve-push-url`.
 
 Templates live in `launchd/`, rendered into `~/Library/LaunchAgents` by `make setup`
 (`_agents` → `_render-plists`, `__HOME__` substituted; unchanged content is a no-op,

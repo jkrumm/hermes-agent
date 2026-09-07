@@ -298,19 +298,6 @@ display:
   tool_progress_overrides:
     slack: 'off'
   tool_progress: new
-dashboard:
-  theme: default
-  show_token_analytics: false
-  oauth:
-    client_id: ''
-    portal_url: ''
-  basic_auth:
-    username: ${HERMES_DASHBOARD_BASIC_AUTH_USERNAME}
-    password_hash: ''
-    password: ${HERMES_DASHBOARD_BASIC_AUTH_PASSWORD}
-    secret: ${HERMES_DASHBOARD_BASIC_AUTH_SECRET}
-    session_ttl_seconds: 43200
-  public_url: https://hermes-api.mini.jkrumm.com
 privacy:
   redact_pii: false
 tts:

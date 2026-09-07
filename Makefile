@@ -19,15 +19,20 @@ HERMES_PLUGINS := dispatch-approval
 # banner below for why. Templates live in launchd/, rendered into ~/Library/LaunchAgents.
 LAUNCHD_DIR   := $(HERMES_REPO)/launchd
 LAUNCHAGENTS  := $(HOME)/Library/LaunchAgents
-HERMES_PLISTS := com.jkrumm.hermes-liveness com.jkrumm.hermes-backup \
-                 com.jkrumm.hermes-webui com.jkrumm.hermes-webui-liveness \
-                 com.jkrumm.hermes-serve com.jkrumm.hermes-serve-liveness
+HERMES_PLISTS := com.jkrumm.hermes-liveness com.jkrumm.hermes-backup
 # Labels this repo used to install and no longer does. `_agents` unloads and
 # removes each one, so a rename can never leave two agents racing the same port.
 # com.parantoux.hermes-webui: hand-written into ~/Library/LaunchAgents by the
 # agent on 2026-08-25 under a foreign reverse-DNS prefix, superseded by
-# com.jkrumm.hermes-webui.
-HERMES_PLISTS_RETIRED := com.parantoux.hermes-webui
+# com.jkrumm.hermes-webui. The four hermes-{webui,serve}{,-liveness} labels:
+# torn down 2026-09-07 (owner decision — Collie + Slack are the surfaces; the
+# third-party WebUI clone and `hermes serve` for Hermes Desktop are gone).
+HERMES_PLISTS_RETIRED := com.parantoux.hermes-webui \
+                         com.jkrumm.hermes-webui com.jkrumm.hermes-webui-liveness \
+                         com.jkrumm.hermes-serve com.jkrumm.hermes-serve-liveness
+# The gateway's own LaunchAgent is installed by `hermes gateway install` (stock
+# plist), not rendered from launchd/ — graded by `make status` alongside ours.
+HERMES_GATEWAY_LABEL := ai.hermes.gateway
 
 # TTS/STT is served by the audio-gateway (https://audio-gateway.jkrumm.com/v1),
 # a VPS Docker container reached over the tailnet — Hermes only points its native
@@ -85,9 +90,6 @@ _symlinks:
 	@$(MAKE) --no-print-directory _link \
 		SRC="$(HERMES_REPO)/.env.tpl" \
 		DST="$(HERMES_DIR)/.env.tpl"
-	@$(MAKE) --no-print-directory _link \
-		SRC="$(HERMES_REPO)/serve.env.tpl" \
-		DST="$(HERMES_DIR)/serve.env.tpl"
 	@$(MAKE) --no-print-directory _link \
 		SRC="$(HERMES_REPO)/SOUL.md" \
 		DST="$(HERMES_DIR)/SOUL.md"
@@ -275,59 +277,36 @@ status:
 	@curl -fsS https://audio-gateway.jkrumm.com/health >/dev/null 2>&1 \
 		&& echo "    ✓ audio-gateway (TTS/STT)" \
 		|| echo "    ✗ audio-gateway [not reachable — VPS Docker container over tailnet]"
-	@# Scheduled jobs. `launchctl list` reporting the label is the load check;
-	@# a loaded-but-missing plist would survive a reboot only by luck, so assert
-	@# the rendered file too.
-	@for label in $(HERMES_PLISTS); do \
-		if launchctl list 2>/dev/null | grep -q "$$label" && [ -f "$(LAUNCHAGENTS)/$$label.plist" ]; then \
-			echo "    ✓ $$label"; \
-		elif [ -f "$(LAUNCHAGENTS)/$$label.plist" ]; then \
-			echo "    ✗ $$label [plist present but not loaded — run make setup]"; \
+	@# LaunchAgents, graded the way dotfiles' doctor.sh grades them. A label that
+	@# merely appears in `launchctl list` is not a healthy job: `launchctl print`
+	@# is the only place the last exit code lives, and a KeepAlive job with no PID
+	@# and a non-zero last exit is DOWN (launchd is respawning it into the same
+	@# failure), not up. Exit 78 (EX_CONFIG) always fails — the job never started.
+	@# A loaded-but-missing plist would survive a reboot only by luck, so the
+	@# rendered file is asserted too. The gateway's stock plist is graded as well.
+	@for label in $(HERMES_PLISTS) $(HERMES_GATEWAY_LABEL); do \
+		PLIST="$(LAUNCHAGENTS)/$$label.plist"; \
+		if [ ! -f "$$PLIST" ]; then \
+			echo "    ✗ $$label [missing — run make setup]"; continue; \
+		fi; \
+		detail=$$(launchctl print "gui/$$(id -u)/$$label" 2>/dev/null) || { \
+			echo "    ✗ $$label [plist present but not loaded — run make setup]"; continue; }; \
+		exitcode=$$(printf '%s\n' "$$detail" | sed -n 's/.*last exit code = \([0-9]*\).*/\1/p' | head -1); \
+		runs=$$(printf '%s\n' "$$detail" | sed -n 's/.*runs = \([0-9]*\).*/\1/p' | head -1); \
+		keepalive=$$(/usr/bin/plutil -extract KeepAlive raw -o - "$$PLIST" 2>/dev/null || true); \
+		running=0; printf '%s\n' "$$detail" | grep -q 'state = running' && running=1; \
+		if [ "$${exitcode:-0}" = "78" ]; then \
+			echo "    ✗ $$label [last exit 78 (EX_CONFIG — never started)$${runs:+ after $$runs runs}]"; \
+		elif [ "$${exitcode:-0}" != "0" ] && [ "$$keepalive" = "true" ] && [ "$$running" -eq 0 ]; then \
+			echo "    ✗ $$label [KeepAlive job is down, last exit $$exitcode$${runs:+ after $$runs runs}]"; \
+		elif [ "$$running" -eq 1 ]; then \
+			echo "    ✓ $$label (running)"; \
 		else \
-			echo "    ✗ $$label [missing — run make setup]"; \
+			echo "    ✓ $$label (last exit $${exitcode:-0}$${runs:+, $$runs runs})"; \
 		fi; \
 	done
 	@if crontab -l 2>/dev/null | grep -q "hermes-liveness.sh\|hermes-backup.sh"; then \
 		echo "    ✗ legacy crontab entries [double-firing — run make cron-migrate]"; \
-	fi
-	@# The WebUI clone must carry no .env: start.sh sources it with `set -a` after
-	@# inheriting the launcher's environment, so a stale file silently overrides the
-	@# password resolved from 1Password — the exact way a rotation fails to take.
-	@if [ -f "$(HOME)/SourceRoot/hermes-webui/.env" ]; then \
-		echo "    ✗ hermes-webui/.env present [overrides the launcher — delete it]"; \
-	elif [ -d "$(HOME)/SourceRoot/hermes-webui" ]; then \
-		echo "    ✓ hermes-webui clone (no stale .env)"; \
-	else \
-		echo "    ✗ hermes-webui clone missing [git clone the upstream repo]"; \
-	fi
-	@# The one secret the WebUI needs. Checked separately from the gateway's 26 refs
-	@# because it is resolved by the launcher at start, not by config.yaml, so a
-	@# missing seed shows up as a service that will not boot rather than a bad turn.
-	@if timeout 15 "$(HOME)/.local/bin/secrets-run" read op://mini/hermes-webui/password >/dev/null 2>&1; then \
-		echo "    ✓ webui password (op://mini/hermes-webui/password)"; \
-	else \
-		echo "    ✗ webui password [op://mini/hermes-webui/password unresolved — see CLAUDE.md]"; \
-	fi
-	@if timeout 15 "$(HOME)/.local/bin/secrets-run" read op://hermes/uptime-kuma/webui-push-url >/dev/null 2>&1; then \
-		echo "    ✓ webui push url (UptimeKuma heartbeat)"; \
-	else \
-		echo "    ✗ webui push url [op://hermes/uptime-kuma/webui-push-url unresolved]"; \
-	fi
-	@# `hermes serve` auth. Counted, not spot-checked: an UNSET ${VAR} in
-	@# config.yaml expands to the literal string "${VAR}", which is truthy — so a
-	@# partial render would give serve a known-constant password rather than no
-	@# password. The launcher refuses on the same count; this makes it visible.
-	@n=$$(timeout 20 "$(HOME)/.local/bin/secrets-run" export --env-file="$(HERMES_DIR)/serve.env.tpl" 2>/dev/null | grep -c '^export ' || true); \
-	w=$$(grep -cE '^[A-Za-z_][A-Za-z0-9_]*=' "$(HERMES_REPO)/serve.env.tpl"); \
-	if [ "$$n" -ge "$$w" ]; then \
-		echo "    ✓ serve auth ($$n/$$w refs via secrets-run cache)"; \
-	else \
-		echo "    ✗ serve auth [$$n/$$w refs — op://mini/hermes-serve/* unseeded]"; \
-	fi
-	@if timeout 15 "$(HOME)/.local/bin/secrets-run" read op://hermes/uptime-kuma/serve-push-url >/dev/null 2>&1; then \
-		echo "    ✓ serve push url (UptimeKuma heartbeat)"; \
-	else \
-		echo "    ✗ serve push url [op://hermes/uptime-kuma/serve-push-url unresolved]"; \
 	fi
 	@# Every skill a cron job preloads must actually resolve. The scheduler only
 	@# logs a WARNING and runs anyway when one doesn't (cron/scheduler.py: "skill
@@ -342,6 +321,23 @@ bad=sorted({(j.get("name"),s) for j in d.get("jobs",[]) for s in (j.get("skills"
 [print("    ✗ cron skill \"%s\" missing [job: %s]" % (s,n)) for n,s in bad];\
 print("    ✓ cron job skills resolve") if not bad else None' 2>/dev/null \
 		|| echo "    ✗ cron job skills [could not read jobs.json]"
+	@# The Hermes cron REGISTRY. jobs.json is gitignored runtime state, so the
+	@# git-tracked list of what should be registered is the table in
+	@# docs/scheduled-jobs.md (one row per job id). Assert the live set against
+	@# it in both directions: a registry row with no live job is a schedule that
+	@# silently stopped, a live enabled job absent from the registry is one that
+	@# was created by hand and never written down (that is how the brain drift
+	@# audit lived for three weeks in jobs.json alone).
+	@python3 -c 'import json,os,re,sys;\
+p=os.path.expanduser("$(HERMES_DIR)/cron/jobs.json");\
+reg=set(re.findall(r"^\| `([0-9a-f]{12})` \|", open("$(HERMES_REPO)/docs/scheduled-jobs.md").read(), re.M));\
+sys.exit(print("    ✗ cron registry [docs/scheduled-jobs.md has no job-id rows]") or 1) if not reg else None;\
+live={j["id"]: j for j in json.load(open(p)).get("jobs",[])} if os.path.exists(p) else {};\
+missing=sorted(reg-set(live)); extra=sorted(i for i,j in live.items() if i not in reg and j.get("enabled",True));\
+[print("    ✗ cron registry: job %s in docs/scheduled-jobs.md is not registered [hermes cron list]" % i) for i in missing];\
+[print("    ✗ cron registry: live job %s (%s) is not in docs/scheduled-jobs.md" % (i, live[i].get("name"))) for i in extra];\
+print("    ✓ cron registry (%d jobs match docs/scheduled-jobs.md)" % len(reg)) if not (missing or extra) else None' 2>/dev/null \
+		|| echo "    ✗ cron registry [could not compare jobs.json against docs/scheduled-jobs.md]"
 	@$(MAKE) --no-print-directory patch-check
 	@# Hermes writes into this repo through the skill symlinks during ordinary
 	@# foreground use — it has authored whole nested skills under skills/homelab/
@@ -462,7 +458,7 @@ help:
 	@echo "  hermes-agent"
 	@echo ""
 	@echo "  make setup           Mac Mini-only — config symlinks, LaunchAgents, CC skills"
-	@echo "  make status          Verify symlinks, audio-gateway, LaunchAgents, CC skills"
+	@echo "  make status          Verify symlinks, audio-gateway, LaunchAgents (graded), cron registry, CC skills"
 	@echo "  make patch-check     Assert every patches/*.patch is applied to the live checkout"
 	@echo "  make cron-migrate    One-time — drop the superseded crontab entries"
 	@echo "  make agents-teardown Unload + remove the liveness/backup LaunchAgents"
