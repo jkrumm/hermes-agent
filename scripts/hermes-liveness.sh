@@ -1,7 +1,9 @@
 #!/bin/zsh
 # Hermes liveness ping — LLM-free.
 # Reads ~/.hermes/gateway_state.json, verifies gateway is running AND Slack is
-# connected, then pings the UptimeKuma push URL on success. Run every 5 min by
+# connected AND the live pid belongs to launchd's ai.hermes.gateway job (an
+# orphan gateway never keeps the monitor green), then pings the UptimeKuma push
+# URL on success. Run every 5 min by
 # the com.jkrumm.hermes-liveness LaunchAgent (launchd/, installed by `make setup`);
 # UK monitor interval should be ~360s.
 #
@@ -68,6 +70,20 @@ fi
 
 if ! kill -0 "$PID" 2>/dev/null; then
   exit 0
+fi
+
+# The live PID must be the one launchd supervises. gateway_state.json is written
+# by whichever gateway process last started — an orphan `hermes gateway run`
+# (an ssh session, a stray manual start) would keep this monitor green while
+# the supervised job sat dead or crash-looping. `launchctl print` is the only
+# place launchd's own pid lives; the state file's pid is the supervisor's child
+# (stderr_timestamp wraps the real gateway), so accept either the job's pid or
+# a process whose parent is that pid.
+LAUNCHD_PID=$(launchctl print "gui/$(id -u)/ai.hermes.gateway" 2>/dev/null | /usr/bin/sed -n 's/^[[:space:]]*pid = \([0-9]*\).*/\1/p' | head -1)
+[[ -z "$LAUNCHD_PID" ]] && exit 0
+if [[ "$PID" != "$LAUNCHD_PID" ]]; then
+  PPID_OF_PID=$(ps -o ppid= -p "$PID" 2>/dev/null | tr -d ' ')
+  [[ "$PPID_OF_PID" != "$LAUNCHD_PID" ]] && exit 0
 fi
 
 /usr/bin/curl -fsS --max-time 10 "$PUSH_URL" >/dev/null
