@@ -69,13 +69,15 @@ for i in $(seq 1 50); do
   R=$(curl -s -H "$RK" "$B/research/$JOB")
   ST=$(echo "$R" | jq -r '.status')
   [ "$ST" = "done" ] && break
-  [ "$ST" = "failed" ] || [ "$ST" = "error" ] && { echo "research failed"; break; }
+  [ "$ST" = "error" ] && { echo "research failed: $(echo "$R" | jq -r '.error')"; break; }
   sleep 12
 done
 
-# 3) Read the cited report + sources
+# 3) Read the report status FIRST, then the cited report + sources
+echo "$R" | jq -r '.result.status, (.result.warnings[]? // empty)'
 echo "$R" | jq -r '.result.report'
-echo "$R" | jq -r '.result.sources[]'
+echo "$R" | jq -r '.result.citations[] | "\(.confidence)  \(.url)  — \(.claim)"'
+echo "$R" | jq -r '.result.unverified[]? | "UNVERIFIED: \(.topic) — \(.reason)"'
 ```
 
 **Depth choice:**
@@ -87,14 +89,27 @@ echo "$R" | jq -r '.result.sources[]'
 **Response shape (`GET /research/{jobId}`):**
 ```jsonc
 {
-  "status": "queued" | "running" | "done" | "failed",
+  "status": "queued" | "running" | "done" | "error",   // terminal: done | error (never "failed")
+  "error":  "…",                           // present when status=error
   "result": {                              // present only when status=done
+    "status":    "ok" | "partial",         // partial = evidence was LOST this run (citations
+                                           // dropped, or nothing retrieved) — prose is
+                                           // unconfirmed unless a citation backs it
+    "warnings":  [ "…" ],                  // human-readable notes on degraded evidence
     "report":    "…markdown narrative, cited…",
-    "citations": [ { "claim": "…", "url": "…" } ],  // each key claim → a source
-    "sources":   [ "https://…", … ]                 // deduplicated source URLs
+    "citations": [ { "claim": "…", "url": "…", "confidence": "high" | "medium" | "low" } ],
+    "sources":   [ "https://…", … ],       // deduplicated source URLs
+    "unverified": [ { "topic": "…", "url": "…" | null, "reason": "…" } ],  // could NOT verify
+    "grounding": { "pagesRetrieved", "pagesFailed", "citationsKept",
+                   "citationsDropped", "confidenceCapped" },  // counted in code, not asserted
+    "cost": { "wallMs", "totalUsd", "llmUsd", "searchUsd", … }
   }
 }
 ```
+
+`status`, `grounding` and `unverified` are computed in code from what the fetch tools actually
+returned — the model cannot assert that its own output was verified. That is why they exist,
+and why you must relay them.
 
 ---
 
@@ -108,6 +123,11 @@ echo "$R" | jq -r '.result.sources[]'
 - **Always cite.** End with a short `Quellen:` list (the `sources[]` URLs, or the most
   relevant `citations[]`). The whole point of this path over a guess is that it's sourced
   — never strip the citations.
+- **Say in Slack when the evidence is weak — every time.** `result.status: "partial"` means
+  citations were dropped or nothing could be retrieved: open with that ("Teilweise belegt —
+  …") and treat unbacked prose as unconfirmed. Name the low-confidence citations as such,
+  and list `unverified[]` topics as "nicht belegt". A `partial` report presented as a
+  confident answer is the one failure this path exists to prevent.
 - If the report itself flags uncertainty or conflicting sources, **say so** — don't
   flatten it into false confidence.
 

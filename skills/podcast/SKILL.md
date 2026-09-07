@@ -176,9 +176,10 @@ echo "$R" | jq '{title, duration_seconds, chapters, cost_usd, abs}'
   "title": "...", "description": "...",
   "duration_seconds": 1260, "turns": 42,
   "chapters": [ { "title": "...", "start_ms": 0 }, ... ],
-  "cost_usd": 2.26,                               // ElevenLabs characters only; writer tokens come on top
-  "error": null,                                  // set only on status=failed
-  "abs": { "url": "...", "library_item_id": "...", "episode_id": "..." } | null,
+  "cost_usd": 2.26,                               // the WHOLE pipeline — writers' room tokens + ElevenLabs
+  "error": null,                                  // set only on status=failed (a generation failure)
+  "publish": { "requested": true, "ok": true | false | null, "error": null },  // ok null = not attempted yet
+  "abs": { "url": "...", "library_item_id": "...", "episode_id": "..." } | null,  // null on done = not (yet) in Audiobookshelf
   "created_at": "...", "updated_at": "..."
 }
 ```
@@ -205,7 +206,14 @@ When `status: done`, report:
 - **Chapter list** — `chapters[].title`, one per line.
 - The **Audiobookshelf link** from `abs.url` — say the episode is in the Podcasts
   library, playable in Plappa.
-- **Cost** (`cost_usd`, the ElevenLabs share; the writers' room adds roughly 3–4 USD on top).
+- **Cost** (`cost_usd` — the whole pipeline: the writers' room tokens AND the ElevenLabs
+  synthesis, counted by the gateway. Nothing comes "on top"; report it as the episode's price).
+
+**`status: done` with `abs: null` and `publish.ok === false`** means produced but
+NOT published — the upload failed, the episode is not in Audiobookshelf. Say exactly
+that, quote `publish.error` verbatim, and offer `POST /v1/podcasts/{id}/publish`
+(same auth headers), which repeats only the upload. Never invent a link, and never
+offer `/retry` here — that is for `failed` jobs and would generate a new episode.
 
 **Do not attach the MP3 via `MEDIA:`** for anything over ~5 minutes of audio —
 Slack's upload size/time makes that a bad experience for a long-form file. Link to

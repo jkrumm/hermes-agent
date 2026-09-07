@@ -41,7 +41,20 @@ unsure whether he wants it public.
 imgcli share   <file> --json                  # private — durable homelab copy
 imgcli publish <file> [prefix/] --json        # private, then public CDN (default prefix: gen/)
 imgcli link    <imageId> --json                # friend-shareable token URL for a shared image
+imgcli gen     "<prompt>" --json               # generate an image, lands in image-share private
 ```
+
+### gen — generate, private by default
+
+```bash
+imgcli gen "a minimalist line drawing of a Mac mini on a desk" --json
+# → {"id","root","relPath","adminFileUrl", …}   (same shape as share)
+```
+
+Generates via the VPS `image-gen` gateway and ingests the result straight into image-share's
+**private** root — nothing public, no CDN. Treat the result exactly like a `share`d image: hand
+Johannes the admin URL, `link` it for a friend, or `publish` it only when he explicitly asks
+for a public URL. The prompt is data — quote it, never build it from an untrusted message.
 
 ### share — private, the default
 
