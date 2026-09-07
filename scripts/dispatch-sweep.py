@@ -51,6 +51,16 @@ artifact URL) and never carries episode-authored text — see
 build_nudge_body()'s docstring for why that boundary is a security
 property, not a style choice.
 
+LOST JOBS. sideclaw prunes a job ~24 h after it finishes. A dispatch whose
+verdict was never folded in before that (sideclaw restarted mid-run, the
+sweeper was down for a day, the job id was never real) answers 404 forever,
+and "retry next sweep" forever is a debt that can never be paid. So a 404 —
+and ONLY a 404, never a connection failure — increments `poll_misses` on the
+row; the third consecutive one marks the row terminal `lost`, delivers a
+one-line notice into the origin thread (or the undeliverable sentinel), and
+stamps `reported_at` so it is never polled again. A successful poll resets
+the counter, so three misses spread across a flapping sideclaw do not count.
+
 Source of truth: ~/SourceRoot/hermes-agent/scripts/dispatch-sweep.py
 ~/.hermes/scripts/ is itself a symlink to this directory (see make setup).
 """
@@ -85,6 +95,11 @@ SIDECLAW_POLL_TIMEOUT = 15  # seconds; a bare GET against a localhost job server
 HERMES_SEND_TIMEOUT = 30    # seconds; shells out to the gateway's platform client
 
 TERMINAL_STATUSES = {"done", "failed", "interrupted"}
+# Consecutive sideclaw 404s before a row is declared lost. Three sweeps = 15 min,
+# long enough to ride out a sideclaw restart that briefly answers 404 for
+# everything, short enough that a pruned job does not haunt every sweep for weeks.
+LOST_AFTER_MISSES = 3
+LOST_STATUS = "lost"
 
 # --- Wake-up nudge (argo Slack API) -----------------------------------------
 #
@@ -164,6 +179,9 @@ def db_connect() -> sqlite3.Connection:
     if "merged_at" not in existing_columns:
         conn.execute("ALTER TABLE dispatches ADD COLUMN merged_at TEXT")
         conn.commit()
+    if "poll_misses" not in existing_columns:
+        conn.execute("ALTER TABLE dispatches ADD COLUMN poll_misses INTEGER NOT NULL DEFAULT 0")
+        conn.commit()
     return conn
 
 
@@ -185,19 +203,29 @@ def _apply_db_override(argv: list[str]) -> None:
 
 
 def http_get(url: str, timeout: int = SIDECLAW_POLL_TIMEOUT) -> Any:
+    """An HTTP error keeps its status (`_status`) so a 404 — the job is gone —
+    is distinguishable from a connection failure, where it is not."""
     req = urllib.request.Request(url)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode())
-    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError,
-            TimeoutError, ValueError) as e:
+    except urllib.error.HTTPError as e:
+        return {"_error": str(e), "_status": e.code}
+    except (urllib.error.URLError, json.JSONDecodeError, TimeoutError, ValueError) as e:
         return {"_error": str(e)}
 
 
-def poll_job(job_id: str) -> dict[str, Any] | None:
-    """GET the sideclaw job. None on any transport/parse failure or malformed
-    envelope — never raises, so one unreachable poll can't take the sweep down."""
+NOT_FOUND = "not_found"
+
+
+def poll_job(job_id: str) -> dict[str, Any] | str | None:
+    """GET the sideclaw job. The job dict on 200; the sentinel NOT_FOUND on a
+    404 (sideclaw pruned it, or never had it); None on any other transport/
+    parse failure or malformed envelope — never raises, so one unreachable poll
+    can't take the sweep down."""
     data = http_get(f"{SIDECLAW_BASE}/api/jobs/{job_id}")
+    if isinstance(data, dict) and data.get("_status") == 404:
+        return NOT_FOUND
     if not isinstance(data, dict) or "_error" in data or not data.get("ok"):
         return None
     job = data.get("job")
@@ -485,6 +513,50 @@ def format_message(*, repo: str, tier: str, job_id: str, status: str,
     return _finalize(lines)
 
 
+def lost_notice(*, repo: str, tier: str, job_id: str, misses: int) -> str:
+    """The one line a lost dispatch gets. Bridge-owned fields only."""
+    return (
+        f":ghost: Dispatch lost — {repo}: sideclaw no longer has job `{job_id[:8]}` "
+        f"({misses} consecutive 404s) and no verdict was ever recorded. Not retried. "
+        f"_tier {tier}_"
+    )
+
+
+def _mark_lost(conn: sqlite3.Connection, row: sqlite3.Row, misses: int, *, dry_run: bool) -> None:
+    job_id, repo, tier = row["job_id"], row["repo"], row["tier"]
+    body = lost_notice(repo=repo, tier=tier, job_id=job_id, misses=misses)
+    origin_channel = row["origin_channel"]
+    origin_thread_ts = row["origin_thread_ts"]
+    target = (f"slack:{origin_channel}:{origin_thread_ts}" if origin_thread_ts
+              else f"slack:{origin_channel}") if origin_channel else None
+    if dry_run:
+        print(f"[dry-run] would mark job {job_id} (repo {repo}) lost and send to {target or 'nowhere'}:\n{body}\n")
+        return
+    now_iso = dt.datetime.now(dt.timezone.utc).isoformat()
+    conn.execute(
+        "UPDATE dispatches SET status=?, finished_at=?, poll_misses=? WHERE job_id=?",
+        (LOST_STATUS, now_iso, misses, job_id),
+    )
+    conn.commit()
+    stamp: str | None = None
+    if target is None:
+        stamp = UNDELIVERABLE_SENTINEL
+    elif send_message(target, body) == 0:
+        stamp = now_iso
+    else:
+        print(
+            f"dispatch-sweep: lost notice for job {job_id} (repo {repo}) did not send — "
+            f"reported_at left NULL, next sweep re-sends the notice",
+            file=sys.stderr,
+        )
+    if stamp is not None:
+        conn.execute(
+            "UPDATE dispatches SET reported_at=? WHERE job_id=? AND reported_at IS NULL",
+            (stamp, job_id),
+        )
+        conn.commit()
+
+
 def process_dispatch(conn: sqlite3.Connection, row: sqlite3.Row, *, dry_run: bool) -> None:
     job_id = row["job_id"]
     repo = row["repo"]
@@ -498,6 +570,27 @@ def process_dispatch(conn: sqlite3.Connection, row: sqlite3.Row, *, dry_run: boo
             file=sys.stderr,
         )
         return
+
+    misses = int(row["poll_misses"] or 0) if "poll_misses" in row.keys() else 0
+    if job == NOT_FOUND:
+        misses += 1
+        if row["status"] == LOST_STATUS or misses >= LOST_AFTER_MISSES:
+            _mark_lost(conn, row, misses, dry_run=dry_run)
+            return
+        print(
+            f"dispatch-sweep: sideclaw has no job {job_id} (repo {repo}) — miss {misses}/"
+            f"{LOST_AFTER_MISSES}, marking lost at {LOST_AFTER_MISSES}",
+            file=sys.stderr,
+        )
+        if not dry_run:
+            conn.execute("UPDATE dispatches SET poll_misses=? WHERE job_id=?", (misses, job_id))
+            conn.commit()
+        return
+    if misses and not dry_run:
+        # A successful poll ends the streak — three misses across a flapping
+        # sideclaw are not three consecutive ones.
+        conn.execute("UPDATE dispatches SET poll_misses=0 WHERE job_id=?", (job_id,))
+        conn.commit()
 
     status = job.get("status")
     if status not in TERMINAL_STATUSES:

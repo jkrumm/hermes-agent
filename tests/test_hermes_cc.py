@@ -583,13 +583,15 @@ def test_repo_resolution(h: Harness):
     proc = h.run(["dispatch", "denied"],
                   env_extra={"CC_TEST_CURL_LOG": str(curl_log)})
     text = proc.stdout + proc.stderr
-    ok = (proc.returncode == 64 and "not dispatchable" in text
+    # A denial is POLICY (exit 4), not a typo (exit 64): the audit log must show
+    # the guard doing its job, and the skill must not "fix the invocation and retry".
+    ok = (proc.returncode == 4 and "not dispatchable" in text
           and not _curl_lines(curl_log))
     if ok:
         passed += 1
     else:
         failures.append(f"a real checkout that is also in `deny` did not "
-                         f"refuse cleanly (deny must win over having a "
+                         f"refuse cleanly with exit 4 (deny must win over having a "
                          f"perfectly good checkout on disk): rc={proc.returncode} "
                          f"stdout={proc.stdout[:300]!r} stderr={proc.stderr[:300]!r}")
 
@@ -667,13 +669,13 @@ def test_repo_name_confinement(h: Harness):
     proc = h.run(["dispatch", "escape"],
                   env_extra={"CC_TEST_CURL_LOG": str(curl_log)})
     text = proc.stdout + proc.stderr
-    ok = (proc.returncode == 64 and "not dispatchable" in text
+    ok = (proc.returncode == 4 and "not dispatchable" in text
           and not _curl_lines(curl_log))
     if ok:
         passed += 1
     else:
         failures.append(f"a symlink inside the root pointing outside it: "
-                         f"expected exit 64 'not dispatchable' with nothing "
+                         f"expected exit 4 'not dispatchable' with nothing "
                          f"submitted, got rc={proc.returncode} "
                          f"stdout={proc.stdout[:300]!r} "
                          f"stderr={proc.stderr[:300]!r}")
@@ -1880,6 +1882,137 @@ def test_merge_verb(h: Harness):
     return total, passed, failures
 
 
+def test_status_after_prune(h: Harness):
+    """`status` after sideclaw pruned the job (24 h): the record's own verdict
+    answers, a never-finished job is reported lost (exit 3), an unknown id is a
+    usage error — and the plan branch stores the invocation the Approve click
+    re-runs."""
+    failures = []
+    total = passed = 0
+
+    # (a) a --wait dispatch folds the verdict into the row; a later poll that 404s
+    # answers from that row with fromRecord: true and exit 0.
+    total += 1
+    db_path = h.new_db()
+    proc = h.run(["dispatch", "alpha", "--wait", "--json"],
+                  env_extra={"HERMES_CC_DB": str(db_path), "CC_TEST_JOB_STATUS": "done"},
+                  stdin=VALID_BRIEF)
+    try:
+        job_id = json.loads(proc.stdout.strip())["jobId"]
+    except (json.JSONDecodeError, KeyError):
+        job_id = None
+    proc2 = h.run(["status", job_id or "x", "--json"],
+                   env_extra={"HERMES_CC_DB": str(db_path), "CC_TEST_CURL_STATUS": "404"})
+    try:
+        data = json.loads(proc2.stdout.strip())
+    except json.JSONDecodeError:
+        data = {}
+    ok = (job_id is not None and proc2.returncode == 0 and data.get("ok") is True
+          and data.get("status") == "done"
+          and (data.get("verdict") or {}).get("summary") == "stub summary")
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"status after a 404 did not answer from the record: "
+                         f"rc={proc2.returncode} stdout={proc2.stdout[:300]!r} "
+                         f"stderr={proc2.stderr[:200]!r}")
+
+    # (b) a job the row never saw finish, now gone from sideclaw: exit 3 saying so —
+    # never 'unreachable', never a silent success.
+    total += 1
+    db_path = h.new_db()
+    proc = h.run(["dispatch", "alpha", "--json"],
+                  env_extra={"HERMES_CC_DB": str(db_path)}, stdin=VALID_BRIEF)
+    try:
+        job_id = json.loads(proc.stdout.strip())["jobId"]
+    except (json.JSONDecodeError, KeyError):
+        job_id = None
+    proc2 = h.run(["status", job_id or "x"],
+                   env_extra={"HERMES_CC_DB": str(db_path), "CC_TEST_CURL_STATUS": "404"})
+    text = proc2.stdout + proc2.stderr
+    ok = job_id is not None and proc2.returncode == 3 and "lost" in text
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"status on a pruned, never-finished job: expected exit 3 "
+                         f"'lost', got rc={proc2.returncode} {text[:300]!r}")
+
+    # (c) an id nobody dispatched, 404 upstream: a usage error, not a remote one.
+    total += 1
+    proc2 = h.run(["status", "no-such-job-0000"],
+                   env_extra={"HERMES_CC_DB": str(h.new_db()), "CC_TEST_CURL_STATUS": "404"})
+    ok = proc2.returncode == 64 and "no such job" in (proc2.stdout + proc2.stderr)
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"status on an unknown id + 404: expected exit 64 'no such job', "
+                         f"got rc={proc2.returncode} {(proc2.stdout + proc2.stderr)[:300]!r}")
+
+    # (d) the plan branch stores the exact invocation (argv minus --confirm/--wait,
+    # plus --json) and the brief as stdin_text, so the Approve click can re-run it.
+    total += 1
+    db_path = h.new_db()
+    proc = h.run(["dispatch", "gamma", "--tier", "implement", "--why", "because",
+                  "--wait", "--origin-channel", "C0123456789", "--origin-thread", "1.2"],
+                  env_extra={"HERMES_CC_DB": str(db_path)}, stdin=VALID_BRIEF,
+                  auto_approve=False)
+    row = None
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT argv_json, stdin_text, channel FROM dispatch_approvals").fetchone()
+        conn.close()
+    except sqlite3.OperationalError as exc:
+        failures.append(f"approval row columns missing: {exc}")
+    argv = json.loads(row["argv_json"]) if row and row["argv_json"] else None
+    ok = (proc.returncode == 0 and argv is not None
+          and "--confirm" not in argv and "--wait" not in argv and "--json" in argv
+          and argv[:2] == ["dispatch", "gamma"] and "--tier" in argv and "implement" in argv
+          and "--origin-thread" in argv and row["stdin_text"] == VALID_BRIEF
+          and row["channel"] == "C0123456789")
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"plan did not store a re-runnable invocation: rc={proc.returncode} "
+                         f"argv={argv!r} stdin={row['stdin_text'] if row else None!r} "
+                         f"stderr={proc.stderr[:200]!r}")
+
+    # (e) --brief-file / --context-file plans store the BYTES and drop the paths,
+    # both spellings: the agent's temp files are gone by the click, and what was
+    # hashed is what must run — never whatever the path holds by then.
+    total += 1
+    db_path = h.new_db()
+    brief_file = h.root / "plan-brief.txt"
+    ctx_file = h.root / "plan-ctx.txt"
+    brief_file.write_text(VALID_BRIEF)
+    ctx_file.write_text("log excerpt: boom")
+    proc = h.run(["dispatch", "gamma", "--tier", "implement", "--why", "because",
+                  "--brief-file", str(brief_file), f"--context-file={ctx_file}"],
+                  env_extra={"HERMES_CC_DB": str(db_path)}, auto_approve=False)
+    row = None
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT argv_json, stdin_text, context_text FROM dispatch_approvals").fetchone()
+        conn.close()
+    except sqlite3.OperationalError as exc:
+        failures.append(f"approval row columns missing: {exc}")
+    argv = json.loads(row["argv_json"]) if row and row["argv_json"] else None
+    ok = (proc.returncode == 0 and argv is not None
+          and "--brief-file" not in argv and str(brief_file) not in argv
+          and not any(a.startswith("--context-file") for a in argv)
+          and argv[:2] == ["dispatch", "gamma"] and "--json" in argv
+          and row["stdin_text"] == VALID_BRIEF and row["context_text"] == "log excerpt: boom")
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"plan kept the file paths or dropped the bytes: rc={proc.returncode} "
+                         f"argv={argv!r} row={dict(row) if row else None!r} "
+                         f"stderr={proc.stderr[:200]!r}")
+
+    return total, passed, failures
+
+
 def test_no_freeform_surface():
     failures = []
     src = CC_SCRIPT.read_text()
@@ -1933,6 +2066,7 @@ def main() -> int:
             ("12. write-tier gate", test_write_tier_gate(h)),
             ("13. artifact plumbing", test_artifact_plumbing(h)),
             ("14. merge verb", test_merge_verb(h)),
+            ("15. status after prune + stored approval argv", test_status_after_prune(h)),
         ]
     finally:
         h.cleanup()

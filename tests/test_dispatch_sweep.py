@@ -360,6 +360,82 @@ def main() -> int:
         check(f"nudge body: {label}", cond)
     nudge_ok = sum(1 for _, cond in nudge_checks if cond)
 
+    # --- lost jobs: three consecutive 404s, one notice, never again ------
+    import os as _os
+    import sqlite3 as _sqlite3
+    import tempfile as _tempfile
+
+    lost_checks: list[tuple[str, bool]] = []
+    tmpdb = Path(_tempfile.mkdtemp(prefix="dispatch-sweep-lost-")) / "watchdog.db"
+    orig_db, orig_poll, orig_send = dispatch_sweep.DB_PATH, dispatch_sweep.poll_job, dispatch_sweep.send_message
+    sent: list[tuple[str, str]] = []
+    try:
+        dispatch_sweep.DB_PATH = tmpdb
+        conn = dispatch_sweep.db_connect()
+        conn.execute(
+            "INSERT INTO dispatches(job_id,tier,repo,brief,status,created_at,origin_channel,origin_thread_ts) "
+            "VALUES('lost-job-1','investigate','example','b','queued','2026-09-07T00:00:00+00:00','C0123','1.2')")
+        conn.execute(
+            "INSERT INTO dispatches(job_id,tier,repo,brief,status,created_at) "
+            "VALUES('lost-job-2','investigate','example','b','queued','2026-09-07T00:00:00+00:00')")
+        conn.execute(
+            "INSERT INTO dispatches(job_id,tier,repo,brief,status,created_at,origin_channel) "
+            "VALUES('flap-job','investigate','example','b','queued','2026-09-07T00:00:00+00:00','C0123')")
+        conn.commit(); conn.close()
+
+        dispatch_sweep.send_message = lambda target, body: sent.append((target, body)) or 0
+
+        def row(job_id):
+            c = _sqlite3.connect(tmpdb); c.row_factory = _sqlite3.Row
+            r = c.execute("SELECT * FROM dispatches WHERE job_id=?", (job_id,)).fetchone(); c.close()
+            return r
+
+        # a 404 that is NOT the sentinel (connection failure) never counts
+        dispatch_sweep.poll_job = lambda job_id: None
+        dispatch_sweep.main([])
+        lost_checks.append(("a connection failure does not count as a miss", row("lost-job-1")["poll_misses"] == 0))
+
+        # a "running" answer between misses resets the streak
+        seq = {"flap-job": [dispatch_sweep.NOT_FOUND, dispatch_sweep.NOT_FOUND, {"status": "running"},
+                            dispatch_sweep.NOT_FOUND, dispatch_sweep.NOT_FOUND]}
+        def poll(job_id):
+            if job_id == "flap-job":
+                return seq["flap-job"].pop(0) if seq["flap-job"] else {"status": "running"}
+            return dispatch_sweep.NOT_FOUND
+        dispatch_sweep.poll_job = poll
+
+        dispatch_sweep.main([])
+        lost_checks.append(("miss 1 recorded, still open", row("lost-job-1")["poll_misses"] == 1 and row("lost-job-1")["status"] == "queued"))
+        dispatch_sweep.main([])
+        lost_checks.append(("miss 2 recorded, still open, nothing sent", row("lost-job-1")["poll_misses"] == 2 and not sent))
+        dispatch_sweep.main([])
+        r1 = row("lost-job-1")
+        lost_checks.append(("third miss -> status lost", r1["status"] == "lost"))
+        lost_checks.append(("lost row is reported (never polled again)", r1["reported_at"] is not None))
+        lost_checks.append(("exactly one notice, into the origin thread",
+                            len([t for t, _ in sent if t == "slack:C0123:1.2"]) == 1))
+        lost_checks.append(("notice names the job and says lost",
+                            any("Dispatch lost" in b and "lost-job" in b for _, b in sent)))
+        r2 = row("lost-job-2")
+        lost_checks.append(("no origin channel -> lost with the undeliverable sentinel",
+                            r2["status"] == "lost" and r2["reported_at"] == dispatch_sweep.UNDELIVERABLE_SENTINEL))
+        rf = row("flap-job")
+        lost_checks.append(("a 'running' answer after two misses reset the streak to 0",
+                            rf["status"] == "queued" and rf["poll_misses"] == 0))
+        before = len(sent)
+        dispatch_sweep.main([])
+        lost_checks.append(("a lost row is never re-polled or re-sent", len(sent) == before))
+        rf = row("flap-job")
+        lost_checks.append(("the streak restarts at 1 after the reset, not 3",
+                            rf["status"] == "queued" and rf["poll_misses"] == 1))
+        lost_checks.append(("lost_notice carries only bridge-owned fields",
+                            "stub" not in dispatch_sweep.lost_notice(repo="r", tier="t", job_id="j", misses=3)))
+    finally:
+        dispatch_sweep.DB_PATH, dispatch_sweep.poll_job, dispatch_sweep.send_message = orig_db, orig_poll, orig_send
+    for label, cond in lost_checks:
+        check(f"lost jobs: {label}", cond)
+    lost_ok = sum(1 for _, cond in lost_checks if cond)
+
     print(f"unmerged byte-identical      {unmerged_ok}/{unmerged_cases}")
     print(f"merged rendering             {merged_ok}/{len(merged_checks)}")
     print(f"garbage merged_at            {garbage_ok}/{len(garbage_checks)}")
@@ -369,6 +445,7 @@ def main() -> int:
     print(f"failed/interrupted unaffected {terminal_ok}/{len(terminal_checks)}")
     print(f"is_actionable predicate      {actionable_ok}/{len(actionable_checks)}")
     print(f"nudge body content            {nudge_ok}/{len(nudge_checks)}")
+    print(f"lost jobs                     {lost_ok}/{len(lost_checks)}")
 
     if failures:
         print("\nFAILURES:")

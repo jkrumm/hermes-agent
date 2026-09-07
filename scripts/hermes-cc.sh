@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # hermes-cc — the ONLY way the Hermes agent opens a Claude Code episode.
 #
-# WHY THIS EXISTS. Hermes observes well and reads repos badly: DeepSeek-V4-Flash
+# WHY THIS EXISTS. Hermes observes well and reads repos badly: gpt-5.6-luna
 # with a `terminal` tool cannot use a repo's CLAUDE.md, .claude/rules/ or
 # .claude/skills/, and that context is exactly what triage needs. So Hermes hands
 # the episode to Claude Code instead — but "hand work to a coding agent" composed
@@ -93,10 +93,12 @@ BACKEND_FILE="${SECRETS_BACKEND_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/secrets/
 
 HTTP_TIMEOUT=30
 # Ceiling on --wait. `--max-budget-usd` is API-only and does not cap a Max
-# session, so every bound here is structural. An investigate episode is 30s-3min;
-# 240s leaves headroom without letting a wedged worker hold a Slack turn open
-# indefinitely. Past this, --wait gives up and the sweeper owns delivery.
-WAIT_TIMEOUT=240
+# session, so every bound here is structural. An investigate episode is 30s-3min.
+# 170s sits UNDER the Hermes `terminal` tool's 180s default: a 240s wait outran
+# the tool, so the verdict this flag exists to deliver in-turn was lost to the
+# tool timeout and the sweeper delivered it five minutes later anyway. Past
+# this, --wait gives up and the sweeper owns delivery.
+WAIT_TIMEOUT=170
 WAIT_INTERVAL=5
 
 # Structural spend ceiling: dispatches opened per rolling calendar day (UTC),
@@ -176,7 +178,8 @@ BUILT_TIERS=(investigate author implement)
 GATED_TIERS=(implement)
 
 # --- exit codes --------------------------------------------------------------
-# 0 ok · 2 precondition failed · 3 remote failed · 4 budget/policy refusal · 64 usage error
+# 0 ok · 2 precondition failed · 3 remote failed · 4 budget/policy refusal (a denied
+# repo included — a denial is policy, not a typo) · 64 usage error
 EX_PRECONDITION=2
 EX_REMOTE=3
 EX_POLICY=4
@@ -472,7 +475,7 @@ print(overrides.get(name, default_tier))
     local rc=$?
     case "$rc" in
       2) precond_err "dispatch policy at $REPOS_JSON is malformed (see above). Refusing rather than defaulting — a policy that does not parse must never read as a permissive one." ;;
-      3) usage_err "repo '$name' is not dispatchable: denied by policy, or it resolves outside the dispatch root. This is deliberate, not an oversight — do not offer to add it." ;;
+      3) policy_err "repo '$name' is not dispatchable: denied by policy, or it resolves outside the dispatch root. This is deliberate, not an oversight — do not offer to add it." ;;
       4) usage_err "repo '$name' has no git checkout under the dispatch root (see the dispatchable list above)" ;;
       5) precond_err "repo '$name' carries a tier in $REPOS_JSON but has no checkout under the dispatch root — the policy names a repo this machine does not have" ;;
       *) precond_err "could not resolve repo '$name'" ;;
@@ -639,6 +642,17 @@ CREATE TABLE IF NOT EXISTS dispatch_approvals (
 );
 CREATE INDEX IF NOT EXISTS idx_approvals_hash ON dispatch_approvals(payload_hash);
 "
+# Columns added after the table first shipped — additive ALTERs in db_py, same
+# reason as dispatches.merged_at (CREATE TABLE IF NOT EXISTS never adds a column).
+#   dispatch_approvals.argv_json  the exact argv the plan was minted for, minus
+#                                 --confirm — what the Approve click re-runs.
+#   dispatch_approvals.stdin_text the brief (dispatch) or NULL (merge). Stored
+#                                 because the brief is stdin data, never argv.
+#   dispatch_approvals.context_text the --context-file bytes, or NULL. Stored so
+#                                 the click replays what was hashed, not whatever
+#                                 the path holds by then (the file is usually gone).
+#   dispatches.poll_misses        consecutive sideclaw 404s the sweeper has
+#                                 seen for this job; 3 -> status `lost`.
 
 # Every DB helper passes values as bound parameters from the environment. No verb
 # accepts SQL, and none is assembled from caller input — same rule as the paths.
@@ -652,8 +666,18 @@ conn.executescript(os.environ['DB_SCHEMA'])
 # EXISTS is a no-op against the table that already exists on this machine, so a
 # column added to it there would never appear. Same shape as the events.dispatch_id
 # migration in watchdog-poll.py.
-if 'merged_at' not in {r[1] for r in conn.execute('PRAGMA table_info(dispatches)')}:
+cols = {r[1] for r in conn.execute('PRAGMA table_info(dispatches)')}
+if 'merged_at' not in cols:
     conn.execute('ALTER TABLE dispatches ADD COLUMN merged_at TEXT')
+if 'poll_misses' not in cols:
+    conn.execute('ALTER TABLE dispatches ADD COLUMN poll_misses INTEGER NOT NULL DEFAULT 0')
+acols = {r[1] for r in conn.execute('PRAGMA table_info(dispatch_approvals)')}
+if 'argv_json' not in acols:
+    conn.execute('ALTER TABLE dispatch_approvals ADD COLUMN argv_json TEXT')
+if 'stdin_text' not in acols:
+    conn.execute('ALTER TABLE dispatch_approvals ADD COLUMN stdin_text TEXT')
+if 'context_text' not in acols:
+    conn.execute('ALTER TABLE dispatch_approvals ADD COLUMN context_text TEXT')
 $1
 conn.commit()
 conn.close()
@@ -786,12 +810,19 @@ APPROVAL_PY="${HERMES_CC_APPROVAL_PY:-$HERMES_HOME/hermes-agent/venv/bin/python3
 # Johannes the stated reason, so that is what he approves; if --confirm could carry a
 # different one, the audit log would record a justification nobody ever saw. Binding it
 # means changing the reason costs a fresh approval, exactly like changing the brief.
+#
+# `context` (the --context-file bytes) is bound for the same reason the brief is, and
+# more urgently: the plan never shows it to the human, and the Approve click re-runs
+# the invocation unattended. Left out of the hash, anyone able to write that file
+# between plan and click — the agent itself, or injected material it copies there,
+# which is exactly what the file exists to carry — gets arbitrary text into the
+# approved episode under the approved signature. Empty when there is none.
 approval_hash() {
-  A_VERB="$1" A_REPO="$2" A_TIER="$3" A_BODY="$4" A_WHY="${5:-}" python3 -c '
+  A_VERB="$1" A_REPO="$2" A_TIER="$3" A_BODY="$4" A_WHY="${5:-}" A_CONTEXT="${6:-}" python3 -c '
 import hashlib, os
 h = hashlib.sha256()
 for part in (os.environ["A_VERB"], os.environ["A_REPO"], os.environ["A_TIER"],
-             os.environ["A_BODY"], os.environ["A_WHY"]):
+             os.environ["A_BODY"], os.environ["A_WHY"], os.environ["A_CONTEXT"]):
     h.update(part.encode("utf-8")); h.update(b"\x00")
 print(h.hexdigest())
 '
@@ -867,29 +898,71 @@ warn_approval() {
   [ "$JSON" = 1 ] || printf 'note: %s\n' "$1" >&2
 }
 
+# The invocation the Approve click will re-run: this script's own argv (as it
+# was parsed — see ORIG_ARGS), minus --confirm and minus --wait (the click
+# handler runs unattended; an in-turn wait would only hold a gateway task), plus
+# --json so the handler can read the outcome. The brief travels separately as
+# stdin_text: it is data, and it never becomes an argv element — the same rule
+# the whole script is built on. Stored on the approval row at plan time, so
+# what was approved is byte-for-byte what runs.
+#
+# --brief-file and --context-file are dropped too, operand included: the stored
+# bytes (stdin_text, context_text) are what was hashed, and the path is a file
+# the agent wrote for one call — usually gone by the click, and if not, no
+# longer what was approved. Left in, the replay would read the disk instead.
+approval_argv_json() {
+  ARGV_LIST="$(printf '%s\n' "${ORIG_ARGS[@]}")" python3 -c '
+import json, os
+args = [a for a in os.environ["ARGV_LIST"].split("\n") if a != ""]
+file_flags = ("--brief-file", "--context-file")
+kept, skip = [], False
+for a in args:
+    if skip:
+        skip = False
+        continue
+    if a in ("--confirm", "--wait"):
+        continue
+    if a in file_flags:
+        skip = True
+        continue
+    if a.startswith(tuple(f + "=" for f in file_flags)):
+        continue
+    kept.append(a)
+if "--json" not in kept:
+    kept.append("--json")
+print(json.dumps(kept))
+'
+}
+
 # Mint the pending row and ask. Returns the nonce on stdout.
 mint_approval() {
-  local verb="$1" repo="$2" tier="$3" body="$4" why="${5:-}"
-  local nonce hash
+  local verb="$1" repo="$2" tier="$3" body="$4" why="${5:-}" context="${6:-}"
+  local nonce hash argv_json stdin_text
   nonce=$(python3 -c 'import secrets; print(secrets.token_hex(16))') \
     || precond_err "could not mint an approval nonce"
-  hash=$(approval_hash "$verb" "$repo" "$tier" "$body" "$why") \
+  hash=$(approval_hash "$verb" "$repo" "$tier" "$body" "$why" "$context") \
     || precond_err "could not hash the approval payload"
+  argv_json=$(approval_argv_json) || precond_err "could not serialize the approval argv"
+  stdin_text=""
+  [ "$verb" = "dispatch" ] && stdin_text="$BRIEF"
 
   # Supersede any older pending request for the identical payload, so a caller that
   # re-plans the same thing twice does not leave two live buttons that both work.
   A_NONCE="$nonce" A_VERB="$verb" A_REPO="$repo" A_TIER="$tier" A_HASH="$hash" \
-  A_CHAN="$ORIGIN_CHANNEL" A_TTL="$APPROVAL_TTL_MINUTES" db_py '
+  A_CHAN="$ORIGIN_CHANNEL" A_TTL="$APPROVAL_TTL_MINUTES" \
+  A_ARGV="$argv_json" A_STDIN="$stdin_text" A_CONTEXT="$context" db_py '
 import datetime as dt
 now = dt.datetime.now(dt.timezone.utc)
 exp = now + dt.timedelta(minutes=int(os.environ["A_TTL"]))
 conn.execute("DELETE FROM dispatch_approvals WHERE payload_hash = ? AND decision IS NULL",
              (os.environ["A_HASH"],))
 conn.execute(
-    "INSERT INTO dispatch_approvals(nonce,verb,repo,tier,payload_hash,created_at,expires_at,channel) "
-    "VALUES(?,?,?,?,?,?,?,?)",
+    "INSERT INTO dispatch_approvals(nonce,verb,repo,tier,payload_hash,created_at,expires_at,channel,"
+    "argv_json,stdin_text,context_text) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
     (os.environ["A_NONCE"], os.environ["A_VERB"], os.environ["A_REPO"], os.environ["A_TIER"],
-     os.environ["A_HASH"], now.isoformat(), exp.isoformat(), os.environ["A_CHAN"] or None),
+     os.environ["A_HASH"], now.isoformat(), exp.isoformat(), os.environ["A_CHAN"] or None,
+     os.environ["A_ARGV"], os.environ["A_STDIN"] if os.environ["A_STDIN"] != "" else None,
+     os.environ["A_CONTEXT"] if os.environ["A_CONTEXT"] != "" else None),
 )
 ' || precond_err "could not record the approval request in $DB_PATH"
 
@@ -901,9 +974,9 @@ conn.execute(
 # this payload — and marks it spent in the same statement that accepts it, so an
 # approval is good for one invocation.
 require_signed_approval() {
-  local verb="$1" repo="$2" tier="$3" body="$4" why="${5:-}"
+  local verb="$1" repo="$2" tier="$3" body="$4" why="${5:-}" context="${6:-}"
   local hash
-  hash=$(approval_hash "$verb" "$repo" "$tier" "$body" "$why") \
+  hash=$(approval_hash "$verb" "$repo" "$tier" "$body" "$why" "$context") \
     || precond_err "could not hash the approval payload"
 
   [ -f "$APPROVAL_PUBKEY" ] || policy_err \
@@ -968,7 +1041,7 @@ print("pending"); sys.exit(0)
     pending)
       policy_err "the approval for this request has not been clicked yet (or it expired). Re-plan to get a fresh set of buttons." ;;
     none)
-      policy_err "no approval on file for this exact request. Run the verb WITHOUT --confirm first: it posts Approve/Deny buttons in Slack, and --confirm only works once Approve has been clicked. Note the approval is bound to the brief — any edit to it needs a fresh approval." ;;
+      policy_err "no approval on file for this exact request. Run the verb WITHOUT --confirm first: it posts Approve/Deny buttons in Slack, and --confirm only works once Approve has been clicked. Note the approval is bound to the brief and the --context-file bytes — any edit to either needs a fresh approval." ;;
     *)
       precond_err "unexpected approval verdict: $verdict" ;;
   esac
@@ -1146,22 +1219,26 @@ cmd_dispatch() {
     # approval request, and it does so before the plan is printed so the plan can
     # say the buttons are waiting.
     if [ "$PLANNED" = 1 ] && [ "$DRY_RUN" != 1 ]; then
-      mint_approval "dispatch" "$name" "$TIER" "$BRIEF" "$WHY" >/dev/null
+      mint_approval "dispatch" "$name" "$TIER" "$BRIEF" "$WHY" "$CONTEXT" >/dev/null
     fi
     emit_plan "$name"
     return 0
   fi
 
-  # The gate, before anything is spent or submitted. It refuses unless a Slack button
-  # was actually clicked for this exact brief — see the SIGNED APPROVAL section.
-  if tier_is_gated; then
-    require_signed_approval "dispatch" "$name" "$TIER" "$BRIEF" "$WHY"
-  fi
-
-  # The refusal is checked after validation so a refused invocation does not
+  # The budget refusal is checked after validation so a refused invocation does not
   # consume a slot, and before submission so an over-budget one never opens a
-  # session.
+  # session. It also comes BEFORE the approval gate: the gate spends the signed row
+  # in the same statement that accepts it, and a budget read has no side effects —
+  # so a click landing after the day's ceiling filled up must refuse on the budget
+  # with the approval still unspent, not burn the click and send the human back to
+  # re-plan. With Approve re-running the verb unattended, that is the normal path.
   check_budget
+
+  # The gate, before anything is submitted. It refuses unless a Slack button was
+  # actually clicked for this exact brief + context — see the SIGNED APPROVAL section.
+  if tier_is_gated; then
+    require_signed_approval "dispatch" "$name" "$TIER" "$BRIEF" "$WHY" "$CONTEXT"
+  fi
 
   local resp job_id
   resp=$(sideclaw_submit)
@@ -1247,6 +1324,46 @@ conn.execute(
 ' || precond_err "could not update the dispatch record for $1"
 }
 
+# sideclaw prunes finished jobs after 24 h, so a poll for an older job answers
+# 404 — which is not "unreachable" (exit 3): the dispatch row still carries the
+# verdict it folded in at the time. Rebuild the job envelope from the row so the
+# caller reads the same shape a live poll would have returned. A job the row has
+# never seen finish (status queued/running, no verdict) really is gone: say so.
+record_as_job_json() {
+  JOB_ID="$1" db_py '
+row = conn.execute("SELECT status, verdict_json, finished_at FROM dispatches WHERE job_id=?",
+                   (os.environ["JOB_ID"],)).fetchone()
+if row is None:
+    sys.exit(3)
+if row["status"] not in ("done", "failed", "interrupted", "lost"):
+    sys.exit(4)
+result = json.loads(row["verdict_json"]) if row["verdict_json"] else None
+job = {"id": os.environ["JOB_ID"], "status": row["status"], "result": result,
+       "fromRecord": True, "finishedAt": row["finished_at"]}
+if row["status"] == "lost":
+    job["error"] = "sideclaw never reported this job before pruning it (marked lost by the sweeper)"
+print(json.dumps({"ok": True, "job": job}))
+'
+}
+
+sideclaw_get_or_record() {
+  local id=$1 out status resp
+  need curl
+  out=$(timeout "$HTTP_TIMEOUT" curl -sS -w '\n%{http_code}' \
+      --connect-timeout 5 --max-time "$HTTP_TIMEOUT" "${SIDECLAW_BASE}/api/jobs/${id}") \
+    || remote_err "sideclaw job poll failed (is the LaunchAgent up?)"
+  status="${out##*$'\n'}"
+  resp="${out%$'\n'"${status}"}"
+  if [ "$status" = "200" ]; then printf '%s' "$resp"; return 0; fi
+  [ "$status" = "404" ] || remote_err "sideclaw returned HTTP $status for job $id"
+  resp=$(record_as_job_json "$id") && { printf '%s' "$resp"; return 0; }
+  case "$?" in
+    3) usage_err "no such job: sideclaw has no job $id and no dispatch record names it" ;;
+    4) remote_err "sideclaw no longer has job $id (pruned) and the dispatch record never saw it finish — the verdict is lost" ;;
+    *) precond_err "could not read the dispatch record for $id" ;;
+  esac
+}
+
 cmd_status() {
   local job_id="${1:-}"
   [ -n "$job_id" ] || usage_err "usage: hermes-cc.sh status <job-id> [--json]"
@@ -1254,8 +1371,8 @@ cmd_status() {
   need python3
   AUDIT_TARGET="$job_id"
   local resp
-  resp=$(sideclaw_get "$job_id")
-  case "$(printf '%s' "$resp" | python3 -c 'import json,sys; print(json.load(sys.stdin)["job"]["status"])')" in
+  resp=$(sideclaw_get_or_record "$job_id")
+  case "$(printf '%s' "$resp" | python3 -c 'import json,sys; j=json.load(sys.stdin)["job"]; print("record" if j.get("fromRecord") else j["status"])')" in
     done|failed|interrupted) sync_record "$job_id" "$resp" ;;
   esac
   # A poll is where an agent decides whether to open the next episode, so it
@@ -1980,6 +2097,8 @@ VERBS
   dispatch <repo>      Open an episode inside <repo>. Brief on stdin (quoted
                        heredoc) or --brief-file. --wait polls in-turn.
   status <job-id>      Poll one episode; folds a terminal outcome into its record.
+                       After sideclaw prunes the job (24 h) it answers from the
+                       record's own verdict instead.
   list [open|today|all]  List dispatch records. Default: open.
   merge <job-id>       Land the draft PR an `implement` episode opened: mark it
                        ready for review, merge it, delete the branch. Needs
@@ -2045,7 +2164,8 @@ DELIBERATELY NOT IMPLEMENTED
             unstructured goes to stderr, so stdout always parses.
 
 EXIT CODES  0 ok · 2 precondition failed · 3 remote failed · 4 policy/budget
-            refusal · 64 usage error
+            refusal (incl. a DENIED repo, a tier over its ceiling) · 64 usage
+            error (a misspelled repo, a bad flag, an empty brief)
 AUDIT LOG   ~/Library/Logs/hermes-cc.log (one line per invocation, always)
 BUDGET      See BUDGETS above. Counted from the dispatches table, never a file.
 EOF
@@ -2057,6 +2177,7 @@ EOF
 # deliberately no --brief: see the header.
 
 ARGS=()
+ORIG_ARGS=("$@")
 while [ $# -gt 0 ]; do
   case "$1" in
     --json)      JSON=1; shift ;;

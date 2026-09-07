@@ -54,10 +54,12 @@ If no, just answer.
 1. **Dispatch only when the answer lives in source you cannot read.** An episode
    that could have been a one-line answer is wasted quota and a slower reply.
 2. **Use `--wait` when you are in a live conversation.** An `investigate` episode
-   is 30s–3min, so it fits inside the turn: `--wait` blocks and hands you the
-   verdict, which you then relay in your own words. Without `--wait` you get a
-   job id and the 5-minute sweeper delivers the verdict into this thread later —
-   correct for a cron or watchdog context, wrong when someone is waiting.
+   is 30s–3min, so it fits inside the turn: `--wait` blocks up to 170s (under the
+   `terminal` tool's 180s default, so the verdict is delivered *in* the turn — do
+   not pass a shorter `timeout`) and hands you the verdict, which you then relay
+   in your own words. Without `--wait`, or past 170s, you get a job id and the
+   5-minute sweeper delivers the verdict into this thread later — correct for a
+   cron or watchdog context, wrong when someone is waiting.
 3. **Always pass the origin.** `--origin-channel` and `--origin-thread` are how
    the verdict finds its way back if the wait times out. Omit them and a slow
    episode has nowhere to report.
@@ -136,9 +138,10 @@ questions are `investigate`. Reach past it only when the artifact is the point.
 
 Every repo also carries a ceiling, and the ceiling always wins over the request.
 `config/dispatch-repos.json` sets them, and there are only two kinds of exception:
-`dotfiles`, `vps` and `homelab` are capped at `investigate` (the machine's own
-control plane — read-only there is deliberate), and a few repos are **denied
-outright** and cannot be dispatched to at any tier. Everything else permits every
+`dotfiles`, `vps`, `homelab` and `brain` are capped at `investigate` (the machine's
+own control plane, and the vault — read-only there is deliberate), and two repos
+(`dotfiles-private`, `homelab-private`) are **denied outright** and cannot be
+dispatched to at any tier. Everything else permits every
 tier, up to `implement`. A denial is deliberate, not an oversight — do not offer
 to "add it", say it is not dispatchable. Same for a tier above a repo's ceiling:
 report the refusal, do not look for another way to do it.
@@ -223,10 +226,17 @@ having changed nothing. That output is not an error and not a result — it is a
 question for a human. So:
 
 1. Run it **without** `--confirm` to get the plan. This also posts **Approve /
-   Deny buttons** into the origin channel.
+   Deny buttons** into the origin channel — and stores the exact invocation with
+   the request.
 2. Show Johannes the plan in your own words: which repo, what the change is meant
    to do, and that it will end in a draft PR he has to review.
-3. Wait for him to click **Approve**, then re-run **with** `--confirm`.
+3. **Stop there.** When he clicks **Approve**, the gateway itself re-runs that
+   stored invocation with `--confirm` and posts the outcome (job opened, or the
+   refusal) into the origin thread; the sweeper delivers the verdict as usual.
+   You do not need to re-run anything, and you must not — a second `--confirm`
+   finds the approval already spent and refuses. Only if the thread shows an
+   Approve with no "Episode opened" message after a minute, run `list open` to
+   check before re-planning.
 
 **Since 2026-08-03 this is enforced, not merely instructed.** `--confirm` alone no
 longer does anything: the verb refuses (exit 4) unless a signed approval is on file
@@ -238,7 +248,9 @@ Do not try to work around a refusal; re-plan and ask.
 Three things follow from how the approval is bound, and each of them costs a fresh
 click if you get it wrong:
 
-- It is bound to the **brief**. Edit a single character and the old approval is void.
+- It is bound to the **brief** and to the **`--context-file` bytes**. Edit a single
+  character of either and the old approval is void — the click replays what was
+  approved, not whatever the file holds by then.
 - It is bound to **`--why`**, because that is the text the button showed him.
 - It is **single-use** and expires in 30 minutes.
 
@@ -391,10 +403,15 @@ message is only a notification.
 
 | Exit | Meaning | What to say |
 |-|-|-|
-| 64 | usage error — misspelled or denied repo name, bad flag, empty brief, `implement` without `--why` | fix the invocation and retry once. On a repo name, check the `dispatchable:` list it printed |
-| 4 | policy refusal — repo tier ceiling, daily budget, implement budget, running inside a session | do **not** retry. Explain the limit |
+| 64 | usage error — misspelled repo name, bad flag, empty brief, `implement` without `--why` | fix the invocation and retry once. On a repo name, check the `dispatchable:` list it printed |
+| 4 | policy refusal — a **denied** repo, a tier over the repo's ceiling, daily budget, implement budget, an unclicked approval, running inside a session | do **not** retry. Explain the limit; a denial is deliberate, never offer to add the repo |
 | 2 | precondition — DB unreadable, malformed dispatch policy, or a repo the policy names that this machine has no checkout of | report it as an infrastructure problem |
 | 3 | sideclaw unreachable | the job server is down; say so, suggest checking it |
+
+`status <job-id>` keeps working after sideclaw pruned the job (24 h): it answers from
+the dispatch record's own stored verdict (`fromRecord: true`). A job that was never seen
+finishing and is gone is exit 3 with "the verdict is lost" — and the sweeper marks such a
+row `lost` after three consecutive misses, with a one-line notice in the thread.
 
 **A daily budget refusal is not a transient error.** Twenty episodes in a UTC day
 is a structural ceiling on unattended spend, and `implement` has its own ceiling

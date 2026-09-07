@@ -13,8 +13,9 @@ Design: `docs/dispatch-bridge.md`. The episode itself is sideclaw's `dispatch` j
   and skill both say so rather than implying the episode stopped.
 - **No verb takes a path, a command or a URL.** A dispatch names a *repo* — a bare name,
   which the script resolves under the single `root` in `config/dispatch-repos.json`.
-  `dotfiles-private`, `homelab-private` and `brain` are in that file's `deny` list and stay
-  there. **The enumeration this replaced (2026-08-02) is the lesson:** it was a per-repo
+  `dotfiles-private` and `homelab-private` are in that file's `deny` list and stay there;
+  `brain` is **not** denied — it moved to `tiers.investigate` on 2026-08-15 (read-only,
+  worktree-isolated, the one path that loads the vault's own rule hierarchy). **The enumeration this replaced (2026-08-02) is the lesson:** it was a per-repo
   inventory where absence meant denial, and it rotted — 22 repos listed against 30 on disk,
   three of them (`king-smith-walkingpad-mac`, `linewatch`, `vibe-stack`) unreachable since
   they were cloned, with no way to tell a stale omission from a deliberate one. Discovery
@@ -76,8 +77,12 @@ Design: `docs/dispatch-bridge.md`. The episode itself is sideclaw's `dispatch` j
   by this uid, the agent's included, so **only the signature is consulted** — the forged-row
   case is the centre of `tests/test_dispatch_approval.py`. It does not defend against a
   wholly-compromised Hermes with a debugger on the gateway; that was never the claim.
-  Bound to `verb|repo|tier|payload|why` — so editing the brief, or swapping the stated
-  reason the button showed, voids it — plus single-use and a 30-minute TTL. **Fails closed
+  Bound to `verb|repo|tier|brief|why|context` — so editing the brief, swapping the stated
+  reason the button showed, or rewriting the `--context-file` after the plan (the plan never
+  shows it, and the Approve click replays unattended, so an unbound context was a
+  swap-after-approve hole) voids it — plus single-use and a 30-minute TTL. The row stores
+  the brief and context **bytes** and drops the file paths from the replayed argv: the
+  agent's temp files are usually gone by the click, and if not, no longer what was approved. **Fails closed
   everywhere**: no plugin, no key, no gateway, expired, spent, or hash mismatch all refuse.
   A gateway restart mints a new key and so voids pending approvals, deliberately.
   **Only the gateway may publish the public key, and this is the one thing that has

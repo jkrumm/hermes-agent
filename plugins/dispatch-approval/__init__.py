@@ -26,10 +26,27 @@ approvals do not survive a restart: their signatures no longer verify and
 `hermes-cc.sh` refuses. That is deliberate and fails closed. Approvals are meant to be
 spent within minutes; an approval that outlived the process that witnessed the click
 would be a worse thing to trust than one that expired.
+
+APPROVE RUNS THE VERB (2026-09-07). Before, a click only signed the row and then
+waited for Hermes to notice and re-run `--confirm` — which it never reliably did, so
+approved dispatches sat unspent until they expired. Now the plan branch stores the
+exact invocation on the row (`argv_json`, minus --confirm/--wait and minus the
+--brief-file/--context-file paths; the brief as `stdin_text`, never argv; the context
+as `context_text`, handed back through a private temp file), and the Approve handler
+re-runs `hermes-cc.sh <argv> --confirm` in a subprocess. The stored bytes are what the
+payload hash binds, so a row edited after the click refuses like any other mismatch,
+and a file the agent deleted or rewrote after planning is never consulted — the path
+was the TOCTOU. Nothing is bypassed: that subprocess performs the very
+same signature verification a hand-typed --confirm does (require_signed_approval —
+the row this handler just signed is what it verifies), the recursion guard, the
+budget, the audit line. The outcome (job opened / merged / refused) is posted into
+the origin thread with `hermes send` — the sweeper's own delivery — and the running
+episode's verdict still arrives through the sweeper as before.
 """
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 import hashlib
 import json
@@ -37,6 +54,7 @@ import logging
 import os
 import sqlite3
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, Optional
 
@@ -55,6 +73,15 @@ APPROVE_ACTION = "hermes_cc_approve"
 DENY_ACTION = "hermes_cc_deny"
 
 _PUBKEY_FILENAME = "dispatch-approval.pub"
+
+# The dispatcher the Approve click re-runs, and the sender that reports its outcome.
+# Both overridable so the test suite can stand in a stub without a gateway.
+_DEFAULT_CC_SCRIPT = Path.home() / ".hermes" / "scripts" / "hermes-cc.sh"
+_DEFAULT_HERMES_BIN = Path.home() / ".local" / "bin" / "hermes"
+# An implement episode is submitted in seconds (the wait is the sweeper's); a merge
+# talks to GitHub a handful of times. Anything past this is wedged, not slow.
+_RUN_TIMEOUT_S = 120
+_SEND_TIMEOUT_S = 30
 
 
 def _hermes_home() -> Path:
@@ -211,7 +238,7 @@ def _record_decision(nonce: str, decision: str, decided_by: str) -> Optional[dic
     conn.row_factory = sqlite3.Row
     try:
         row = conn.execute(
-            "SELECT nonce, repo, tier, verb, payload_hash, expires_at, decision "
+            "SELECT nonce, repo, tier, verb, payload_hash, expires_at, decision, channel "
             "FROM dispatch_approvals WHERE nonce = ?",
             (nonce,),
         ).fetchone()
@@ -234,9 +261,181 @@ def _record_decision(nonce: str, decision: str, decided_by: str) -> Optional[dic
             return {"already": True, "decision": "?", "repo": row["repo"],
                     "tier": row["tier"], "verb": row["verb"]}
         return {"already": False, "decision": decision, "repo": row["repo"],
-                "tier": row["tier"], "verb": row["verb"], "expires_at": row["expires_at"]}
+                "tier": row["tier"], "verb": row["verb"], "expires_at": row["expires_at"],
+                "channel": row["channel"]}
     finally:
         conn.close()
+
+
+def _load_invocation(nonce: str) -> Optional[dict]:
+    """The stored argv + stdin for a row, or None when the plan predates the
+    columns (an approval minted by an older hermes-cc.sh — the click still signs,
+    and Hermes runs --confirm the old way)."""
+    conn = sqlite3.connect(str(_db_path()))
+    conn.row_factory = sqlite3.Row
+    try:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(dispatch_approvals)")}
+        if "argv_json" not in cols:
+            return None
+        context_col = "context_text" if "context_text" in cols else "NULL AS context_text"
+        row = conn.execute(
+            f"SELECT argv_json, stdin_text, {context_col}, channel FROM dispatch_approvals WHERE nonce = ?",
+            (nonce,),
+        ).fetchone()
+    finally:
+        conn.close()
+    if row is None or not row["argv_json"]:
+        return None
+    try:
+        argv = json.loads(row["argv_json"])
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(argv, list) or not all(isinstance(a, str) for a in argv):
+        return None
+    return {"argv": argv, "stdin": row["stdin_text"], "context": row["context_text"],
+            "channel": row["channel"]}
+
+
+def _origin_thread(argv: list[str]) -> Optional[str]:
+    """--origin-thread <ts> / --origin-thread=<ts> out of the stored argv."""
+    for i, a in enumerate(argv):
+        if a == "--origin-thread" and i + 1 < len(argv):
+            return argv[i + 1]
+        if a.startswith("--origin-thread="):
+            return a.split("=", 1)[1]
+    return None
+
+
+def _cc_script() -> Path:
+    return Path(os.environ.get("HERMES_CC_SCRIPT", str(_DEFAULT_CC_SCRIPT)))
+
+
+def _hermes_bin() -> Path:
+    return Path(os.environ.get("HERMES_CC_HERMES_BIN", str(_DEFAULT_HERMES_BIN)))
+
+
+def _subprocess_env() -> dict:
+    """The gateway's env minus the Claude Code markers hermes-cc.sh's recursion
+    guard keys on. The gateway is not a Claude Code session, but a gateway started
+    from inside one inherits its markers — and then every click would refuse
+    with 'a dispatched episode may never dispatch'."""
+    env = dict(os.environ)
+    for marker in ("CLAUDECODE", "CLAUDE_CODE_SESSION", "CLAUDE_SESSION_ID", "CLAUDE_ENTRYPOINT"):
+        env.pop(marker, None)
+    env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + env.get("PATH", "/usr/bin:/bin")
+    return env
+
+
+async def _run_cc(argv: list[str], stdin_text: Optional[str],
+                  context_text: Optional[str] = None) -> tuple[int, str, str]:
+    """`hermes-cc.sh <argv> --confirm`, brief on stdin, the stored context (if any)
+    through a 0600 temp file this process owns for the length of the call — the
+    script's only context input is a path, and the agent's path is the thing we
+    stopped trusting. Never raises: a spawn or timeout failure folds into rc=-1
+    with the reason in stderr."""
+    cmd = ["bash", str(_cc_script()), *argv]
+    context_path: Optional[str] = None
+    if context_text is not None:
+        fd, context_path = tempfile.mkstemp(prefix="dispatch-approval-ctx-", suffix=".txt")
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(context_text)
+        cmd += ["--context-file", context_path]
+    cmd.append("--confirm")
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=_subprocess_env(),
+        )
+        out, err = await asyncio.wait_for(
+            proc.communicate((stdin_text or "").encode("utf-8")), timeout=_RUN_TIMEOUT_S
+        )
+        return proc.returncode if proc.returncode is not None else -1, out.decode("utf-8", "replace"), err.decode("utf-8", "replace")
+    except asyncio.TimeoutError:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        return -1, "", f"hermes-cc.sh did not finish within {_RUN_TIMEOUT_S}s"
+    except (OSError, ValueError) as exc:
+        return -1, "", f"could not run hermes-cc.sh: {exc}"
+    finally:
+        if context_path is not None:
+            try:
+                os.unlink(context_path)
+            except OSError:
+                pass
+
+
+def outcome_text(verb: str, repo: str, tier: str, rc: int, stdout: str, stderr: str, user_id: str) -> str:
+    """Deterministic one-message summary of the re-run for the origin thread.
+    Reads the --json object hermes-cc.sh printed; falls back to stderr."""
+    payload: dict = {}
+    try:
+        payload = json.loads(stdout) if stdout.strip() else {}
+    except ValueError:
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    head = f"`{verb}` {tier} on `{repo}` — approved by <@{user_id}>"
+    if rc == 0 and payload.get("ok"):
+        if verb == "merge":
+            url = payload.get("prUrl") or payload.get("artifactUrl") or ""
+            return f":white_check_mark: {head}\nMerged. {url}".rstrip()
+        job_id = payload.get("jobId") or "?"
+        return (
+            f":rocket: {head}\nEpisode opened: job `{job_id}`. It is NOT finished — the "
+            f"5-minute sweeper delivers the verdict into this thread."
+        )
+    reason = (payload.get("error") or stderr.strip() or stdout.strip() or "no detail")[:600]
+    code = payload.get("exitCode", rc)
+    return f":x: {head}\nDid not run (exit {code}): {reason}"
+
+
+async def _send_to_origin(channel: Optional[str], thread_ts: Optional[str], text: str) -> None:
+    """Same delivery as dispatch-sweep.py: `hermes send --to slack:<chan>[:<ts>]
+    --file`, the body on disk, never argv. Best effort."""
+    if not channel:
+        logger.warning("[dispatch-approval] no origin channel on the approval row — outcome not posted")
+        return
+    target = f"slack:{channel}:{thread_ts}" if thread_ts else f"slack:{channel}"
+    tmp_path = ""
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+            f.write(text)
+            tmp_path = f.name
+        proc = await asyncio.create_subprocess_exec(
+            str(_hermes_bin()), "send", "--to", target, "--file", tmp_path, "--json", "--quiet",
+            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
+            env=_subprocess_env(),
+        )
+        _, err = await asyncio.wait_for(proc.communicate(), timeout=_SEND_TIMEOUT_S)
+        if proc.returncode != 0:
+            logger.warning("[dispatch-approval] hermes send exited %s: %s", proc.returncode, err.decode("utf-8", "replace")[:300])
+    except Exception as exc:  # pragma: no cover - best effort
+        logger.warning("[dispatch-approval] could not post the outcome: %s", exc)
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+
+async def execute_approved(nonce: str, verb: str, repo: str, tier: str, user_id: str) -> Optional[str]:
+    """Run the approved invocation and post its outcome. Returns the posted text
+    (None when the row carried no invocation — the pre-2026-09-07 shape)."""
+    inv = _load_invocation(nonce)
+    if inv is None:
+        logger.info("[dispatch-approval] nonce %s has no stored invocation — signed only", nonce)
+        return None
+    rc, out, err = await _run_cc(inv["argv"], inv["stdin"], inv["context"])
+    text = outcome_text(verb, repo, tier, rc, out, err, user_id)
+    logger.info("[dispatch-approval] re-ran %s %s on %s: rc=%s", verb, tier, repo, rc)
+    await _send_to_origin(inv["channel"], _origin_thread(inv["argv"]), text)
+    return text
 
 
 async def _replace_message(response_url: str, text: str) -> None:
@@ -347,7 +546,7 @@ def _make_handler(decision: str):
         if decision == "approve":
             text = (
                 f":white_check_mark: *Approved* — `{verb}` {tier} on `{repo}`\n"
-                f"Approved by <@{user_id}>. {_valid_for(result.get('expires_at'))}"
+                f"Approved by <@{user_id}>. Running it now — the outcome lands in this thread."
             )
         else:
             text = f":x: *Denied* — `{verb}` {tier} on `{repo}`. Denied by <@{user_id}>."
@@ -355,6 +554,16 @@ def _make_handler(decision: str):
         logger.info(
             "[dispatch-approval] %s %s %s on %s by %s", decision, verb, tier, repo, user_id
         )
+        if decision == "approve":
+            # Off the click's own task: Slack expects the ack within seconds, the
+            # re-run can take a minute (a merge talks to GitHub). Failure is
+            # logged and posted, never raised into the gateway.
+            async def _run() -> None:
+                try:
+                    await execute_approved(nonce, verb, repo, tier, user_id)
+                except Exception as exc:  # pragma: no cover - never take the gateway down
+                    logger.error("[dispatch-approval] executing the approval failed: %s", exc, exc_info=True)
+            asyncio.create_task(_run())
 
     return _handler
 
@@ -378,20 +587,23 @@ def register(ctx) -> None:
     logger.info("[dispatch-approval] registered approve/deny handlers")
 
 
-def payload_hash(verb: str, repo: str, tier: str, body: str, why: str = "") -> str:
+def payload_hash(verb: str, repo: str, tier: str, body: str, why: str = "",
+                 context: str = "") -> str:
     """The binding between an approval and the exact request it approves.
 
     `body` is the brief for a dispatch and `<job-id>@<head-sha>` for a merge; `why` is
     the stated reason, which is bound because the button message shows it — approving a
     reason that --confirm could then swap would make the audit log record a
-    justification nobody saw.
+    justification nobody saw. `context` is the --context-file bytes (empty when none):
+    the plan never shows them and the click replays unattended, so an unbound context
+    file was a swap-after-approve hole for whoever could write it — the agent included.
 
     Kept here next to `canonical_message` so the two halves of the contract live in
     one file; `hermes-cc.sh` reimplements it in five lines of Python and
     `tests/test_dispatch_approval.py` asserts the two agree.
     """
     h = hashlib.sha256()
-    for part in (verb, repo, tier, body, why):
+    for part in (verb, repo, tier, body, why, context):
         h.update(part.encode("utf-8"))
         h.update(b"\x00")
     return h.hexdigest()
