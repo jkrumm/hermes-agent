@@ -24,13 +24,21 @@ SLACK_CHANNEL_HERMES=op://hermes/slack/channel-hermes
 SLACK_HOME_CHANNEL=op://hermes/slack/channel-hermes
 SLACK_CHANNEL_INBOX=op://hermes/slack/channel-inbox
 
-# DeepSeek-V4-Pro brain (default) — IU unified endpoint, OpenAI-compatible transport.
-# Same key as ANTHROPIC_*; the base is the OpenAI-compat surface (…/openai/v1),
-# DERIVED from BASE_URL (…/anthropic → …/openai/v1). NOTE: the runtime reads the
-# resolved ~/.hermes/.env (rebuilt by the Python builder in README.md, which
-# derives this value); this literal is the documented template only.
+# gpt-5.6-luna brain (default) — IU unified endpoint, OpenAI-compatible transport.
+# Same key as ANTHROPIC_*; the base is the OpenAI-compat surface (…/openai/v1).
 OPENAI_API_KEY=op://common/anthropic/API_KEY
 OPENAI_BASE_URL=https://unified-endpoint-main.app.iu-it.org/openai/v1
+
+# The SAME key under the names config.yaml's `key_env` hints point at.
+# `hermes model` / the provider setup wrote both into a plaintext ~/.hermes/.env
+# via save_env_value() (hermes_cli/config.py — custom_endpoint_key_env() derives the
+# name from the endpoint identity: `custom` → HERMES_CUSTOM_CUSTOM_API_KEY, the
+# host → HERMES_CUSTOM_UNIFIED_ENDPOINT_MAIN_APP_IU_IT_ORG_API_KEY). The runtime
+# resolves key_env through get_env_prefer_dotenv(): .env first, then the secret
+# scope `secrets.command` populated — so declaring them here is what lets that
+# .env not exist. Never run `hermes model` on the mini: it recreates the file.
+HERMES_CUSTOM_CUSTOM_API_KEY=op://common/anthropic/API_KEY
+HERMES_CUSTOM_UNIFIED_ENDPOINT_MAIN_APP_IU_IT_ORG_API_KEY=op://common/anthropic/API_KEY
 
 # Anthropic — auxiliary models only (Haiku: web_extract / compression / approval
 # / title_generation). The IU company proxy serves Anthropic Messages here.

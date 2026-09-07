@@ -1,7 +1,8 @@
 #!/bin/zsh
 # Daily Hermes backup — rsync ~/.hermes/ to homelab HDD, then ping UptimeKuma.
-# Excludes large/regenerable artifacts. State.db (conversation history) IS
-# included. Runs at 03:00 via the com.jkrumm.hermes-backup LaunchAgent
+# Excludes large/regenerable artifacts and a plaintext ~/.hermes/.env (there is
+# none by design — `hermes model` recreates one, and a copy of it must never
+# reach homelab). State.db (conversation history) IS included. Runs at 03:00 via the com.jkrumm.hermes-backup LaunchAgent
 # (launchd/, installed by `make setup`).
 
 set -u
@@ -64,6 +65,7 @@ PUSH_URL=""
   --exclude='sessions/' \
   --exclude='*.lock' \
   --exclude='*.pid' \
+  --exclude='/.env' \
   --exclude='hermes-agent/' \
   --exclude='.update_check' \
   --exclude='.skills_prompt_snapshot.json' \
