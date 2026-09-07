@@ -117,3 +117,20 @@ via `chat.postMessage` and needs no further processing of its output.
 ```bash
 python3 ~/SourceRoot/hermes-agent/scripts/agents-overview.py --post-full
 ```
+
+## Narratives
+
+A separate script, `scripts/project-narratives.py`, keeps a daily status page
+per project at `~/SourceRoot/brain/wiki/engineering/projects/<project>.md` —
+written by sideclaw's `narrative` job (the same daemon this skill reads).
+**Reading** a project's narrative is just reading that vault page (the
+`obsidian` skill). **"Update the narrative for X"** means running it, not
+dispatching an episode or editing the page by hand:
+
+```bash
+python3 ~/SourceRoot/hermes-agent/scripts/project-narratives.py --projects X --run
+```
+
+It's gated (`needs_revision()` — HEAD moved or a newer Claude Code
+transcript), so a project with nothing new produces no revision and no
+output. See `docs/project-narratives.md`.

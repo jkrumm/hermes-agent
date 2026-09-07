@@ -17,6 +17,7 @@ STATE_FILE = Path(__file__).parent / "briefing-state.json"
 WATCHDOG_SUMMARY = Path(__file__).parent / "watchdog-summary.py"
 COVERAGE_SCRIPT = Path(__file__).parent / "briefing-coverage.py"
 AGENTS_OVERVIEW_SCRIPT = Path(__file__).parent / "agents-overview.py"
+PROJECT_NARRATIVES_SCRIPT = Path(__file__).parent / "project-narratives.py"
 
 
 def _run_subscript(path: Path, timeout: int, args: list[str] | None = None) -> None:
@@ -50,6 +51,13 @@ def emit_agents_overview() -> None:
     _run_subscript(AGENTS_OVERVIEW_SCRIPT, timeout=15, args=["--briefing"])
 
 
+def emit_project_narratives() -> None:
+    """Append `narrative: <project> — <summary>` lines for projects the
+    daily cron revised in the last 26h (state read only — no job call, no
+    network)."""
+    _run_subscript(PROJECT_NARRATIVES_SCRIPT, timeout=10, args=["--briefing"])
+
+
 def main() -> None:
     try:
         state = json.loads(STATE_FILE.read_text())
@@ -59,6 +67,7 @@ def main() -> None:
         emit_watchdog()
         emit_coverage()
         emit_agents_overview()
+        emit_project_narratives()
         return
     except json.JSONDecodeError as e:
         print(f"BRIEFING_CITY=Munich", file=sys.stderr)
@@ -68,6 +77,7 @@ def main() -> None:
         emit_watchdog()
         emit_coverage()
         emit_agents_overview()
+        emit_project_narratives()
         return
 
     city = state.get("city") or "Munich"
@@ -86,6 +96,7 @@ def main() -> None:
     emit_watchdog()
     emit_coverage()
     emit_agents_overview()
+    emit_project_narratives()
 
 
 if __name__ == "__main__":

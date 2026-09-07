@@ -38,6 +38,11 @@ then zero or more lines shaped `<project> · <recommendation> · <title> ·
 run, the line reads `agents overview unavailable` instead — treat that as "no
 data", never as "no agents". This feeds the Agenten & Projekte section (Step 2).
 
+The script also appends zero or more `narrative: <project> — <summary>` lines —
+projects whose vault narrative page (`wiki/engineering/projects/<project>.md`) was
+revised by the daily narratives cron in roughly the last day. Absent entirely on a
+quiet day; that's normal, not an error.
+
 If the script block is missing or malformed, fall back to `Munich` and proceed. Use the city value verbatim in the weather call (`?city=<value>`) and in the section header ("Weather — <city>"). The audio narrative also references this city.
 
 ## Step 1 — Gather data (use the `terminal` tool directly, all fourteen in parallel)
@@ -120,6 +125,9 @@ No filler, no restating the counts line in prose. If zero agents qualify: single
 line "- Keine Agenten brauchen dich gerade." after the counts line. If the script
 output says "agents overview unavailable": single line "- Agenten-Übersicht nicht
 verfügbar." and skip the counts line.)
+(If the script output has `narrative:` lines, add at most one further line per
+project below the agent lines, German: "<project>: <summary>". Otherwise add
+nothing — no placeholder, no "keine Updates" line.)
 
 :checkered_flag: Aufgaben — <X> überfällig, <Y> heute fällig, <Z> ohne Datum im Backlog
 **Überfällig**

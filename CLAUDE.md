@@ -405,6 +405,18 @@ conversational skill (`skills/agents/SKILL.md`), a scheduled Slack digest and a
 morning-briefing feed (`scripts/agents-overview.py`). Never dispatches, never
 steers a pane — that's `claude-dispatch`. **`docs/agents-overview.md`**.
 
+## Project narratives (project-narratives)
+
+Daily vault pages, one per active repo, written by sideclaw's `narrative` job
+(same daemon as `agents`) into `wiki/engineering/projects/<project>.md` — what
+a project is, where it stands, how it got there. Less is more: a project with
+no substantive change gets no revision and no mention, gated by a pure
+`needs_revision()` (HEAD moved or a newer Claude Code transcript) before any
+model call. `scripts/project-narratives.py --run` is the cron entry (not yet
+registered); `--bootstrap a,b,c` writes for human review without committing.
+Every commit names the vault (`git -C ~/SourceRoot/brain …`), the sole
+exemption in the `raw_repo_write` guard (`docs/guards.md`). **`docs/project-narratives.md`**.
+
 ## Second Brain (Obsidian + KaraKeep)
 
 Two skills, deliberately distinct roles — don't blur them:
