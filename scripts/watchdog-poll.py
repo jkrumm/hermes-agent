@@ -311,6 +311,12 @@ def cursor_get(conn: sqlite3.Connection, key: str) -> str | None:
     return row["value"] if row else None
 
 
+def cursor_get_int(conn: sqlite3.Connection, key: str, default: int = 0) -> int:
+    """Cursor value as a non-negative int; ``default`` for missing or non-numeric."""
+    value = cursor_get(conn, key)
+    return int(value) if value and value.isdigit() else default
+
+
 def cursor_set(conn: sqlite3.Connection, key: str, value: str, now_iso: str) -> None:
     conn.execute(
         "INSERT INTO cursors(key,value,updated_at) VALUES(?,?,?) "
@@ -1245,8 +1251,7 @@ def _run_poll(conn: sqlite3.Connection, now: dt.datetime, env: dict[str, str],
         if ok:
             cursor_set(conn, streak_key, "0", now_iso)
         else:
-            prior = cursor_get(conn, streak_key)
-            cursor_set(conn, streak_key, str((int(prior) if prior else 0) + 1), now_iso)
+            cursor_set(conn, streak_key, str(cursor_get_int(conn, streak_key) + 1), now_iso)
             continue
         if since is None:
             if latest:
@@ -1267,8 +1272,7 @@ def slack_poll_failure(conn: sqlite3.Connection) -> str | None:
     """Message describing any Slack source blind for SLACK_FAIL_STREAK_ALERT runs, else None."""
     blind = []
     for src in ("slack_alert", "slack_update"):
-        value = cursor_get(conn, f"{src}_fail_streak")
-        streak = int(value) if value and value.isdigit() else 0
+        streak = cursor_get_int(conn, f"{src}_fail_streak")
         if streak >= SLACK_FAIL_STREAK_ALERT:
             blind.append(f"{src} ({streak} consecutive failures)")
     if not blind:

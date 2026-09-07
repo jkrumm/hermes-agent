@@ -632,7 +632,11 @@ means the flagship at `high`. Two are pinned off it deliberately:
 
 There is **no config key to drop `temperature`** — `_fixed_temperature_for_model` is hardcoded to
 Kimi/Arcee and ignores provider profiles, so repinning the model is the only fix. Pinning the
-Anthropic leg lazy-installs `anthropic==0.87.0` into the gateway venv on first use.
+Anthropic leg needs the `anthropic` SDK **already present** in the gateway venv —
+`agent/anthropic_adapter.py` lazy-*imports* it (~220 ms saved at startup) and raises
+`ImportError` when it is missing, which `approval_smart.py` catches and turns into
+`escalate`. Fail-safe, but silent apart from one WARNING nothing watches, so a venv rebuild
+would quietly demote the classifier to a blanket escalation. Today: `anthropic 0.87.0`.
 `compression` and `web_extract` stay on luna: both need the 850k window.
 
 **Subagent routing (`delegation.*`) exists but is unused** — repo work goes to Claude Code via the
