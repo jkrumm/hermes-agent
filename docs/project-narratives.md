@@ -29,8 +29,8 @@ input next run.
 
 Every git repo directly under `~/SourceRoot` (basename = project name),
 minus a deny list — `dotfiles-private`, `homelab-private` (private-secrets
-repos), `dispatch-scratch` (disposable), `hermes-webui` (upstream-fork
-checkout), `brain` (the vault itself — a narrative page about the vault,
+repos), `dispatch-scratch` (disposable), `brain` (the vault itself — a
+narrative page about the vault,
 written into the vault, is a confusing loop) — minus anything listed in
 `HERMES_NARRATIVE_SKIP` (comma-separated). `--projects a,b` restricts
 discovery to exactly that set, in any CLI mode.
@@ -87,7 +87,8 @@ untouched until a project's `needs_revision()` gate re-fires for real.
 
 ## Registering the cron
 
-Not registered yet — do this by hand once reviewed:
+Registered 2026-09-07 as job `9909f808fe17` (see the registry in `docs/scheduled-jobs.md`).
+The command, kept for a re-install:
 
 ```bash
 hermes cron create "30 6 * * *" --name "Project narratives" \

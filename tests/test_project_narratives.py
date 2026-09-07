@@ -74,6 +74,9 @@ def _reset_paths() -> None:
     pn.VAULT_LINT = pn.VAULT_ROOT / ".scripts" / "vault-lint.mjs"
     pn.STATE_PATH = root / "state.json"
     pn.CLAUDE_PROJECTS_DIR = root / "claude-projects"
+    pn.BRAIN_LOCK_DIR = root / "brain-sync.lock"
+    pn.LOCK_RETRY_ATTEMPTS = 1
+    pn.LOCK_RETRY_DELAY_S = 0.0
     pn.SOURCE_ROOT.mkdir(parents=True, exist_ok=True)
     return root
 
@@ -156,7 +159,7 @@ check_true("no prior mtime, any transcript -> True", pn.needs_revision(state, "s
 
 print("\n6. discover_projects() — deny list + env skip on a temp SourceRoot")
 _reset_paths()
-for name in ["proj-a", "proj-b", "dotfiles-private", "hermes-webui", "brain", "not-a-repo"]:
+for name in ["proj-a", "proj-b", "dotfiles-private", "dispatch-scratch", "brain", "not-a-repo"]:
     if name == "not-a-repo":
         (pn.SOURCE_ROOT / name).mkdir(parents=True, exist_ok=True)  # dir, no .git
     else:
@@ -264,6 +267,8 @@ pn.run_narrative_job = lambda base, project, cwd, previous_page, since, **kw: {
     "summary": "Shipped CDN icon mirroring.", "page": page_md, "sections": ["summary"],
     "inputs": {"commits": 3, "sessions": 1, "sinceUsed": since}, "model": "test",
 }
+argo_posts: list[tuple[str, str]] = []
+pn.post_narrative_to_argo = lambda project, summary, revised_at: argo_posts.append((project, summary)) or True
 try:
     out = io.StringIO()
     with redirect_stdout(out):
@@ -279,11 +284,16 @@ try:
 
     git_add_calls = [c for c in calls if c[0] == "git" and "add" in c]
     git_commit_calls = [c for c in calls if c[0] == "git" and "commit" in c]
+    git_push_calls = [c for c in calls if c[0] == "git" and "push" in c]
     check("exactly one git add", len(git_add_calls), 1)
     check("exactly one git commit", len(git_commit_calls), 1)
+    check("exactly one git push (fail-soft)", len(git_push_calls), 1)
     check_true("git add names the vault with -C", git_add_calls[0][:3] == ["git", "-C", str(pn.VAULT_ROOT)])
     check_true("git commit names the vault with -C", git_commit_calls[0][:3] == ["git", "-C", str(pn.VAULT_ROOT)])
+    check_true("git push names the vault with -C", git_push_calls[0][:3] == ["git", "-C", str(pn.VAULT_ROOT)])
     check_true("commit message names the project", any("narrative(meteo):" in a for a in git_commit_calls[0]))
+    check_true("brain-sync lock released after the commit", not pn.BRAIN_LOCK_DIR.exists())
+    check("Argo fed once with the page path", argo_posts, [("meteo", "Shipped CDN icon mirroring.")])
 
     saved = pn._load_state()
     check("state records the new commit", saved["meteo"]["lastCommit"], "sha-abc")
@@ -291,6 +301,47 @@ try:
 finally:
     del pn.run_narrative_job
 
+
+# --- main(["--run"]) — a held brain-sync lock skips the commit -----------------
+
+print("\n11b. main(['--run']) — brain-sync holds the lock: page written, no commit, lock left alone")
+_reset_paths()
+_mk_repo("meteo")
+_write_engineering_index()
+calls = []
+pn.subprocess.run = make_fake_run(calls, head_sha="sha-lock", lint_ok=True)
+pn.BRAIN_LOCK_DIR.mkdir(parents=True)
+(pn.BRAIN_LOCK_DIR / "pid").write_text(str(_os.getpid()))  # a live holder: this process
+pn.run_narrative_job = lambda base, project, cwd, previous_page, since, **kw: {
+    "project": project, "changed": True, "reason": "commits landed",
+    "summary": "Locked run.", "page": page_md, "sections": ["summary"], "inputs": {}, "model": "test",
+}
+pn.post_narrative_to_argo = lambda project, summary, revised_at: True
+try:
+    err = io.StringIO()
+    with redirect_stdout(io.StringIO()):
+        import contextlib as _cl
+        with _cl.redirect_stderr(err):
+            rc = pn.main(["--run"])
+    check("exit 0", rc, 0)
+    check_true("page still written", (pn.PROJECTS_DIR / "meteo.md").exists())
+    check_true("no git commit while the lock is held", not any(c[0] == "git" and "commit" in c for c in calls))
+    check_true("no git push while the lock is held", not any(c[0] == "git" and "push" in c for c in calls))
+    check_true("the held lock was not stolen", pn.BRAIN_LOCK_DIR.exists())
+    check_true("stderr says the lock was busy", "lock is busy" in err.getvalue())
+finally:
+    del pn.run_narrative_job
+    del pn.post_narrative_to_argo
+
+print("\n11c. acquire_brain_lock() — a stale lock (dead pid) is reclaimed")
+_reset_paths()
+pn.BRAIN_LOCK_DIR.mkdir(parents=True)
+(pn.BRAIN_LOCK_DIR / "pid").write_text("999999999")
+check_true("stale lock reclaimed", pn.acquire_brain_lock())
+check("pid file is ours", (pn.BRAIN_LOCK_DIR / "pid").read_text(), str(_os.getpid()))
+pn.release_brain_lock(True)
+check_true("released", not pn.BRAIN_LOCK_DIR.exists())
+pn.release_brain_lock(False)
 
 # --- main(["--run"]) — lint failure reverts and skips the commit -------------
 

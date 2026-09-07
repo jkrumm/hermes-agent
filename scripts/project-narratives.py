@@ -20,6 +20,21 @@ revision timestamp, and on `changed: true` write the page, regenerate the
 (see hermes-agent/docs/guards.md). A lint failure reverts the page and skips
 the commit entirely, retried on the next run.
 
+The add/commit/push runs under brain-sync's own single-instance lock
+(`~/Library/Caches/brain-sync.lock`, a `mkdir` dir with a `pid` file — the
+exact primitive dotfiles/brain/brain-sync.sh, brain-backup.sh and
+audio-gateway's brain-note.ts use), so this never races the 5-minute sync
+for `.git/index.lock`. A held lock is retried a few times, then the commit
+is skipped for this run (the page stays on disk; the next run — or the
+sync itself — picks it up). `git push` is fail-soft: a rejected push logs
+and moves on, brain-sync pushes on its next tick.
+
+After a page is written, its summary is POSTed best-effort to Argo
+(`/api/agents/narratives`, Bearer = the argo-api skill's key — env
+HOMELAB_API_KEY, else `secrets-run read op://common/api/SECRET`), the feed
+behind Argo's System → Agents page. The endpoint is being built in parallel:
+a 404 — or any failure — is logged and non-fatal.
+
 Page path: ~/SourceRoot/brain/wiki/engineering/projects/<project>.md — part
 of the STRICT `wiki/` tree (frontmatter incl. `type`+`description` comes
 from the job's `page` field verbatim; this script never authors project-page
@@ -56,13 +71,26 @@ ENGINEERING_INDEX = VAULT_ROOT / "wiki" / "engineering" / "index.md"
 VAULT_LINT = VAULT_ROOT / ".scripts" / "vault-lint.mjs"
 CLAUDE_PROJECTS_DIR = Path.home() / ".claude" / "projects"
 
+# brain-sync's lock. Same path + semantics as dotfiles/brain/brain-sync.sh:
+# `mkdir` is the atomic primitive, `<lock>/pid` names the holder, only the
+# creator removes it. Overridable for tests (brain-sync.sh honors the same var).
+BRAIN_LOCK_DIR = Path(os.environ.get("BRAIN_SYNC_LOCK_DIR", str(Path.home() / "Library" / "Caches" / "brain-sync.lock")))
+LOCK_RETRY_ATTEMPTS = 6
+LOCK_RETRY_DELAY_S = 5.0
+
+ARGO_API_BASE = os.environ.get("HERMES_NARRATIVE_ARGO_BASE", "https://argo.jkrumm.com/api")
+ARGO_NARRATIVES_PATH = "/agents/narratives"
+ARGO_API_KEY_REF = "op://common/api/SECRET"
+SECRETS_RUN = Path.home() / ".local" / "bin" / "secrets-run"
+ARGO_HTTP_TIMEOUT = 10
+
 DEFAULT_BASE = "http://localhost:7705"
 BASE_ENV = "HERMES_NARRATIVE_SIDECLAW_BASE"
 
 # Deny-listed projects: private-secrets repos, the disposable dispatch
-# target, the upstream-fork checkout, and the vault itself (a narrative
-# page ABOUT the vault, written INTO the vault, is a confusing loop).
-DENY_LIST = {"dotfiles-private", "homelab-private", "dispatch-scratch", "hermes-webui", "brain"}
+# target, and the vault itself (a narrative page ABOUT the vault, written
+# INTO the vault, is a confusing loop).
+DENY_LIST = {"dotfiles-private", "homelab-private", "dispatch-scratch", "brain"}
 SKIP_ENV = "HERMES_NARRATIVE_SKIP"
 
 MAX_PER_RUN_ENV = "HERMES_NARRATIVE_MAX_PER_RUN"
@@ -400,6 +428,137 @@ def _git_vault(*args: str) -> Any:
     )
 
 
+def acquire_brain_lock(lock_dir: Path | None = None, *, attempts: int = LOCK_RETRY_ATTEMPTS,
+                       delay_s: float = LOCK_RETRY_DELAY_S) -> bool:
+    """Take brain-sync's mkdir lock. True iff THIS call created it — only then
+    may release_brain_lock() remove it. A held lock is retried `attempts`
+    times `delay_s` apart (brain-note.ts's tolerance), then given up on:
+    skipping one commit is cheap, racing brain-sync for .git/index.lock is
+    not. A pidless lock older than 60s whose holder is gone is reclaimed,
+    exactly as brain-sync.sh does; a fresh pidless one is another run
+    claiming it."""
+    lock = lock_dir if lock_dir is not None else BRAIN_LOCK_DIR
+    for attempt in range(attempts + 1):
+        try:
+            lock.mkdir()
+        except FileExistsError:
+            holder = ""
+            try:
+                holder = (lock / "pid").read_text().strip()
+            except OSError:
+                pass
+            alive = False
+            if holder.isdigit():
+                try:
+                    os.kill(int(holder), 0)
+                    alive = True
+                except ProcessLookupError:
+                    alive = False
+                except PermissionError:
+                    alive = True
+            if not alive:
+                try:
+                    age = time.time() - lock.stat().st_mtime
+                except OSError:
+                    age = 0
+                if holder or age >= 60:
+                    print(f"project-narratives: reclaiming {lock} left by pid {holder or 'unknown'} ({int(age)}s old)", file=sys.stderr)
+                    _rmtree(lock)
+                    continue
+            if attempt == attempts:
+                return False
+            time.sleep(delay_s)
+        except OSError:
+            return False
+        else:
+            try:
+                (lock / "pid").write_text(str(os.getpid()))
+            except OSError:
+                pass
+            return True
+    return False
+
+
+def release_brain_lock(owned: bool, lock_dir: Path | None = None) -> None:
+    if not owned:
+        return
+    _rmtree(lock_dir if lock_dir is not None else BRAIN_LOCK_DIR)
+
+
+def _rmtree(path: Path) -> None:
+    try:
+        for child in path.iterdir():
+            child.unlink()
+        path.rmdir()
+    except OSError:
+        pass
+
+
+def _commit_and_push(project: str, summary: str) -> None:
+    """add + commit + push under the brain-sync lock. Push is fail-soft."""
+    owned = acquire_brain_lock()
+    if not owned:
+        print(f"project-narratives: brain-sync lock is busy — {project} page written but not committed this run", file=sys.stderr)
+        return
+    try:
+        _git_vault("add", "wiki/engineering/projects", "wiki/engineering/index.md")
+        cres = _git_vault("commit", "-m", f"narrative({project}): {summary}")
+        if cres.returncode != 0:
+            print(f"project-narratives: git commit failed for {project}: {cres.stderr}", file=sys.stderr)
+            return
+        pres = _git_vault("push")
+        if pres.returncode != 0:
+            print(f"project-narratives: git push failed for {project} (brain-sync pushes on its next tick): {pres.stderr.strip()}", file=sys.stderr)
+    finally:
+        release_brain_lock(owned)
+
+
+# --- Argo feed (System → Agents) ---------------------------------------------
+
+def _resolve_argo_key() -> str:
+    """HOMELAB_API_KEY from the process env (the argo-api skill's name for the
+    argo key), else the secrets-run cache — mirrors dispatch-sweep.py's
+    resolve_api_key(). '' on any failure; never raises."""
+    val = os.environ.get("HOMELAB_API_KEY", "")
+    if val:
+        return val
+    env = os.environ.copy()
+    env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + env.get("PATH", "/usr/bin:/bin")
+    try:
+        r = subprocess.run([str(SECRETS_RUN), "read", ARGO_API_KEY_REF],
+                           capture_output=True, text=True, timeout=15, env=env)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def post_narrative_to_argo(project: str, summary: str, revised_at: str) -> bool:
+    """Best-effort POST {project, summary, revisedAt, page} to Argo. True on a
+    2xx, False otherwise — a 404 (endpoint not deployed yet) is logged at
+    stderr and is NOT an error for the run. Never raises."""
+    key = _resolve_argo_key()
+    if not key:
+        print(f"project-narratives: no argo key available, skipping Argo post for {project}", file=sys.stderr)
+        return False
+    body = json.dumps({
+        "project": project, "summary": summary, "revisedAt": revised_at,
+        "page": f"wiki/engineering/projects/{project}.md",
+    }).encode()
+    req = urllib.request.Request(
+        f"{ARGO_API_BASE}{ARGO_NARRATIVES_PATH}", data=body, method="POST",
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=ARGO_HTTP_TIMEOUT) as resp:
+            return 200 <= resp.status < 300
+    except urllib.error.HTTPError as e:
+        print(f"project-narratives: Argo returned {e.code} for {project} narrative post (non-fatal)", file=sys.stderr)
+        return False
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        print(f"project-narratives: Argo post failed for {project} (non-fatal): {e}", file=sys.stderr)
+        return False
+
+
 def _revert_or_delete_page(project: str, existed_before: bool) -> None:
     path = _page_path(project)
     if existed_before:
@@ -465,17 +624,17 @@ def _process_project(
         return None
 
     if commit:
-        _git_vault("add", "wiki/engineering/projects", "wiki/engineering/index.md")
-        cres = _git_vault("commit", "-m", f"narrative({project}): {summary}")
-        if cres.returncode != 0:
-            print(f"project-narratives: git commit failed for {project}: {cres.stderr}", file=sys.stderr)
+        _commit_and_push(project, summary)
 
+    revised_at = _now_iso()
     state[project] = {
-        "lastRevisedAt": _now_iso(),
+        "lastRevisedAt": revised_at,
         "lastCommit": head_sha,
         "lastSessionMtime": transcript_mtime,
         "summary": summary,
     }
+    if commit:
+        post_narrative_to_argo(project, summary, revised_at)
     return f"{project}: {summary}"
 
 

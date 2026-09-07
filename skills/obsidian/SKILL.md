@@ -201,8 +201,9 @@ The `capture` skill routes; this is the shared model:
 - **Sync is git, not automatic.** A LaunchAgent pulls and pushes `~/SourceRoot/brain` every 5 minutes; on this Mac Mini it never auto-commits. A write isn't durable until it's committed — after writing, commit (the human reviews `git diff`).
 - **Always name the vault in the git command — `git -C ~/SourceRoot/brain …`.** A bare `git commit` is **refused** by the local repo-write guard (`raw_repo_write`), which blocks every git write that does not state which repo it is writing to. That guard exists because Hermes was observed committing straight to a code repo's `master` instead of using the dispatch bridge. The vault is the single exemption — its only dispatch tier is `investigate` (read-only, worktree-isolated), so there is no writable episode to route through — but the exemption only applies when the command *names* it:
   ```bash
-  git -C ~/SourceRoot/brain add -A
-  git -C ~/SourceRoot/brain commit -m "note: <what changed>"
+  ~/.hermes/scripts/brain-commit.sh "note: <what changed>"          # add -A, commit, push
+  ~/.hermes/scripts/brain-commit.sh "note: <what changed>" Inbox/x.md   # only these paths
   ```
+  **Use the helper, not a hand-composed `git -C … commit`.** It takes brain-sync's single-instance lock (`~/Library/Caches/brain-sync.lock`) so a commit never races the 5-minute sync for `.git/index.lock`, then pushes (fail-soft — a rejected push is logged and the sync pushes on its next tick). Exit 3 means the lock was busy and **nothing was committed** — say so and retry in a minute. The equivalent by hand, only if the helper is missing, still names the vault: `git -C ~/SourceRoot/brain add -A && git -C ~/SourceRoot/brain commit -m "…"`.
   Every other repo under `~/SourceRoot` is off-limits to git writes entirely; those go through `claude-dispatch`.
 - **Reading on the Kobo e-reader** (selected vault notes → KOReader) is a separate, planned surface (Readeck, Phase 4) — not this skill yet.

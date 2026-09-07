@@ -209,13 +209,15 @@ mirrored icon, write the item name as plain text and say so in the reply — do
 not invent a URL, it will 404 silently. Adding a new icon to the CDN is a
 Claude Code job, not yours.
 
-**Commit after writing, and name the vault.** The repo-write guard refuses a
-bare `git commit`; the vault is the one exemption and only when named:
+**Commit after writing, through the helper.** It takes brain-sync's lock (so the
+commit never races the 5-minute sync for `.git/index.lock`), commits naming the
+vault — the repo-write guard refuses a bare `git commit`; the vault is the one
+exemption — and pushes, fail-soft:
 ```bash
-git -C ~/SourceRoot/brain add -A
-git -C ~/SourceRoot/brain commit -m "wildrift: refresh Hecarim build (patch 7.2b)"
+~/.hermes/scripts/brain-commit.sh "wildrift: refresh Hecarim build (patch 7.2b)" "Areas/Gaming/Wild Rift"
 ```
-**Never `git push`** — a LaunchAgent syncs every 5 minutes.
+Exit 3 = the lock was busy, nothing committed — retry in a minute. Don't compose
+your own `git push`; the helper (and the sync LaunchAgent) own that.
 
 ## You cannot dispatch a Claude Code episode at the vault
 
