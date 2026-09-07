@@ -11,7 +11,7 @@ summary through three read-only surfaces — nothing here ever steers an agent.
 | Surface | What | Where |
 |-|-|-|
 | Conversational | "what are my agents doing", "wo steht `<project>`" | `skills/agents/SKILL.md` — reads `/api/overview.txt`, refreshes on request |
-| Scheduled Slack digest | a ping only when something changed since the last run — silent otherwise | `scripts/agents-overview.py --slack-body`, run every 30 min by `scripts/agents-cron.py` (registration below, not yet installed) |
+| Scheduled Slack digest | a ping only when something changed since the last run — silent otherwise | `scripts/agents-overview.py --slack-body`, run every 30 min by `scripts/agents-cron.py` (job `72aa2fb36307`, registration below) |
 | Morning briefing | an "Agenten & Projekte" section, ≤ 6 lines, German | `scripts/agents-overview.py --briefing`, called from `scripts/briefing-context.py`, rendered per `cron/morning-briefing.prompt.txt` |
 
 **The Slack digest never reposts a persistent, unchanged item — including a
@@ -22,6 +22,23 @@ and then goes quiet again every 30-min cycle until something actually changes.
 The morning briefing (`render_briefing()`) re-surfaces every non-quiet
 recommendation daily regardless of `delta()`, which is what keeps a forgotten
 standing question from vanishing for good.
+
+## Needs you (human queue)
+
+`data.humanQueue` (sideclaw, 2026-09-07) is the mini's ask-human queue —
+`[{id, askedAt, question, cmd?}]`, work that needs a PRESENT human (a
+biometric `op`, an ACL push, `make human-queue`). It renders as a "Needs you"
+section at the top of both the digest and the briefing; every entry counts as
+a delta the moment it appears or is drained, and its ids ride the fingerprint
+so a new ask alone wakes the digest. An agent in state `needs_you` is **always**
+listed, whatever its recommendation — `summary.needsYou` counts by state, and a
+digest whose header says "1 need you" must show that one item (a 2026-09-07 bug
+counted one and listed none because the body filtered on recommendation alone;
+`_is_needs_you()` is now checked independently of the actionable-recommendation
+filter). When sideclaw is unreachable end to end, the digest is not silent:
+once per day a warning line goes to `#agents` via stdout (the no_agent runner
+delivers it) so "no digest" and "sideclaw is down" stop looking identical —
+Kuma does not watch this path, this line is the health signal.
 
 ## Refresh is consumer-driven, not clock-driven
 

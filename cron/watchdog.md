@@ -30,7 +30,7 @@ UK push monitor messages in #alerts (regex `\[…Push\]`) are filtered out — t
 
 ## Quiet hours
 
-Between 00:00 and 07:00 in Johannes's local timezone (read from `~/.hermes/scripts/briefing-state.json` `timezone` field, default `Europe/Berlin`), the script still runs and updates state, but the LLM responds with `[SILENT]` so nothing reaches Slack. Overnight events surface naturally in the 07:00 morning briefing if still open.
+Between 00:00 and 07:00 in Johannes's local timezone (read from `~/.hermes/scripts/briefing-state.json` `timezone` field, default `Europe/Berlin`), the script still runs and updates state, but under `no_agent` mode there is no LLM turn to suppress — `compose_slack_body()` itself returns `""` for quiet hours or vacation, so nothing reaches Slack. Rows still insert/refresh/resolve normally; only the notification is withheld (`docs/watchdog.md`). Overnight events surface naturally in the 07:00 morning briefing if still open.
 
 Vacation flag (`vacation_until` in the same state file) suppresses the same way.
 

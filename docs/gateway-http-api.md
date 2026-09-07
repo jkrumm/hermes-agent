@@ -1,7 +1,5 @@
 # Gateway HTTP exposure (argo dashboard chat)
 
-Moved verbatim out of `CLAUDE.md` (2026-09-04, size pass). `CLAUDE.md` § Gateway HTTP Exposure points here — nothing was rewritten, only relocated.
-
 The gateway runs an OpenAI-compatible HTTP API alongside Slack, so the **argo VPS
 dashboard chat** can talk to Hermes. Controlled by four env vars (framework keys in
 `hermes_cli/config.py`), resolved at startup from `.env.tpl` via `secrets.command`

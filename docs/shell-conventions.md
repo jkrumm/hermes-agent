@@ -1,7 +1,5 @@
 # Shell script conventions
 
-Moved verbatim out of `CLAUDE.md` (2026-09-04, size pass). `CLAUDE.md` § Shell script conventions points here — nothing was rewritten, only relocated.
-
 **Under `set -euo pipefail`, any `$(producer | head -c N)` substitution dies with
 SIGPIPE (141) once `producer`'s output exceeds `N` bytes** — `head` closes the pipe
 early, `producer` gets SIGPIPE, and `pipefail` turns the whole substitution non-zero,

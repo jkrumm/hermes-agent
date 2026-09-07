@@ -1,7 +1,5 @@
 # Secrets — native `secrets.command` over the headless cache
 
-Moved verbatim out of `CLAUDE.md` (2026-09-04, size pass). `CLAUDE.md` § Secrets points here — nothing was rewritten, only relocated.
-
 There is **no plaintext `~/.hermes/.env`** and **no launch wrapper**. Hermes resolves its
 own secrets at startup through v0.19's `SecretSource` interface, configured in
 `config.yaml` under `secrets.command`:
@@ -20,7 +18,7 @@ global CLAUDE.md → "Headless secrets"). `.env.tpl` stays the single list of
 `KEY=op://vault/item/field` refs — it is now consumed by the `command` source instead of
 by an `op run` wrapper. The `sed` exists because `secrets-run export` emits
 `export K='V'` while the bulk parser wants bare `K=V` (it strips one quote layer itself).
-Measured 0.29s for 27 refs, well inside the budget (the source's default is a tight 3s).
+Measured 0.29s for 29 refs, well inside the budget (the source's default is a tight 3s).
 
 **Why not `secrets.onepassword`** (also shipped in v0.19): it authenticates either via an
 interactive `op` session — which **hangs** on this headless mini's biometric prompt, the
@@ -32,12 +30,14 @@ at seed time) and it cannot reach anything that wasn't deliberately sealed into 
 
 **What this replaced:** `scripts/gateway-cache-launch.sh`, a wrapper that `export`ed the
 cache into the environment and `exec`'d the gateway, wired in as the launchd
-`ProgramArguments`. Its own header documented the fragility that killed it — `hermes
-gateway install` regenerates the plist and drops the wrapper. The plist is now stock
-(`venv/bin/python -m hermes_cli.main gateway run --replace`), so a reinstall is a no-op.
-Bonus: secrets now resolve for **every** hermes invocation (gateway, CLI, cron), not just
-the launchd-started gateway — previously a manual `hermes …` on the mini ran with
-*no* credentials at all, which made ad-hoc dev/debug/monitoring work awkward.
+`ProgramArguments`. It was fragile because `hermes gateway install` regenerates the
+plist and drops the wrapper. The plist is now stock — the live `ProgramArguments`
+runs `hermes_cli.stderr_timestamp` wrapping
+`venv/bin/python -m hermes_cli.main gateway run --external-supervisor` — so a
+reinstall is a no-op. Bonus: secrets now resolve for **every** hermes invocation
+(gateway, CLI, cron), not just the launchd-started gateway — previously a manual
+`hermes …` on the mini ran with *no* credentials at all, which made ad-hoc
+dev/debug/monitoring work awkward.
 
 **Fail-soft, and how that's covered.** The wrapper failed **closed** (non-zero exit →
 gateway never started credential-less). The `command` source can't abort startup — it
@@ -60,12 +60,11 @@ regression is monitored rather than merely accepted:
   empty or absent `.env.tpl` makes the assertion vacuous (`WANT=0`) — a gateway with no
   secrets can't reach Slack, so the connected-check below catches that case anyway.
 
-Manual check after any secrets change: `Command helper: applied 27 secrets` in
-`hermes gateway status`, and `✓ secrets (27 refs …)` from `make status`.
+Manual check after any secrets change: `Command helper: applied 29 secrets` in
+`hermes gateway status`, and `✓ secrets (29 refs …)` from `make status`.
 
-> **launchd now works.** Earlier notes claimed `launchctl` couldn't bootstrap
-> `ai.hermes.gateway` (`Bootstrap failed: 5: I/O error`) and that the gateway fell back to
-> a bare `run --replace`. As of v0.19.0 `hermes gateway status` reports it genuinely
-> **supervised by launchd**, so auto-start at login and auto-restart on crash are live.
-> `hermes gateway install` still prints `Bootstrap failed: 5` while repairing the
-> definition — that message is noise; check `gateway status` for the real state.
+**launchd genuinely supervises the gateway** — `hermes gateway status` reports
+it as such, so auto-start at login and auto-restart on crash are live.
+`hermes gateway install` still prints `Bootstrap failed: 5` while repairing the
+definition — that message is noise; check `gateway status` for the real state,
+never `launchctl load` the plist by hand.

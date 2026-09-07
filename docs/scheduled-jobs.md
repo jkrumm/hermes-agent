@@ -1,7 +1,5 @@
 # Scheduled jobs — the Hermes cron registry, why LaunchAgents, the cron guard, editing a cron job
 
-Moved verbatim out of `CLAUDE.md` (2026-09-04, size pass). `CLAUDE.md` § Symlink Map / Dispatch Bridge / Editing Rules points here — nothing was rewritten, only relocated. The registry table below was added 2026-09-07.
-
 ## Registry — every Hermes cron job (`hermes cron list`)
 
 **This table is the git-tracked source of truth for what is registered.** `cron/jobs.json`
@@ -51,7 +49,7 @@ the check is quiet and the target is only needed if a legacy line ever reappears
 > (`if depth >= _MAX_REFERENCED_SCRIPT_DEPTH: return True`), so a long file — or even a short
 > one whose comments quote filenames and command lines — is rejected as *"contains a gateway
 > lifecycle command"* regardless of content. Measured against the live guard 2026-08-02:
-> `watchdog-poll.py` (1218 lines), `watchdog-summary.py` and `briefing-coverage.py` are **all**
+> `watchdog-poll.py` (now 1349 lines), `watchdog-summary.py` and `briefing-coverage.py` are **all**
 > rejected today; `watchdog-slack.py` (48 lines) passes. The already-registered jobs survive
 > only because they predate the guard. That is why every registered entry point here is a thin
 > loader and the logic lives in a module it imports — `dispatch-sweep-cron.py` (registered,
