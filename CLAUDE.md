@@ -184,6 +184,14 @@ added-lines secret scan, the nonce fence around the brief.
   (`test_watchdog_delivery.py`, 24 checks). **Grouped sources** (`slack_alert`, `slack_update`,
   `hermes_log`) are append-only, auto-resolving after 7 idle days (`GROUPED_TTL_DAYS`); state
   sources resolve by disappearance through `reconcile()`.
+- **A failed Slack poll is now loud.** `poll_slack_messages` used to return `[], since_ts` on
+  any HTTP error, which is byte-identical to "no new messages" — so when argo's Slack **read**
+  token broke on 2026-09-07 the `slack_alert`/`slack_update` sources went blind for hours while
+  every run still reported `ok`. It now returns an `ok` flag, `_run_poll` keeps a
+  `<src>_fail_streak` cursor, and `SLACK_FAIL_STREAK_ALERT = 3` consecutive misses (90 min at the
+  30-min cadence) makes `main()` return 1 → `watchdog-slack.py` withholds `$UPTIME_PUSH_WATCHDOG`
+  → Kuma goes red. The diagnostic goes to **stderr**, never stdout: under `no_agent` the stdout of
+  `--slack-body` *is* the Slack message.
 - **At-least-once for the verdict, at-most-once for the nudge.** A verdict posts as Hermes's own
   bot user, which Slack ingest drops — so a `done` + `implement` + `artifactUrl` + unmerged
   dispatch also gets a nudge via argo's Slack API (posting as the HomeLab bot, which Hermes *does*

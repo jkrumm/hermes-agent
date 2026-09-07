@@ -62,6 +62,10 @@ SLACK_REEMIT_COOLDOWN_HOURS = 24
 # (and stale hermes_log rows pollute the morning briefing's open list). Sweep any
 # open grouped event idle for longer than this.
 GROUPED_SOURCES = ("slack_alert", "slack_update", "hermes_log")
+# Consecutive failed Slack polls before the run reports failure. At the 30-min cron
+# cadence three misses is 90 minutes blind — past any plausible argo/Slack blip, and
+# still inside the Kuma monitor's own grace.
+SLACK_FAIL_STREAK_ALERT = 3
 GROUPED_TTL_DAYS = 7
 
 REM_HOURS = {
@@ -446,11 +450,20 @@ def poll_github(env: dict[str, str]) -> dict[str, list[dict[str, Any]]]:
 
 
 def poll_slack_messages(env: dict[str, str], channel_id: str, since_ts: str | None,
-                        skip_uk_push: bool = False) -> tuple[list[dict[str, Any]], str | None]:
+                        skip_uk_push: bool = False,
+                        ) -> tuple[list[dict[str, Any]], str | None, bool]:
+    """Third element is ``ok``: False when the fetch itself failed.
+
+    A failure here is indistinguishable from "no new messages" at the call site, which is
+    how a broken Slack token left #alerts and #updates unwatched for hours on 2026-09-07
+    with every run still reporting success. The caller turns a sustained streak into a
+    non-zero exit so the UptimeKuma heartbeat is withheld.
+    """
     headers = {"Authorization": f"Bearer {env.get('HOMELAB_API_KEY', '')}"}
     data = http_get(f"{API_BASE}/slack/channels/{channel_id}/messages?limit=50", headers)
     if isinstance(data, dict) and "_error" in data:
-        return [], since_ts
+        print(f"watchdog: slack poll failed for {channel_id}: {data['_error']}", file=sys.stderr)
+        return [], since_ts, False
     msgs = data.get("messages", []) if isinstance(data, dict) else []
     out: list[dict[str, Any]] = []
     latest = since_ts
@@ -476,7 +489,7 @@ def poll_slack_messages(env: dict[str, str], channel_id: str, since_ts: str | No
             "url": "",
             "payload": {"text": text},
         })
-    return out, latest
+    return out, latest, True
 
 
 def poll_hermes_logs(conn: sqlite3.Connection, now: dt.datetime, now_iso: str) -> list[dict[str, Any]]:
@@ -1227,7 +1240,14 @@ def _run_poll(conn: sqlite3.Connection, now: dt.datetime, env: dict[str, str],
         ("slack_update_ts", CH_UPDATES, "slack_update", False),
     ]:
         since = cursor_get(conn, cur_key)
-        msgs, latest = poll_slack_messages(env, ch_id, since, skip_uk_push=skip_uk)
+        msgs, latest, ok = poll_slack_messages(env, ch_id, since, skip_uk_push=skip_uk)
+        streak_key = f"{src}_fail_streak"
+        if ok:
+            cursor_set(conn, streak_key, "0", now_iso)
+        else:
+            prior = cursor_get(conn, streak_key)
+            cursor_set(conn, streak_key, str((int(prior) if prior else 0) + 1), now_iso)
+            continue
         if since is None:
             if latest:
                 cursor_set(conn, cur_key, latest, now_iso)
@@ -1241,6 +1261,19 @@ def _run_poll(conn: sqlite3.Connection, now: dt.datetime, env: dict[str, str],
     sweep_stale_grouped(conn, now)
 
     return all_new, all_rem, all_res
+
+
+def slack_poll_failure(conn: sqlite3.Connection) -> str | None:
+    """Message describing any Slack source blind for SLACK_FAIL_STREAK_ALERT runs, else None."""
+    blind = []
+    for src in ("slack_alert", "slack_update"):
+        value = cursor_get(conn, f"{src}_fail_streak")
+        streak = int(value) if value and value.isdigit() else 0
+        if streak >= SLACK_FAIL_STREAK_ALERT:
+            blind.append(f"{src} ({streak} consecutive failures)")
+    if not blind:
+        return None
+    return "watchdog: Slack polling is blind: " + ", ".join(blind)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1276,6 +1309,7 @@ def main(argv: list[str] | None = None) -> int:
             conn = db_connect()
             all_new, all_rem, all_res = _run_poll(conn, now, env, deliver=deliver)
             conn.commit()
+            slack_blind = slack_poll_failure(conn)
             conn.close()
         finally:
             DB_PATH = original_db
@@ -1284,14 +1318,19 @@ def main(argv: list[str] | None = None) -> int:
         conn = db_connect()
         all_new, all_rem, all_res = _run_poll(conn, now, env, deliver=deliver)
         conn.commit()
+        slack_blind = slack_poll_failure(conn)
         conn.close()
+
+    # stderr, never stdout: under no_agent the stdout of --slack-body IS the Slack message.
+    if slack_blind:
+        print(slack_blind, file=sys.stderr)
 
     if emit_slack_body:
         body = compose_slack_body(all_new, all_rem, all_res,
                                   quiet=quiet, vacation=vacation, now=now)
         if body:
             print(body)
-        return 0
+        return 1 if slack_blind else 0
 
     print(f"QUIET_HOURS={'true' if quiet else 'false'}")
     print(f"VACATION={'true' if vacation else 'false'}")
@@ -1299,7 +1338,7 @@ def main(argv: list[str] | None = None) -> int:
     print(fmt_block("NEW", all_new))
     print(fmt_block("REMINDERS", all_rem))
     print(fmt_block("RESOLVED", all_res))
-    return 0
+    return 1 if slack_blind else 0
 
 
 if __name__ == "__main__":
