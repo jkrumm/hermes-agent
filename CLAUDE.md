@@ -37,7 +37,7 @@ the first pass.
 | `hooks/` | `~/.hermes/hooks/` | add hooks here |
 | `plugins/{name}/` | `~/.hermes/plugins/{name}/` | **`HERMES_PLUGINS` is the source of truth.** Today `dispatch-approval` (the Ed25519 signer). Must **also** be enabled once — `hermes plugins enable <name>` → `plugins.enabled`; the symlink alone is inert. |
 | `config/` | `~/.hermes/config/` | tracked agent-facing config — `dispatch-repos.json`: root, `deny`, `defaultTier`, per-repo ceilings |
-| `skills/{name}/` | `~/.hermes/skills/{name}/` | **`HERMES_SKILLS` in the Makefile is the source of truth** — 17 dirs: `capture argo-api work karakeep obsidian reading wildrift research-gateway image-delivery homelab-ops homelab hermes-gateway briefing-tts claude-dispatch rollhook-deploys hyperdx podcast`. `homelab` is also a **category dir**: `skills/homelab/{tailscale-diagnostics,torrent-stack-diagnostics}/` load as their own skills through the parent symlink, no `HERMES_SKILLS` entry. |
+| `skills/{name}/` | `~/.hermes/skills/{name}/` | **`HERMES_SKILLS` in the Makefile is the source of truth** — 18 dirs: `capture argo-api work karakeep obsidian reading wildrift research-gateway image-delivery homelab-ops homelab hermes-gateway briefing-tts claude-dispatch rollhook-deploys hyperdx podcast agents`. `homelab` is also a **category dir**: `skills/homelab/{tailscale-diagnostics,torrent-stack-diagnostics}/` load as their own skills through the parent symlink, no `HERMES_SKILLS` entry. |
 | `USER.md` | `~/.hermes/memories/USER.md` | **copied** — Hermes writes to it |
 
 **A skill is durable only if symlinked from this repo.** `config.yaml`'s
@@ -397,6 +397,13 @@ into Audiobookshelf. Submit-and-poll like `research-gateway`, **not** a single
 `tts.openai.api_key`/`stt.openai.api_key` use; nothing new in `.env.tpl`. SOUL.md's TTS rule 4
 ("NEVER curl an audio endpoint") exempts `/v1/podcasts*` — there is no native tool for this
 pipeline. `audio-gateway.jkrumm.com` is in both allowlist patches.
+
+## Agents overview (agents)
+
+Read-only cross-project Claude Code/herdr status via sideclaw's `/api/overview` —
+conversational skill (`skills/agents/SKILL.md`), a scheduled Slack digest and a
+morning-briefing feed (`scripts/agents-overview.py`). Never dispatches, never
+steers a pane — that's `claude-dispatch`. **`docs/agents-overview.md`**.
 
 ## Second Brain (Obsidian + KaraKeep)
 

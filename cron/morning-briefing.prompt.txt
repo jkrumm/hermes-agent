@@ -28,6 +28,16 @@ The script also appends a coverage block — full backlog snapshot beyond what `
 
 If `COVERAGE_AVAILABLE=false` or the blocks are absent, fall back to /summary + watchdog data only.
 
+The script also appends a read-only agents-overview block — every Claude Code /
+herdr agent sideclaw is tracking across every project, not just this repo. Unlike
+the blocks above it is plain text, not key=value: a first line of counts
+(`agents: N needs_you · N working · N idle · N stale · N done · N dispatch`),
+then zero or more lines shaped `<project> · <recommendation> · <title> ·
+<standing> · <blocker>` for every agent whose recommendation is not `watch` or
+`close` (i.e. everything worth a human glance). If sideclaw was unreachable this
+run, the line reads `agents overview unavailable` instead — treat that as "no
+data", never as "no agents". This feeds the Agenten & Projekte section (Step 2).
+
 If the script block is missing or malformed, fall back to `Munich` and proceed. Use the city value verbatim in the weather call (`?city=<value>`) and in the section header ("Weather — <city>"). The audio narrative also references this city.
 
 ## Step 1 — Gather data (use the `terminal` tool directly, all fourteen in parallel)
@@ -96,6 +106,20 @@ Use this exact structure, in this order. Each section starts with an emoji short
 - <N> offene Issues <(if N > 0, list each as "repo: title", grouped by repo)>
 - <if GITHUB_FRESH_48H non-empty: "Neu (letzte 48h): <list of repo#N: title>" — flag freshly-captured items so they don't get lost>
 (If `GITHUB_TOTAL=0 PRs, 0 issues`: a single line "- Alles sauber über alle Repos.")
+
+:robot_face: Agenten & Projekte
+- <N> Agenten: <needsYou> brauchen dich, <working> arbeiten, <stale> hängen fest
+- <project> — <was zu tun ist, auf Deutsch> — <warum, aus `standing`, ein Halbsatz>
+(One line per agent from the script's agents-overview block whose recommendation is
+`answer`, `ship`, `merge`, or `review` — ignore `continue`/`stale`/every other value.
+"Was zu tun ist": `answer` → "Frage beantworten", `ship` → "committen/pushen",
+`merge` → "PR mergen", `review` → "PR reviewen". At most 6 lines total including
+the counts line — if more agents qualify, keep the 5 most urgent (answer first,
+then ship/merge/review by recency) and drop the rest silently, no "…weitere" note.
+No filler, no restating the counts line in prose. If zero agents qualify: single
+line "- Keine Agenten brauchen dich gerade." after the counts line. If the script
+output says "agents overview unavailable": single line "- Agenten-Übersicht nicht
+verfügbar." and skip the counts line.)
 
 :checkered_flag: Aufgaben — <X> überfällig, <Y> heute fällig, <Z> ohne Datum im Backlog
 **Überfällig**
@@ -241,6 +265,10 @@ Output the Slack text body from Step 2, then a blank line, then the `MEDIA:` tag
 :cat: GitHub
 - 0 offene PRs
 - 1 offenes Issue (homelab: feat(weather): Add city/location parameter)
+
+:robot_face: Agenten & Projekte
+- 1 Agenten: 1 brauchen dich, 2 arbeiten, 9 hängen fest
+- audio-gateway — Frage beantworten — Podcast fertig, wartet auf Entscheidung zum Upload
 
 :checkered_flag: Aufgaben — 9 überfällig, 0 heute fällig
 **Überfällig**

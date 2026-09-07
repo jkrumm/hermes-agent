@@ -16,15 +16,16 @@ from pathlib import Path
 STATE_FILE = Path(__file__).parent / "briefing-state.json"
 WATCHDOG_SUMMARY = Path(__file__).parent / "watchdog-summary.py"
 COVERAGE_SCRIPT = Path(__file__).parent / "briefing-coverage.py"
+AGENTS_OVERVIEW_SCRIPT = Path(__file__).parent / "agents-overview.py"
 
 
-def _run_subscript(path: Path, timeout: int) -> None:
+def _run_subscript(path: Path, timeout: int, args: list[str] | None = None) -> None:
     """Best-effort: run a sub-script and append its stdout to context output."""
     if not path.exists():
         return
     try:
         res = subprocess.run(
-            [sys.executable, str(path)],
+            [sys.executable, str(path), *(args or [])],
             capture_output=True, text=True, timeout=timeout,
         )
         if res.returncode == 0 and res.stdout.strip():
@@ -43,6 +44,12 @@ def emit_coverage() -> None:
     _run_subscript(COVERAGE_SCRIPT, timeout=30)
 
 
+def emit_agents_overview() -> None:
+    """Append the read-only agents-overview digest (fetch only, no refresh —
+    a fresh LLM pass can run past this script's own timeout budget)."""
+    _run_subscript(AGENTS_OVERVIEW_SCRIPT, timeout=15, args=["--briefing"])
+
+
 def main() -> None:
     try:
         state = json.loads(STATE_FILE.read_text())
@@ -51,6 +58,7 @@ def main() -> None:
         print("BRIEFING_SUPPRESSED=false")
         emit_watchdog()
         emit_coverage()
+        emit_agents_overview()
         return
     except json.JSONDecodeError as e:
         print(f"BRIEFING_CITY=Munich", file=sys.stderr)
@@ -59,6 +67,7 @@ def main() -> None:
         print("BRIEFING_SUPPRESSED=false")
         emit_watchdog()
         emit_coverage()
+        emit_agents_overview()
         return
 
     city = state.get("city") or "Munich"
@@ -76,6 +85,7 @@ def main() -> None:
     print("BRIEFING_SUPPRESSED=false")
     emit_watchdog()
     emit_coverage()
+    emit_agents_overview()
 
 
 if __name__ == "__main__":

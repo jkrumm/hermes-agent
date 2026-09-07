@@ -1,6 +1,6 @@
 # Hermes Agent — Mac Mini M2 Pro
 
-Personal AI assistant running 24/7 on Mac Mini. Slack as interface, gpt-5.6-luna as brain (EU; `claude-sonnet-4-6-eu` failover), eleven skill domains (`HERMES_SKILLS` in the Makefile is the count).
+Personal AI assistant running 24/7 on Mac Mini. Slack as interface, gpt-5.6-luna as brain (EU; `claude-sonnet-4-6-eu` failover), eighteen skill domains (`HERMES_SKILLS` in the Makefile is the count).
 
 **Hermes docs**: https://hermes-agent.nousresearch.com/docs/
 
@@ -33,6 +33,7 @@ Mac Mini M2 Pro — Hermes Agent (always-on)
 | `#briefings` | C0AT6TH404R | write only | — | Hermes posts morning/evening audio (Phase 1) |
 | `#journal` | C0ATN8W6N2U | write only | — | Hermes posts structured journal entries (Phase 2) |
 | `#news` | C0ASXJD0ZEG | write only | — | Daily digest (Phase 4) |
+| `#agents` | *not yet created* | write only | — | `agents` skill's Slack digest (read-only cross-project Claude Code/herdr status, `docs/agents-overview.md`) — create the channel + invite the Hermes bot, then record its ID here |
 
 ### Trigger Matrix
 
