@@ -1,8 +1,8 @@
 diff --git a/plugins/platforms/slack/adapter.py b/plugins/platforms/slack/adapter.py
-index e017838fce..5689b47feb 100644
+index 5cd278a3e6..fd20dd8873 100644
 --- a/plugins/platforms/slack/adapter.py
 +++ b/plugins/platforms/slack/adapter.py
-@@ -25,6 +25,7 @@ import aiohttp
+@@ -18,6 +18,7 @@ import aiohttp
  try:
      from slack_bolt.async_app import AsyncApp
      from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
@@ -10,7 +10,7 @@ index e017838fce..5689b47feb 100644
      from slack_sdk.web.async_client import AsyncWebClient
  
      SLACK_AVAILABLE = True
-@@ -33,6 +34,7 @@ except ImportError:
+@@ -26,6 +27,7 @@ except ImportError:
      AsyncApp = Any
      AsyncSocketModeHandler = Any
      AsyncWebClient = Any
@@ -18,62 +18,60 @@ index e017838fce..5689b47feb 100644
  
  import sys
  from pathlib import Path as _Path
-@@ -2821,6 +2823,14 @@ class SlackAdapter(BasePlatformAdapter):
-                         chat_id, team_id=team_id
-                     ).chat_postMessage(**kwargs)
-                 except Exception as e:
-+                    # LOCAL MODIFICATION (patches/slack-cannot-reply-to-message.patch):
-+                    # the `_err_code` extraction and the second branch below — if
-+                    # Slack rejects the thread parent (`cannot_reply_to_message`),
-+                    # retry the same chunk as a plain channel message.
-+                    _err_payload = getattr(e, "response", None) or {}
-+                    _err_code = (
-+                        _err_payload.get("error") if isinstance(_err_payload, dict) else None
-+                    )
-                     if kwargs.get("blocks") and self._is_block_payload_rejection(e):
-                         retry_kwargs = dict(kwargs)
-                         retry_kwargs.pop("blocks", None)
-@@ -2831,6 +2841,23 @@ class SlackAdapter(BasePlatformAdapter):
-                         last_result = await self._get_client(
-                             chat_id, team_id=team_id
-                         ).chat_postMessage(**retry_kwargs)
-+                    elif (
-+                        isinstance(e, SlackApiError)
-+                        and _err_code == "cannot_reply_to_message"
-+                        and "thread_ts" in kwargs
-+                    ):
-+                        logger.warning(
-+                            "[Slack] cannot_reply_to_message — thread parent ts %s "
-+                            "rejected; retrying chunk %d as channel-level message",
-+                            kwargs.get("thread_ts"), i,
-+                        )
-+                        kwargs.pop("thread_ts", None)
-+                        kwargs.pop("reply_broadcast", None)
-+                        # Disable threading for subsequent chunks in this send too.
-+                        thread_ts = None
-+                        last_result = await self._get_client(
-+                            chat_id, team_id=team_id
-+                        ).chat_postMessage(**kwargs)
-                     else:
-                         raise
+@@ -2003,6 +2005,14 @@ class SlackAdapter(BasePlatformAdapter):
+         try:
+             return await getattr(client_fn(), method)(**kwargs)
+         except Exception as e:
++            # LOCAL MODIFICATION (patches/slack-cannot-reply-to-message.patch):
++            # the `_err_code` extraction and the branch below it — if Slack rejects
++            # the thread parent (`cannot_reply_to_message`), retry the same call as
++            # a plain channel message.
++            _err_payload = getattr(e, "response", None) or {}
++            _err_code = (
++                _err_payload.get("error") if isinstance(_err_payload, dict) else None
++            )
+             if kwargs.get("blocks") and self._is_block_payload_rejection(e):
+                 retry_kwargs = dict(kwargs)
+                 if verb == "edit":
+@@ -2012,6 +2022,20 @@ class SlackAdapter(BasePlatformAdapter):
+                 logger.info(
+                     "[Slack] Block Kit payload rejected; retrying %s without blocks: %s", verb, e)
+                 return await getattr(client_fn(), method)(**retry_kwargs)
++            if (
++                isinstance(e, SlackApiError)
++                and _err_code == "cannot_reply_to_message"
++                and "thread_ts" in kwargs
++            ):
++                logger.warning(
++                    "[Slack] cannot_reply_to_message — thread parent ts %s rejected; "
++                    "retrying %s as channel-level message",
++                    kwargs.get("thread_ts"), verb,
++                )
++                retry_kwargs = dict(kwargs)
++                retry_kwargs.pop("thread_ts", None)
++                retry_kwargs.pop("reply_broadcast", None)
++                return await getattr(client_fn(), method)(**retry_kwargs)
+             raise
  
-@@ -4083,6 +4110,19 @@ class SlackAdapter(BasePlatformAdapter):
- 
-         text = content
- 
+     async def send(
+@@ -2839,6 +2863,20 @@ class SlackAdapter(BasePlatformAdapter):
+         if not content:
+             return content
+         content = _wrap_markdown_tables(content)
++
 +        # LOCAL MODIFICATION (patches/slack-cannot-reply-to-message.patch):
 +        # 0a) Normalize * list markers to - (prevents interference with italic)
-+        text = re.sub(r'^(\s*)\* ', r'\1- ', text, flags=re.MULTILINE)
++        content = re.sub(r'^(\s*)\* ', r'\1- ', content, flags=re.MULTILINE)
 +
 +        # 0b) Strip backticks from inline code that contains emoji shortcodes.
 +        # LLMs often wrap `:emoji: text` in backticks, but Slack won't render
 +        # emoji shortcodes inside code spans.
-+        text = re.sub(
++        content = re.sub(
 +            r'`(:[a-z_]+:\s[^`]*)`',
 +            r'\1',
-+            text,
++            content,
 +        )
 +
-         # Slack treats <!everyone>, <!channel>, and <!here> as executable
-         # broadcast mentions even when sent by a bot.  Escape only the leading
-         # angle bracket so the token is displayed literally while preserving
+         placeholders: dict = {}
+         counter = [0]
+ 

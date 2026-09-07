@@ -1,11 +1,12 @@
 diff --git a/agent/transports/chat_completions.py b/agent/transports/chat_completions.py
-index bec0f9a82b..cc3c40e8a1 100644
+index 5ead023e5b..e47e072e5d 100644
 --- a/agent/transports/chat_completions.py
 +++ b/agent/transports/chat_completions.py
-@@ -234,6 +234,90 @@ def _is_openai_api_base_url(base_url: Any) -> bool:
-     return host == "api.openai.com"
+@@ -200,6 +200,89 @@ def _is_openai_api_base_url(base_url: Any) -> bool:
+         return False
  
  
++# LOCAL MODIFICATION (patches/transport-iu-reasoning-effort.patch)
 +# Kept in sync by hand with the same literal in hermes_cli/runtime_provider.py
 +# (patches/runtime-provider-iu-responses-api.patch), which routes this host's
 +# OpenAI leg onto the Responses API. Both are local patches over upstream, so
@@ -55,8 +56,6 @@ index bec0f9a82b..cc3c40e8a1 100644
 +    # (unified-endpoint-main.app.iu-it.org.example.test) must not inherit
 +    # this endpoint's quirks. Same contract as the sibling patch's check.
 +    try:
-+        from urllib.parse import urlparse
-+
 +        host = (urlparse(str(params.get("base_url") or "").strip()).hostname or "").lower()
 +    except Exception:
 +        return api_kwargs
@@ -91,29 +90,37 @@ index bec0f9a82b..cc3c40e8a1 100644
 +
 +
  def _model_consumes_thought_signature(model: Any) -> bool:
-     """True when the outgoing model is a Gemini family model that requires
-     ``extra_content`` (thought_signature) to be replayed on tool calls.
-@@ -509,8 +593,12 @@ class ChatCompletionsTransport(ProviderTransport):
-         # ── Provider profile: single-path when present ──────────────────
+     """True for Gemini-family targets, which require tool-call ``extra_content`` (thought_signature) replay.
+ 
+@@ -370,7 +453,12 @@ class ChatCompletionsTransport(ProviderTransport):
+         sanitized = self.convert_messages(messages, model=model)
          _profile = params.get("provider_profile")
          if _profile:
--            return self._build_kwargs_from_profile(
--                _profile, model, sanitized, tools, params
+-            return self._build_kwargs_from_profile(_profile, model, sanitized, tools, params)
++            # LOCAL MODIFICATION (patches/transport-iu-reasoning-effort.patch)
 +            return _apply_iu_reasoning_effort(
-+                self._build_kwargs_from_profile(
-+                    _profile, model, sanitized, tools, params
-+                ),
++                self._build_kwargs_from_profile(_profile, model, sanitized, tools, params),
 +                model,
 +                params,
-             )
++            )
  
-         # ── Legacy fallback (unregistered / unknown provider) ───────────
-@@ -711,7 +799,7 @@ class ChatCompletionsTransport(ProviderTransport):
-             cache_scope_id=params.get("cache_scope_id"),
+         sanitized = _swap_developer_role(sanitized, params.get("model_lower", (model or "").lower()))
+         api_kwargs = _base_kwargs(model, sanitized, tools, params)
+@@ -440,9 +528,14 @@ class ChatCompletionsTransport(ProviderTransport):
+             api_kwargs["extra_body"] = extra_body
+         if params.get("request_overrides"):
+             api_kwargs.update(params["request_overrides"])
+-        return _finish_kwargs(
+-            api_kwargs, sanitized, params,
+-            supports_prompt_cache_key=bool(params.get("supports_prompt_cache_key")) or _is_openai_api_base_url(base_url),
++        # LOCAL MODIFICATION (patches/transport-iu-reasoning-effort.patch)
++        return _apply_iu_reasoning_effort(
++            _finish_kwargs(
++                api_kwargs, sanitized, params,
++                supports_prompt_cache_key=bool(params.get("supports_prompt_cache_key")) or _is_openai_api_base_url(base_url),
++            ),
++            model,
++            params,
          )
  
--        return api_kwargs
-+        return _apply_iu_reasoning_effort(api_kwargs, model, params)
- 
      def _build_kwargs_from_profile(self, profile, model, sanitized, tools, params):
-         """Build API kwargs using a ProviderProfile — single path, no legacy flags.

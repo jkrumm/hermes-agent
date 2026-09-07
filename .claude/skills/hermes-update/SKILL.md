@@ -39,14 +39,49 @@ Files touched (all are `.patch` files applied with `git apply` — no full-file 
 |-|-|-|
 | `plugins/platforms/slack/adapter.py` | `patches/slack-cannot-reply-to-message.patch` | mrkdwn normalization + `cannot_reply_to_message` retry (3 hunks; the synthetic-thread guard was **retired at v0.19.0**) |
 | `gateway/platforms/base.py` | `patches/slack-media-inline-reply-anchor.patch` | pass text reply anchor to media senders so attachments don't thread |
-| `run_agent.py` | `patches/run-agent-third-party-endpoint-token-refresh.patch` | broaden third-party endpoint skip to all non-anthropic.com hosts |
+| `agent/client_lifecycle.py` | `patches/run-agent-third-party-endpoint-token-refresh.patch` | broaden third-party endpoint skip to all non-anthropic.com hosts |
 | `tools/tirith_security.py` | `patches/tirith-hermes-guards.patch` | two local rules: allowlist argo-only pipelines past tirith **and** block download-then-execute (renamed from `tirith-allowlist-argo-pipes.patch` at v0.19.0) |
-| `tools/cronjob_tools.py` | `patches/cronjob-tools-allowlist-argo-bearer.patch` | allowlist argo bearer curls past the cron-prompt scanner |
+| `tools/cronjob_prompt_scan.py` | `patches/cronjob-tools-allowlist-argo-bearer.patch` | allowlist argo bearer curls past the cron-prompt scanner |
 | `hermes_cli/runtime_provider.py` | `patches/runtime-provider-iu-responses-api.patch` | route the IU endpoint's `/openai/v1` leg onto `codex_responses` — the only surface there that takes function tools + a reasoning effort |
 | `agent/transports/chat_completions.py` | `patches/transport-iu-reasoning-effort.patch` | clamp/strip the top-level `reasoning_effort` upstream emits to what each leg of the IU gateway accepts |
-| `tools/tts_tool.py` | `patches/tts-tool-audio-title.patch` | name the audio file from the audio-gateway's `X-Audio-Title` header (DeepSeek-V4-Pro title from the gateway's prep step) instead of `tts_<timestamp>` |
+| `tools/tts_tool_openai.py` + `tools/tts_tool.py` | `patches/tts-tool-audio-title.patch` | name the audio file from the audio-gateway's `X-Audio-Title` header (DeepSeek-V4-Pro title from the gateway's prep step) instead of `tts_<timestamp>` |
 
 > **STT is not patched.** `tools/transcription_tools.py` (native `openai` STT → `gpt-4o-transcribe`) is pointed at the audio-gateway purely via `config.yaml`. TTS uses the stock native `openai` provider (→ Gemini Charon via the audio-gateway) plus the one small `tts-tool-audio-title` patch above for the filename. After an update, confirm `config.yaml`'s `tts.openai` / `stt.openai` `base_url` still reads `https://audio-gateway.jkrumm.com/v1`.
+
+### When EVERY patch conflicts, check the commit count before the conflicts
+
+At **2026-09-07** all ten patches conflicted at once and the diffstat read absurd
+(`gateway/run.py` +18688 with zero deletions). That shape — a tiny `ours` side against a
+`theirs` side spanning most of the file — is not ten merge disagreements, it is one
+restructure. `git rev-list --count <old-sha>..HEAD` said **5503 commits in six days**, under
+an **unchanged version number** (v0.21.0 both sides), and upstream had split every monolith:
+
+| Was | Now |
+|-|-|
+| `gateway/run.py` (22k lines) | `gateway/run_*.py` — `run_voice.py` holds `_should_send_voice_reply` |
+| `tools/tts_tool.py` (3k) | `tts_tool_{openai,delivery,lifecycle,local,plugins,providers,speaker}.py` |
+| `hermes_cli/web_server.py` (18k) | `hermes_cli/web_routers/*.py` + `web_server_*.py` |
+| `tools/cronjob_tools.py` | `_strip_cron_safe_constructs` → `tools/cronjob_prompt_scan.py` |
+| `run_agent.py` | `_try_refresh_anthropic_client_credentials` → `agent/client_lifecycle.py` |
+| `tools/tirith_security.py` (1248) | same file, 546 lines |
+
+So: **count the commits first, then locate every anchor symbol, then hand-port** — do not
+try to resolve markers file by file. The fast survey is one grep per patch anchor
+(`grep -rn "<symbol>" --include='*.py' . | grep -v /venv/ | grep -v /tests/`); quote
+`--include='*.py'` or zsh eats the glob. `hermes_cli/web_server.py` keeps a lazy-dispatch
+table mapping old route names to their new modules — a free index of where things went.
+
+Ten ports on ten disjoint files parallelise cleanly across `@implementer` subagents; the
+orchestrator keeps the supersession calls, reads every diff, and regenerates the patches.
+The byte-compare worktree check below is what proves the result, and it did: 11 files
+reconstructed from the ten regenerated patches, zero drift, nothing in the live tree
+uncaptured.
+
+**Do not rename a patch whose target moved.** Three now name a file they no longer touch
+(`run-agent-…` → `agent/client_lifecycle.py`, `cronjob-tools-…` → `cronjob_prompt_scan.py`,
+`gateway-auto-tts-voice-only` → `gateway/run_voice.py`). The name is an identifier cited by
+every `# LOCAL MODIFICATION (patches/<name>.patch)` marker and by three docs; renaming buys
+nothing and reintroduces the marker-drift bug from v0.19.0.
 
 ### Re-apply procedure
 
@@ -127,9 +162,14 @@ the file set:
 ```bash
 git diff HEAD --name-only        # must be exactly the patched files
 grep -n "_rename_with_title"          tools/tts_tool.py
+grep -n "x-audio-title"               tools/tts_tool_openai.py
 grep -n "_download_then_execute_reason\|_ALLOWED_PIPELINE_HOSTS" tools/tirith_security.py
 grep -n "cannot_reply_to_message"     plugins/platforms/slack/adapter.py
-grep -n "_is_third_party_anthropic_endpoint" run_agent.py
+grep -n "_is_third_party_anthropic_endpoint" agent/client_lifecycle.py
+grep -n "_sanitize_trusted_api_fence" tools/cronjob_prompt_scan.py
+grep -n "_apply_iu_reasoning_effort"  agent/transports/chat_completions.py
+grep -n "_SPEAK_SUMMARY"              hermes_cli/web_routers/audio.py
+grep -n "_media_reply_anchor"         gateway/platforms/base.py
 ```
 
 Two traps this caught at the v0.19.0 jump:
@@ -357,6 +397,22 @@ ignore the one that eventually matters.
   (it rewrites the definition and defers the reload to a transient launchd job that
   survives its own bootout); re-check until status reads `✓ Service definition matches`.
   Do not reach for `launchctl` or hand-edit the plist.
+- **A `⚠ A previous \`hermes update\` pulled new code but did not restart running gateways.`
+  that survives the restart is a stale receipt, not stale code.** Upstream's startup check
+  (#95294) reads `~/.hermes/logs/update_receipts/latest.json`; a **failed** update leaves a
+  receipt whose `plan.runtimes[].code_sha` can never match the current checkout again, so the
+  warning fires on *every* `hermes` invocation forever. Confirm before chasing it:
+  `venv/bin/python3 -c "from hermes_cli.update_cmd_fleet import _pending_fleet_restart_needed as f; print(f())"`
+  and read the receipt's `outcome`/`finished_at`. Fix by moving `latest.json` aside (keep the
+  dated sibling as history) — done 2026-09-07 for a 2026-08-26 `NameError: has_desktop_app`
+  failure that had been lying since.
+- **A retired toolset silently warns, it does not fail.** v0.21.0's pull removed the
+  agent-callable `send_message` tool (upstream `c6c8abbadb`, #47856 — outbound messaging is
+  cron delivery, the kanban notifier and the `hermes send` CLI, deliberately not an agent
+  decision), so `messaging` left `TOOLSETS` and `hermes update` printed `platform 'slack'
+  references unknown toolset 'messaging'`. Drop the name from `platform_toolsets` in
+  `config.yaml`; check nothing in `skills/`, `cron/` or `SOUL.md` told the agent to call it.
+  `hermes send` is untouched, so `dispatch-sweep.py`'s verdict delivery is unaffected.
 - **Sessions for API-server requests aren't written to `~/.hermes/sessions/`**, and the
   terminal tool's *command text* is never logged — only `tool terminal completed`. Don't
   plan a verification that depends on recovering the executed command; test the guard

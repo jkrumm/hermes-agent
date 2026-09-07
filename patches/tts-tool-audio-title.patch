@@ -1,11 +1,45 @@
 diff --git a/tools/tts_tool.py b/tools/tts_tool.py
-index 3aa4875922..b4ee55f13e 100644
+index 50ac84b398..7164125686 100644
 --- a/tools/tts_tool.py
 +++ b/tools/tts_tool.py
-@@ -1812,6 +1812,31 @@ def _tts_response_format_from_path(output_path: str) -> str:
- # Provider: OpenAI TTS (also used by every OpenAI-compatible TTS endpoint —
- # DeepInfra delegates here via _generate_deepinfra_tts).
- # ===========================================================================
+@@ -15,6 +15,7 @@ import importlib.util
+ import json
+ import logging
+ import os
++import re
+ import tempfile
+ from pathlib import Path
+ from typing import Callable, Dict, Any, List, Optional
+@@ -223,16 +224,22 @@ def _select_builtin_engine(provider: str) -> tuple:
+         "or set up NeuTTS for local synthesis.")
+ 
+ 
+-def _synthesize_builtin(engine: str, text: str, file_str: str, tts_config: Dict[str, Any], instructions: Optional[str]) -> None:
+-    """Run the already-selected built-in *engine*."""
++def _synthesize_builtin(engine: str, text: str, file_str: str, tts_config: Dict[str, Any], instructions: Optional[str]) -> Optional[str]:
++    """Run the already-selected built-in *engine*.
++
++    Returns the OpenAI provider's audio title when it supplied one (audio-gateway's
++    X-Audio-Title header), else None. LOCAL MODIFICATION — see
++    patches/tts-tool-audio-title.patch.
++    """
+     entry = _BUILTIN_DISPATCH.get(engine)
+     logger.info("Generating speech with %s...", entry[1] if entry else "Edge TTS")
+     if entry is None:
+         _run_edge_tts(text, file_str, tts_config)
+     elif engine == "openai":
+-        _generate_openai_tts(text, file_str, tts_config, instructions=instructions)
++        return _generate_openai_tts(text, file_str, tts_config, instructions=instructions)
+     else:
+         globals()[entry[2]](text, file_str, tts_config)
++    return None
+ 
+ 
+ def _finalize_voice_delivery(
+@@ -325,15 +332,48 @@ def _tool_failure(prefix: str, provider: str, exc: BaseException) -> str:
+     return tool_error(error_msg, success=False)
+ 
+ 
 +def _rename_with_title(path: str, title: str) -> Optional[str]:
 +    """Rename a generated audio file to a human *title* (from audio-gateway's
 +    X-Audio-Title header) so the Slack attachment shows a real name instead of
@@ -31,42 +65,100 @@ index 3aa4875922..b4ee55f13e 100644
 +        return None
 +
 +
+ def _text_to_speech_single(
+     text: str, file_str: str, *, provider: str, tts_config: Dict[str, Any],
+     command_provider_config: Optional[Dict[str, Any]], want_opus: bool, instructions: Optional[str],
++    output_path: Optional[str] = None,
+ ) -> str:
+     """Synthesize one provider-safe chunk into *file_str*; returns the result envelope.
+ 
+     Command providers resolve BEFORE built-in dispatch, but built-in names short-circuit so
+     ``tts.providers.openai.command`` can't shadow OpenAI. Plugins fire only for names that are
+-    neither; a None return falls through to built-in dispatch (unknown -> Edge default)."""
++    neither; a None return falls through to built-in dispatch (unknown -> Edge default).
++
++    ``output_path`` is the caller's original (pre-chunking) explicit path, if any — used only to
++    decide whether the openai-provider audio-title rename below applies. LOCAL MODIFICATION — see
++    patches/tts-tool-audio-title.patch."""
++    # LOCAL MODIFICATION: human title from audio-gateway's X-Audio-Title header
++    # (openai provider only). See patches/tts-tool-audio-title.patch.
++    audio_title: Optional[str] = None
+     try:
+         if command_provider_config is not None:
+             logger.info("Generating speech with command TTS provider '%s'...", provider)
+@@ -353,7 +393,7 @@ def _text_to_speech_single(
+             provider, error = _select_builtin_engine(provider)
+             if error:
+                 return error
+-            _synthesize_builtin(provider, text, file_str, tts_config, instructions)
++            audio_title = _synthesize_builtin(provider, text, file_str, tts_config, instructions)
+         if not os.path.exists(file_str) or os.path.getsize(file_str) == 0:
+             return _error_json(f"TTS generation produced no output (provider: {provider})")
+ 
+@@ -361,6 +401,18 @@ def _text_to_speech_single(
+         file_str = _repair_ogg_container(file_str)
+         file_str, voice_compatible = _finalize_voice_delivery(
+             file_str, provider, command_provider_config, want_opus)
++
++        # LOCAL MODIFICATION: rename the auto-named tts_<timestamp> file to the
++        # audio-gateway title so the Slack attachment shows a real name. Applies
++        # when the caller didn't pin an output_path, and to the gateway's own
++        # auto voice-reply temp files (tts_reply_<uuid>, build_auto_tts_output_path)
++        # — those callers read the returned file_path, so a rename is honoured.
++        # See patches/tts-tool-audio-title.patch.
++        if audio_title and (not output_path or os.path.basename(str(output_path)).startswith("tts_reply_")):
++            _renamed = _rename_with_title(file_str, audio_title)
++            if _renamed:
++                file_str = _renamed
++
+         logger.info("TTS audio saved: %s (%s bytes, provider: %s)", file_str, f"{os.path.getsize(file_str):,}", provider)
+         return json.dumps({
+             "success": True, "file_path": file_str, "media_tag": _media_tag([file_str], voice_compatible),
+@@ -446,7 +498,7 @@ def text_to_speech_tool(
+         encoded_paths, chunk_results = _synthesize_chunks(
+             chunks, base_path, generated_artifacts, provider=provider, tts_config=tts_config,
+             command_provider_config=command_provider_config, want_opus=want_opus,
+-            instructions=instructions)
++            instructions=instructions, output_path=output_path)
+         voice_compatible = bool(chunk_results) and all(bool(r.get("voice_compatible")) for r in chunk_results)
+         delivery_base = base_path.with_suffix(Path(encoded_paths[0]).suffix)
+         final_paths, combined_chunks = _build_audio_delivery_files(
+diff --git a/tools/tts_tool_openai.py b/tools/tts_tool_openai.py
+index c131b89f3f..7537691756 100644
+--- a/tools/tts_tool_openai.py
++++ b/tools/tts_tool_openai.py
+@@ -82,13 +82,24 @@ def _has_openai_audio_backend() -> bool:
  def _generate_openai_tts(
-     text: str,
-     output_path: str,
-@@ -1823,7 +1848,7 @@ def _generate_openai_tts(
-     voice: Optional[str] = None,
-     speed: Optional[float] = None,
-     instructions: Optional[str] = None,
--) -> str:
-+) -> Optional[str]:
+     text: str, output_path: str, tts_config: Dict[str, Any], *, api_key: Optional[str] = None,
+     base_url: Optional[str] = None, model: Optional[str] = None, voice: Optional[str] = None,
+-    speed: Optional[float] = None, instructions: Optional[str] = None) -> str:
++    speed: Optional[float] = None, instructions: Optional[str] = None) -> Optional[str]:
      """Generate audio via the OpenAI ``audio.speech.create`` SDK shape.
  
-     Optional kwargs let OpenAI-compatible backends (DeepInfra etc.) reuse
-@@ -1850,8 +1875,15 @@ def _generate_openai_tts(
-             unaffected.
- 
-     Returns:
--        Path to the saved audio file.
-+        A human-readable title for the audio when the server provides one
-+        (audio-gateway's ``X-Audio-Title`` header, generated by its DeepSeek
-+        prep step), else ``None``. Used by the caller to name the saved file /
-+        Slack attachment. LOCAL MODIFICATION — see patches/tts-tool-audio-title.patch.
-     """
+     Explicit kwargs let OpenAI-compatible backends (DeepInfra) supply credentials/model/voice
+     and skip the managed-gateway resolution; otherwise the OpenAI auth chain and ``tts.openai``
+     (speed falling back to ``tts.speed``) apply. ``instructions`` is forwarded only when truthy
+-    so ``tts-1`` and strict OpenAI-compatible servers that reject unknown kwargs are unaffected."""
++    so ``tts-1`` and strict OpenAI-compatible servers that reject unknown kwargs are unaffected.
++
++    Returns:
++        A human-readable title for the audio when the server provides one (audio-gateway's
++        ``X-Audio-Title`` header, generated by its DeepSeek prep step), else ``None``. Used by
++        the caller to name the saved file / Slack attachment. LOCAL MODIFICATION — see
++        patches/tts-tool-audio-title.patch.
++    """
 +    # LOCAL MODIFICATION (patches/tts-tool-audio-title.patch): decode the
 +    # RFC 5987 / percent-encoded X-Audio-Title response header below.
 +    from urllib.parse import unquote as _unquote  # noqa: E402
 +
-     # Only resolve the OpenAI auth chain when the caller didn't pass explicit
-     # credentials. OpenAI-compatible backends (DeepInfra) pass api_key /
-     # base_url / model / voice through and never hit the managed-gateway path.
-@@ -1916,10 +1948,15 @@ def _generate_openai_tts(
-             create_kwargs["instructions"] = instructions
-         if language:
-             create_kwargs["extra_body"] = {"lang_code": language}
--        response = client.audio.speech.create(**create_kwargs)
--
--        response.stream_to_file(output_path)
+     fallback_base: Optional[str] = None
+     is_managed = False
+     explicit_base_url = base_url is not None
+@@ -126,17 +137,25 @@ def _generate_openai_tts(
+         create_kwargs["extra_body"] = {"lang_code": oai_config["language"]}
+     client = _origin()._import_openai_client()(api_key=api_key, base_url=base_url)
+     try:
+-        client.audio.speech.create(**create_kwargs).stream_to_file(output_path)
 -        return output_path
 +        # LOCAL MODIFICATION (patches/tts-tool-audio-title.patch):
 +        # with_raw_response so we can read the X-Audio-Title header alongside
@@ -80,42 +172,15 @@ index 3aa4875922..b4ee55f13e 100644
      finally:
          close = getattr(client, "close", None)
          if callable(close):
-@@ -3258,6 +3295,9 @@ def _text_to_speech_single(
-     # Ensure parent directory exists
-     file_path.parent.mkdir(parents=True, exist_ok=True)
-     file_str = str(file_path)
-+    # LOCAL MODIFICATION: human title from audio-gateway's X-Audio-Title header
-+    # (openai provider only). See patches/tts-tool-audio-title.patch.
-+    audio_title: Optional[str] = None
+             close()
  
-     try:
-         # Generate audio with the configured provider
-@@ -3304,7 +3344,9 @@ def _text_to_speech_single(
-                     "error": "OpenAI provider selected but 'openai' package not installed."
-                 }, ensure_ascii=False)
-             logger.info("Generating speech with OpenAI TTS...")
--            _generate_openai_tts(text, file_str, tts_config, instructions=instructions)
-+            audio_title = _generate_openai_tts(
-+                text, file_str, tts_config, instructions=instructions,
-+            )
  
-         elif provider == "deepinfra":
-             try:
-@@ -3460,6 +3502,17 @@ def _text_to_speech_single(
-         elif provider in {"elevenlabs", "openai", "mistral", "gemini"}:
-             voice_compatible = want_opus and file_str.endswith(".ogg")
- 
-+        # LOCAL MODIFICATION: rename the auto-named tts_<timestamp> file to the
-+        # audio-gateway title so the Slack attachment shows a real name. Applies
-+        # when the caller didn't pin an output_path, and to the gateway's own
-+        # auto voice-reply temp files (tts_reply_<uuid>, build_auto_tts_output_path)
-+        # — those callers read the returned file_path, so a rename is honoured.
-+        # See patches/tts-tool-audio-title.patch.
-+        if audio_title and (not output_path or os.path.basename(str(output_path)).startswith("tts_reply_")):
-+            _renamed = _rename_with_title(file_str, audio_title)
-+            if _renamed:
-+                file_str = _renamed
-+
-         file_size = os.path.getsize(file_str)
-         logger.info("TTS audio saved: %s (%s bytes, provider: %s)", file_str, f"{file_size:,}", provider)
- 
+-def _generate_deepinfra_tts(text: str, output_path: str, tts_config: Dict[str, Any]) -> str:
++def _generate_deepinfra_tts(text: str, output_path: str, tts_config: Dict[str, Any]) -> Optional[str]:
+     """Resolve DeepInfra credentials/model (live ``hermes_cli.models`` catalog, no hardcoded ids), then
+-    delegate to the OpenAI-compatible handler."""
++    delegate to the OpenAI-compatible handler. Return value (audio title, LOCAL MODIFICATION — see
++    patches/tts-tool-audio-title.patch) is currently unused by callers, which discard it."""
+     api_key = _origin()._resolve_provider_key("DEEPINFRA_API_KEY", "deepinfra")
+     if not api_key:
+         raise ValueError("DEEPINFRA_API_KEY not set. Run `hermes setup` to configure, or set the env var directly.")

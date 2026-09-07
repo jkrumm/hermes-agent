@@ -1,21 +1,22 @@
-diff --git a/run_agent.py b/run_agent.py
-index c6638b6cac..4257d6ec7f 100644
---- a/run_agent.py
-+++ b/run_agent.py
-@@ -6280,10 +6280,13 @@ class AIAgent:
-         # Other anthropic_messages providers (MiniMax, Alibaba, etc.) use their own keys.
-         if self.provider != "anthropic":
+diff --git a/agent/client_lifecycle.py b/agent/client_lifecycle.py
+index f617870920..ab363db187 100644
+--- a/agent/client_lifecycle.py
++++ b/agent/client_lifecycle.py
+@@ -792,10 +792,16 @@ class ClientLifecycleMixin:
+     def _try_refresh_anthropic_client_credentials(self) -> bool:
+         # Only native Anthropic rotates OAuth tokens; other anthropic_messages providers (MiniMax, Alibaba, ...)
+         # and Azure use static keys — a refresh would pick up the ~/.claude OAuth token and break auth.
++        # LOCAL MODIFICATION (patches/run-agent-third-party-endpoint-token-refresh.patch):
++        # broaden the Azure-only skip to EVERY third-party Anthropic-compatible
++        # endpoint (IU, MiniMax-style proxies, self-hosted). They all use static
++        # API keys, so a refresh would swap in the ~/.claude/.credentials.json
++        # OAuth token and break auth on anything that isn't api.anthropic.com.
++        from agent.anthropic_endpoints import _is_third_party_anthropic_endpoint
+         if (
+             self.api_mode != "anthropic_messages" or not hasattr(self, "_anthropic_api_key")
+             or self.provider != "anthropic"
+-            or base_url_host_matches(getattr(self, "_anthropic_base_url", "") or "", "azure.com")
++            or _is_third_party_anthropic_endpoint(getattr(self, "_anthropic_base_url", "") or "")
+         ):
              return False
--        # Azure endpoints use static API keys — OAuth token rotation doesn't apply.
--        # Refreshing would pick up ~/.claude/.credentials.json OAuth token and break auth.
-+        # Third-party endpoints (Azure, IU, MiniMax-style proxies, self-hosted)
-+        # use static API keys — OAuth token rotation doesn't apply. Refreshing
-+        # would pick up ~/.claude/.credentials.json OAuth token and break auth
-+        # on any endpoint that isn't api.anthropic.com.
-+        from agent.anthropic_adapter import _is_third_party_anthropic_endpoint
-         _base = getattr(self, "_anthropic_base_url", "") or ""
--        if base_url_host_matches(_base, "azure.com"):
-+        if _is_third_party_anthropic_endpoint(_base):
-             return False
- 
          try:

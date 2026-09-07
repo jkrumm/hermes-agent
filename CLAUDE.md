@@ -454,25 +454,33 @@ Re-apply after `hermes update`: **one `.patch` file per patched upstream file**,
 apply --3way` (`/hermes-update` carries the loop). `ls patches/` is the count, `make patch-check`
 proves they are applied — deliberately not restated here (it drifted at four of the last five
 updates). All are regenerated against the current baseline (**v0.21.0**, upstream
-`b6f42c667a`), so only a structural rewrite of a touched function needs hand-resolving.
+`d8a07768c5`), so only a structural rewrite of a touched function needs hand-resolving.
+
+**2026-09-07 — every patch moved file.** Upstream landed **5503 commits in six days** under an
+unchanged version number, splitting the monoliths (`gateway/run.py` 22k → 5.5k lines,
+`tools/tts_tool.py` 3k → 682, `hermes_cli/web_server.py` 18k → 1.8k, `tools/tirith_security.py`
+1248 → 546). All ten patches conflicted and were hand-ported; the **patch names are unchanged**
+(they are identifiers cited by the `# LOCAL MODIFICATION (patches/<name>.patch)` markers), so
+three of them now name a file they no longer touch — read the table's left column, not the
+patch name.
 
 | Upstream file | `patches/…` | What it does |
 |-|-|-|
-| `tools/tts_tool.py` | `tts-tool-audio-title` | name saved audio from the gateway's `X-Audio-Title` header instead of `tts_<timestamp>.mp3` (also `tts_reply_<uuid>` auto voice replies) |
-| `gateway/run.py` | `gateway-auto-tts-voice-only` | auto-TTS answers **voice input only** (`and is_voice_input` in `_should_send_voice_reply`'s fallback), so alerts stop coming back as MP3s. `/voice all` per chat still speaks everything |
-| `hermes_cli/web_server.py` | `serve-speak-summary` | Desktop relay read-aloud: a first frame carrying whole text + `done` and ≥ `voice.speak_summary_min_chars` (config **120**, 0 = off) is summarised in one gateway call. `openai` streamer only; needs `voice.client_direct: false` |
+| `tools/tts_tool_openai.py` + `tools/tts_tool.py` | `tts-tool-audio-title` | name saved audio from the gateway's `X-Audio-Title` header instead of `tts_<timestamp>.mp3` (also `tts_reply_<uuid>` auto voice replies) |
+| `gateway/run_voice.py` | `gateway-auto-tts-voice-only` | auto-TTS answers **voice input only** (`and is_voice_input` in `_should_send_voice_reply`'s fallback), so alerts stop coming back as MP3s. `/voice all` per chat still speaks everything |
+| `hermes_cli/web_routers/audio.py` | `serve-speak-summary` | Desktop relay read-aloud: a first frame carrying whole text + `done` and ≥ `voice.speak_summary_min_chars` (config **120**, 0 = off) is summarised in one gateway call. `openai` streamer only; needs `voice.client_direct: false` |
 | `plugins/platforms/slack/adapter.py` | `slack-cannot-reply-to-message` | `format_message()` pre-steps (`*` → `-`, strip backticks round emoji shortcodes) + `send()` retry: on `cannot_reply_to_message`, drop `thread_ts` and retry flat |
 | `gateway/platforms/base.py` | `slack-media-inline-reply-anchor` | pass the text reply's anchor to `send_voice`/`send_video`/`send_document`. **Dormant** under `reply_in_thread: true`, kept applied |
-| `run_agent.py` | `run-agent-third-party-endpoint-token-refresh` | broaden `_try_refresh_anthropic_client_credentials`'s skip from Azure-only to every third-party Anthropic-compatible endpoint (stops `~/.claude/.credentials.json` OAuth replacing the IU key). **Dormant**, kept applied |
+| `agent/client_lifecycle.py` | `run-agent-third-party-endpoint-token-refresh` | broaden `_try_refresh_anthropic_client_credentials`'s skip from Azure-only to every third-party Anthropic-compatible endpoint (stops `~/.claude/.credentials.json` OAuth replacing the IU key). **Dormant**, kept applied |
 | `tools/tirith_security.py` | `tirith-hermes-guards` | four guard rules, below |
-| `tools/cronjob_tools.py` | `cronjob-tools-allowlist-argo-bearer` | argo/karakeep/research/hyperdx/audio-gateway bearer allowlist in the shared `_strip_cron_safe_constructs`, so a legitimate bearer curl in a cron prompt stops tripping `exfil_curl_auth_header`. GitHub's exempt shape is `Authorization: token $VAR`, **not** `Bearer` |
+| `tools/cronjob_prompt_scan.py` | `cronjob-tools-allowlist-argo-bearer` | argo/karakeep/research/hyperdx/audio-gateway bearer allowlist in the shared `_strip_cron_safe_constructs`, so a legitimate bearer curl in a cron prompt stops tripping `exfil_curl_auth_header`. GitHub's exempt shape is `Authorization: token $VAR`, **not** `Bearer` |
 | `hermes_cli/runtime_provider.py` | `runtime-provider-iu-responses-api` | route the IU `…/openai/v1` leg onto `codex_responses` in `_detect_api_mode_for_url` — **the only way to run a reasoning effort here** |
 | `agent/transports/chat_completions.py` | `transport-iu-reasoning-effort` | drop `reasoning_effort` on a gpt-5.x request carrying function tools; clamp `xhigh`/`max` → `high` for the Anthropic fallback |
 
 Re-apply shape:
 `cd ~/.hermes/hermes-agent && git apply ~/SourceRoot/hermes-agent/patches/<name>.patch`.
-**Anything touching `tirith_security.py`, `cronjob_tools.py` or `runtime_provider.py` needs a
-gateway restart** (`launchctl kickstart -k gui/$(id -u)/ai.hermes.gateway`) — modules are
+**Anything touching `tirith_security.py`, `cronjob_prompt_scan.py` or `runtime_provider.py`
+needs a gateway restart** (`launchctl kickstart -k gui/$(id -u)/ai.hermes.gateway`) — modules are
 imported once at startup, so a green in-process test says nothing about the running process.
 `serve-speak-summary` kickstarts `com.jkrumm.hermes-serve` instead.
 

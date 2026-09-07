@@ -1,8 +1,8 @@
 diff --git a/tools/tirith_security.py b/tools/tirith_security.py
-index a284c6d400..377dfaebb9 100644
+index 79cee1db48..c20fca8de3 100644
 --- a/tools/tirith_security.py
 +++ b/tools/tirith_security.py
-@@ -25,6 +25,8 @@ import json
+@@ -11,6 +11,8 @@ import json
  import logging
  import os
  import platform
@@ -11,8 +11,8 @@ index a284c6d400..377dfaebb9 100644
  import shutil
  import stat
  import subprocess
-@@ -720,6 +722,772 @@ def ensure_installed(*, log_failures: bool = True):
-     return None  # Not available yet; commands will fail-open until ready
+@@ -455,6 +457,773 @@ def ensure_installed(*, log_failures: bool = True):
+     return None  # not available yet; commands fail-open until ready
  
  
 +# ---------------------------------------------------------------------------
@@ -781,16 +781,19 @@ index a284c6d400..377dfaebb9 100644
 +    return True
 +
 +
- # ---------------------------------------------------------------------------
- # Main API
- # ---------------------------------------------------------------------------
-@@ -745,6 +1513,91 @@ def check_command_security(command: str) -> dict:
++
+ # --- Main API ---
+ _MAX_FINDINGS = 50
+ _MAX_SUMMARY_LEN = 500
+@@ -486,11 +1255,103 @@ def check_command_security(command: str) -> dict:
+     cfg = _load_security_config()
      if not cfg["tirith_enabled"]:
-         return {"action": "allow", "findings": [], "summary": ""}
- 
+         return _verdict("allow")
++
 +    # LOCAL MODIFICATION (patches/tirith-hermes-guards.patch):
-+    # close tirith's download-then-execute gap. Deliberately placed BEFORE the
-+    # circuit breaker and the argo allowlist, so it still holds when tirith is
++    # the three block-checks below (raw agent invocation, raw repo write,
++    # download-then-execute) are deliberately placed BEFORE the circuit breaker
++    # and the argo allowlist, so they still hold when tirith is
 +    # unavailable/fail-open and can never be bypassed by an allowlisted host.
 +    _agent_reason = _raw_agent_invocation_reason(command)
 +    if _agent_reason:
@@ -873,18 +876,16 @@ index a284c6d400..377dfaebb9 100644
 +            "summary": "download-then-execute blocked (local hardening)",
 +        }
 +
-     # Circuit breaker: if tirith has crashed _CRASH_LIMIT times in a row,
-     # stop trying for the rest of the process.  Without this, a corrupted
-     # or missing binary causes every tool call to hit the same spawn failure
-@@ -753,6 +1606,11 @@ def check_command_security(command: str) -> dict:
+     # Circuit breaker: if tirith has crashed _CRASH_LIMIT times in a row, stop trying for the rest of the
+     # process. Without this, a corrupted or missing binary causes every tool call to hit the same spawn
+     # failure → fail-open → agent retry loop, hanging the user for 20+ minutes (issue #41400).
      if _circuit_open:
-         return {"action": "allow", "findings": [], "summary": "tirith disabled (circuit breaker)"}
- 
+         return _verdict("allow", "tirith disabled (circuit breaker)")
 +    # LOCAL MODIFICATION (patches/tirith-hermes-guards.patch):
 +    # trusted personal API pipelines bypass tirith entirely.
 +    if _is_argo_only_pipeline(command):
 +        return {"action": "allow", "findings": [], "summary": "trusted personal API pipeline (tirith bypassed)"}
 +
-     # Unsupported platform (Windows etc.) — tirith has no binary here and
-     # never will. Skip the resolver entirely so we don't even try to spawn.
-     # Pattern-matching guards still run via the rest of approval.py.
+     # No binary for this platform, ever: skip the resolver so we never spawn.
+     if not is_platform_supported():
+         return _verdict("allow")

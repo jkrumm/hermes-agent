@@ -538,7 +538,6 @@ logging:
 model_catalog:
   enabled: true
   url: https://hermes-agent.nousresearch.com/docs/api/model-catalog.json
-  ttl_hours: 1
 network:
   force_ipv4: false
 gateway:
@@ -594,7 +593,7 @@ secrets:
 paste_collapse_threshold: 5
 paste_collapse_threshold_fallback: 5
 paste_collapse_char_threshold: 2000
-_config_version: 39
+_config_version: 41
 homelab_api:
   base_url: https://argo.jkrumm.com/api
   api_key: ${HOMELAB_API_KEY}
@@ -609,7 +608,6 @@ platform_toolsets:
     - file
     - kanban
     - memory
-    - messaging
     - session_search
     - skills
     - terminal
@@ -626,7 +624,6 @@ platform_toolsets:
     - file
     - kanban
     - memory
-    - messaging
     - session_search
     - skills
     - terminal

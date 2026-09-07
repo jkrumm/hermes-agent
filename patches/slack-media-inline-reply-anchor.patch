@@ -1,56 +1,38 @@
 diff --git a/gateway/platforms/base.py b/gateway/platforms/base.py
-index 3ad1ea18d4..4f36d319e2 100644
+index 5c115fcf59..bc815ebfed 100644
 --- a/gateway/platforms/base.py
 +++ b/gateway/platforms/base.py
-@@ -6947,6 +6947,13 @@ class BasePlatformAdapter(ABC):
-                         self.name,
-                         len(_non_image_media),
-                     )
-+                # LOCAL MODIFICATION (patches/slack-media-inline-reply-anchor.patch):
-+                # Pass the same reply anchor the text reply uses so media files
-+                # thread identically to text. Without it, media senders get
-+                # reply_to=None and Slack's synthetic-thread guard (which nulls
-+                # the message's own ts only when it equals reply_to) can't fire,
-+                # so audio/files land in a thread while the text reply is inline.
-+                _media_reply_anchor = _reply_anchor_for_event(event)
-                 for media_path, is_voice in _non_image_media:
-                     if human_delay > 0:
-                         await asyncio.sleep(human_delay)
-@@ -6956,6 +6963,7 @@ class BasePlatformAdapter(ABC):
-                             media_result = await self.send_voice(
-                                 chat_id=event.source.chat_id,
-                                 audio_path=media_path,
-+                                reply_to=_media_reply_anchor,
-                                 metadata=_final_thread_metadata,
-                                 is_voice=is_voice,
-                             )
-@@ -6969,12 +6977,14 @@ class BasePlatformAdapter(ABC):
-                             media_result = await self.send_video(
-                                 chat_id=event.source.chat_id,
-                                 video_path=media_path,
-+                                reply_to=_media_reply_anchor,
-                                 metadata=_final_thread_metadata,
-                             )
-                         else:
-                             media_result = await self.send_document(
-                                 chat_id=event.source.chat_id,
-                                 file_path=media_path,
-+                                reply_to=_media_reply_anchor,
-                                 metadata=_final_thread_metadata,
-                             )
+@@ -3785,19 +3785,30 @@ class BasePlatformAdapter(ABC):
+             await self._send_image_batch(
+                 event, [(f"file://{_quote(p)}", "") for p in _image_paths], metadata, human_delay)
+         chat_id = event.source.chat_id
++        # LOCAL MODIFICATION (patches/slack-media-inline-reply-anchor.patch):
++        # Pass the same reply anchor the text reply uses so media files thread
++        # identically to text. Without it, media senders get reply_to=None and
++        # Slack's synthetic-thread guard (which nulls the message's own ts only
++        # when it equals reply_to) can't fire, so audio/files land in a thread
++        # while the text reply is inline.
++        _media_reply_anchor = _reply_anchor_for_event(event)
  
-@@ -6999,12 +7009,14 @@ class BasePlatformAdapter(ABC):
-                             file_result = await self.send_video(
-                                 chat_id=event.source.chat_id,
-                                 video_path=file_path,
-+                                reply_to=_media_reply_anchor,
-                                 metadata=_final_thread_metadata,
-                             )
-                         else:
-                             file_result = await self.send_document(
-                                 chat_id=event.source.chat_id,
-                                 file_path=file_path,
-+                                reply_to=_media_reply_anchor,
-                                 metadata=_final_thread_metadata,
-                             )
-                         if not file_result.success:
+         async def _send_one(path: str, *, is_voice: bool, media_tag: bool) -> None:
+             """MEDIA-tag files (``media_tag``) may route to send_voice; bare local files never
+             do."""
+             ext = Path(path).suffix.lower()
+             if media_tag and should_send_media_as_audio(self.platform, ext, is_voice=is_voice):
+-                result = await self.send_voice(chat_id=chat_id, audio_path=path, metadata=metadata, is_voice=is_voice)
++                result = await self.send_voice(
++                    chat_id=chat_id, audio_path=path, reply_to=_media_reply_anchor,
++                    metadata=metadata, is_voice=is_voice)
+             elif ext in _VIDEO_EXTS:
+                 if media_tag:
+                     logger.info("[%s] Sending video attachment (%s) to %s", self.name, ext, chat_id)
+-                result = await self.send_video(chat_id=chat_id, video_path=path, metadata=metadata)
++                result = await self.send_video(
++                    chat_id=chat_id, video_path=path, reply_to=_media_reply_anchor, metadata=metadata)
+             else:
+-                result = await self.send_document(chat_id=chat_id, file_path=path, metadata=metadata)
++                result = await self.send_document(
++                    chat_id=chat_id, file_path=path, reply_to=_media_reply_anchor, metadata=metadata)
+             if not result.success:
+                 logger.warning("[%s] Failed to send %s (%s): %s", self.name,
+                                "media" if media_tag else "local file", ext, result.error)

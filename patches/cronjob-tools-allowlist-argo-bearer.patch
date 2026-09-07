@@ -1,38 +1,30 @@
-diff --git a/tools/cronjob_tools.py b/tools/cronjob_tools.py
-index 5fd0619458..a3b460d79f 100644
---- a/tools/cronjob_tools.py
-+++ b/tools/cronjob_tools.py
-@@ -188,11 +188,16 @@ def _strip_legitimate_emoji_zwj(prompt: str) -> str:
+diff --git a/tools/cronjob_prompt_scan.py b/tools/cronjob_prompt_scan.py
+index 90077d9832..6b17f1182d 100644
+--- a/tools/cronjob_prompt_scan.py
++++ b/tools/cronjob_prompt_scan.py
+@@ -72,15 +72,18 @@ def _zwj_has_emoji_neighbour(text: str, idx: int) -> bool:
  
  
  def _strip_cron_safe_constructs(prompt: str) -> str:
--    """Strip the GitHub `Authorization: token $GITHUB_TOKEN` auth-header
--    pattern so it doesn't trip the broader curl-auth-header exfil rule.
-+    """Strip known-safe curl shapes so they don't trip the broader
-+    curl-auth-header exfil rule:
- 
--    Allows the bundled GitHub skill fallback without opening a blanket
--    exemption for arbitrary Authorization-header exfiltration.
-+    - the GitHub `Authorization: token $GITHUB_TOKEN` fallback (api.github.com)
-+    - argo.jkrumm.com / karakeep.jkrumm.com / research.jkrumm.com / hyperdx.jkrumm.com
-+      / audio-gateway.jkrumm.com bearer curls (this deployment's trusted personal APIs)
+-    """Scrub the bundled GitHub skill's `Authorization: token $GITHUB_TOKEN` + api.github.com
+-    curl so it doesn't trip the auth-header exfil rule.
++    """Scrub known-safe curl shapes so they don't trip the broader auth-header exfil rule:
 +
-+    Allows the bundled GitHub + argo + karakeep + research + hyperdx + podcast skill
-+    fallbacks without opening a blanket exemption for arbitrary Authorization-header
-+    exfiltration.
++    - the bundled GitHub skill's `Authorization: token $GITHUB_TOKEN` + api.github.com curl
++    - argo.jkrumm.com / karakeep.jkrumm.com / research.jkrumm.com / hyperdx.jkrumm.com /
++      audio-gateway.jkrumm.com bearer curls (this deployment's trusted personal APIs)
  
-     Uses ``re.sub`` so EVERY occurrence is scrubbed, not just the first — a
-     cron job that loads 2+ GitHub skills (e.g. github-issues +
-@@ -208,7 +213,7 @@ def _strip_cron_safe_constructs(prompt: str) -> str:
-     trusted construct and fall through to the exfil detectors, while
-     legitimately quoted bare-host URLs stay exempt.
+     re.sub scrubs EVERY occurrence. The trailing ``[^\\s;&|$`]*`` consumes only the URL path —
+     never separators or subshell openers — so a payload smuggled onto the same line still gets
+     scanned. Host must be exactly api.github.com followed by ``/``, whitespace, quote, or end:
+     lookalike authorities (api.github.com.evil.com, api.github.com@evil.com) fall through.
      """
 -    return re.sub(
 +    result = re.sub(
          rf'curl\s+[^\n;&|$`]*(?:-H|--header)\s+["\']Authorization:\s*token\s+{_CRON_SECRET_VAR_RE}["\']'
          r'\s+["\']?https://api\.github\.com(?::\d+)?(?:/|\s|$|["\'])[^\s;&|$`]*',
          'curl https://api.github.com/user',
-@@ -216,6 +221,47 @@ def _strip_cron_safe_constructs(prompt: str) -> str:
+@@ -88,6 +91,48 @@ def _strip_cron_safe_constructs(prompt: str) -> str:
          flags=re.IGNORECASE,
      )
  
@@ -64,6 +56,7 @@ index 5fd0619458..a3b460d79f 100644
 +        if any(not h.lower().endswith(_trusted_api_suffixes) for h in other_hosts):
 +            return body
 +        return '```\n# [trusted API bash fence — sanitized by local allowlist]\n```'
++
 +    result = re.sub(
 +        r'```[a-zA-Z0-9_-]*\n[\s\S]*?\n```',
 +        _sanitize_trusted_api_fence,
@@ -78,5 +71,5 @@ index 5fd0619458..a3b460d79f 100644
 +    return result
 +
  
- def _check_invisible_unicode(prompt: str) -> str:
-     """Return an error string if the prompt contains invisible-unicode
+ def _strip_invisible_unicode(prompt: str) -> tuple[str, list[str]]:
+     """Strip invisible-unicode chars, keeping ZWJ inside legitimate emoji.
