@@ -23,6 +23,28 @@ The morning briefing (`render_briefing()`) re-surfaces every non-quiet
 recommendation daily regardless of `delta()`, which is what keeps a forgotten
 standing question from vanishing for good.
 
+## Refresh is consumer-driven, not clock-driven
+
+Neither surface refreshes on a fixed clock — each decides for itself whether
+the LLM overview pass (`overview` job) is worth its own model call:
+
+- **The morning briefing refreshes when the cached overview is stale.** After
+  `fetch()`, if `data.overview` is null or its `ageMs` is older than
+  `HERMES_AGENTS_BRIEFING_MAX_AGE_S` (default 7200s = 2h), `--briefing` calls
+  `refresh()` before rendering. If that refresh fails, it renders the cached
+  data anyway and appends one line noting how old the verdicts are, rather
+  than blocking the briefing on sideclaw.
+- **The digest cron refreshes only when something actually moved.** Before
+  ever touching the model, `--slack-body` fetches the deterministic
+  `GET /api/agents` snapshot (same shape as `/api/overview`, minus the LLM
+  fields) and hashes it with `fingerprint()` — sha256 over the sorted
+  `(agent.id, agent.state, agent.lastActivityAt, project.name,
+  project.git.dirty, project.git.ahead)` rows. If that fingerprint matches
+  the one saved from the previous run, it exits silently: no refresh, no
+  state write, no output. Only a changed fingerprint triggers the existing
+  `refresh()` → `delta()` → `render_slack()` path. On an idle night this
+  costs zero model calls, every cycle.
+
 ## Read-only, by design
 
 This feature never sends keys to a herdr pane and never opens a dispatch — it only
@@ -37,10 +59,13 @@ with no network at all.
 ## State file
 
 `~/.hermes/agents-overview-state.json` — the last overview snapshot seen by
-`--slack-body`, used by `delta()` to decide whether anything changed since the
-previous run. Gitignored runtime state, like `briefing-state.json`; deleting it
-just means the next run treats every current agent as new (so it speaks once, then
-goes quiet again on the following run if nothing changed).
+`--slack-body`, plus its `fingerprint` (see above), used by `delta()` and the
+fingerprint comparison to decide whether anything changed since the previous
+run. Gitignored runtime state, like `briefing-state.json`; deleting it just
+means the next run treats every current agent as new (so it speaks once, then
+goes quiet again on the following run if nothing changed) and always refreshes
+once to re-establish a baseline fingerprint. Written atomically (temp file +
+rename).
 
 ## Registering the Slack digest cron
 
@@ -55,7 +80,7 @@ Not registered yet — do this by hand once the `#agents` channel exists:
 
    ```bash
    hermes cron create "*/30 * * * *" --name "Agents overview" \
-     --script agents-cron.py --no-agent --deliver slack:<AGENTS_CHANNEL_ID>
+     --script agents-cron.py --no-agent --deliver slack:C0BVDE5R562   # registered 2026-09-07 as job 72aa2fb36307
    ```
 
 3. Verify with `hermes cron list` — it should show `Script: agents-cron.py`,

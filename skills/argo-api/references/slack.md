@@ -105,6 +105,7 @@ Use these IDs directly — no need to call `/slack/channels` first:
 | #briefings | `C0AT6TH404R` | Morning/evening audio briefings |
 | #journal | `C0ATN8W6N2U` | Structured journal entries |
 | #news | `C0ASXJD0ZEG` | Daily digest |
+| #agents | `C0BVDE5R562` | Agent overview digest (read-only) |
 
 ---
 

@@ -104,5 +104,8 @@ last-known overview in the meantime; offer to check back.
 
 `scripts/agents-overview.py` (a scheduled no-agent script, not part of this
 skill's conversational path) posts a Slack digest and feeds the morning
-briefing — see `docs/agents-overview.md`. That script is the unattended
-path; this skill is the conversational one.
+briefing — see `docs/agents-overview.md`. Both of its refreshes are
+consumer-driven, not clock-driven: the briefing refreshes only when the
+cached overview is older than 2h, and the digest refreshes only when a
+deterministic `/api/agents` snapshot fingerprint changed since its last run.
+That script is the unattended path; this skill is the conversational one.

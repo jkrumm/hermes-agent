@@ -191,10 +191,12 @@ finally:
 
 print("\n14. main(['--slack-body']) degrades to silent exit 0 when sideclaw is unreachable")
 _orig_fetch = ao.fetch
+_orig_fetch_agents = ao.fetch_agents
 _orig_refresh = ao.refresh
 _orig_load_state = ao._load_state
 _orig_save_state = ao._save_state
 ao.fetch = _boom
+ao.fetch_agents = _boom
 ao.refresh = lambda base, timeout_s=120: None
 ao._load_state = lambda: None
 saved = {}
@@ -208,9 +210,107 @@ try:
     check("state not saved on total failure", saved.get("called", False), False)
 finally:
     ao.fetch = _orig_fetch
+    ao.fetch_agents = _orig_fetch_agents
     ao.refresh = _orig_refresh
     ao._load_state = _orig_load_state
     ao._save_state = _orig_save_state
+
+
+# --- fingerprint() -----------------------------------------------------------
+
+def mk_snapshot(projects: list[tuple[str, dict | None, list[dict]]]) -> dict:
+    """(name, git, agents) -> an /api/agents-shaped `data` object."""
+    return {
+        "summary": {"needsYou": 0, "working": 0, "idle": 0, "stale": 0, "done": 0, "dispatch": 0},
+        "projects": [
+            {"name": name, "cwd": f"/repo/{name}", "git": git, "agents": agents}
+            for name, git, agents in projects
+        ],
+        "warnings": [],
+    }
+
+
+def mk_snap_agent(id_: str, state: str, last_activity: int) -> dict:
+    return {"id": id_, "state": state, "lastActivityAt": last_activity}
+
+
+print("\n15. fingerprint() — stable across agent order")
+git_a = {"dirty": False, "ahead": 0}
+snap1 = mk_snapshot([("repoA", git_a, [
+    mk_snap_agent("a1", "working", 100),
+    mk_snap_agent("a2", "idle", 200),
+])])
+snap2 = mk_snapshot([("repoA", git_a, [
+    mk_snap_agent("a2", "idle", 200),
+    mk_snap_agent("a1", "working", 100),
+])])
+check("fingerprint ignores agent order", ao.fingerprint(snap1), ao.fingerprint(snap2))
+
+print("\n16. fingerprint() — stable across project order")
+git_b = {"dirty": True, "ahead": 2}
+snap3 = mk_snapshot([
+    ("repoA", git_a, [mk_snap_agent("a1", "working", 100)]),
+    ("repoB", git_b, [mk_snap_agent("b1", "idle", 300)]),
+])
+snap4 = mk_snapshot([
+    ("repoB", git_b, [mk_snap_agent("b1", "idle", 300)]),
+    ("repoA", git_a, [mk_snap_agent("a1", "working", 100)]),
+])
+check("fingerprint ignores project order", ao.fingerprint(snap3), ao.fingerprint(snap4))
+
+print("\n17. fingerprint() — stable across dict key order")
+snap5 = {
+    "warnings": [],
+    "projects": [{"agents": [
+        {"lastActivityAt": 100, "id": "a1", "state": "working"},
+        {"lastActivityAt": 200, "id": "a2", "state": "idle"},
+    ], "git": git_a, "cwd": "/repo/repoA", "name": "repoA"}],
+    "summary": {},
+}
+check("fingerprint ignores key order", ao.fingerprint(snap1), ao.fingerprint(snap5))
+
+print("\n18. fingerprint() — changes when agent.state changes")
+snap_state_a = mk_snapshot([("repoA", git_a, [mk_snap_agent("a1", "working", 100)])])
+snap_state_b = mk_snapshot([("repoA", git_a, [mk_snap_agent("a1", "idle", 100)])])
+check_true("state change flips fingerprint",
+           ao.fingerprint(snap_state_a) != ao.fingerprint(snap_state_b))
+
+print("\n19. fingerprint() — changes when lastActivityAt changes")
+snap_ts_a = mk_snapshot([("repoA", git_a, [mk_snap_agent("a1", "working", 100)])])
+snap_ts_b = mk_snapshot([("repoA", git_a, [mk_snap_agent("a1", "working", 999)])])
+check_true("lastActivityAt change flips fingerprint",
+           ao.fingerprint(snap_ts_a) != ao.fingerprint(snap_ts_b))
+
+print("\n20. fingerprint() — changes when project.git.dirty changes")
+snap_dirty_a = mk_snapshot([("repoA", {"dirty": False, "ahead": 0}, [mk_snap_agent("a1", "working", 100)])])
+snap_dirty_b = mk_snapshot([("repoA", {"dirty": True, "ahead": 0}, [mk_snap_agent("a1", "working", 100)])])
+check_true("git.dirty change flips fingerprint",
+           ao.fingerprint(snap_dirty_a) != ao.fingerprint(snap_dirty_b))
+
+print("\n21. fingerprint() — changes when project.git.ahead changes")
+snap_ahead_a = mk_snapshot([("repoA", {"dirty": False, "ahead": 0}, [mk_snap_agent("a1", "working", 100)])])
+snap_ahead_b = mk_snapshot([("repoA", {"dirty": False, "ahead": 3}, [mk_snap_agent("a1", "working", 100)])])
+check_true("git.ahead change flips fingerprint",
+           ao.fingerprint(snap_ahead_a) != ao.fingerprint(snap_ahead_b))
+
+
+# --- needs_refresh() -----------------------------------------------------
+
+print("\n22. needs_refresh() — null overview always needs a refresh")
+check_true("null overview -> true", ao.needs_refresh({"overview": None}, 7200_000))
+check_true("missing overview key -> true", ao.needs_refresh({}, 7200_000))
+
+print("\n23. needs_refresh() — ageMs above the bound needs a refresh")
+check_true("age above bound -> true",
+           ao.needs_refresh({"overview": {"ageMs": 7200_001}}, 7200_000))
+
+print("\n24. needs_refresh() — ageMs below the bound does not need a refresh")
+check("age below bound -> false",
+      ao.needs_refresh({"overview": {"ageMs": 100}}, 7200_000), False)
+
+print("\n25. needs_refresh() — ageMs exactly at the bound does not need a refresh")
+check("age at bound -> false",
+      ao.needs_refresh({"overview": {"ageMs": 7200_000}}, 7200_000), False)
 
 
 print()

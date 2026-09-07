@@ -33,7 +33,7 @@ Mac Mini M2 Pro — Hermes Agent (always-on)
 | `#briefings` | C0AT6TH404R | write only | — | Hermes posts morning/evening audio (Phase 1) |
 | `#journal` | C0ATN8W6N2U | write only | — | Hermes posts structured journal entries (Phase 2) |
 | `#news` | C0ASXJD0ZEG | write only | — | Daily digest (Phase 4) |
-| `#agents` | *not yet created* | write only | — | `agents` skill's Slack digest (read-only cross-project Claude Code/herdr status, `docs/agents-overview.md`) — create the channel + invite the Hermes bot, then record its ID here |
+| `#agents` | C0BVDE5R562 | write only | — | Agent overview digest (cron `72aa2fb36307`, every 30 min, only when something moved) — read-only view of every Claude Code/herdr agent, `docs/agents-overview.md` |
 
 ### Trigger Matrix
 

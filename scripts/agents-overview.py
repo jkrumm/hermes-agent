@@ -5,10 +5,20 @@ sideclaw is tracking, for Slack pings and the morning briefing.
 Talks to sideclaw's overview endpoints (`http://localhost:7705`, a local
 LaunchAgent — see `skills/agents/SKILL.md`):
 
-  GET  /api/overview          -> {ok, data: {generatedAt, summary, projects[], ...}}
+  GET  /api/overview          -> {ok, data: {generatedAt, summary, projects[], overview, ...}}
+  GET  /api/agents            -> {ok, data: {generatedAt, summary, projects[], ...}}  -- same
+       shape as /api/overview minus `overview`/recommendations: a deterministic
+       snapshot with no LLM involved, used to decide whether a refresh is worth
+       triggering at all.
   POST /api/jobs {"tool":"overview"} -> {ok, job:{id, status, ...}}   -- triggers
        a fresh LLM pass; poll GET /api/jobs/<id> until status is
        done|failed, then re-GET /api/overview for the merged result.
+
+Refresh is consumer-driven, not clock-driven: `--briefing` only refreshes
+when the cached overview is missing or older than
+`HERMES_AGENTS_BRIEFING_MAX_AGE_S` (default 7200s); `--slack-body` only
+refreshes when the deterministic `/api/agents` snapshot's fingerprint()
+differs from the last run's — an idle night produces zero model calls.
 
 This script only reads. It never sends keys to a herdr pane and never
 dispatches — that is scripts/hermes-cc.sh's job.
@@ -19,6 +29,7 @@ Source of truth: ~/SourceRoot/hermes-agent/scripts/agents-overview.py
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
@@ -31,6 +42,9 @@ from typing import Any
 STATE_PATH = Path.home() / ".hermes" / "agents-overview-state.json"
 
 DEFAULT_BASE = "http://localhost:7705"
+
+BRIEFING_MAX_AGE_S_ENV = "HERMES_AGENTS_BRIEFING_MAX_AGE_S"
+DEFAULT_BRIEFING_MAX_AGE_S = 7200
 
 # Recommendation -> icon, mirrors sideclaw's own /api/overview.txt rendering.
 RECOMMENDATION_ICONS = {
@@ -65,6 +79,74 @@ def fetch(base: str, timeout_s: int = 10) -> dict[str, Any]:
     if not payload.get("ok"):
         raise RuntimeError(f"overview fetch not ok: {payload}")
     return payload["data"]
+
+
+def fetch_agents(base: str, timeout_s: int = 10) -> dict[str, Any]:
+    """GET /api/agents and return the `data` object — the deterministic
+    snapshot (no LLM overview, no recommendations) used to decide whether a
+    refresh is worth its model call. Same failure contract as fetch()."""
+    req = urllib.request.Request(f"{base}/api/agents")
+    with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+        payload = json.loads(resp.read().decode())
+    if not payload.get("ok"):
+        raise RuntimeError(f"agents fetch not ok: {payload}")
+    return payload["data"]
+
+
+def fingerprint(data: dict[str, Any]) -> str:
+    """Pure, deterministic fingerprint of a snapshot's agent/project state:
+    sha256 over the canonical JSON of the sorted rows
+    (agent.id, agent.state, agent.lastActivityAt, project.name,
+    project.git.dirty, project.git.ahead) across every agent in every
+    project. Sorting by each row's own canonical JSON (rather than the raw
+    tuples) keeps this stable across dict key order and project/agent
+    iteration order, and sidesteps comparing mixed None/str/int/bool values
+    directly."""
+    rows: list[list[Any]] = []
+    for project in data.get("projects") or []:
+        git = project.get("git") or {}
+        for agent in project.get("agents") or []:
+            rows.append([
+                agent.get("id"),
+                agent.get("state"),
+                agent.get("lastActivityAt"),
+                project.get("name"),
+                git.get("dirty"),
+                git.get("ahead"),
+            ])
+    rows.sort(key=lambda row: json.dumps(row, sort_keys=True, default=str))
+    canonical = json.dumps(rows, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def needs_refresh(data: dict[str, Any], max_age_ms: int) -> bool:
+    """Pure staleness check for --briefing: a missing/null overview (never
+    run) or one older than max_age_ms needs a fresh pass before rendering."""
+    overview = data.get("overview")
+    if not overview:
+        return True
+    age_ms = overview.get("ageMs")
+    if age_ms is None:
+        return True
+    return age_ms > max_age_ms
+
+
+def _briefing_max_age_ms() -> int:
+    try:
+        return int(os.environ.get(BRIEFING_MAX_AGE_S_ENV, DEFAULT_BRIEFING_MAX_AGE_S)) * 1000
+    except ValueError:
+        return DEFAULT_BRIEFING_MAX_AGE_S * 1000
+
+
+def _fmt_age_ms(ms: int | None) -> str:
+    if ms is None:
+        return "unknown"
+    secs = ms / 1000
+    if secs < 3600:
+        return f"{int(secs / 60)}m"
+    if secs < 86400:
+        return f"{int(secs / 3600)}h"
+    return f"{int(secs / 86400)}d"
 
 
 def refresh(base: str, timeout_s: int = 120) -> dict[str, Any] | None:
@@ -246,7 +328,9 @@ def _load_state() -> dict[str, Any] | None:
 def _save_state(cur: dict[str, Any]) -> None:
     try:
         STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        STATE_PATH.write_text(json.dumps(cur))
+        tmp = STATE_PATH.with_suffix(STATE_PATH.suffix + f".tmp.{os.getpid()}")
+        tmp.write_text(json.dumps(cur))
+        tmp.replace(STATE_PATH)
     except OSError:
         pass
 
@@ -261,6 +345,15 @@ def main(argv: list[str] | None = None) -> int:
         except Exception:
             print("agents overview unavailable")
             return 0
+        if needs_refresh(cur, _briefing_max_age_ms()):
+            refreshed = refresh(base)
+            if refreshed is not None:
+                cur = refreshed
+            else:
+                age_ms = (cur.get("overview") or {}).get("ageMs")
+                print(render_briefing(cur))
+                print(f"overview verdicts are {_fmt_age_ms(age_ms)} old")
+                return 0
         print(render_briefing(cur))
         return 0
 
@@ -275,6 +368,19 @@ def main(argv: list[str] | None = None) -> int:
 
     if "--slack-body" in args:
         prev = _load_state()
+        try:
+            snapshot = fetch_agents(base)
+        except Exception:
+            snapshot = None
+
+        fp: str | None = None
+        if snapshot is not None:
+            fp = fingerprint(snapshot)
+            if prev is not None and fp == prev.get("fingerprint"):
+                # Deterministic snapshot unchanged since the last run —
+                # nothing moved, so skip the model call entirely.
+                return 0
+
         cur = refresh(base)
         if cur is None:
             try:
@@ -287,6 +393,7 @@ def main(argv: list[str] | None = None) -> int:
         body = render_slack(cur, delta(prev, cur))
         if body:
             print(body)
+        cur["fingerprint"] = fp if fp is not None else fingerprint(cur)
         _save_state(cur)
         return 0
 
