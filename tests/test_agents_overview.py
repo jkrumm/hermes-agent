@@ -313,6 +313,155 @@ check("age at bound -> false",
       ao.needs_refresh({"overview": {"ageMs": 7200_000}}, 7200_000), False)
 
 
+# --- render_slack_blocks() ------------------------------------------------
+
+print("\n26. render_slack_blocks() — header block text")
+cur = mk_overview(
+    [("repoA", [mk_agent("a1", "Ship it", "ship")])],
+    summary={"needsYou": 2, "working": 3, "idle": 0, "stale": 1, "done": 0, "dispatch": 0},
+)
+blocks = ao.render_slack_blocks(cur, [], full=True)
+check("first block is a header", blocks[0]["type"], "header")
+header_text = blocks[0]["text"]["text"]
+check_true(
+    "header names needsYou/working/stale",
+    "2 need you" in header_text and "3 working" in header_text and "1 stale" in header_text,
+)
+
+print("\n27. render_slack_blocks() — project ordering: answer project first")
+cur = mk_overview([
+    ("repoShip", [mk_agent("s1", "Ship task", "ship")]),
+    ("repoAnswer", [mk_agent("a1", "Answer task", "answer")]),
+])
+blocks = ao.render_slack_blocks(cur, [], full=True)
+section_texts = [b["text"]["text"] for b in blocks if b["type"] == "section"]
+check_true("answer project's section comes first", section_texts[0].startswith("*repoAnswer*"))
+
+print("\n28. render_slack_blocks() — agent line format (emoji, title, standing)")
+cur = mk_overview([("repoA", [mk_agent("a1", "Fix bug", "ship", standing="tests green")])])
+blocks = ao.render_slack_blocks(cur, [], full=True)
+text = [b["text"]["text"] for b in blocks if b["type"] == "section"][0]
+check_true("emoji present", ":package:" in text)
+check_true("title present", "Fix bug" in text)
+check_true("standing appended with a dash", "— tests green" in text)
+
+print("\n29. render_slack_blocks() — blocker line present when set")
+cur = mk_overview([("repoA", [
+    mk_agent("a1", "Fix bug", "answer", standing="waiting", blocker="needs your input"),
+])])
+blocks = ao.render_slack_blocks(cur, [], full=True)
+text = [b["text"]["text"] for b in blocks if b["type"] == "section"][0]
+check_true("blocker line present", "needs your input" in text and "↳" in text)
+
+print("\n30. render_slack_blocks() — blocker line absent when unset")
+cur = mk_overview([("repoA", [mk_agent("a1", "Fix bug", "ship", standing="ok")])])
+blocks = ao.render_slack_blocks(cur, [], full=True)
+text = [b["text"]["text"] for b in blocks if b["type"] == "section"][0]
+check_true("no blocker arrow", "↳" not in text)
+
+print("\n31. render_slack_blocks() — escapes <@mention> and & in agent-derived text")
+cur = mk_overview([("repoA", [
+    mk_agent("a1", "Ping <@U123> & review", "ship", standing="uses <script> & more"),
+])])
+blocks = ao.render_slack_blocks(cur, [], full=True)
+text = [b["text"]["text"] for b in blocks if b["type"] == "section"][0]
+check_true("no raw <@ mention", "<@U123>" not in text)
+check_true("mention escaped", "&lt;@U123&gt;" in text)
+check_true("ampersand escaped", "&amp;" in text)
+
+print("\n32. render_slack_blocks() — 50-block cap with 60 projects")
+projects = [(f"repo{i}", [mk_agent(f"a{i}", f"Task {i}", "ship")]) for i in range(60)]
+cur = mk_overview(projects)
+blocks = ao.render_slack_blocks(cur, [], full=True)
+check_true(f"<= {ao.BLOCKS_MAX} blocks (got {len(blocks)})", len(blocks) <= ao.BLOCKS_MAX)
+check_true(
+    "overflow marker is the final block",
+    blocks[-1]["type"] == "context" and "more project" in blocks[-1]["elements"][0]["text"],
+)
+
+print("\n33. render_slack_blocks() — full vs digest filter")
+cur = mk_overview([("repoA", [
+    mk_agent("a1", "Watched", "watch"),
+    mk_agent("a2", "Ready", "ship"),
+])])
+digest_blocks = ao.render_slack_blocks(cur, [], full=False)
+digest_text = "".join(b["text"]["text"] for b in digest_blocks if b["type"] == "section")
+check_true("digest excludes a non-actionable, unchanged agent", "Watched" not in digest_text)
+check_true("digest includes the actionable agent", "Ready" in digest_text)
+
+full_blocks = ao.render_slack_blocks(cur, [], full=True)
+full_text = "".join(b["text"]["text"] for b in full_blocks if b["type"] == "section")
+check_true("full=True includes the non-actionable agent too", "Watched" in full_text)
+
+print("\n33b. render_slack_blocks() — digest includes a changed but non-actionable agent")
+prev = mk_overview([("repoA", [mk_agent("a1", "Watched", "watch")])])
+cur = mk_overview([("repoA", [mk_agent("a1", "Watched", "close")])])
+changes = ao.delta(prev, cur)
+digest_blocks = ao.render_slack_blocks(cur, changes, full=False)
+digest_text = "".join(b["text"]["text"] for b in digest_blocks if b["type"] == "section")
+check_true(
+    "digest includes a changed agent even though 'close' is non-actionable",
+    "Watched" in digest_text,
+)
+
+
+# --- main(['--slack-body']) posting behavior ------------------------------
+
+print("\n34. main(['--slack-body']) prints nothing when post_blocks succeeds")
+prev_state = mk_overview([("repoA", [mk_agent("a1", "Fix bug", "watch")])])
+cur_state = mk_overview([("repoA", [mk_agent("a1", "Fix bug", "ship")])])
+
+_orig_fetch = ao.fetch
+_orig_fetch_agents = ao.fetch_agents
+_orig_refresh = ao.refresh
+_orig_load_state = ao._load_state
+_orig_save_state = ao._save_state
+_orig_post_blocks = ao.post_blocks
+_orig_resolve_slack_token = ao.resolve_slack_token
+
+
+def _reset_slack_body_mocks():
+    ao.fetch = _orig_fetch
+    ao.fetch_agents = _orig_fetch_agents
+    ao.refresh = _orig_refresh
+    ao._load_state = _orig_load_state
+    ao._save_state = _orig_save_state
+    ao.post_blocks = _orig_post_blocks
+    ao.resolve_slack_token = _orig_resolve_slack_token
+
+
+ao.fetch_agents = lambda base, timeout_s=10: cur_state
+ao.refresh = lambda base, timeout_s=120: cur_state
+ao._load_state = lambda: {**prev_state, "fingerprint": "old"}
+ao._save_state = lambda cur: None
+ao.resolve_slack_token = lambda: "xoxb-fake"
+ao.post_blocks = lambda channel, blocks, text_fallback, token: True
+try:
+    out = io.StringIO()
+    with redirect_stdout(out):
+        rc = ao.main(["--slack-body"])
+    check("exit 0", rc, 0)
+    check("no stdout when post_blocks succeeds", out.getvalue(), "")
+finally:
+    _reset_slack_body_mocks()
+
+print("\n35. main(['--slack-body']) prints the mrkdwn fallback when post_blocks returns False")
+ao.fetch_agents = lambda base, timeout_s=10: cur_state
+ao.refresh = lambda base, timeout_s=120: cur_state
+ao._load_state = lambda: {**prev_state, "fingerprint": "old"}
+ao._save_state = lambda cur: None
+ao.resolve_slack_token = lambda: "xoxb-fake"
+ao.post_blocks = lambda channel, blocks, text_fallback, token: False
+try:
+    out = io.StringIO()
+    with redirect_stdout(out):
+        rc = ao.main(["--slack-body"])
+    check("exit 0", rc, 0)
+    check_true("fallback body printed when post_blocks fails", out.getvalue().strip() != "")
+finally:
+    _reset_slack_body_mocks()
+
+
 print()
 if failures:
     print(f"{len(failures)} failure(s):")

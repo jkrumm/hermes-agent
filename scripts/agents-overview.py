@@ -32,6 +32,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
+import subprocess
 import sys
 import time
 import urllib.error
@@ -46,6 +48,17 @@ DEFAULT_BASE = "http://localhost:7705"
 BRIEFING_MAX_AGE_S_ENV = "HERMES_AGENTS_BRIEFING_MAX_AGE_S"
 DEFAULT_BRIEFING_MAX_AGE_S = 7200
 
+DEFAULT_AGENTS_CHANNEL = "C0BVDE5R562"
+SLACK_POST_URL = "https://slack.com/api/chat.postMessage"
+
+# SLACK_BOT_TOKEN is unconditionally Tier-1-stripped from every subprocess the
+# gateway spawns (tools/environments/local.py's _ALWAYS_STRIP_KEYS — same
+# treatment as GITHUB_TOKEN), so a cron-run `--slack-body`/`--post-full` never
+# sees it via os.environ. Mirrors watchdog-poll.py's resolve_secret() fallback:
+# inherited env first (covers a manual run), else the encrypted secrets cache.
+SECRETS_RUN = Path.home() / ".local" / "bin" / "secrets-run"
+SLACK_TOKEN_REF = "op://hermes/slack/bot-token"
+
 # Recommendation -> icon, mirrors sideclaw's own /api/overview.txt rendering.
 RECOMMENDATION_ICONS = {
     "answer": "?!",
@@ -58,6 +71,21 @@ RECOMMENDATION_ICONS = {
     "watch": "●",     # filled circle
 }
 
+# Emoji map for the Block Kit digest — mirrors RECOMMENDATION_ICONS above but
+# using Slack `:emoji:` names instead of unicode glyphs (plain_text/mrkdwn
+# render emoji shortcodes; the unicode glyphs above are for the .txt surface).
+RECOMMENDATION_EMOJI = {
+    "answer": ":rotating_light:",
+    "ship": ":package:",
+    "merge": ":twisted_rightwards_arrows:",
+    "review": ":eyes:",
+    "continue": ":arrow_forward:",
+    "close": ":white_check_mark:",
+    "stale": ":zzz:",
+    "watch": ":hourglass_flowing_sand:",
+    "none": ":grey_question:",
+}
+
 # Recommendations worth a Slack ping / a morning-briefing line.
 ACTIONABLE = {"answer", "ship", "merge", "review"}
 QUIET = {"watch", "close"}
@@ -65,9 +93,50 @@ QUIET = {"watch", "close"}
 SLACK_MAX_LINES = 25
 BRIEFING_MAX_LINES = 20
 
+# Block Kit hard limits (render_slack_blocks) — see docs/agents-overview.md.
+BLOCKS_MAX = 50
+SECTION_TEXT_MAX = 3000
+HEADER_TEXT_MAX = 150
+TITLE_MAX = 60
+STANDING_MAX = 110
+BLOCKER_MAX = 100
+
 
 def _base_url() -> str:
     return os.environ.get("HERMES_AGENTS_SIDECLAW_BASE", DEFAULT_BASE)
+
+
+def _channel() -> str:
+    return os.environ.get("HERMES_AGENTS_CHANNEL", DEFAULT_AGENTS_CHANNEL)
+
+
+def _resolve_ref(ref: str) -> str:
+    """Resolve one op:// ref via the secrets-run shim; '' on any failure."""
+    env = os.environ.copy()
+    # secrets-run's cache backend needs sops+jq (Homebrew); ensure they resolve
+    # even under a minimal PATH (the gateway spawns cron scripts with a
+    # sanitized env — same fix as watchdog-poll.py's _resolve_ref).
+    env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + env.get("PATH", "/usr/bin:/bin")
+    try:
+        r = subprocess.run(
+            [str(SECRETS_RUN), "read", ref],
+            capture_output=True, text=True, timeout=15, env=env,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def resolve_slack_token() -> str:
+    """SLACK_BOT_TOKEN from the inherited process env first (a manual run, or
+    any spawn path that doesn't sanitize it), else the encrypted secrets
+    cache — the normal path when invoked as a cron job, since the gateway's
+    subprocess sanitizer strips SLACK_BOT_TOKEN unconditionally. Never
+    raises, never logs the token itself."""
+    val = os.environ.get("SLACK_BOT_TOKEN", "")
+    if val:
+        return val
+    return _resolve_ref(SLACK_TOKEN_REF)
 
 
 def fetch(base: str, timeout_s: int = 10) -> dict[str, Any]:
@@ -216,7 +285,13 @@ def delta(prev: dict[str, Any] | None, cur: dict[str, Any]) -> list[str]:
     changed recommendations, agents that disappeared. A recommendation that
     stays the same never produces an entry, no matter what else about the
     agent (state, standing wording) changed in the meantime — that's what
-    makes watch<->working churn and standing-only edits invisible here."""
+    makes watch<->working churn and standing-only edits invisible here.
+
+    Each entry carries a trailing `[id:<agent id>]` tag — machine-readable,
+    parsed by `_changed_ids()` so render_slack_blocks() can show a changed
+    agent in the digest even when its recommendation isn't itself
+    actionable (e.g. a stale agent going `close`). The human-readable prefix
+    is unchanged, so this is additive."""
     prev_idx = _agent_index(prev)
     cur_idx = _agent_index(cur)
     changes: list[str] = []
@@ -224,7 +299,7 @@ def delta(prev: dict[str, Any] | None, cur: dict[str, Any]) -> list[str]:
     for aid, info in cur_idx.items():
         if aid not in prev_idx:
             changes.append(
-                f"new: {info['project']} — {info['title']} ({info['recommendation']})"
+                f"new: {info['project']} — {info['title']} ({info['recommendation']}) [id:{aid}]"
             )
             continue
         old_rec = prev_idx[aid]["recommendation"]
@@ -232,14 +307,27 @@ def delta(prev: dict[str, Any] | None, cur: dict[str, Any]) -> list[str]:
         if old_rec != new_rec:
             changes.append(
                 f"changed: {info['project']} — {info['title']} "
-                f"({old_rec} → {new_rec})"
+                f"({old_rec} → {new_rec}) [id:{aid}]"
             )
 
     for aid, info in prev_idx.items():
         if aid not in cur_idx:
-            changes.append(f"gone: {info['project']} — {info['title']}")
+            changes.append(f"gone: {info['project']} — {info['title']} [id:{aid}]")
 
     return changes
+
+
+_CHANGE_ID_RE = re.compile(r"\[id:([^\]]+)\]$")
+
+
+def _changed_ids(changes: list[str]) -> set[str]:
+    """Extract the `[id:...]` tags delta() appends to each entry."""
+    ids: set[str] = set()
+    for c in changes:
+        m = _CHANGE_ID_RE.search(c)
+        if m:
+            ids.add(m.group(1))
+    return ids
 
 
 def _project_actionable(cur: dict[str, Any]) -> list[tuple[str, list[dict[str, Any]]]]:
@@ -294,6 +382,184 @@ def render_slack(cur: dict[str, Any], changes: list[str]) -> str:
         lines = lines[: SLACK_MAX_LINES - 1] + [f"… and {overflow} more"]
 
     return "\n".join(lines)
+
+
+def _escape(text: str) -> str:
+    """Escape Slack mrkdwn control chars in agent-derived text (titles,
+    standings, blockers — sourced from transcripts, attacker-influenced).
+    Order matters: `&` first, or the entities just inserted get re-escaped."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _truncate(text: str, limit: int) -> str:
+    """Truncate to at most `limit` chars, appending an ellipsis when cut."""
+    if len(text) <= limit:
+        return text
+    if limit <= 1:
+        return text[:limit]
+    return text[: limit - 1].rstrip() + "…"
+
+
+def _priority(recommendation: str | None) -> int:
+    """0 = answer, 1 = ship/merge/review, 2 = everything else."""
+    if recommendation == "answer":
+        return 0
+    if recommendation in ("ship", "merge", "review"):
+        return 1
+    return 2
+
+
+def _fmt_hhmm(generated_at_ms: int | None) -> str:
+    if not generated_at_ms:
+        return "--:--"
+    try:
+        return time.strftime("%H:%M", time.localtime(generated_at_ms / 1000))
+    except (OSError, OverflowError, ValueError, TypeError):
+        return "--:--"
+
+
+def _blocks_header_text(cur: dict[str, Any]) -> str:
+    s = cur.get("summary") or {}
+    text = (
+        f"Agents · {s.get('needsYou', 0)} need you · "
+        f"{s.get('working', 0)} working · {s.get('stale', 0)} stale"
+    )
+    return _truncate(text, HEADER_TEXT_MAX)
+
+
+def _blocks_footer_text(cur: dict[str, Any], changes: list[str]) -> str:
+    overview = cur.get("overview") or {}
+    age = _fmt_age_ms(overview.get("ageMs"))
+    model = overview.get("model") or "?"
+    hhmm = _fmt_hhmm(overview.get("generatedAt"))
+    return f"overview {age} old · {model} · {len(changes)} changes since last digest · {hhmm}"
+
+
+def _project_section_block(
+    pname: str, git: dict[str, Any] | None, agents: list[dict[str, Any]],
+) -> dict[str, Any]:
+    git = git or {}
+    branch = _escape(str(git.get("branch") or "?"))
+    dirty_mark = "*" if git.get("dirty") else ""
+    lines = [f"*{_escape(pname)}*  `{branch}{dirty_mark}`"]
+    for a in agents:
+        emoji = RECOMMENDATION_EMOJI.get(a.get("recommendation") or "", RECOMMENDATION_EMOJI["none"])
+        title = _truncate(_escape((a.get("title") or "?").strip()), TITLE_MAX)
+        standing = _truncate(_escape((a.get("standing") or "").strip()), STANDING_MAX)
+        suffix = f" — {standing}" if standing else ""
+        lines.append(f"{emoji} {title}{suffix}")
+        blocker = (a.get("blocker") or "").strip()
+        if blocker:
+            blocker_t = _truncate(_escape(blocker), BLOCKER_MAX)
+            lines.append(f"    ↳ _{blocker_t}_")
+    text = _truncate("\n".join(lines), SECTION_TEXT_MAX)
+    return {"type": "section", "text": {"type": "mrkdwn", "text": text}}
+
+
+def render_slack_blocks(
+    cur: dict[str, Any], changes: list[str], *, full: bool = False,
+) -> list[dict[str, Any]]:
+    """Block Kit body for the #agents digest / on-demand overview. Pure —
+    same `cur`/`changes` shapes as render_slack()/delta().
+
+    Which agents show, per project: `full=True` (--post-full) shows every
+    agent with a recommendation; `full=False` (the cron digest) shows only
+    agents whose recommendation is actionable (answer/ship/merge/review) OR
+    whose id appears in `changes` (delta()'s `[id:...]` tags) — so a
+    newly-changed but non-actionable agent (e.g. -> close) still surfaces,
+    while a persistent unchanged watch/continue agent stays out.
+
+    Projects are sorted with any `answer` agent first, then ship/merge/
+    review, then the rest; agents within a project use the same order.
+    Capped at BLOCKS_MAX total blocks — lowest-priority projects are
+    dropped first, replaced by a trailing `… and N more projects` context
+    block."""
+    changed_ids = _changed_ids(changes)
+
+    project_chunks: list[tuple[int, dict[str, Any]]] = []
+    for project in cur.get("projects") or []:
+        all_agents = project.get("agents") or []
+        if full:
+            shown = [a for a in all_agents if a.get("recommendation")]
+        else:
+            shown = [
+                a for a in all_agents
+                if a.get("recommendation") in ACTIONABLE or a.get("id") in changed_ids
+            ]
+        if not shown:
+            continue
+        shown.sort(key=lambda a: _priority(a.get("recommendation")))
+        priority = min(_priority(a.get("recommendation")) for a in shown)
+        block = _project_section_block(project.get("name") or "?", project.get("git"), shown)
+        project_chunks.append((priority, block))
+
+    project_chunks.sort(key=lambda item: item[0])
+    all_blocks = [b for _, b in project_chunks]
+
+    header_block = {"type": "header", "text": {"type": "plain_text", "text": _blocks_header_text(cur)}}
+    footer_block = {"type": "context", "elements": [{"type": "mrkdwn", "text": _blocks_footer_text(cur, changes)}]}
+
+    def _assemble(kept: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        blocks = [header_block]
+        for i, block in enumerate(kept):
+            if i:
+                blocks.append({"type": "divider"})
+            blocks.append(block)
+        blocks.append(footer_block)
+        return blocks
+
+    kept = list(all_blocks)
+    while kept:
+        blocks = _assemble(kept)
+        extra = 1 if len(kept) < len(all_blocks) else 0
+        if len(blocks) + extra <= BLOCKS_MAX:
+            break
+        kept = kept[:-1]
+    else:
+        blocks = _assemble(kept)
+
+    dropped = len(all_blocks) - len(kept)
+    if dropped:
+        plural = "s" if dropped != 1 else ""
+        blocks.append({
+            "type": "context",
+            "elements": [{"type": "mrkdwn", "text": f"… and {dropped} more project{plural}"}],
+        })
+
+    return blocks
+
+
+def post_blocks(channel: str, blocks: list[dict[str, Any]], text_fallback: str, token: str) -> bool:
+    """POST `blocks` to Slack's chat.postMessage. Returns True iff Slack
+    reports `ok: true`; never raises — any transport/parse failure or
+    `ok: false` returns False so the caller falls back to plain mrkdwn.
+    `text_fallback` is required by the Slack API as the notification-text /
+    unfurl-fallback field even when blocks render the real body. Never logs
+    the token."""
+    body = json.dumps({
+        "channel": channel,
+        "blocks": blocks,
+        "text": text_fallback,
+        "unfurl_links": False,
+    }).encode()
+    req = urllib.request.Request(
+        SLACK_POST_URL,
+        data=body,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json; charset=utf-8",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            payload = json.loads(resp.read().decode())
+    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, TimeoutError, OSError):
+        return False
+    ok = bool(payload.get("ok"))
+    if not ok:
+        print(f"agents-overview: slack post failed: {payload.get('error', 'unknown')}", file=sys.stderr)
+    return ok
 
 
 def render_briefing(cur: dict[str, Any]) -> str:
@@ -390,14 +656,53 @@ def main(argv: list[str] | None = None) -> int:
                 # kill the calling cron. State is left untouched so the next
                 # successful run diffs against the last known-good snapshot.
                 return 0
-        body = render_slack(cur, delta(prev, cur))
+        changes = delta(prev, cur)
+        body = render_slack(cur, changes)
         if body:
-            print(body)
+            # Post Block Kit ourselves when a token resolves — the runner
+            # delivers this script's stdout verbatim under no_agent, so
+            # printing `body` here too would double-post. Only the mrkdwn
+            # fallback (no token, or Slack rejected the post) goes to stdout.
+            token = resolve_slack_token()
+            posted = False
+            blocks: list[dict[str, Any]] = []
+            if token:
+                blocks = render_slack_blocks(cur, changes, full=False)
+                posted = post_blocks(_channel(), blocks, body, token)
+            if posted:
+                print(
+                    f"agents-overview: posted digest via blocks "
+                    f"({len(blocks)} blocks) to {_channel()}",
+                    file=sys.stderr,
+                )
+            else:
+                print(body)
         cur["fingerprint"] = fp if fp is not None else fingerprint(cur)
         _save_state(cur)
         return 0
 
-    print("usage: agents-overview.py --slack-body | --briefing | --json", file=sys.stderr)
+    if "--post-full" in args:
+        try:
+            cur = fetch(base)
+        except Exception:
+            print("agents overview unavailable", file=sys.stderr)
+            return 0
+        token = resolve_slack_token()
+        if not token:
+            print("agents-overview: SLACK_BOT_TOKEN unresolved, cannot post --post-full", file=sys.stderr)
+            return 1
+        blocks = render_slack_blocks(cur, [], full=True)
+        fallback = render_briefing(cur)
+        if not post_blocks(_channel(), blocks, fallback, token):
+            print("agents-overview: --post-full slack post failed", file=sys.stderr)
+            return 1
+        print(
+            f"agents-overview: posted full overview ({len(blocks)} blocks) to {_channel()}",
+            file=sys.stderr,
+        )
+        return 0
+
+    print("usage: agents-overview.py --slack-body | --briefing | --json | --post-full", file=sys.stderr)
     return 2
 
 

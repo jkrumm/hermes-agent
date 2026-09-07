@@ -109,3 +109,11 @@ consumer-driven, not clock-driven: the briefing refreshes only when the
 cached overview is older than 2h, and the digest refreshes only when a
 deterministic `/api/agents` snapshot fingerprint changed since its last run.
 That script is the unattended path; this skill is the conversational one.
+
+**"Post the overview to #agents"** (or a request for a screenshot of the
+digest): run the bare command below — no pipe, it posts Block Kit directly
+via `chat.postMessage` and needs no further processing of its output.
+
+```bash
+python3 ~/SourceRoot/hermes-agent/scripts/agents-overview.py --post-full
+```

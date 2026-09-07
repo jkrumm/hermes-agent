@@ -93,8 +93,63 @@ file through `cron/lifecycle_guard.py`, which fails closed on a long file or one
 whose comments quote command lines (see CLAUDE.md § "Dispatch Bridge"). Keep the
 entry point thin; put logic in the imported module.
 
+## Rendering: Block Kit, escaping, the fallback rule, `--post-full`
+
+The `#agents` digest posts as Slack Block Kit, not plain mrkdwn.
+`render_slack_blocks(cur, changes, *, full=False)` is the pure builder (no
+network) — `header` (counts), one `section` per project (`*name*
+\`branch[*if dirty]\`` then one line per agent: emoji + title + standing,
+plus an indented `↳ _blocker_` line when set), `divider`s between projects,
+and a trailing `context` line with the overview's age, model, change count
+and time. `full=False` (the cron digest) shows only agents whose
+recommendation is actionable (answer/ship/merge/review) **or** whose id is
+tagged in `changes` (`delta()` appends a trailing `[id:...]` to each entry
+for exactly this) — so a newly-changed but non-actionable agent (e.g. ->
+`close`) still shows up, while a persistent unchanged `watch`/`continue`
+agent doesn't. `full=True` (`--post-full`) shows every agent with any
+recommendation. Projects sort with any `answer` agent first, then
+ship/merge/review, then the rest; capped at `BLOCKS_MAX` (50) total blocks
+— lowest-priority projects are dropped first, replaced by a trailing
+`… and N more projects` context block.
+
+**Escaping.** Titles, standings and blockers come from agent transcripts —
+attacker-influenced — so `&`, `<`, `>` are always escaped before being
+placed in mrkdwn text, closing off both accidental markup and a `<@user>`
+mention forgery.
+
+**Posting and the fallback rule.** `post_blocks(channel, blocks,
+text_fallback, token)` calls `chat.postMessage` directly (bearer token,
+`unfurl_links: false`). `--slack-body` still computes the plain mrkdwn body
+via `render_slack()` first — silence (empty string) is still the normal
+case when nothing changed. When there IS something to post: if
+`resolve_slack_token()` finds a token and `post_blocks()` reports
+`ok: true`, the script prints **nothing** to stdout (the no_agent runner
+would otherwise deliver the mrkdwn body a second time) and logs the outcome
+to stderr only. If the token is missing or the post fails, it prints the
+mrkdwn body to stdout exactly as before, so delivery still happens through
+the runner's own no_agent path.
+
+**Token resolution.** `SLACK_BOT_TOKEN` is Tier-1-stripped from every
+subprocess the gateway spawns (`tools/environments/local.py`'s
+`_ALWAYS_STRIP_KEYS` — the same treatment as `GITHUB_TOKEN`), so a
+cron-run `--slack-body`/`--post-full` never sees it via `os.environ`.
+`resolve_slack_token()` mirrors `watchdog-poll.py`'s `resolve_secret()`
+pattern: inherited env first, else `secrets-run read op://hermes/slack/bot-token`
+against the encrypted cache.
+
+**`--post-full`** posts the `full=True` overview to `#agents` (or
+`HERMES_AGENTS_CHANNEL`) on demand, regardless of whether anything changed,
+with no state write — used from the skill ("post the overview to #agents")
+and for screenshots:
+
+```bash
+python3 ~/SourceRoot/hermes-agent/scripts/agents-overview.py --post-full
+```
+
 ## Env override
 
 `HERMES_AGENTS_SIDECLAW_BASE` — override the sideclaw base URL (default
 `http://localhost:7705`), same pattern as `hermes-cc.sh`'s
-`HERMES_CC_SIDECLAW_BASE`.
+`HERMES_CC_SIDECLAW_BASE`. `HERMES_AGENTS_CHANNEL` — override the target
+Slack channel for both `--slack-body` and `--post-full` (default
+`C0BVDE5R562`).
