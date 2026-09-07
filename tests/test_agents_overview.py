@@ -24,6 +24,8 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import json
+import time
 import sys
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -189,7 +191,7 @@ try:
 finally:
     ao.fetch = _orig_fetch
 
-print("\n14. main(['--slack-body']) degrades to silent exit 0 when sideclaw is unreachable")
+print("\n14. main(['--slack-body']) — sideclaw unreachable: warns once per day, keeps the snapshot")
 _orig_fetch = ao.fetch
 _orig_fetch_agents = ao.fetch_agents
 _orig_refresh = ao.refresh
@@ -198,22 +200,85 @@ _orig_save_state = ao._save_state
 ao.fetch = _boom
 ao.fetch_agents = _boom
 ao.refresh = lambda base, timeout_s=120: None
-ao._load_state = lambda: None
+prev_state = {"fingerprint": "keep-me", "projects": []}
+ao._load_state = lambda: dict(prev_state)
 saved = {}
-ao._save_state = lambda cur: saved.setdefault("called", True)
+ao._save_state = lambda cur: saved.update(cur)
 try:
     out = io.StringIO()
     with redirect_stdout(out):
         rc = ao.main(["--slack-body"])
     check("exit 0", rc, 0)
-    check("empty stdout", out.getvalue(), "")
-    check("state not saved on total failure", saved.get("called", False), False)
+    check_true("warning line on stdout (delivered to #agents)", "sideclaw" in out.getvalue() and "unreachable" in out.getvalue())
+    check_true("warned-on date stamped", saved.get(ao.UNREACHABLE_WARNED_KEY) == time.strftime("%Y-%m-%d"))
+    check("last known-good fingerprint kept", saved.get("fingerprint"), "keep-me")
+    # second run the same day: silent
+    ao._load_state = lambda: dict(saved)
+    saved2 = {}
+    ao._save_state = lambda cur: saved2.setdefault("called", True)
+    out2 = io.StringIO()
+    with redirect_stdout(out2):
+        rc2 = ao.main(["--slack-body"])
+    check("second run exit 0", rc2, 0)
+    check("second run the same day is silent", out2.getvalue(), "")
+    check("second run does not rewrite state", saved2.get("called", False), False)
 finally:
     ao.fetch = _orig_fetch
     ao.fetch_agents = _orig_fetch_agents
     ao.refresh = _orig_refresh
     ao._load_state = _orig_load_state
     ao._save_state = _orig_save_state
+
+print("\n14b. unreachable_warning() — pure once-per-day gate")
+check_true("no prior stamp -> warns", bool(ao.unreachable_warning(None, "2026-09-07", "http://x")))
+check("same-day stamp -> silent", ao.unreachable_warning({ao.UNREACHABLE_WARNED_KEY: "2026-09-07"}, "2026-09-07", "http://x"), "")
+check_true("older stamp -> warns again", bool(ao.unreachable_warning({ao.UNREACHABLE_WARNED_KEY: "2026-09-06"}, "2026-09-07", "http://x")))
+
+
+# --- needs_you agents + the human queue ---------------------------------------
+
+print("\n14c. needs_you agent with a non-actionable recommendation is still listed")
+cur_ny = mk_overview([("argo", [mk_agent("a1", "Migrate schema", "watch", standing="waiting on input", state="needs_you")])],
+                     summary={"needsYou": 1, "working": 0, "idle": 0, "stale": 0, "done": 0, "dispatch": 0})
+body_ny = ao.render_slack(cur_ny, ["new: argo — Migrate schema (watch) [id:a1]"])
+check_true("header counts 1 needs_you", "1 needs_you" in body_ny)
+check_true("the needs_you agent is in the body", "Migrate schema" in body_ny)
+blocks_ny = ao.render_slack_blocks(cur_ny, [], full=False)
+check_true("blocks digest lists the needs_you agent", any("Migrate schema" in json.dumps(b) for b in blocks_ny))
+brief_ny = ao.render_briefing(cur_ny)
+check_true("briefing lists the needs_you agent despite recommendation=watch", "Migrate schema" in brief_ny)
+
+print("\n14d. humanQueue — 'Needs you' section in digest, blocks and briefing")
+cur_hq = mk_overview([("argo", [mk_agent("a1", "Ship it", "ship")])])
+cur_hq["humanQueue"] = [
+    {"id": "q1", "askedAt": "2026-09-07T10:00:00Z", "question": "Reseed the secrets cache", "cmd": "make secrets-seed"},
+    {"id": "q2", "askedAt": "2026-09-07T10:05:00Z", "question": "Push the ACL <change> & serve"},
+]
+body_hq = ao.render_slack(cur_hq, ["needs you: Reseed the secrets cache [id:hq:q1]"])
+check_true("mrkdwn digest has the Needs you header", "*Needs you*" in body_hq)
+check_true("mrkdwn digest lists the question and cmd", "Reseed the secrets cache" in body_hq and "make secrets-seed" in body_hq)
+blocks_hq = ao.render_slack_blocks(cur_hq, [], full=False)
+check_true("human-queue block comes first after the header", "Needs you" in blocks_hq[1]["text"]["text"])
+check_true("human-queue block escapes agent-derived text", "&lt;change&gt; &amp;" in blocks_hq[1]["text"]["text"])
+check_true("header counts the human queue", "2 human-queue" in blocks_hq[0]["text"]["text"])
+brief_hq = ao.render_briefing(cur_hq)
+check_true("briefing carries the Needs you lines", "Needs you" in brief_hq and "Reseed the secrets cache" in brief_hq)
+
+print("\n14e. delta() — a human-queue entry appearing or draining is a change")
+prev_hq = mk_overview([("argo", [mk_agent("a1", "Ship it", "ship")])])
+prev_hq["humanQueue"] = [{"id": "q0", "askedAt": "t", "question": "Old ask"}]
+changes_hq = ao.delta(prev_hq, cur_hq)
+check_true("new asks are deltas", any(c.startswith("needs you: Reseed") and c.endswith("[id:hq:q1]") for c in changes_hq))
+check_true("drained asks are deltas", any(c.startswith("answered: Old ask") for c in changes_hq))
+check("unchanged agent is not a delta", [c for c in changes_hq if "[id:a1]" in c], [])
+check("no human queue on either side -> no hq deltas", [c for c in ao.delta(mk_overview([]), mk_overview([])) if "hq:" in c], [])
+
+print("\n14f. fingerprint() — a new human-queue entry changes it, tolerant of the key being absent")
+snap_a = {"projects": [], "humanQueue": [{"id": "q1", "askedAt": "t1", "question": "x"}]}
+snap_b = {"projects": [], "humanQueue": [{"id": "q1", "askedAt": "t1", "question": "x"}, {"id": "q2", "askedAt": "t2", "question": "y"}]}
+check_true("new entry changes the fingerprint", ao.fingerprint(snap_a) != ao.fingerprint(snap_b))
+check("absent key == empty list", ao.fingerprint({"projects": []}), ao.fingerprint({"projects": [], "humanQueue": []}))
+check("malformed humanQueue tolerated", ao.fingerprint({"projects": [], "humanQueue": "nope"}), ao.fingerprint({"projects": []}))
 
 
 # --- fingerprint() -----------------------------------------------------------

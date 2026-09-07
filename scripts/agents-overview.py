@@ -20,6 +20,24 @@ when the cached overview is missing or older than
 refreshes when the deterministic `/api/agents` snapshot's fingerprint()
 differs from the last run's — an idle night produces zero model calls.
 
+`data.humanQueue` (sideclaw, 2026-09-07) is the mini's ask-human queue —
+`[{id, askedAt, question, cmd?}]`, work that needs a PRESENT human (a
+biometric `op`, an ACL push). It renders as a "Needs you" section at the
+top of the digest and the briefing, every entry counts as a delta the
+moment it appears (or is drained), and its ids ride the fingerprint so a
+new ask alone wakes the digest.
+
+An agent in state `needs_you` is ALWAYS listed, whatever its
+recommendation — `summary.needsYou` counts by state, so a digest whose
+header says "1 need you" must show that one item (the 2026-09-07 11:01
+digest counted one and listed none because the body filtered on
+recommendation alone).
+
+When sideclaw is unreachable end to end, the digest is not silent: once per
+day a warning line goes to #agents (via stdout, which the no_agent runner
+delivers) so "no digest" and "sideclaw is down" stop looking identical.
+Kuma does not watch this path; this line is the health signal.
+
 This script only reads. It never sends keys to a herdr pane and never
 dispatches — that is scripts/hermes-cc.sh's job.
 
@@ -183,9 +201,32 @@ def fingerprint(data: dict[str, Any]) -> str:
                 git.get("dirty"),
                 git.get("ahead"),
             ])
+    for entry in _human_queue(data):
+        rows.append(["humanQueue", entry.get("id"), entry.get("askedAt")])
     rows.sort(key=lambda row: json.dumps(row, sort_keys=True, default=str))
     canonical = json.dumps(rows, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def _human_queue(data: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """`data.humanQueue` as a list of dicts, tolerant of the key being absent
+    (an older sideclaw) or malformed — never raises."""
+    if not data:
+        return []
+    raw = data.get("humanQueue")
+    if not isinstance(raw, list):
+        return []
+    return [e for e in raw if isinstance(e, dict) and e.get("id") is not None]
+
+
+def _is_needs_you(agent: dict[str, Any]) -> bool:
+    return agent.get("state") == "needs_you"
+
+
+def _shown_in_digest(agent: dict[str, Any]) -> bool:
+    """Actionable by recommendation, OR blocked by state. The second half is
+    what keeps the body consistent with `summary.needsYou`."""
+    return agent.get("recommendation") in ACTIONABLE or _is_needs_you(agent)
 
 
 def needs_refresh(data: dict[str, Any], max_age_ms: int) -> bool:
@@ -314,6 +355,17 @@ def delta(prev: dict[str, Any] | None, cur: dict[str, Any]) -> list[str]:
         if aid not in cur_idx:
             changes.append(f"gone: {info['project']} — {info['title']} [id:{aid}]")
 
+    # The human queue: any entry appearing or draining is a delta in its own
+    # right — an ask nobody announced is an ask nobody answers.
+    prev_hq = {e["id"]: e for e in _human_queue(prev)}
+    cur_hq = {e["id"]: e for e in _human_queue(cur)}
+    for hid, entry in cur_hq.items():
+        if hid not in prev_hq:
+            changes.append(f"needs you: {(entry.get('question') or '?').strip()} [id:hq:{hid}]")
+    for hid, entry in prev_hq.items():
+        if hid not in cur_hq:
+            changes.append(f"answered: {(entry.get('question') or '?').strip()} [id:hq:{hid}]")
+
     return changes
 
 
@@ -333,10 +385,7 @@ def _changed_ids(changes: list[str]) -> set[str]:
 def _project_actionable(cur: dict[str, Any]) -> list[tuple[str, list[dict[str, Any]]]]:
     grouped: list[tuple[str, list[dict[str, Any]]]] = []
     for project in cur.get("projects") or []:
-        items = [
-            a for a in (project.get("agents") or [])
-            if a.get("recommendation") in ACTIONABLE
-        ]
+        items = [a for a in (project.get("agents") or []) if _shown_in_digest(a)]
         if items:
             grouped.append((project.get("name") or "?", items))
     return grouped
@@ -368,6 +417,7 @@ def render_slack(cur: dict[str, Any], changes: list[str]) -> str:
     grouped = _project_actionable(cur)
 
     lines = [_summary_line(cur)]
+    lines.extend(_needs_you_lines(cur))
     for pname, items in grouped:
         lines.append(f"*{pname}*")
         for a in items:
@@ -382,6 +432,44 @@ def render_slack(cur: dict[str, Any], changes: list[str]) -> str:
         lines = lines[: SLACK_MAX_LINES - 1] + [f"… and {overflow} more"]
 
     return "\n".join(lines)
+
+
+def _needs_you_lines(cur: dict[str, Any]) -> list[str]:
+    """Plain-text 'Needs you' block for the mrkdwn digest and the briefing:
+    one line per human-queue entry, question first, the proposed command
+    (if any) after it. Empty list when the queue is empty."""
+    queue = _human_queue(cur)
+    if not queue:
+        return []
+    lines = ["*Needs you* (human queue)"]
+    for entry in queue:
+        question = (entry.get("question") or "?").strip()
+        cmd = (entry.get("cmd") or "").strip()
+        line = f"⚠ {question}"
+        if cmd:
+            line += f" — `{cmd}`"
+        lines.append(line)
+    return lines
+
+
+def _human_queue_block(cur: dict[str, Any]) -> dict[str, Any] | None:
+    """Block Kit `section` for the human queue, or None when it is empty.
+    Question and command are attacker-influenced text (an agent wrote the
+    ask) — escaped and truncated like every other agent-derived string."""
+    queue = _human_queue(cur)
+    if not queue:
+        return None
+    lines = [":raising_hand: *Needs you* — human queue on the mini"]
+    for entry in queue:
+        question = _truncate(_escape((entry.get("question") or "?").strip()), STANDING_MAX)
+        cmd = _truncate(_escape((entry.get("cmd") or "").strip()), BLOCKER_MAX)
+        line = f"• {question}"
+        if cmd:
+            line += f"\n    ↳ `{cmd}`"
+        lines.append(line)
+    lines.append("_drain with `make human-queue` on the MacBook_")
+    text = _truncate("\n".join(lines), SECTION_TEXT_MAX)
+    return {"type": "section", "text": {"type": "mrkdwn", "text": text}}
 
 
 def _escape(text: str) -> str:
@@ -402,11 +490,18 @@ def _truncate(text: str, limit: int) -> str:
 
 def _priority(recommendation: str | None) -> int:
     """0 = answer, 1 = ship/merge/review, 2 = everything else."""
-    if recommendation == "answer":
+    if recommendation == "answer" or recommendation == "needs_you":
         return 0
     if recommendation in ("ship", "merge", "review"):
         return 1
     return 2
+
+
+def _agent_priority(agent: dict[str, Any]) -> int:
+    """A blocked agent sorts with `answer` whatever its recommendation says."""
+    if _is_needs_you(agent):
+        return 0
+    return _priority(agent.get("recommendation"))
 
 
 def _fmt_hhmm(generated_at_ms: int | None) -> str:
@@ -424,6 +519,9 @@ def _blocks_header_text(cur: dict[str, Any]) -> str:
         f"Agents · {s.get('needsYou', 0)} need you · "
         f"{s.get('working', 0)} working · {s.get('stale', 0)} stale"
     )
+    hq = len(_human_queue(cur))
+    if hq:
+        text += f" · {hq} human-queue"
     return _truncate(text, HEADER_TEXT_MAX)
 
 
@@ -482,19 +580,21 @@ def render_slack_blocks(
         if full:
             shown = [a for a in all_agents if a.get("recommendation")]
         else:
-            shown = [
-                a for a in all_agents
-                if a.get("recommendation") in ACTIONABLE or a.get("id") in changed_ids
-            ]
+            shown = [a for a in all_agents if _shown_in_digest(a) or a.get("id") in changed_ids]
         if not shown:
             continue
-        shown.sort(key=lambda a: _priority(a.get("recommendation")))
-        priority = min(_priority(a.get("recommendation")) for a in shown)
+        shown.sort(key=lambda a: _agent_priority(a))
+        priority = min(_agent_priority(a) for a in shown)
         block = _project_section_block(project.get("name") or "?", project.get("git"), shown)
         project_chunks.append((priority, block))
 
     project_chunks.sort(key=lambda item: item[0])
     all_blocks = [b for _, b in project_chunks]
+    # The human queue outranks every project: it is the one thing only a
+    # present human can move, so it is never the block that gets dropped.
+    hq_block = _human_queue_block(cur)
+    if hq_block is not None:
+        all_blocks.insert(0, hq_block)
 
     header_block = {"type": "header", "text": {"type": "plain_text", "text": _blocks_header_text(cur)}}
     footer_block = {"type": "context", "elements": [{"type": "mrkdwn", "text": _blocks_footer_text(cur, changes)}]}
@@ -566,11 +666,12 @@ def render_briefing(cur: dict[str, Any]) -> str:
     """Plain-text block for the morning-briefing prompt: counts, then every
     agent whose recommendation is not watch/close (i.e. nothing to do)."""
     lines = [_summary_line(cur)]
+    lines.extend(_needs_you_lines(cur))
     for project in cur.get("projects") or []:
         pname = project.get("name") or "?"
         for a in project.get("agents") or []:
             rec = a.get("recommendation")
-            if not rec or rec in QUIET:
+            if (not rec or rec in QUIET) and not _is_needs_you(a):
                 continue
             title = a.get("title") or "?"
             standing = (a.get("standing") or "").strip()
@@ -582,6 +683,22 @@ def render_briefing(cur: dict[str, Any]) -> str:
         lines = lines[: BRIEFING_MAX_LINES - 1] + [f"… and {overflow} more"]
 
     return "\n".join(lines)
+
+
+UNREACHABLE_WARNED_KEY = "_unreachableWarnedOn"
+
+
+def unreachable_warning(prev: dict[str, Any] | None, today: str, base: str) -> str:
+    """The once-per-day sideclaw-down line for #agents. Pure: '' when the
+    warning already went out today (per `prev[_unreachableWarnedOn]`), else
+    the line. The caller persists the date."""
+    if prev and prev.get(UNREACHABLE_WARNED_KEY) == today:
+        return ""
+    return (
+        f":warning: agents overview: sideclaw at {base} is unreachable — no agent "
+        f"digest until it answers (`launchctl print gui/$(id -u)/com.jkrumm.sideclaw`, "
+        f"`curl {base}/health`). Said once per day."
+    )
 
 
 def _load_state() -> dict[str, Any] | None:
@@ -652,9 +769,19 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 cur = fetch(base)
             except Exception:
-                # Sideclaw unreachable end to end — degrade silently, never
-                # kill the calling cron. State is left untouched so the next
-                # successful run diffs against the last known-good snapshot.
+                # Sideclaw unreachable end to end. Never kill the calling
+                # cron, and never stay silent about it either: one warning
+                # line per day to #agents (stdout is the delivered body under
+                # no_agent). The snapshot in state is left untouched so the
+                # next successful run diffs against the last known-good one;
+                # only the warned-on date is stamped.
+                today = time.strftime("%Y-%m-%d")
+                warning = unreachable_warning(prev, today, base)
+                if warning:
+                    print(warning)
+                    stamped = dict(prev or {})
+                    stamped[UNREACHABLE_WARNED_KEY] = today
+                    _save_state(stamped)
                 return 0
         changes = delta(prev, cur)
         body = render_slack(cur, changes)
