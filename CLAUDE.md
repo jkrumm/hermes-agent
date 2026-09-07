@@ -55,17 +55,17 @@ min, weekly reminder) flags a non-symlink dir with its own `SKILL.md` absent fro
 
 | `scripts/…` | Agent `com.jkrumm.…` | Cadence | What it does / asserts before its Kuma push |
 |-|-|-|-|
-| `hermes-liveness.sh` | `hermes-liveness` | 300s | gateway state + Slack `connected` + rendered-ref count ≥ `KEY=` count in `.env.tpl` → `$UPTIME_PUSH_HERMES` |
+| `hermes-liveness.sh` | `hermes-liveness` | 300s | gateway state + Slack `connected` + rendered-ref count ≥ `KEY=` count in `.env.tpl` + the live pid is launchd's `ai.hermes.gateway` (or its child) → `$UPTIME_PUSH_HERMES` |
 | `hermes-backup.sh` | `hermes-backup` | daily 03:00 | rsync `~/.hermes/` → `homelab:/mnt/hdd/backups/hermes/`; `mkdir`-lock (`~/Library/Caches/hermes-backup.lock`) so two runs never race `rsync --delete` → `$UPTIME_PUSH_BACKUP` |
-| `hermes-webui-launch.sh` | `hermes-webui` | KeepAlive/30s | resolves the password, execs the clone's `start.sh --foreground` |
-| `hermes-webui-liveness.sh` | `hermes-webui-liveness` | 5 min | `/health` → 200 **and** unauth `/` → non-2xx → `op://hermes/uptime-kuma/webui-push-url` |
-| `hermes-serve-launch.sh` | `hermes-serve` | KeepAlive/30s | counts the `serve.env.tpl` refs, refuses below the full set, execs `hermes serve --host 127.0.0.1 --port 9119 --skip-build` |
-| `hermes-serve-liveness.sh` | `hermes-serve-liveness` | 5 min | `/api/status` → `auth_required: true` → `op://hermes/uptime-kuma/serve-push-url` |
 
 Templates live in `launchd/`, rendered into `~/Library/LaunchAgents` by `make setup` (`_agents`
 → `_render-plists`, `__HOME__` substituted; unchanged content is a no-op, so a re-run never
 bounces a healthy agent). `HERMES_PLISTS_RETIRED` unloads + removes labels this repo no longer
-installs, so a rename can't leave two agents racing a port. Logs:
+installs, so a rename can't leave two agents racing a port — the four
+`hermes-{webui,serve}{,-liveness}` labels sit there since the 2026-09-07 teardown (Collie + Slack
+are the surfaces; the third-party WebUI clone and `hermes serve`/Hermes Desktop are gone).
+`make status` grades every agent like dotfiles' doctor: `launchctl print`'s last exit code, and
+a KeepAlive job with no pid and a non-zero exit is ✗, never ✓. Logs:
 `~/Library/Logs/hermes-*.{log,err}`, declared in `dotfiles/scripts/log-rotate.sh` — never
 globbed, so an unregistered log is an unbounded one.
 
@@ -94,21 +94,30 @@ and the help text says so).
 | Invariant | Detail |
 |-|-|
 | No verb takes a path, command or URL | a dispatch names a **repo** — a bare single-segment name resolved under the single `root` in `config/dispatch-repos.json`. `.`/`..`/dotted names refused; the resolved checkout's parent must **be** the resolved root. Regression-tested. |
-| `deny` list | `dotfiles-private`, `homelab-private`, `brain` — stay there. |
+| `deny` list | `dotfiles-private`, `homelab-private` — stay there. `brain` is **not** denied: it sits in `tiers.investigate` (read-only, worktree-isolated) since 2026-08-15, the one path that loads the vault's own rule hierarchy. |
 | Brief is data, never argv | stdin (`<<'BRIEF'` quoted heredoc) or `--brief-file`. **No `--brief`, deliberately** — as argv it would be shell-expanded before the script ran. |
 | Tiers | `investigate` (read-only → verdict) · `author` (+ one GitHub issue) · `implement` (`dispatch/…` branch + **draft** PR). **Every tier runs in its own throwaway worktree**, read tiers included — `readOnly` removes Edit/Write, not Bash. |
-| Ceilings | `defaultTier: implement`, `investigate` floor for `dotfiles`/`vps`/`homelab`. A tier above a repo's ceiling is **refused, exit 4**, never downgraded. No `implement` allowlist, deliberately. |
+| Ceilings | `defaultTier: implement`, `investigate` floor for `dotfiles`/`vps`/`homelab`/`brain`. A tier above a repo's ceiling, a denied repo, or a name resolving outside the root is **refused, exit 4** (policy), never downgraded; a misspelled name is exit 64 with the dispatchable list. No `implement` allowlist, deliberately. |
 | `implement` gate | `--why` **and** `--confirm`. Without `--confirm` it prints the plan + a `wouldNeverDo` list and exits **0** — printing the plan *is* the successful outcome. `--why` is the audit record. |
 | Secret scan | the handler **refuses** (never redacts) a brief carrying credentials, and scans the **diff's added lines** too — handler-side, not the target repo's `pre-commit` hook. |
-| Budgets (`--max-budget-usd` is API-only, can't cap a Max session) | 20 dispatches/UTC day, ≤5 `implement`, ≤3 `merge`, 240s `--wait` cap. Every reporting path returns a `budget` object + a `warning` near a ceiling. Raising one is Johannes's call — `HERMES_CC_{DAILY,IMPLEMENT,MERGE}_BUDGET`, and `claude-dispatch` forbids the agent setting them. |
+| Budgets (`--max-budget-usd` is API-only, can't cap a Max session) | 20 dispatches/UTC day, ≤5 `implement`, ≤3 `merge`, 170s `--wait` cap (under the `terminal` tool's 180s default, so an in-turn verdict is delivered in-turn). Every reporting path returns a `budget` object + a `warning` near a ceiling. Raising one is Johannes's call — `HERMES_CC_{DAILY,IMPLEMENT,MERGE}_BUDGET`, and `claude-dispatch` forbids the agent setting them. |
 
 **`--confirm` is an approval artifact, not an instruction.** The plan posts Approve/Deny buttons
 into the origin channel; the click lands in the gateway, which signs it with an **Ed25519 key
 minted at startup, held in RAM only** (`plugins/dispatch-approval/`, public half at
-`~/.hermes/dispatch-approval.pub`). Only the signature is consulted — every `dispatch_approvals`
-column is writable by this uid. Bound to `verb|repo|tier|payload|why`, single-use, 30-min TTL,
-**fails closed** on no plugin / no key / no gateway / expired / spent / hash mismatch; a gateway
-restart voids pending approvals. Enable once: `hermes plugins enable dispatch-approval`.
+`~/.hermes/dispatch-approval.pub`) — and then **runs the approved verb itself**: the plan row
+stores the argv (minus `--confirm`/`--wait` and minus the `--brief-file`/`--context-file`
+*paths*) plus the brief and context **bytes**, Approve re-runs `hermes-cc.sh … --confirm` in a
+subprocess (the same signature check as a hand-typed `--confirm`; the agent's temp files are
+gone by then and are never consulted) and posts the outcome into the origin thread via
+`hermes send`, the sweeper's delivery. Nothing waits on Hermes noticing the click. Only the
+signature is consulted — every `dispatch_approvals` column is writable by this uid. Bound to
+`verb|repo|tier|brief|why|context` (the context file is bound because the plan never shows it
+and the replay is unattended — an unbound one was a swap-after-approve hole), single-use,
+30-min TTL, **fails closed** on no plugin / no key / no gateway / expired / spent / hash
+mismatch; a gateway restart voids pending approvals. The budget is checked **before** the
+gate spends the row, so an over-budget click refuses with the approval intact. Enable once:
+`hermes plugins enable dispatch-approval`.
 *Tell for the one bug this has had:* a refusal saying **"has not been clicked yet"** despite a
 visible Approve → `grep 'published public key'` vs `Wired 2 plugin action handler` in
 `~/.hermes/logs/agent.log`; a publish with no matching wire line means a non-gateway process
@@ -130,7 +139,9 @@ five load-bearing modes: `opened` · `planned` · `dry-run` · `refused` · `mer
 **`dispatches` table** in `~/.hermes/watchdog.db` (additive DDL; `events` untouched).
 `reported_at IS NULL` = the sweeper still owes a message; a `--wait` returning a terminal verdict
 stamps it, `status` deliberately does not, and a dispatch with no `origin_channel` closes with
-the sentinel `undeliverable:no-origin-channel`. `artifact_url` + `merged_at` are denormalized
+the sentinel `undeliverable:no-origin-channel`. sideclaw prunes jobs after 24 h: `status` falls
+back to the row's `verdict_json` on a 404, and the sweeper counts 404s per row (`poll_misses`) —
+three consecutive → status `lost`, one-line notice, never retried again. `artifact_url` + `merged_at` are denormalized
 columns added by an `ALTER TABLE` on every connect in **both** settlers (`hermes-cc.sh`'s
 `sync_record`, `dispatch-sweep.py`) — `CREATE TABLE IF NOT EXISTS` no-ops on an existing table.
 
@@ -231,87 +242,18 @@ secrets resolve for **every** hermes invocation — gateway, CLI, cron.
   applied" + a warning. `hermes-liveness.sh` covers both halves — total failure via
   `platforms.slack.state == "connected"`, partial via `KEY=` count vs rendered count, retried
   once after 2s (288 decrypts/day; one transient failure must not page), `timeout`-bounded.
-- Manual check: `Command helper: applied 27 secrets` in `hermes gateway status`, `✓ secrets (27
+- Manual check: `Command helper: applied 29 secrets` in `hermes gateway status`, `✓ secrets (29
   refs …)` from `make status`.
+- **`hermes model` writes a plaintext `~/.hermes/.env`** (`save_env_value`, the two
+  `HERMES_CUSTOM_*_API_KEY` names `config.yaml`'s `key_env` hints point at). Both names are in
+  `.env.tpl` on the same `op://common/anthropic/API_KEY` ref, so the file is unnecessary and
+  was deleted 2026-09-07; `hermes-backup.sh` excludes it so a recreated one never reaches
+  homelab. Never run `hermes model` on the mini.
 - **launchd works** — `ai.hermes.gateway` is genuinely supervised. The plist is stock
   (`venv/bin/python -m hermes_cli.main gateway run --replace`), so `hermes gateway install` is a
   no-op; its `Bootstrap failed: 5` output is noise — check `gateway status`.
 
 Rationale + what this replaced: **`docs/secrets-command.md`**.
-
-## Hermes WebUI (browser UI, tailnet-only)
-
-Third-party (`github.com/nesquena/hermes-webui`, cloned at `~/SourceRoot/hermes-webui`), reads
-`~/.hermes` directly, used from the iPhone. **The clone stays upstream's tree** — every local
-decision lives here, so it can be deleted and re-cloned. It runs inside the **gateway's own
-venv** (`HERMES_WEBUI_PYTHON`; only deps are `pyyaml` + `cryptography`), so a WebUI dep bump
-lands in the venv the gateway runs from.
-
-| Piece | Where |
-|-|-|
-| Launcher (env + secret resolution) | `scripts/hermes-webui-launch.sh` |
-| Service / heartbeat definitions | `launchd/com.jkrumm.hermes-webui{,-liveness}.plist.template` |
-| Tailnet ingress, phone | `dotfiles-private/tailscale-serve.mini.conf` (`:8789`) + ACL `tag:phone → tag:mac tcp:8789` |
-| Tailnet ingress, Macs | `dotfiles/config/Caddyfile` → `hermes-web.test` ⇒ `https://hermes-web.mini.jkrumm.com` |
-| Password | `op://mini/hermes-webui/password` |
-| Monitor | homelab `uptime-kuma/monitors.yaml` → `Hermes WebUI - Push` |
-
-- **Two doors, both stay** — `:8789` (`tailscale serve`) is the **phone's**, the Caddy clean door
-  the **MacBook's**. ACL-forced: the serve grant is `tag:phone → tag:mac` and **both Macs are
-  `tag:mac`**, so widening it would expose the *work* laptop to every session, memory and log;
-  the clean door is `tag:devhost`, mini-only. **Never bind 8789 on the tailnet interface in
-  Caddy** — it collides head-on with the serve row.
-- **The clone's `.env` must not exist, and `make status` asserts it** — `start.sh` sources it
-  with `set -a` *after* the launcher's env, so a stale file silently overrides everything,
-  password included.
-- **The launcher resolves the whole `.env.tpl`**, not just the password: the WebUI runs its own
-  in-process agent, but `server.py` is not `hermes_cli.main`, so `${OPENAI_BASE_URL}` + 25
-  siblings reach httpx unexpanded. Symptom names nothing — *"Error: Connection error."*, log
-  `base_url=${OPENAI_BASE_URL} … UnsupportedProtocol`, gateway healthy throughout.
-- **No credential fallback** — an unresolvable ref exits 78 and the service stays down, safer
-  than serving on a credential nobody can rotate. **The heartbeat asserts auth, not liveness**:
-  `/health` answers before the password middleware is wired, so an empty-password WebUI would
-  otherwise look green.
-
-Narrative, incl. what the unattended build got right and wrong: **`docs/hermes-webui.md`**.
-
-## `hermes serve` — the backend Hermes Desktop connects to
-
-Upstream's desktop client (`hermes desktop`, Electron, `apps/desktop/`) cannot use the
-OpenAI-compatible API on `:8642` — it speaks to `hermes serve`, a JSON-RPC/WebSocket backend on
-**`:9119`** whose load-bearing routes are `GET /api/status` (auth discovery) and `WS /api/ws`.
-`:8642` has no `/api/ws` at all — which is why argo's dashboard chat can use it and Desktop
-cannot. `hermes dashboard` is the same server with a browser UI. **A separate process from the
-gateway, and upstream expects both** — Slack does not move to it.
-
-| Piece | Where |
-|-|-|
-| Launcher | `scripts/hermes-serve-launch.sh` |
-| Service + heartbeat | `launchd/com.jkrumm.hermes-serve{,-liveness}.plist.template` |
-| Auth refs | `serve.env.tpl` → `op://mini/hermes-serve/{username,password,session-secret}` |
-| Door | `dotfiles/config/Caddyfile` → `hermes-api.test` ⇒ `https://hermes-api.mini.jkrumm.com` |
-| Monitor | homelab → `Hermes Serve - Push` |
-
-- **Client side:** *Settings → Gateways → Add connection → Remote gateway*, persisted to
-  Electron `userData/connection.json` (`mode: local|remote|cloud|ssh`).
-  `HERMES_DESKTOP_REMOTE_URL` / `_TOKEN` are an app-wide override, not the normal route (URL
-  without token is a hard error). **In remote mode the mini is the execution boundary** — every
-  tool runs there, so Desktop-on-MacBook browses the *mini's* filesystem.
-- **`serve.env.tpl` is deliberately NOT `.env.tpl`.** `secrets-run` fails **atomically**, so an
-  unsealed ref in `.env.tpl` renders **zero** secrets and brings the *gateway* up
-  credential-less at its next restart (suppressing its heartbeat too). A second template scopes
-  that blast radius to serve alone.
-- **An unset `${VAR}` in config.yaml expands to the literal `${VAR}`, which is truthy**
-  (`_expand_env_vars`) — an unresolved serve would authenticate on the password
-  `${HERMES_DASHBOARD_BASIC_AUTH_PASSWORD}`. Hence the launcher **counts** rendered refs and
-  refuses below the full set; `make status` reports the same count.
-- **Auth engages despite the loopback bind**, via the operator-declared `dashboard.public_url`
-  clause. **Do not add a second auth layer in Caddy** — it breaks Desktop's `/api/status`
-  discovery handshake. `--insecure` is a documented no-op since the June 2026 hardening. The
-  heartbeat asserts `auth_required`, not liveness — `/api/status` is public by design.
-- **Three front-ends share one `~/.hermes` and one `state.db`** (gateway, WebUI's in-process
-  agent, `serve`). If sessions vanish/interleave/lock, suspect this first; `hermes serve
-  --isolated` is the escape. Detail: **`docs/hermes-serve.md`**.
 
 ## Gateway HTTP Exposure (argo dashboard chat)
 
@@ -434,8 +376,10 @@ Daily vault pages, one per active repo, written by sideclaw's `narrative` job
 a project is, where it stands, how it got there. Less is more: a project with
 no substantive change gets no revision and no mention, gated by a pure
 `needs_revision()` (HEAD moved or a newer Claude Code transcript) before any
-model call. `scripts/project-narratives.py --run` is the cron entry (not yet
-registered); `--bootstrap a,b,c` writes for human review without committing.
+model call. `scripts/project-narratives.py --run` is the cron entry (job `9909f808fe17`, daily 06:30,
+via `narratives-cron.py`); `--bootstrap a,b,c` writes for human review without committing. It
+takes brain-sync's `mkdir` lock around add/commit, pushes (fail-soft), and POSTs each written
+page to Argo `/api/agents/narratives` (best-effort, a 404 is non-fatal).
 Every commit names the vault (`git -C ~/SourceRoot/brain …`), the sole
 exemption in the `raw_repo_write` guard (`docs/guards.md`). **`docs/project-narratives.md`**.
 
@@ -516,7 +460,8 @@ Re-apply shape:
 **Anything touching `tirith_security.py`, `cronjob_prompt_scan.py` or `runtime_provider.py`
 needs a gateway restart** (`launchctl kickstart -k gui/$(id -u)/ai.hermes.gateway`) — modules are
 imported once at startup, so a green in-process test says nothing about the running process.
-`serve-speak-summary` kickstarts `com.jkrumm.hermes-serve` instead.
+`serve-speak-summary` targets the `hermes serve` relay, which no longer runs here (teardown
+2026-09-07) — the patch stays applied but is dormant.
 
 **The four guard rules in `tirith-hermes-guards.patch`**, each with its own suite (run with
 `~/.hermes/hermes-agent/venv/bin/python3`):
@@ -532,10 +477,15 @@ imported once at startup, so a green in-process test says nothing about the runn
   `test_download_guard.py`: 20/20 blocked, 27/27 allowed, plus 2/2 newline-smuggled
   pipeline bypasses blocked and 1/1 quoted newline still allowed.
 - **`raw_agent_invocation`** — blocks Hermes composing its own `claude` / `claude_iu` /
-  `claude_bridge` / `ca` / `opencode` call instead of using the dispatcher (`claude_bridge`,
-  `opencode`, `mosh` stay in the denylist as defense in depth although retired on this machine).
+  `claude_bridge` / `ca` / `opencode` / `rd bg|work` / `agent-dispatch` / `remote-dev.sh` call, a
+  `herdr agent start|prompt|send-keys|attach` that would place or drive one, or a
+  `herdr pane run|send-text|send-keys … <command>` whose typed command is any of the above
+  (the command is re-scanned with the whole guard, so `herdr pane run argo 'rd bg …'` is caught
+  one hop down). `herdr agent list|get|read|wait|explain`, `pane list|read`, `rd repos|agents|read`
+  stay allowed — the `agents` skill's read path. (`claude_bridge`, `opencode`, `mosh` stay in the
+  denylist as defense in depth although retired on this machine.)
   Follows `timeout`/`env`/`nohup`/`sudo`/`xargs`/`nice` wrappers, `K=$(...)` prefixes, `sh -c`,
-  subshells. `test_raw_agent_guard.py`: 31/31 blocked, 24/24 allowed, plus 5/5 wrapper-operand
+  subshells. `test_raw_agent_guard.py`: 51/51 blocked, 42/42 allowed, plus 5/5 wrapper-operand
   bypasses blocked and 5/5 value-less wrapper flags still blocked.
 - **`raw_repo_write`** — blocks Hermes editing a repo itself instead of dispatching.
   **Unconditional, not path-scoped**: a `git commit` names no path, so a path rule is evaded by
