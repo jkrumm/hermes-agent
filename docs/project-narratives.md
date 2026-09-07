@@ -92,6 +92,7 @@ Not registered yet — do this by hand once reviewed:
 ```bash
 hermes cron create "30 6 * * *" --name "Project narratives" \
   --script narratives-cron.py --no-agent --deliver slack:C0BVDE5R562
+# registered 2026-09-07 as job 9909f808fe17 — edit with `hermes cron edit 9909f808fe17`, never re-create
 ```
 
 Verify with `hermes cron list` — `Script: narratives-cron.py`, `Mode:
