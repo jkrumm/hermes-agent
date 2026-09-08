@@ -46,6 +46,15 @@ assert _spec is not None and _spec.loader is not None
 triage = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(triage)
 
+# Also loaded directly (not just through triage.py's own dynamic import) —
+# test_op_refs_raw_fallback_dedups_across_timestamps below covers
+# watchdog-poll.py's own fix in isolation, with no DB/Slack involved.
+WATCHDOG_POLL_PATH = REPO_ROOT / "scripts" / "watchdog-poll.py"
+_wp_spec = importlib.util.spec_from_file_location("watchdog_poll", WATCHDOG_POLL_PATH)
+assert _wp_spec is not None and _wp_spec.loader is not None
+watchdog_poll = importlib.util.module_from_spec(_wp_spec)
+_wp_spec.loader.exec_module(watchdog_poll)
+
 
 # --- fixtures ------------------------------------------------------------------
 
@@ -88,6 +97,7 @@ def _triage_env(*, policy: dict[str, Any] | None = None, deny: list[str] | None 
         "_run_hermes_cc_dispatch": triage._run_hermes_cc_dispatch,
         "MAX_OPEN_INVESTIGATIONS": triage.MAX_OPEN_INVESTIGATIONS,
         "DAILY_INVESTIGATE_BUDGET": triage.DAILY_INVESTIGATE_BUDGET,
+        "VERB_ALLOWLIST": dict(triage.VERB_ALLOWLIST),
     }
     try:
         triage.DB_PATH = tmp_dir / "watchdog.db"
@@ -232,7 +242,7 @@ def test_all_unmapped_backlog_posts_zero_slack_calls():
         today = NOW.date().isoformat()
         now_iso = NOW.isoformat()
         conn.execute("INSERT INTO cursors(key, value, updated_at) VALUES (?, ?, ?)",
-                     (triage.UNMAPPED_DIGEST_CURSOR_KEY, today, now_iso))
+                     (triage.DAILY_DIGEST_CURSOR_KEY, today, now_iso))
         conn.commit()
 
         calls: list[dict[str, Any]] = []
@@ -320,21 +330,52 @@ def test_ignore_policy_never_cards_or_escalates():
         assert row["state"] == triage.STATE_IGNORED
 
 
-def test_ignore_unstructured_slack_prose():
+def test_unstructured_prose_lands_in_note_not_ignored():
+    """Correction #1, highest priority: unstructured #alerts prose must
+    never be silently dropped into `ignored` — it might be an unactioned
+    human diagnosis (the shipped example: a real 1Password rate-limit root
+    cause + two-line fix, never shipped). It must land in STATE_NOTE,
+    produce zero Slack cards, and surface in the daily digest payload."""
     policy = dict(DEFAULT_POLICY, ignoreUnstructuredSlackProse=True)
     with _triage_env(policy=policy) as (conn, ctx):
-        _insert_event(conn, source="slack_alert", external_id="alles-gruen-ok-hand",
-                       title="Alles grün. :ok_hand:", first_seen=OLD)
-        _insert_event(conn, source="slack_alert", external_id="sig-real-alert",
+        prose_title = ("1Password rate-limiting. Der Cronjob ruft `op run` jede Minute auf, "
+                        "1.440 Authentifizierungen/Tag.")
+        _insert_event(conn, source="slack_alert", external_id="op-rate-limit-note",
+                       title=prose_title, first_seen=OLD)
+        # Deliberately NOT starting with "sig-" — DEFAULT_POLICY's one rule
+        # matches that prefix, and this row's job here is only to prove the
+        # bracketed bot-alert shape survives the structural filter unmapped.
+        _insert_event(conn, source="slack_alert", external_id="api-real-alert-down",
                        title="[API - HTTP] [:red_circle: Down] timeout <!channel>", first_seen=OLD)
-        triage.ingest(conn, NOW)
-        triage.classify(conn, policy, NOW)
+        calls: list[dict[str, Any]] = []
+        triage._run_hermes_cc_dispatch = _fake_dispatcher(conn, calls)
+        triage.run(conn, dry_run=False)
+
         states = {r["signature"]: r["state"] for r in
                   conn.execute("SELECT signature, state FROM triage_items").fetchall()}
-        assert states["slack_alert:alles-gruen-ok-hand"] == triage.STATE_IGNORED
-        # The bracketed bot-alert shape survives the structural filter (still
-        # unmapped here since DEFAULT_POLICY's one rule doesn't match it).
-        assert states["slack_alert:sig-real-alert"] == triage.STATE_NEW
+        assert states["slack_alert:op-rate-limit-note"] == triage.STATE_NOTE, (
+            "unstructured prose must land in STATE_NOTE, not STATE_IGNORED"
+        )
+        assert states["slack_alert:api-real-alert-down"] == triage.STATE_NEW
+
+        assert calls == [], "a STATE_NOTE row must never escalate"
+        # A genuine per-item card always has a `header` block (the item's
+        # title); the digest post below does not — this distinguishes "a
+        # card exists for the note" from "the note's text merely appears
+        # inside the digest message", since both happen to contain the word
+        # "1Password".
+        card_posts = [
+            p for p in ctx.posted
+            if any(b.get("type") == "header" and "1Password" in b.get("text", {}).get("text", "")
+                   for b in p["blocks"])
+        ]
+        assert card_posts == [], "a STATE_NOTE row must produce zero Slack cards"
+
+        digest_posts = [p for p in ctx.posted if "Unstructured notes" in p["text"]]
+        assert len(digest_posts) == 1, "the STATE_NOTE row must appear in the daily digest"
+        digest_text = digest_posts[0]["text"]
+        assert "slack_alert:op-rate-limit-note" in digest_text
+        assert "1Password rate-limiting" in digest_text
 
 
 def test_uk_maps_via_title_not_external_id():
@@ -349,6 +390,42 @@ def test_uk_maps_via_title_not_external_id():
         triage.classify(conn, policy, NOW)
         item = triage._get_item(conn, eid)
         assert item["repo"] == "dotfiles", f"expected dotfiles via title match, got {item['repo']!r}"
+
+
+def test_shipped_policy_routes_argo_infra_signals_to_vps():
+    """Correction #4: an infra-signal alert about a RollHook-managed app
+    maps to the repo owning its compose file/deploy target, not its source.
+    argo is compose-managed inside `vps` (apps/argo/compose.yml, make
+    argo-up) — a downed argo container, or its api-*/dashboard-* Kuma child
+    monitors, must route to `vps`, never `argo`. Loads the REAL shipped
+    config/triage-policy.json, not a test fixture, so a future accidental
+    revert of this fix fails this test directly."""
+    real_policy_path = REPO_ROOT / "config" / "triage-policy.json"
+    real_policy = json.loads(real_policy_path.read_text())
+    rules = real_policy["rules"]
+
+    cases = [
+        ("docker_vps:unhealthy:argo-web", "vps"),
+        ("docker_vps:restart:argo-worker", "vps"),
+        ("slack_alert:api-docker-red-circle-down-request-failed-with-status-code-404-channel", "vps"),
+        ("slack_alert:api-http-red-circle-down-connect-ehostunreach-172-22-0-12-4000-channel", "vps"),
+        ("slack_alert:dashboard-docker-red-circle-down-request-failed-with-status-code-404-channel", "vps"),
+        ("slack_alert:dashboard-http-red-circle-down-connect-econnrefused-100-97-220-54-443-channel", "vps"),
+    ]
+    for target, expected_repo in cases:
+        matched = None
+        for rule in rules:
+            import fnmatch as _fnmatch
+            if _fnmatch.fnmatch(target, rule["match"]):
+                matched = rule
+                break
+        assert matched is not None, f"{target!r} matched no rule in the shipped policy"
+        assert matched.get("repo") == expected_repo, (
+            f"{target!r} matched {matched!r}, expected repo={expected_repo!r}"
+        )
+    assert not any(r.get("repo") == "argo" for r in rules), (
+        "no rule in the shipped policy may point at `argo` — the deploy target is `vps`"
+    )
 
 
 def test_max_open_investigations_cap():
@@ -410,7 +487,7 @@ def test_unmapped_repo_never_dispatches():
         # digest mechanism doesn't count against "an unescalated item gets no card".
         today = NOW.date().isoformat()
         conn.execute("INSERT INTO cursors(key, value, updated_at) VALUES (?, ?, ?)",
-                     (triage.UNMAPPED_DIGEST_CURSOR_KEY, today, NOW.isoformat()))
+                     (triage.DAILY_DIGEST_CURSOR_KEY, today, NOW.isoformat()))
         conn.commit()
         calls: list[dict[str, Any]] = []
         triage._run_hermes_cc_dispatch = _fake_dispatcher(conn, calls)
@@ -676,6 +753,122 @@ def test_fold_dispatch_verdict_updates_every_cluster_member():
             item = triage._get_item(conn, eid)
             assert item["state"] == triage.STATE_PR_OPEN
             assert item["artifact_url"] == "https://github.com/jkrumm/demo-repo/pull/3"
+
+
+def _write_env_check_stub(tmp_dir: Path, *, dangling_homelab: list[str] | None = None,
+                           dangling_vps: list[str] | None = None) -> Path:
+    """A stub standing in for hermes-ops.sh's `env-check --json`, returning
+    exactly its documented shape."""
+    stub_path = tmp_dir / "env-check-stub.py"
+    payload = {
+        "verb": "env-check", "ok": not (dangling_homelab or dangling_vps), "tier": "A",
+        "homelab": {"ok": not dangling_homelab, "exitCode": 3 if dangling_homelab else 0,
+                    "danglingItems": dangling_homelab or [], "error": None},
+        "vps": {"ok": not dangling_vps, "exitCode": 3 if dangling_vps else 0,
+                "danglingItems": dangling_vps or [], "error": None},
+    }
+    stub_path.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json\n"
+        f"print(json.dumps({payload!r}))\n"
+    )
+    stub_path.chmod(0o755)
+    return stub_path
+
+
+def test_op_refs_sources_are_ingested():
+    """Correction #2: op_refs_homelab/op_refs_vps must not be structurally
+    excluded from ingest — a dead 1Password ref must at minimum reach the
+    daily digest even with no matching policy rule."""
+    assert "op_refs_homelab" in triage.INGEST_SOURCES
+    assert "op_refs_vps" in triage.INGEST_SOURCES
+    with _triage_env(policy=dict(DEFAULT_POLICY, rules=[])) as (conn, ctx):
+        eid = _insert_event(conn, source="op_refs_homelab", external_id="raw:some-error",
+                             title="1Password refs unresolved on homelab", first_seen=OLD)
+        triage.ingest(conn, NOW)
+        item = triage._get_item(conn, eid)
+        assert item is not None, "op_refs_homelab must produce a triage_items row"
+
+
+def test_op_refs_route_to_env_check_verb_not_episode():
+    """Correction #2: a dead 1Password ref must reach a deterministic VERB
+    (hermes-ops.sh env-check), never a sideclaw episode — cheaper and safer
+    (a bare item name in the output doesn't trip sideclaw's own secret-scan
+    the way a dispatched verdict would)."""
+    policy = dict(DEFAULT_POLICY, minOccurrences=1, minOpenMinutes=0,
+                  rules=[{"match": "op_refs_homelab:*", "verb": "env-check"},
+                         {"match": "op_refs_vps:*", "verb": "env-check"}])
+    with _triage_env(policy=policy) as (conn, ctx):
+        stub = _write_env_check_stub(ctx.tmp_dir, dangling_homelab=["gateway-secret"])
+        triage.VERB_ALLOWLIST = {"env-check": [str(stub)]}
+
+        eid = _insert_event(conn, source="op_refs_homelab", external_id="raw:some-error",
+                             title="1Password refs unresolved on homelab", first_seen=OLD)
+        calls: list[dict[str, Any]] = []
+        triage._run_hermes_cc_dispatch = _fake_dispatcher(conn, calls)
+        triage.run(conn, dry_run=False)
+
+        assert calls == [], "a verb-routed item must never open a sideclaw episode"
+        item = triage._get_item(conn, eid)
+        assert item["repo"] is None
+        assert item["verb"] == "env-check"
+        assert item["state"] == triage.STATE_NEEDS_HUMAN
+        assert "gateway-secret" in item["note"]
+        assert "make secrets-seed" in item["note"]
+        assert item["dispatch_job"] is None
+
+        event_row = triage._get_event(conn, eid)
+        assert event_row["dispatch_id"] is None, "a verb outcome never touches the dispatch bridge"
+
+        # The card carries the dangling item + remediation inline.
+        assert len(ctx.posted) == 1
+        blocks_text = json.dumps(ctx.posted[0]["blocks"])
+        assert "gateway-secret" in blocks_text
+        assert "make secrets-seed" in blocks_text
+
+
+def test_op_refs_no_dangling_item_still_reaches_needs_human():
+    policy = dict(DEFAULT_POLICY, minOccurrences=1, minOpenMinutes=0,
+                  rules=[{"match": "op_refs_vps:*", "verb": "env-check"}])
+    with _triage_env(policy=policy) as (conn, ctx):
+        stub = _write_env_check_stub(ctx.tmp_dir)  # nothing dangling — ok: true
+        triage.VERB_ALLOWLIST = {"env-check": [str(stub)]}
+        eid = _insert_event(conn, source="op_refs_vps", external_id="some-item", title="unresolved",
+                             first_seen=OLD)
+        triage.run(conn, dry_run=False)
+        item = triage._get_item(conn, eid)
+        assert item["state"] == triage.STATE_NEEDS_HUMAN
+        assert "no dangling item" in item["note"]
+
+
+def test_op_refs_raw_fallback_dedups_across_timestamps():
+    """Correction #3: watchdog-poll.py's `raw:` op-refs fallback signature
+    must not embed a timestamp — two stderr strings differing ONLY in their
+    timestamp must produce the SAME external_id, or every 30-min poll mints
+    a fresh row and the dangling ref never stays flagged."""
+    s1 = "[ERROR] 2026/09/01 15:00:34 (504) Unknown: An unknown error occurred."
+    s2 = "[ERROR] 2026/09/02 03:11:09 (504) Unknown: An unknown error occurred."
+    key1 = watchdog_poll.normalize_title(watchdog_poll._strip_op_refs_timestamps(s1))[:80]
+    key2 = watchdog_poll.normalize_title(watchdog_poll._strip_op_refs_timestamps(s2))[:80]
+    assert key1 == key2, f"timestamps must not survive into the dedup key: {key1!r} != {key2!r}"
+    assert "2026" not in key1 and "01" not in key1.split("-")
+
+    # A dash-separated ISO shape (the form the OLD, buggy key itself used to
+    # normalize into) must also collapse identically.
+    s3 = "op run failed: timeout at 2026-09-01T15:00:34.504Z during resolve"
+    s4 = "op run failed: timeout at 2026-09-02T03:11:09.118Z during resolve"
+    key3 = watchdog_poll.normalize_title(watchdog_poll._strip_op_refs_timestamps(s3))[:80]
+    key4 = watchdog_poll.normalize_title(watchdog_poll._strip_op_refs_timestamps(s4))[:80]
+    assert key3 == key4
+
+
+def test_unknown_verb_key_is_rejected_at_policy_load():
+    """A policy rule must never be able to name an arbitrary command — only
+    a key in the code-side VERB_ALLOWLIST is accepted."""
+    policy = dict(DEFAULT_POLICY, rules=[{"match": "op_refs_homelab:*", "verb": "rm-rf-everything"}])
+    with _triage_env(policy=policy) as (conn, ctx):
+        loaded = triage.load_policy()
+        assert loaded["rules"] == [], "an unknown verb key must be dropped, not passed through"
 
 
 # --- runner ------------------------------------------------------------------

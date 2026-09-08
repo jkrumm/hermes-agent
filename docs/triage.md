@@ -49,43 +49,55 @@ edges* and *Clustering* below.
 ## The loop, per run
 
 1. **Ingest** — upsert one `triage_items` row per open event in
-   `slack_alert`, `uk`, `docker_homelab`, `docker_vps`, `hermes_log`.
-   `occurrences` comes from `payload_json.batch_count` (grouped sources) or
-   falls back to `reminder_count + 1` (state sources, which don't batch).
-   Never writes to `events.payload_json` — `upsert_grouped()` rewrites that
-   blob wholesale on every poll (verified by reading it), so a second writer
-   there would silently lose data. `triage_items` is a fully separate table
-   for exactly this reason.
+   `slack_alert`, `uk`, `docker_homelab`, `docker_vps`, `hermes_log`,
+   `op_refs_homelab`, `op_refs_vps`. `occurrences` comes from
+   `payload_json.batch_count` (grouped sources) or falls back to
+   `reminder_count + 1` (state sources, which don't batch). Never writes to
+   `events.payload_json` — `upsert_grouped()` rewrites that blob wholesale on
+   every poll (verified by reading it), so a second writer there would
+   silently lose data. `triage_items` is a fully separate table for exactly
+   this reason.
 2. **Reopen / unsnooze** — a `triage_items` row stuck in `resolved` whose
    underlying event has since reopened flips back to `new` (never clearing
    `artifact_url`/`dispatch_job`); a `snoozed` row whose `snoozed_until` has
    passed flips back to `new`.
-3. **Classify** — resolve `repo` by `fnmatch` against TWO match targets per
-   event (`source:external_id` and `source:normalize_title(title)` — see
-   *Match targets* below) using `config/triage-policy.json`'s `rules` (first
-   match wins), or route to `ignored` via `ignore` (checked first, same two
-   targets) or the structural `ignoreUnstructuredSlackProse` flag. Only ever
-   touches a row still in state `new` — an escalated, snoozed, or manually
-   ignored item is never reclassified out from under itself. A signature
-   matching no rule stays `new` with `repo` unset and is named in the
-   once-a-day unmapped-signatures digest (its own Slack message, not a
-   per-item card) so the map can grow deliberately.
+3. **Classify** — fnmatch TWO match targets per event (`source:external_id`
+   and `source:normalize_title(title)` — see *Match targets* below) against
+   `config/triage-policy.json`, in this order:
+   1. `ignore` (checked first, both targets) — a deliberate human call that
+      THIS signature is a genuine recovery or known-benign pattern. Routes
+      to `ignored`: terminal, invisible, never in the digest.
+   2. `ignoreUnstructuredSlackProse` (structural, `slack_alert` only) — a
+      title that doesn't start with a recognized bot-alert shape. Routes to
+      `STATE_NOTE`: terminal, but VISIBLE in the daily digest — see *Notes vs
+      ignored* below.
+   3. `rules` (first match wins) — resolves EITHER `repo` (escalate to a
+      sideclaw episode) OR `verb` (run a declared local command — see *Verb
+      outcomes*).
+   Only ever touches a row still in state `new` — an escalated, snoozed, or
+   manually ignored/noted item is never reclassified out from under itself.
+   A signature matching no rule stays `new` with `repo`/`verb` unset and is
+   named in the daily digest so the map can grow deliberately.
 4. **Resolve** — an event whose `resolved_at` is now set flips its
-   `triage_items` row to `resolved`.
+   `triage_items` row to `resolved` — except `ignored`/`snoozed`/`STATE_NOTE`
+   rows, which stay in their terminal state (a note must never get a
+   one-time "resolved" card either).
 5. **Dissolve** — a cluster whose folded verdict says its members don't
    share a root cause (`DISSOLVE_MARKER`, see *Clustering*) splits: every
    member resets to `new` and re-escalates independently later.
-6. **Escalate** — every eligible `new`+mapped item, GROUPED BY REPO, becomes
-   at most ONE sideclaw dispatch per repo per run (a cluster, capped at
-   `MAX_CLUSTER_SIGNATURES` = 5 members; the rest wait for a later run) — not
-   one dispatch per item. See *Clustering*.
+6. **Escalate** — every eligible `new`+`repo`-mapped item, GROUPED BY REPO,
+   becomes at most ONE sideclaw dispatch per repo per run (a cluster, capped
+   at `MAX_CLUSTER_SIGNATURES` = 5 members; the rest wait for a later run) —
+   not one dispatch per item. See *Clustering*.
+6b. **Verbs** — every eligible `new`+`verb`-mapped item runs its allowlisted
+   local command once. See *Verb outcomes*.
 7. **Card** — one Slack card per cluster (`_cluster_groups()`, keyed by
-   `dispatch_job`), posted once state leaves `new` (see *Carded states*
-   below) and updated in place after, no-op when the rendered content hasn't
-   changed.
-8. **Unmapped digest** — once per UTC day (tracked in the `cursors` table,
-   shared with `watchdog-poll.py`), a single Slack message listing every
-   signature that matched no rule this run.
+   `dispatch_job`, a verb outcome is its own singleton "cluster"), posted
+   once state leaves `new` (see *Carded states* below) and updated in place
+   after, no-op when the rendered content hasn't changed.
+8. **Daily digest** — once per UTC day (tracked in the `cursors` table,
+   shared with `watchdog-poll.py`), a single Slack message with up to two
+   sections: signatures that matched no rule, and `STATE_NOTE` rows.
 
 `scripts/dispatch-sweep.py` closes the other half: when a dispatch tied to a
 triage cluster (`dispatches.origin_event_id` set) reaches a terminal status,
@@ -113,16 +125,94 @@ harmless no-op there. For a state source they differ, and this is what makes
 monitor id (`"204"`), unstable across a monitor recreate — a rule can only be
 written against the title-derived target, e.g. `uk:macmini-dev-host-push`.
 
+## Notes vs ignored
+
+Two different terminal, uncarded outcomes for a `slack_alert` item that
+never becomes an episode — deliberately NOT the same state:
+
+- **`ignored`** — the explicit `ignore` list. A human decided THIS
+  signature is a genuine recovery or known-benign pattern. Invisible:
+  never carded, never in the digest.
+- **`STATE_NOTE`** — the structural `ignoreUnstructuredSlackProse` fallback.
+  A title that doesn't start with a recognized bot-alert shape (`[`, siren,
+  checkmark, warning). Visible: named (signature + a truncated title) under
+  its own heading in the daily digest, though never carded or escalated.
+
+The split exists because `watchdog.db` genuinely contains rows like a human
+Slack message diagnosing the exact 1Password rate-limit root cause with a
+concrete two-line fix — never shipped. Before `#alerts` was silenced, Hermes
+replied to every message in that channel, and `watchdog-poll.py`'s
+`slack_alert` poller ingested those replies right alongside real bot alerts;
+routing all of that unstructured backlog into `ignored` would make a real,
+unactioned diagnosis permanently invisible — precisely the failure mode this
+whole redesign exists to kill. Routing it to `ignored` was the original
+(wrong) design of `ignoreUnstructuredSlackProse`; `STATE_NOTE` fixed it.
+
+## Verb outcomes
+
+A policy rule can carry `verb` instead of `repo` — routes to a declared,
+CODE-SIDE ALLOWLISTED local command (`VERB_ALLOWLIST` in `scripts/triage.py`)
+rather than a sideclaw episode. The policy file names a KEY (`"env-check"`),
+never a command — a policy file must never be able to name an arbitrary
+argv, the same closed-verb-set principle `hermes-cc.sh`'s own
+dispatch/status/list/merge/cancel verbs use, applied to a bounded local
+probe instead of an episode.
+
+Seeded with exactly one: `env-check` (`hermes-ops.sh env-check --json`, two
+sequential ssh probes of homelab/vps's shared `.env.tpl`), which
+`op_refs_homelab`/`op_refs_vps` route to. A dead 1Password ref blocks every
+future reseal of the mini's offline secrets cache (`dotfiles/CLAUDE.md`
+§Secrets) — it is a deterministic, already-diagnosed condition the moment
+`env-check` runs, so dispatching a sideclaw episode to "investigate" it would
+be both slower and actively worse: a bare 1Password item name in a
+DISPATCHED verdict can collide with sideclaw's own `op://vault/item/field`
+secret-scan pattern and get withheld from the card, whereas `env-check`'s
+output reaching the card directly does not have that problem.
+
+`run_verbs()` applies the same `minOccurrences`/`minOpenMinutes` eligibility
+gate as an episode escalation, but NO concurrency/daily-budget cap (a verb is
+a bounded local probe, not a sideclaw episode, and doesn't compete for that
+budget) and NO cooldown tracking — a verb-routed item runs AT MOST ONCE,
+because its terminal state (`needs_human`) permanently falls out of the
+`state=new` candidate query. If the underlying condition later clears, the
+normal resolve path (`events.resolved_at`) closes the row out without
+needing a re-run; if it recurs after a reopen, running the probe again is
+exactly correct. `VERB_TIMEOUT` = 260s (comfortably over `env-check`'s two
+sequential 120s-bounded ssh probes) — long for a 10-minute cron, but the
+probe runs at most once per dangling-ref episode, not every cycle.
+
+The card's `note` (rendered by `_render_env_check_note()`) IS the whole
+verdict: every dangling item name plus the exact remediation
+(`make secrets-seed`, biometric, MacBook only) inlined, so no further
+investigation should be needed.
+
+**A prerequisite fix in `watchdog-poll.py` makes this trustworthy at all.**
+`poll_op_refs()`'s `raw:` fallback (when `op run`'s error can't be parsed
+into a specific dangling item name) used to build its dedup key from the
+raw stderr text UNCHANGED — and that text embeds a timestamp (`[ERROR]
+2026/09/01 15:00:34 (504) Unknown: ...`). Because `normalize_title()` does
+not strip timestamps, every 30-minute poll minted a brand-new `external_id`,
+so `reconcile()`'s disappearance logic resolved the "old" row and inserted a
+"new" one every cycle — the DB reported the dangling ref clearing every 30
+minutes while it stayed dead indefinitely, and this loop would have kept
+escalating an ever-fresh signature into `run_verbs()` instead of running the
+probe once and landing on a stable `needs_human` row. `_strip_op_refs_timestamps()`
+strips ISO-8601 and slash/dash-separated date-time shapes plus any bare
+6+-digit run from the text BEFORE it reaches `normalize_title()` — on this
+one fallback path only; `normalize_title()` itself is unchanged, every other
+source depends on its current behavior.
+
 ## Carded states
 
 A card exists ONLY once a cluster has left `new` — state in `investigating`,
 `verdict`, `needs_human`, `pr_open`, or `resolved`. An item that is mapped
 but hasn't yet crossed `minOccurrences`/`minOpenMinutes` — or is simply
-unmapped — is carried silently; it appears only in the once-a-day
-unmapped-signatures digest (if unmapped) or not at all (if mapped but not yet
-eligible). This is deliberate: an empty or partial policy must never turn
-into dozens of cards of noise on day one, which is exactly what carding
-every non-`ignored` row (regardless of state) used to do.
+unmapped — is carried silently; it appears only in the daily digest (if
+unmapped) or not at all (if mapped but not yet eligible). `ignored` and
+`STATE_NOTE` are excluded too — see *Notes vs ignored*. This is deliberate:
+an empty or partial policy must never turn into dozens of cards of noise on
+day one, which is exactly what carding every non-`ignored` row (regardless of
+state) used to do.
 
 ## State machine
 
@@ -130,16 +220,18 @@ every non-`ignored` row (regardless of state) used to do.
 new ──(escalate, clustered by repo)──> investigating ──(sweeper folds verdict)──┬──> verdict ──(DISSOLVE_MARKER)──> new (cluster splits)
  │                                                                                ├──> needs_human
  │                                                                                └──> pr_open
- ├──(ignore rule / ignoreUnstructuredSlackProse / --ignore)──> ignored  (terminal, never carded)
+ ├──(verb outcome — run_verbs())──> needs_human  (terminal-ish: no dispatch_job, runs at most once)
+ ├──(ignore rule / --ignore)──> ignored  (terminal, never carded, never digested)
+ ├──(ignoreUnstructuredSlackProse)──> note  (terminal, never carded, but IN the daily digest)
  ├──(--snooze)──> snoozed ──(snoozed_until passes)──> new
  └──(event resolves)──> resolved ──(event reopens)──> new
 ```
 
-Any non-`ignored` state also goes to `resolved` the moment the underlying
-event's `resolved_at` is set. Once resolved, the row's rendered content stops
-changing, so the card-hash short-circuit (below) means it is genuinely never
-touched again — "stop touching it" falls out of the state machine, it isn't a
-separate rule.
+Any state EXCEPT `ignored`/`snoozed`/`note` also goes to `resolved` the
+moment the underlying event's `resolved_at` is set. Once resolved, the row's
+rendered content stops changing, so the card-hash short-circuit (below)
+means it is genuinely never touched again — "stop touching it" falls out of
+the state machine, it isn't a separate rule.
 
 ## Clustering
 
@@ -281,7 +373,10 @@ re-triages never noticed.
   "minOpenMinutes": 30,
   "cooldownHours": 6,
   "ignoreUnstructuredSlackProse": true,
-  "rules": [{"match": "<fnmatch on either match target>", "repo": "<repo name>"}],
+  "rules": [
+    {"match": "<fnmatch on either match target>", "repo": "<repo name>"},
+    {"match": "<fnmatch on either match target>", "verb": "<VERB_ALLOWLIST key>"}
+  ],
   "ignore": ["<fnmatch on either match target>"]
 }
 ```
@@ -289,31 +384,45 @@ re-triages never noticed.
 A "signature" is `source:external_id` (`triage_items.signature`, and the
 argument every `--snooze`/`--ignore`/`--reopen` CLI verb takes) — this is
 distinct from a "match target", which is one of the two strings a `rules`/
-`ignore` pattern is actually tried against (see *Match targets*). `rules` is
-matched top-to-bottom, first match across either target wins; `ignore` is
-checked first (both targets) and wins over `rules`.
+`ignore` pattern is actually tried against (see *Match targets*). A rule
+carries EITHER `repo` (escalate to a sideclaw episode) OR `verb` (run a
+declared local command — see *Verb outcomes*), never both; `rules` is
+matched top-to-bottom, first match across either target wins.
 
-`ignoreUnstructuredSlackProse` (bool) is checked before `ignore` for
-`slack_alert` items specifically: any title that does not start with a
-recognized bot-alert shape (`[`, the siren emoji, checkmark, warning, or a
-bold-mrkdwn warning) is ignored outright. This exists because, before
-`#alerts` was silenced, Hermes's OWN conversational replies in that channel
-were ingested by `watchdog-poll.py`'s `slack_alert` poller right alongside
-real bot alerts — hundreds of prose sentences sitting in `events` as if they
-were alert signatures. Silencing the channel (`config.yaml`) stops new ones;
-this flag is what keeps the existing backlog from getting carded on this
-file's first run, without thirty hand-written prose globs that need updating
-every time Hermes phrases a reply slightly differently.
+Evaluation order (see *The loop, per run* step 3, *Notes vs ignored*):
+`ignore` first (checked both targets, wins over everything — genuine
+recoveries/known-benign), then `ignoreUnstructuredSlackProse` (structural,
+`slack_alert` only, routes to `STATE_NOTE` not `ignored`), then `rules`.
 
 Every `repo` MUST resolve under `root` in `config/dispatch-repos.json` and
 MUST NOT be in that file's `deny` list — `triage.py` checks the deny list
 itself before ever shelling out, so a bad rule degrades to "never escalates"
 (logged to stderr) rather than a crash, but it is still a policy bug, not a
-feature; fix the rule, don't rely on the guard. HyperDX-origin alerts
-(`job.reaped`, `podcast.failed`, `vps-edge-*`, ...) map to `vps`, not to the
-service they're ABOUT — their threshold/definition lives in
-`vps/observability/alerts/*.json`, which is where the fix lands. Extend the
-file with:
+feature; fix the rule, don't rely on the guard. Every `verb` MUST be a key in
+`scripts/triage.py`'s `VERB_ALLOWLIST` — `load_policy()` drops (with a
+stderr warning) any rule naming an unknown verb, rather than silently never
+matching it at classify() time.
+
+**Which repo owns an infra-signal alert** (a real VPS outage trace caught
+this policy wrong once already — the argo rules used to point at `argo`):
+an infra-signal alert about a RollHook-managed app maps to the repo that owns
+its COMPOSE FILE AND DEPLOY TARGET, not the repo that owns its source.
+`argo` is compose-managed manually inside `vps` (`apps/argo/compose.yml`,
+`make argo-up` — nothing in argo's own repo redeploys it), so a downed argo
+container — and its `api-*`/`dashboard-*` UptimeKuma child monitors — maps
+to `vps`. Most OTHER vps-hosted apps in this policy (audio-gateway,
+research-gateway, meteo, image-gen, image-share) are the opposite:
+`dispatch-repos.json`'s own comment documents that they deploy to the VPS on
+every push to THEIR OWN repo's master (GitHub Actions -> RollHook), so a code
+fix in their own repo auto-redeploys — mapping those to their own repo is
+correct and deliberate. Before adding a new vps-app rule, check
+`vps/apps/<name>/compose.yml` AND whether that app's own repo has a deploy
+workflow. HyperDX-origin alerts (`job.reaped`, `podcast.failed`,
+`vps-edge-*`, ...) map to `vps` for a related but distinct reason: their
+threshold/definition lives in `vps/observability/alerts/*.json`, which is
+where THAT fix lands regardless of which service the alert is about.
+
+Extend the file with:
 
 ```bash
 sqlite3 ~/.hermes/watchdog.db \
@@ -323,7 +432,7 @@ sqlite3 ~/.hermes/watchdog.db \
 and a rule (or ignore pattern) for anything real that shows up unmapped —
 remembering a `uk` rule almost always wants the title-derived target
 (`uk:some-monitor-name-push`), never the bare numeric id — exactly what the
-once-a-day unmapped-signatures digest is for.
+daily digest is for.
 
 The `_readme` key is a JSON-native comment block (JSON has no real comments);
 it explains the same contract from inside the file itself.
@@ -336,6 +445,7 @@ it explains the same contract from inside the file itself.
 | `DAILY_INVESTIGATE_BUDGET` | 8 | `TRIAGE_DAILY_INVESTIGATE_BUDGET` | Well under hermes-cc.sh's own 20/day so a triage storm can never starve interactive dispatch. Counts clusters, not member items |
 | `MAX_CLUSTER_SIGNATURES` | 5 | — | Signatures riding in one cluster's brief; the rest wait for a later run |
 | `SUBPROCESS_TIMEOUT` | 60s | `TRIAGE_SUBPROCESS_TIMEOUT` | Bounds the hermes-cc.sh subprocess call inside a 10-minute cron |
+| `VERB_TIMEOUT` | 260s | — | `env-check` runs TWO sequential ssh probes, each individually bounded by hermes-ops.sh's own `SSH_TIMEOUT=120` — the outer bound has to clear 240s or it would kill a legitimately slow-but-healthy probe |
 | `MAX_BRIEF_CHARS` | 8000 | — | Mirrors hermes-cc.sh's own `MAX_BRIEF_CHARS`; enforced in Python before the brief reaches a subprocess |
 
 `DAILY_INVESTIGATE_BUDGET` is counted from `dispatches.origin_event_id IS NOT
@@ -396,21 +506,29 @@ LLM turn is gone.
 `venv` has no pytest — see that file's own docstring; every `test_*` function
 is still plain-`assert`, argument-free, so it is valid standalone pytest input
 too, and the test file's `main()` runner would be redundant if pytest is ever
-installed). 24 cases, covering: dedup (one card, one investigation across
+installed). 30 cases, covering: dedup (one card, one investigation across
 repeated runs), an unescalated (`new`) item never getting a card — mapped or
 not, the card-hash short-circuit, both edges (`events.dispatch_id`,
 `dispatches.origin_event_id`), `minOccurrences`/`minOpenMinutes`/snooze/ignore/
-`ignoreUnstructuredSlackProse` withholding, `uk` mapping via the title-derived
-match target rather than its opaque external_id, the concurrency and daily
-budget caps (including their simulation under `--dry-run` across multiple
-repos in one pass), a denied and an unmapped repo never dispatching, two
-eligible same-repo items clustering into exactly one dispatch/card with both
-edges written on every member and both signatures in the brief, two eligible
-different-repo items producing two independent dispatches, a cluster
-dissolving back to individually-eligible `new` items on a
-`UNRELATED SIGNATURES` verdict, the brief traveling on stdin capped at 8000
-chars (the one test using a real subprocess stub rather than the in-process
-fake dispatcher), resolution updating the card exactly once, `--dry-run`
-touching neither Slack nor sideclaw, artifact-url survival across a reopen,
-and `fold_dispatch_verdict()` updating every member of a cluster (not just
-the primary).
+`ignoreUnstructuredSlackProse` withholding, unstructured prose landing in
+`STATE_NOTE` (not `ignored`), producing zero cards, and appearing in the
+digest payload, `uk` mapping via the title-derived match target rather than
+its opaque external_id, `op_refs_homelab`/`op_refs_vps` being ingested and
+routed to the `env-check` verb rather than an episode (both the dangling-item
+and the nothing-dangling shapes), an unknown verb key being rejected at
+`load_policy()` time, the shipped `config/triage-policy.json`'s `api-*`/
+`dashboard-*`/argo rules resolving to `vps` (not `argo`, not the service's
+own repo), the concurrency and daily budget caps (including their simulation
+under `--dry-run` across multiple repos in one pass), a denied and an
+unmapped repo never dispatching, two eligible same-repo items clustering into
+exactly one dispatch/card with both edges written on every member and both
+signatures in the brief, two eligible different-repo items producing two
+independent dispatches, a cluster dissolving back to individually-eligible
+`new` items on a `UNRELATED SIGNATURES` verdict, the brief traveling on
+stdin capped at 8000 chars (the one test using a real subprocess stub rather
+than the in-process fake dispatcher), resolution updating the card exactly
+once, `--dry-run` touching neither Slack nor sideclaw, artifact-url survival
+across a reopen, `fold_dispatch_verdict()` updating every member of a cluster
+(not just the primary), and — directly against `scripts/watchdog-poll.py`,
+not through triage.py — two `raw:` op-refs stderr strings differing only in
+their timestamp producing the identical dedup key.

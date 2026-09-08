@@ -118,6 +118,33 @@ OP_REF_HOSTS: dict[str, str] = {
 OP_RUN_MISSING_ITEM_RE = re.compile(r"could not find item (\S+) in vault")
 OP_RUN_MISSING_UUID_RE = re.compile(r"could not resolve item UUID for item ([^:\s]+)")
 
+# Timestamp shapes to strip from the `raw:` op-refs fallback signature (see
+# poll_op_refs()) BEFORE it reaches normalize_title() — deliberately NOT a
+# change to normalize_title() itself, which every other source depends on
+# unchanged. Without this, a real op run error like "[ERROR] 2026/09/01
+# 15:00:34 (504) Unknown: An unknown error occurred." mints a fresh
+# external_id every 30-min poll (the timestamp differs each time), so
+# reconcile()'s disappearance logic resolves the "old" row and inserts a
+# "new" one every cycle — the DB reports the dangling ref clearing every 30
+# minutes while it stays dead indefinitely. Matches an ISO-ish date
+# (dash OR slash separated) with an optional attached time, and separately
+# any standalone run of 6+ digits (epoch-like numbers, long ids) — applied
+# on the RAW pre-normalization text, since the timestamp appears in its
+# original punctuated form there, not yet collapsed to normalize_title()'s
+# dash-joined shape.
+OP_REFS_TIMESTAMP_RE = re.compile(
+    r"\d{4}[-/]\d{2}[-/]\d{2}(?:[ T]\d{2}[:-]\d{2}[:-]\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?)?"
+)
+OP_REFS_LONG_DIGIT_RUN_RE = re.compile(r"\d{6,}")
+
+
+def _strip_op_refs_timestamps(text: str) -> str:
+    """See OP_REFS_TIMESTAMP_RE above — used ONLY by poll_op_refs()'s `raw:`
+    fallback dedup key, never by normalize_title()'s other callers."""
+    text = OP_REFS_TIMESTAMP_RE.sub(" ", text)
+    text = OP_REFS_LONG_DIGIT_RUN_RE.sub(" ", text)
+    return text
+
 
 # op:// refs the watchdog needs. When it runs inside the gateway, the cron
 # scheduler's subprocess sanitizer (tools/environments/local.py) strips high-value
@@ -621,7 +648,11 @@ def poll_op_refs(host: str, remote_cmd: str) -> tuple[list[dict[str, Any]], bool
         # op failed for a reason we can't name a specific item for — degrade to
         # host + the raw error's first line, never to a bare boolean.
         first_line = next((ln.strip() for ln in out.splitlines() if ln.strip()), "op run failed (no output)")
-        key = normalize_title(first_line)[:80] or "unknown"
+        # The dedup key strips timestamps (see OP_REFS_TIMESTAMP_RE) so the
+        # SAME underlying error mints the SAME external_id every poll — the
+        # displayed title below deliberately keeps the raw, timestamped
+        # first_line, only the dedup key is normalized differently.
+        key = normalize_title(_strip_op_refs_timestamps(first_line))[:80] or "unknown"
         return [{
             "external_id": f"raw:{key}",
             "title": f"1Password refs unresolved on {host} (.env.tpl) — {first_line[:160]}",

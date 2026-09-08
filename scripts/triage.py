@@ -20,29 +20,42 @@ time, without ever noticing a fix already existed. See config.yaml's `slack:`
 comment block and docs/triage.md for the full before/after.
 
 THE LOOP, once per run — see docs/triage.md for the full state machine:
-  1. Ingest      — upsert one triage_items row per open ingest-source event.
+  1. Ingest      — upsert one triage_items row per open ingest-source event,
+                   including op_refs_homelab/op_refs_vps (a dead 1Password
+                   ref blocks every future secrets-cache reseal — this must
+                   reach at least the digest, never silently drop).
   2. Reopen/unsnooze — undo a stale `resolved`/`snoozed` state the underlying
                    event has since moved past (grouped sources reuse the same
                    events.id across a resolve -> recur cycle, so this is a
                    state fix-up, never a new row).
-  3. Classify     — resolve `repo` by fnmatching MULTIPLE targets per event
-                   (see MATCH TARGETS below) against config/triage-policy.json,
-                   or route to `ignored`. Only ever touches a row still in
-                   state `new`.
+  3. Classify     — fnmatch MULTIPLE targets per event (see MATCH TARGETS
+                   below) against config/triage-policy.json, in order: the
+                   explicit `ignore` list (genuine recoveries/known-benign —
+                   route to `ignored`, terminal, invisible), the structural
+                   `ignoreUnstructuredSlackProse` fallback (route to
+                   STATE_NOTE — terminal, but VISIBLE in the digest, see that
+                   state's own docstring for why), then `rules` (resolve
+                   EITHER `repo`, escalate to an episode, OR `verb`, run a
+                   declared local command — see VERB OUTCOMES below). Only
+                   ever touches a row still in state `new`.
   4. Resolve      — an event whose events.resolved_at is now set flips its
                    triage_items row to `resolved`.
   5. Dissolve     — a cluster (see CLUSTERING below) whose folded verdict says
                    its members do not share a root cause splits back into
                    individually-eligible `new` items.
-  6. Escalate     — every `new`+mapped+eligible item, GROUPED BY REPO, becomes
-                   at most one sideclaw `investigate` dispatch per repo per
-                   run (a cluster), not one per item.
-  7. Card         — one Slack card per cluster, posted once state leaves `new`
-                   (an unescalated item, mapped or not, is carried silently —
-                   see CARDED STATES below) and updated in place after,
-                   no-op when the rendered content hasn't changed.
-  8. Once a day, a summary line naming any signature that matched no policy
-     rule, so the map in config/triage-policy.json can grow deliberately.
+  6. Escalate     — every `new`+`repo`-mapped+eligible item, GROUPED BY REPO,
+                   becomes at most one sideclaw `investigate` dispatch per
+                   repo per run (a cluster), not one per item.
+  6b. Verbs       — every `new`+`verb`-mapped+eligible item runs its
+                   allowlisted local command once (see VERB OUTCOMES) — never
+                   an episode, never clustered with repo-mapped items.
+  7. Card         — one Slack card per cluster (or per verb outcome), posted
+                   once state leaves `new` (an unescalated item, mapped or
+                   not, is carried silently — see CARDED STATES below) and
+                   updated in place after, no-op when the rendered content
+                   hasn't changed.
+  8. Once a day, one digest message with up to two sections: signatures that
+     matched no policy rule, and STATE_NOTE rows — see step 3.
 
 `scripts/dispatch-sweep.py` closes the other half: when a dispatch tied to a
 triage cluster (dispatches.origin_event_id) reaches a terminal status, it
@@ -92,9 +105,25 @@ edge nothing else can write.
 
 CARDED STATES. A card exists only once an item has left `new` — an item that
 is mapped but hasn't yet crossed minOccurrences/minOpenMinutes, or is simply
-unmapped, is carried silently (visible only in the once-a-day unmapped-
-signatures digest, a separate message). This is what keeps an empty or
-partial policy from turning into dozens of cards of noise on day one.
+unmapped, is carried silently (visible only in the once-a-day daily digest —
+see maybe_post_daily_digest()). This is what keeps an empty or partial policy
+from turning into dozens of cards of noise on day one. STATE_NOTE is
+deliberately excluded too — see that state's own docstring.
+
+VERB OUTCOMES. A policy rule can name `verb` instead of `repo` — routes to a
+declared, code-side ALLOWLISTED local command instead of a sideclaw episode.
+The rule names a KEY (e.g. `"env-check"`), never a command — a policy file
+must never be able to name an arbitrary argv, the same closed-verb-set
+principle hermes-cc.sh's own dispatch/status/list/merge/cancel verbs use.
+Seeded with exactly one: `env-check` (hermes-ops.sh's ssh-based 1Password
+ref-health probe), which op_refs_homelab/op_refs_vps route to. Cheaper than a
+dispatch AND safer: a bare 1Password item name in the output doesn't match
+sideclaw's `op://vault/item/field` secret-scan pattern the way a dispatched
+verdict would, so the useful answer survives onto the card instead of being
+withheld. Terminal state is `needs_human`; run_verbs() runs the command at
+most once per item (see that function's own docstring for why no cooldown
+tracking is needed) and the card's note IS the whole verdict — the dangling
+item name plus the exact remediation, so no further investigation is needed.
 
 DRY-RUN CONTRACT. `--dry-run` never touches Slack (no chat.postMessage/
 chat.update) and never shells out to hermes-cc.sh — those two are the only
@@ -142,11 +171,16 @@ _env_policy = os.environ.get("HERMES_TRIAGE_POLICY")
 POLICY_PATH = Path(_env_policy).expanduser() if _env_policy else (HERMES_HOME / "config" / "triage-policy.json")
 
 # Sources watchdog-poll.py already dedups that this loop acts on. github_*,
-# hermes_cron, op_refs_*, stray_skill are deliberately excluded — they are
-# either already self-describing (a GitHub issue/PR IS the durable card) or
+# hermes_cron, stray_skill are deliberately excluded — they are either
+# already self-describing (a GitHub issue/PR IS the durable card) or
 # governance-cadence, not the reactive-alert-channel firehose this exists to
-# stop. See docs/triage.md.
-INGEST_SOURCES = ("slack_alert", "uk", "docker_homelab", "docker_vps", "hermes_log")
+# stop. op_refs_homelab/op_refs_vps ARE included: a dead 1Password ref blocks
+# every future reseal of the mini's offline secrets cache (dotfiles' own
+# CLAUDE.md §Secrets) — it must reach at least the unmapped digest, and
+# routes to the `env-check` VERB (see VERB_ALLOWLIST below), never an
+# episode. See docs/triage.md.
+INGEST_SOURCES = ("slack_alert", "uk", "docker_homelab", "docker_vps", "hermes_log",
+                   "op_refs_homelab", "op_refs_vps")
 
 STATE_NEW = "new"
 STATE_INVESTIGATING = "investigating"
@@ -156,10 +190,22 @@ STATE_PR_OPEN = "pr_open"
 STATE_RESOLVED = "resolved"
 STATE_SNOOZED = "snoozed"
 STATE_IGNORED = "ignored"
+# Terminal, like `ignored` — never escalates, never gets its own card — but
+# UNLIKE `ignored`, it is NOT a recovery/known-benign match: it's a
+# `slack_alert` row that doesn't look like a structured bot alert
+# (ignoreUnstructuredSlackProse — see classify()) and therefore MIGHT be a
+# human diagnosis that never got actioned (the shipped example: a Slack
+# message naming the exact 1Password rate-limit root cause and its two-line
+# fix, sitting unactioned). Silently dropping that into `ignored` would
+# recreate the exact failure this whole redesign exists to kill. A `note`
+# row surfaces once, under its own heading, in the daily digest — see
+# maybe_post_daily_digest() — then is never touched again.
+STATE_NOTE = "note"
 
 # A card exists only for a row that has actually left `new` — see the module
-# docstring's CARDED STATES paragraph. `snoozed` is deliberately excluded too:
-# a human just silenced it, it doesn't need a message.
+# docstring's CARDED STATES paragraph. `snoozed` and `note` are deliberately
+# excluded too: a human just silenced a snoozed row, and a `note` row is
+# visible via the digest, not a card (see STATE_NOTE above).
 CARDED_STATES = (STATE_INVESTIGATING, STATE_VERDICT, STATE_NEEDS_HUMAN, STATE_PR_OPEN, STATE_RESOLVED)
 
 STATE_EMOJI = {
@@ -214,7 +260,28 @@ SLACK_POST_URL = "https://slack.com/api/chat.postMessage"
 SLACK_UPDATE_URL = "https://slack.com/api/chat.update"
 SECTION_TEXT_MAX = 3000  # Block Kit section text hard limit
 
-UNMAPPED_DIGEST_CURSOR_KEY = "triage_unmapped_digest_date"
+DAILY_DIGEST_CURSOR_KEY = "triage_unmapped_digest_date"
+
+# A policy rule names a KEY, never a command — a policy file must never be
+# able to name an arbitrary argv. This is the closed allowlist code maps a
+# `"verb"` rule outcome to; same closed-verb-set principle as hermes-cc.sh's
+# own dispatch/status/list/merge/cancel verbs, applied to a single-purpose
+# LOCAL health probe instead of a sideclaw episode — cheaper than a dispatch
+# and safer: `env-check`'s bare 1Password item names don't match sideclaw's
+# `op://vault/item/field` secret pattern the way a dispatched verdict would,
+# so the useful answer survives onto the card instead of being withheld.
+# hermes-ops.sh lives in this same directory (~/.hermes/scripts/ symlinks
+# here) — no HERMES_HOME path needed.
+_HERMES_OPS_BIN = Path(__file__).resolve().parent / "hermes-ops.sh"
+VERB_ALLOWLIST: dict[str, list[str]] = {
+    "env-check": [str(_HERMES_OPS_BIN), "env-check", "--json"],
+}
+# env-check runs TWO sequential ssh_run() probes (homelab, then vps), each
+# individually bounded by hermes-ops.sh's own SSH_TIMEOUT=120 — so the outer
+# bound here has to clear 240s, not just one call's worth, or this would kill
+# a legitimately slow-but-healthy probe before hermes-ops.sh's own timeout
+# ever got a chance to fire.
+VERB_TIMEOUT = 260
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
@@ -261,6 +328,7 @@ CREATE TABLE IF NOT EXISTS triage_items (
   event_id      INTEGER PRIMARY KEY REFERENCES events(id),
   signature     TEXT NOT NULL,
   repo          TEXT,
+  verb          TEXT,
   state         TEXT NOT NULL,
   card_channel  TEXT,
   card_ts       TEXT,
@@ -292,6 +360,10 @@ def db_connect() -> sqlite3.Connection:
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(events)").fetchall()}
     if "dispatch_id" not in cols:
         conn.execute("ALTER TABLE events ADD COLUMN dispatch_id INTEGER")
+        conn.commit()
+    ti_cols = {r["name"] for r in conn.execute("PRAGMA table_info(triage_items)").fetchall()}
+    if "verb" not in ti_cols:
+        conn.execute("ALTER TABLE triage_items ADD COLUMN verb TEXT")
         conn.commit()
     return conn
 
@@ -403,6 +475,25 @@ def update_blocks(channel: str, ts: str, blocks: list[dict[str, Any]], text_fall
 
 # --- policy + repo-deny loading -----------------------------------------------
 
+def _valid_rule(r: Any) -> bool:
+    """A rule needs a `match` and EITHER `repo` (escalate to an episode) OR
+    `verb` (run a declared local command — see VERB_ALLOWLIST). A `verb` not
+    in the allowlist is rejected here, loudly, rather than silently matching
+    nothing at classify() time — a policy file names a KEY, never a command,
+    and a typo'd key is a policy bug worth surfacing immediately."""
+    if not (isinstance(r, dict) and r.get("match")):
+        return False
+    if r.get("repo"):
+        return True
+    verb = r.get("verb")
+    if verb:
+        if verb in VERB_ALLOWLIST:
+            return True
+        print(f"triage: policy rule {r.get('match')!r} names verb {verb!r}, not in VERB_ALLOWLIST "
+              f"{sorted(VERB_ALLOWLIST)} — dropping this rule", file=sys.stderr)
+    return False
+
+
 def load_policy() -> dict[str, Any]:
     try:
         data = json.loads(POLICY_PATH.read_text())
@@ -415,11 +506,12 @@ def load_policy() -> dict[str, Any]:
         "minOccurrences": int(data.get("minOccurrences") or DEFAULT_MIN_OCCURRENCES),
         "minOpenMinutes": int(data.get("minOpenMinutes") or DEFAULT_MIN_OPEN_MINUTES),
         "cooldownHours": int(data.get("cooldownHours") or DEFAULT_COOLDOWN_HOURS),
-        "rules": [r for r in (data.get("rules") or []) if isinstance(r, dict) and r.get("match") and r.get("repo")],
+        "rules": [r for r in (data.get("rules") or []) if _valid_rule(r)],
         "ignore": [p for p in (data.get("ignore") or []) if isinstance(p, str)],
         # See CLAUDE.md/docs/triage.md — filters Hermes's OWN pre-silencing
         # conversational replies that watchdog-poll.py ingested from #alerts
-        # as if they were alerts (297 signatures, ~30 permanently open).
+        # as if they were alerts (297 signatures, ~30 permanently open) —
+        # routed to STATE_NOTE, never STATE_IGNORED (see classify()).
         "ignoreUnstructuredSlackProse": bool(data.get("ignoreUnstructuredSlackProse")),
     }
 
@@ -462,11 +554,15 @@ def _fnmatch_any(targets: list[str], patterns: list[str]) -> bool:
     return any(fnmatch.fnmatch(t, p) for t in targets for p in patterns)
 
 
-def _match_repo(targets: list[str], rules: list[dict[str, Any]]) -> str | None:
+def _match_rule(targets: list[str], rules: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """First rule (already validated by _valid_rule — `repo` XOR a
+    VERB_ALLOWLIST-known `verb`) whose `match` fnmatches any target. The
+    caller reads whichever of `repo`/`verb` is present to decide the
+    outcome — see classify()."""
     for rule in rules:
         for t in targets:
             if fnmatch.fnmatch(t, rule["match"]):
-                return rule["repo"]
+                return rule
     return None
 
 
@@ -602,10 +698,14 @@ def unsnooze_if_expired(conn: sqlite3.Connection, now: dt.datetime) -> None:
 
 
 def apply_resolutions(conn: sqlite3.Connection, now: dt.datetime) -> None:
+    # STATE_NOTE is excluded alongside IGNORED/SNOOZED: it is terminal by
+    # design (see that state's docstring) and must never flip to RESOLVED,
+    # which IS a carded state — an unstructured-prose row must never get a
+    # card, including a one-time "resolved" one.
     rows = conn.execute(
         "SELECT ti.event_id FROM triage_items ti JOIN events e ON e.id = ti.event_id "
-        "WHERE e.resolved_at IS NOT NULL AND ti.state NOT IN (?, ?, ?)",
-        (STATE_RESOLVED, STATE_IGNORED, STATE_SNOOZED),
+        "WHERE e.resolved_at IS NOT NULL AND ti.state NOT IN (?, ?, ?, ?)",
+        (STATE_RESOLVED, STATE_IGNORED, STATE_SNOOZED, STATE_NOTE),
     ).fetchall()
     now_iso = _now_iso(now)
     for row in rows:
@@ -617,13 +717,18 @@ def apply_resolutions(conn: sqlite3.Connection, now: dt.datetime) -> None:
 
 
 def classify(conn: sqlite3.Connection, policy: dict[str, Any], now: dt.datetime) -> set[str]:
-    """Resolve `repo` (fnmatch against BOTH match targets — see
-    _match_targets()) and apply the ignore list (same targets) plus the
-    structural `ignoreUnstructuredSlackProse` filter. Only ever touches a row
-    still in state `new`. Returns every signature that matched no rule this
-    run, for the once-a-day digest."""
+    """Resolve `repo`/`verb` (fnmatch against BOTH match targets — see
+    _match_targets()) and apply, in order: the explicit `ignore` list (same
+    targets — a deliberate human call that THIS signature is a genuine
+    recovery or known-benign pattern, checked first so it always wins), then
+    the structural `ignoreUnstructuredSlackProse` fallback (routes to
+    STATE_NOTE, never STATE_IGNORED — see that state's own docstring for why
+    silently dropping unstructured #alerts prose would recreate the exact
+    bug this file exists to kill), then rule matching. Only ever touches a
+    row still in state `new`. Returns every signature that matched no rule
+    this run, for the once-a-day digest."""
     rows = conn.execute(
-        "SELECT event_id, signature, repo FROM triage_items WHERE state=?", (STATE_NEW,)
+        "SELECT event_id, signature, repo, verb FROM triage_items WHERE state=?", (STATE_NEW,)
     ).fetchall()
     unmapped: set[str] = set()
     now_iso = _now_iso(now)
@@ -633,14 +738,6 @@ def classify(conn: sqlite3.Connection, policy: dict[str, Any], now: dt.datetime)
             continue
         targets = _match_targets(event_row)
 
-        if policy["ignoreUnstructuredSlackProse"] and event_row["source"] == "slack_alert" \
-                and not _looks_like_bot_alert(event_row["title"]):
-            conn.execute(
-                "UPDATE triage_items SET state=?, updated_at=? WHERE event_id=?",
-                (STATE_IGNORED, now_iso, row["event_id"]),
-            )
-            continue
-
         if _fnmatch_any(targets, policy["ignore"]):
             conn.execute(
                 "UPDATE triage_items SET state=?, updated_at=? WHERE event_id=?",
@@ -648,12 +745,25 @@ def classify(conn: sqlite3.Connection, policy: dict[str, Any], now: dt.datetime)
             )
             continue
 
-        if row["repo"] is None:
-            repo = _match_repo(targets, policy["rules"])
-            if repo is not None:
+        if policy["ignoreUnstructuredSlackProse"] and event_row["source"] == "slack_alert" \
+                and not _looks_like_bot_alert(event_row["title"]):
+            conn.execute(
+                "UPDATE triage_items SET state=?, updated_at=? WHERE event_id=?",
+                (STATE_NOTE, now_iso, row["event_id"]),
+            )
+            continue
+
+        if row["repo"] is None and row["verb"] is None:
+            rule = _match_rule(targets, policy["rules"])
+            if rule is not None and rule.get("repo"):
                 conn.execute(
                     "UPDATE triage_items SET repo=?, updated_at=? WHERE event_id=?",
-                    (repo, now_iso, row["event_id"]),
+                    (rule["repo"], now_iso, row["event_id"]),
+                )
+            elif rule is not None and rule.get("verb"):
+                conn.execute(
+                    "UPDATE triage_items SET verb=?, updated_at=? WHERE event_id=?",
+                    (rule["verb"], now_iso, row["event_id"]),
                 )
             else:
                 unmapped.add(row["signature"])
@@ -945,6 +1055,101 @@ def escalate(conn: sqlite3.Connection, policy: dict[str, Any], now: dt.datetime,
             budget_used_today += 1
 
 
+# --- verb outcomes — a deterministic local probe, never an episode -----------
+
+def _run_verb(argv: list[str], *, timeout: int) -> dict[str, Any] | None:
+    """Run one VERB_ALLOWLIST-resolved argv, parse its --json stdout. Never
+    raises — a spawn failure, timeout, non-zero exit, or unparseable stdout
+    all fold into a small dict with an `_error` key so the caller can render
+    something on the card either way, rather than the row silently getting
+    stuck."""
+    try:
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.SubprocessError) as e:
+        return {"_error": str(e)}
+    try:
+        obj = json.loads(r.stdout)
+    except json.JSONDecodeError:
+        return {"_error": f"non-JSON output (rc={r.returncode}): {r.stdout.strip()[:300] or '(empty)'}"}
+    if r.returncode not in (0, 3):
+        # hermes-ops.sh's own convention: env-check exits 3 for "ok: false",
+        # which is a normal, expected outcome here (that IS the dangling ref
+        # this verb exists to surface) — only something else is a real error.
+        return {"_error": f"unexpected exit {r.returncode}: {json.dumps(obj)[:300]}"}
+    return obj if isinstance(obj, dict) else {"_error": f"non-object JSON: {r.stdout[:300]}"}
+
+
+def _render_env_check_note(output: dict[str, Any] | None) -> str:
+    """Deterministic prose for the needs_human card — no LLM, straight from
+    hermes-ops.sh's own --json shape: {"ok", "homelab": {"danglingItems": [...],
+    ...}, "vps": {...}}. The dangling item name and the exact remediation are
+    inlined so the card is the whole answer — no further investigation should
+    be needed."""
+    if output is None or "_error" in output:
+        err = (output or {}).get("_error", "no output")
+        return f"env-check probe failed to run: {err}. Retry manually: `hermes-ops.sh env-check`."
+    dangling: list[str] = []
+    for host_key in ("homelab", "vps"):
+        host = output.get(host_key)
+        if isinstance(host, dict):
+            for item in host.get("danglingItems") or []:
+                dangling.append(f"{host_key}: `{item}`")
+    if not dangling:
+        return ("env-check ran and found no dangling item on this pass — likely transient; the "
+                "underlying event will disappearance-resolve on its own if it clears.")
+    items_text = "; ".join(dangling)
+    return (
+        f"Dangling 1Password item(s) — {items_text}. `op run` fails WHOLESALE on the shared "
+        f".env.tpl until this is fixed, taking every cron sharing that template down at once. "
+        f"Fix: restore/rename the item in 1Password, then run `make secrets-seed` (biometric "
+        f"1Password prompt — MacBook only, this cannot be done headlessly on the mini)."
+    )
+
+
+def run_verbs(conn: sqlite3.Connection, policy: dict[str, Any], now: dt.datetime, *, dry_run: bool) -> None:
+    """Every `new` item routed to a `verb` (never a `repo` — see classify())
+    runs its allowlisted local command once eligibility is met, same
+    minOccurrences/minOpenMinutes gate as an episode escalation. No
+    concurrency/daily-budget cap: a verb is a bounded local probe, not a
+    sideclaw episode, and doesn't compete for that budget. No cooldown
+    tracking either — a verb-routed item runs at most ONCE, because its
+    terminal state (`needs_human`) falls out of STATE_NEW candidates
+    permanently; if the underlying condition later clears, the normal
+    resolve path (events.resolved_at) closes it out without needing a
+    re-run, and if it recurs after a reopen, running the probe again is
+    exactly correct."""
+    candidates = conn.execute(
+        "SELECT * FROM triage_items WHERE state=? AND verb IS NOT NULL AND repo IS NULL ORDER BY event_id",
+        (STATE_NEW,),
+    ).fetchall()
+    for item in candidates:
+        if item["snoozed_until"]:
+            continue
+        if not _is_escalation_eligible(item, policy, now):
+            continue
+        verb = item["verb"]
+        argv = VERB_ALLOWLIST.get(verb)
+        if argv is None:
+            print(f"triage: verb {verb!r} for {item['signature']} is not in VERB_ALLOWLIST — "
+                  f"skipping (policy/code drifted after load_policy() validated it)", file=sys.stderr)
+            continue
+        if dry_run:
+            print(f"[dry-run] would run verb {verb!r} for {item['signature']}")
+            continue
+        output = _run_verb(argv, timeout=VERB_TIMEOUT)
+        note = _render_env_check_note(output) if verb == "env-check" else json.dumps(output)[:SECTION_TEXT_MAX]
+        now_iso = _now_iso(now)
+        conn.execute(
+            "UPDATE triage_items SET state=?, note=?, updated_at=? WHERE event_id=?",
+            (STATE_NEEDS_HUMAN, note, now_iso, item["event_id"]),
+        )
+        conn.commit()
+        fresh_item = _get_item(conn, item["event_id"])
+        event_row = _get_event(conn, item["event_id"])
+        if fresh_item is not None and event_row is not None:
+            sync_card(conn, [fresh_item], [event_row], policy, dry_run=False)
+
+
 # --- dissolve — a cluster the episode itself says is unrelated ----------------
 
 def _dissolve_cluster(conn: sqlite3.Connection, members: list[sqlite3.Row], now: dt.datetime,
@@ -1047,6 +1252,8 @@ def render_card_blocks(members: list[sqlite3.Row], event_rows: list[sqlite3.Row]
     ctx_text = "\n".join(member_lines)
     if primary["repo"]:
         ctx_text += f"\nrepo `{primary['repo']}`"
+    elif primary["verb"]:
+        ctx_text += f"\nverb `{primary['verb']}`"
     blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": ctx_text[:SECTION_TEXT_MAX]}})
 
     if state == STATE_INVESTIGATING and primary["dispatch_job"]:
@@ -1078,6 +1285,11 @@ def render_card_blocks(members: list[sqlite3.Row], event_rows: list[sqlite3.Row]
             blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": f"*Artifact:* <{artifact_url}>"}})
         if state == STATE_NEEDS_HUMAN and primary["note"]:
             blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": f"↳ _{_escape(primary['note'])}_"}]})
+    elif state == STATE_NEEDS_HUMAN and primary["note"]:
+        # A verb outcome (run_verbs()) — no dispatch_job at all, since no
+        # sideclaw episode was ever opened. The note IS the whole verdict: a
+        # deterministic local probe's output, not an episode's.
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": _escape(primary["note"])[:SECTION_TEXT_MAX]}})
     elif state == STATE_SNOOZED:
         blocks.append({
             "type": "context",
@@ -1205,37 +1417,65 @@ def fold_dispatch_verdict(conn: sqlite3.Connection, *, origin_event_id: int, job
 
 # --- unmapped-signature digest -------------------------------------------------
 
-def maybe_post_unmapped_digest(conn: sqlite3.Connection, policy: dict[str, Any], unmapped: set[str],
-                                now: dt.datetime, *, dry_run: bool) -> None:
-    if not unmapped:
+def _fetch_note_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT ti.signature, e.title FROM triage_items ti JOIN events e ON e.id = ti.event_id "
+        "WHERE ti.state=? ORDER BY ti.updated_at DESC",
+        (STATE_NOTE,),
+    ).fetchall()
+
+
+def maybe_post_daily_digest(conn: sqlite3.Connection, policy: dict[str, Any], unmapped: set[str],
+                             now: dt.datetime, *, dry_run: bool) -> None:
+    """One Slack message, at most once per UTC day, with up to two sections:
+    unmapped signatures (no policy rule matched — see classify()) and
+    STATE_NOTE rows (unstructured #alerts prose that might be an unactioned
+    root cause — see that state's own docstring). Both are silent by
+    default; this is the only place either becomes visible."""
+    notes = _fetch_note_rows(conn)
+    if not unmapped and not notes:
         return
     today = now.date().isoformat()
-    row = conn.execute("SELECT value FROM cursors WHERE key=?", (UNMAPPED_DIGEST_CURSOR_KEY,)).fetchone()
+    row = conn.execute("SELECT value FROM cursors WHERE key=?", (DAILY_DIGEST_CURSOR_KEY,)).fetchone()
     if row and row["value"] == today:
         return
-    sigs = sorted(unmapped)
-    lines = ["*Unmapped triage signatures* — no rule in `triage-policy.json`, so these never escalate:"]
-    lines.extend(f"- `{s}`" for s in sigs[:20])
-    if len(sigs) > 20:
-        lines.append(f"… and {len(sigs) - 20} more")
+
+    lines: list[str] = []
+    if unmapped:
+        sigs = sorted(unmapped)
+        lines.append("*Unmapped triage signatures* — no rule in `triage-policy.json`, so these never escalate:")
+        lines.extend(f"- `{s}`" for s in sigs[:20])
+        if len(sigs) > 20:
+            lines.append(f"… and {len(sigs) - 20} more")
+    if notes:
+        if lines:
+            lines.append("")
+        lines.append("*Unstructured notes in #alerts* — possible root causes nobody actioned:")
+        for r in notes[:20]:
+            title = (r["title"] or "").strip()
+            truncated = title[:140] + ("…" if len(title) > 140 else "")
+            lines.append(f"- `{r['signature']}` — {truncated}")
+        if len(notes) > 20:
+            lines.append(f"… and {len(notes) - 20} more")
+
     text = "\n".join(lines)
     channel = _card_channel(policy)
     if dry_run:
-        print(f"[dry-run] would post unmapped-signatures digest ({len(sigs)} signatures) to {channel}")
+        print(f"[dry-run] would post daily digest ({len(unmapped)} unmapped, {len(notes)} notes) to {channel}")
         return
     token = resolve_slack_token()
     if not token:
-        print("triage: no Slack token, cannot post unmapped-signatures digest", file=sys.stderr)
+        print("triage: no Slack token, cannot post daily digest", file=sys.stderr)
         return
     blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": text[:SECTION_TEXT_MAX]}}]
     ok, _ts = post_blocks(channel, blocks, text, token)
     if not ok:
-        print("triage: unmapped-signatures digest post failed", file=sys.stderr)
+        print("triage: daily digest post failed", file=sys.stderr)
         return
     conn.execute(
         "INSERT INTO cursors(key, value, updated_at) VALUES (?, ?, ?) "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
-        (UNMAPPED_DIGEST_CURSOR_KEY, today, _now_iso(now)),
+        (DAILY_DIGEST_CURSOR_KEY, today, _now_iso(now)),
     )
     conn.commit()
 
@@ -1254,6 +1494,7 @@ def run(conn: sqlite3.Connection, *, dry_run: bool) -> int:
     maybe_dissolve_clusters(conn, now, dry_run=dry_run)
 
     escalate(conn, policy, now, dry_run=dry_run)
+    run_verbs(conn, policy, now, dry_run=dry_run)
 
     for _key, members in _cluster_groups(conn).items():
         members = sorted(members, key=lambda r: r["event_id"])
@@ -1262,7 +1503,7 @@ def run(conn: sqlite3.Connection, *, dry_run: bool) -> int:
             continue
         sync_card(conn, members, event_rows, policy, dry_run=dry_run)
 
-    maybe_post_unmapped_digest(conn, policy, unmapped, now, dry_run=dry_run)
+    maybe_post_daily_digest(conn, policy, unmapped, now, dry_run=dry_run)
     return 0
 
 
@@ -1335,7 +1576,7 @@ def cmd_reopen(conn: sqlite3.Connection, argv: list[str], now: dt.datetime) -> i
 
 def cmd_list(conn: sqlite3.Connection) -> int:
     rows = conn.execute(
-        "SELECT signature, state, repo, occurrences, first_seen FROM triage_items "
+        "SELECT signature, state, repo, verb, occurrences, first_seen FROM triage_items "
         "WHERE state != ? ORDER BY updated_at DESC",
         (STATE_RESOLVED,),
     ).fetchall()
@@ -1343,7 +1584,7 @@ def cmd_list(conn: sqlite3.Connection) -> int:
         print("no open triage items")
         return 0
     for r in rows:
-        print(f"{r['state']:<13} {r['signature']:<70} repo={r['repo'] or '-'} "
+        print(f"{r['state']:<13} {r['signature']:<70} repo={r['repo'] or r['verb'] or '-'} "
               f"occurrences={r['occurrences']} since={r['first_seen']}")
     return 0
 
