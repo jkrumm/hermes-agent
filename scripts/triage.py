@@ -1,9 +1,12 @@
 """Alert triage — the act-loop that turns deduplicated watchdog.db events into
 one durable, updated-in-place Slack card per problem, with a real sideclaw
-investigation attached once a signature repeats or stays open. NO LLM CALL
-ANYWHERE IN THIS FILE (the dispatched sideclaw `investigate` episode itself
-runs Claude Code, which is inherent to what "investigate" means — that is a
-property of hermes-cc.sh, not of this script).
+investigation attached once a signature repeats or stays open. THE ACT PATH
+(ingest -> classify -> cluster -> escalate -> card -> resolve) MAKES NO LLM
+CALL AT ALL (the dispatched sideclaw `investigate` episode itself runs Claude
+Code, which is inherent to what "investigate" means — that is a property of
+hermes-cc.sh, not of this script). The ONE exception in the whole file is
+`propose_mappings()` — a bounded, once-a-day maintenance pass, batched, never
+in the act path itself — see PROPOSE MAPPINGS below.
 
 Runs every 10 min as a Hermes `no_agent` cron script (via triage-cron.py, the
 thin loader — see that file's docstring for why it has to stay thin).
@@ -63,8 +66,48 @@ THE LOOP, once per run — see docs/triage.md for the full state machine:
                    not, is carried silently — see CARDED STATES below) and
                    updated in place after, no-op when the rendered content
                    hasn't changed.
-  8. Once a day, one digest message with up to two sections: signatures that
-     matched no policy rule, and STATE_NOTE rows — see step 3.
+  8. Propose      — at most once per 24h (see PROPOSE MAPPINGS below), one
+                   batched LLM call over signatures that have stayed `new`
+                   with no `repo`/`verb` for longer than
+                   `proposeMappingsAgeDays`, proposing `map`/`ignore`/`unsure`
+                   per signature. Applied outcomes land ONLY in
+                   config/triage-policy.json (never triage_items directly),
+                   committed (never pushed) in this repo's own checkout.
+  9. Once a day, one digest message with up to three sections: signatures
+     that matched no policy rule, STATE_NOTE rows (see step 3), and whatever
+     step 8 just auto-added this run.
+
+PROPOSE MAPPINGS — the one LLM call in this file. `config/triage-policy.json`
+was designed to grow only by a human reading the daily unmapped digest and
+hand-editing the file — measurably not happening: a signature that fired, got
+hand-fixed once, then reappeared four months later matched nothing, because
+the fix was never turned into a rule. `propose_mappings()` closes that loop
+as cheaply as this problem allows: at most once per 24h (a cursor in
+`cursors`, the same table the digest already uses), batched into ONE request
+against the Hermes brain over the same OpenAI-compatible endpoint
+config.yaml already configures (`OPENAI_BASE_URL`/`OPENAI_API_KEY`, model
+`gpt-5.6-luna`), secrets resolved the same way every other secret in this
+file is — never a plaintext key. At most `PROPOSE_MAPPINGS_MAX_SIGNATURES`
+candidates per run: every `new` item with no `repo`/`verb` whose event has
+been open longer than `proposeMappingsAgeDays` (policy knob, default 7 — a
+signature younger than that may still be a one-off, and mapping it wastes a
+whole investigate episode). The model returns strict JSON, one of three
+shapes per signature: `ignore` (append to the ignore list — safe and cheap to
+get wrong), `map` (append a rule — a wrong mapping costs at most one wasted
+read-only `investigate` episode, bounded and visible), or `unsure` (leave
+unmapped, and record the attempt so it is not re-billed on every run for
+`PROPOSE_UNSURE_COOLDOWN_DAYS`). A `map` proposal's repo is re-validated
+against the SAME discovery hermes-cc.sh's own `resolve_repo()` uses (must
+resolve under `root`, must not be `deny`d) — never trusted from the model's
+own claim alone, see BOUNDS THAT DO NOT MOVE. Every applied entry is stamped
+`proposedAt`/`proposedBy: "triage-auto"` plus the model's one-line reason,
+written back into config/triage-policy.json (preserving `_readme` and key
+order), then `git add` + `git commit` — never `git push` — that ONE file, in
+this repo's own checkout. Skipped outright, loudly, if that path already
+carries a pending change, rather than sweeping an unrelated edit into an
+auto-authored commit. A failed, timed-out, or unparseable model call is
+logged to stderr and otherwise a no-op — this loop must never depend on it
+succeeding, exactly like every other externally-visible call in this file.
 
 `scripts/dispatch-sweep.py` closes the other half: when a dispatch tied to a
 triage cluster (dispatches.origin_event_id) reaches a terminal status, it
@@ -479,6 +522,59 @@ LIVENESS_ALLOWLIST = {
     "hyperdx-alert-state": _gather_hyperdx_alert_state,
 }
 
+# --- propose_mappings() — the one LLM call in this file (see module docstring
+# PROPOSE MAPPINGS) --------------------------------------------------------
+
+# Same table/pattern DAILY_DIGEST_CURSOR_KEY already uses, but this one stores
+# a full timestamp (not a bare date) so the gate is a genuine rolling 24h,
+# checked before the model is ever called — a run that fires at 00:05 today
+# must not fire again at 00:05 tomorrow just because the calendar date rolled.
+PROPOSE_MAPPINGS_CURSOR_KEY = "triage_propose_mappings_last_run"
+
+# How many candidates ride in ONE batched request. The rest simply wait for a
+# later day's run — never dropped, never silently expanded into a second call
+# (this loop makes at most one model call per run, full stop).
+# A signature this many occurrences deep has proven it is not a one-off,
+# whatever its age — see _propose_mapping_candidates() for why age alone
+# is insufficient.
+PROPOSE_MAPPINGS_MIN_OCCURRENCES = int(os.environ.get("TRIAGE_PROPOSE_MIN_OCCURRENCES", "5"))
+PROPOSE_MAPPINGS_MAX_SIGNATURES = 25
+
+# A batch of at most 25 short JSON decisions (one action + one one-line reason
+# each) comfortably fits well under this; the cap exists so a misbehaving
+# endpoint can't turn one daily maintenance call into an open-ended generation.
+PROPOSE_MAPPINGS_MAX_OUTPUT_TOKENS = 2000
+
+# The call itself, separate from SUBPROCESS_TIMEOUT (which bounds a hermes-cc.sh
+# subprocess, not an HTTP request this file makes directly).
+PROPOSE_MAPPINGS_TIMEOUT = int(os.environ.get("TRIAGE_PROPOSE_TIMEOUT", "90"))
+
+# A signature younger than this may still be a one-off (a transient blip that
+# resolves on its own before anyone would ever hand-map it) — mapping it this
+# early wastes a whole investigate episode on something that might never
+# recur. Policy knob: config/triage-policy.json's `proposeMappingsAgeDays`.
+DEFAULT_PROPOSE_MAPPINGS_AGE_DAYS = 7.0
+
+# How long an `unsure` verdict suppresses re-proposing THE SAME signature —
+# long enough that a genuinely ambiguous signature is not re-billed into the
+# model on every single day's run, short enough that it is reconsidered
+# occasionally rather than permanently stuck.
+PROPOSE_UNSURE_COOLDOWN_DAYS = 7.0
+
+# Cheapest reasonable use of a model this file makes: chat_completions, no
+# tools, temperature 0, over the SAME OpenAI-compatible endpoint config.yaml
+# already points gpt-5.6-luna at (api_mode: chat_completions, e.g. the
+# auxiliary blocks around OPENAI_BASE_URL/OPENAI_API_KEY) — never the
+# Responses-API leg the main agent uses (codex_responses), which this file
+# has no reason to touch.
+PROPOSE_MAPPINGS_MODEL = os.environ.get("TRIAGE_PROPOSE_MODEL", "gpt-5.6-luna")
+
+# Mirrors .env.tpl's own OPENAI_API_KEY ref exactly — never a plaintext key.
+_OPENAI_API_KEY_REF = "op://common/anthropic/API_KEY"
+
+TRIAGE_REPO_DIR = Path(__file__).resolve().parent.parent
+
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -544,7 +640,11 @@ CREATE TABLE IF NOT EXISTS triage_items (
   validation_job     TEXT,  -- job id of the step-7 (different-model) review episode
   pr_url             TEXT,  -- the implement episode's own pull request, once opened
   deploy_expect_json TEXT,  -- expected alert def(s) captured at deploy time (hermes-cc.sh)
-  liveness_deadline  TEXT   -- maybe_check_liveness()'s reopen-if-not-confirmed-by window
+  liveness_deadline  TEXT,  -- maybe_check_liveness()'s reopen-if-not-confirmed-by window
+  -- propose_mappings()'s own cooldown marker: the last time this signature's
+  -- item was told `unsure` by the model, so it isn't re-billed daily — see
+  -- PROPOSE_UNSURE_COOLDOWN_DAYS.
+  propose_unsure_at  TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_triage_state ON triage_items(state);
 """
@@ -568,7 +668,8 @@ def db_connect() -> sqlite3.Connection:
     if "verb" not in ti_cols:
         conn.execute("ALTER TABLE triage_items ADD COLUMN verb TEXT")
         conn.commit()
-    for col in ("implement_job", "validation_job", "pr_url", "deploy_expect_json", "liveness_deadline"):
+    for col in ("implement_job", "validation_job", "pr_url", "deploy_expect_json", "liveness_deadline",
+                "propose_unsure_at"):
         if col not in ti_cols:
             conn.execute(f"ALTER TABLE triage_items ADD COLUMN {col} TEXT")
             conn.commit()
@@ -741,7 +842,17 @@ def load_policy() -> dict[str, Any]:
         "cooldownHours": int(data.get("cooldownHours") or DEFAULT_COOLDOWN_HOURS),
         "quietResolveHours": float(data.get("quietResolveHours") or DEFAULT_QUIET_RESOLVE_HOURS),
         "rules": [r for r in (data.get("rules") or []) if _valid_rule(r)],
-        "ignore": [p for p in (data.get("ignore") or []) if isinstance(p, str)],
+        # `ignore` entries are usually a bare pattern string (hand-authored).
+        # propose_mappings() instead appends a stamped object
+        # ({"match", "proposedAt", "proposedBy", "reason"}) so an auto-added
+        # entry carries its own provenance in the file itself — only the
+        # `match` string is ever used for fnmatch, so both shapes classify()
+        # identically.
+        "ignore": [
+            p if isinstance(p, str) else p["match"]
+            for p in (data.get("ignore") or [])
+            if isinstance(p, str) or (isinstance(p, dict) and isinstance(p.get("match"), str))
+        ],
         # See CLAUDE.md/docs/triage.md — filters Hermes's OWN pre-silencing
         # conversational replies that watchdog-poll.py ingested from #alerts
         # as if they were alerts (297 signatures, ~30 permanently open) —
@@ -754,6 +865,9 @@ def load_policy() -> dict[str, Any]:
         # validated at the point each key is actually used, matching `verb`/
         # `evidence`'s own load_policy()-time-vs-use-time split above.
         "repos": data.get("repos") if isinstance(data.get("repos"), dict) else {},
+        # propose_mappings()'s own age gate — see DEFAULT_PROPOSE_MAPPINGS_AGE_DAYS's
+        # own comment for why a signature younger than this is left alone.
+        "proposeMappingsAgeDays": float(data.get("proposeMappingsAgeDays") or DEFAULT_PROPOSE_MAPPINGS_AGE_DAYS),
     }
 
 
@@ -2558,6 +2672,461 @@ def maybe_check_liveness(conn: sqlite3.Connection, policy: dict[str, Any], now: 
         conn.commit()
 
 
+# --- propose_mappings() — step 8, the one LLM call in this file --------------
+#
+# See the module docstring's PROPOSE MAPPINGS paragraph for the full contract.
+
+def _resolve_openai_base_url() -> str:
+    """OPENAI_BASE_URL is a plain literal in .env.tpl (not a secret — it is
+    already committed to this repo), so this only ever needs the inherited
+    process env or that same template file, never secrets-run."""
+    val = os.environ.get("OPENAI_BASE_URL", "")
+    if val:
+        return val
+    try:
+        text = (HERMES_HOME / ".env.tpl").read_text()
+    except OSError:
+        return ""
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("OPENAI_BASE_URL="):
+            return line.split("=", 1)[1].split("#", 1)[0].strip()
+    return ""
+
+
+def _resolve_openai_api_key() -> str:
+    """Mirrors resolve_slack_token()'s own hand-fallback shape exactly (env
+    var first, else the secrets-run shim against the SAME op:// ref .env.tpl
+    declares for OPENAI_API_KEY) — never a plaintext key, and never crosses
+    an argv/`ps` boundary."""
+    val = os.environ.get("OPENAI_API_KEY", "")
+    if val:
+        return val
+    env = os.environ.copy()
+    env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + env.get("PATH", "/usr/bin:/bin")
+    secrets_run = Path.home() / ".local" / "bin" / "secrets-run"
+    try:
+        r = subprocess.run(
+            [str(secrets_run), "read", _OPENAI_API_KEY_REF],
+            capture_output=True, text=True, timeout=15, env=env,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def _discoverable_repos() -> set[str]:
+    """Mirrors hermes-cc.sh's own resolve_repo()/discoverable() exactly: every
+    top-level entry directly under `root` that is not dotted, not `deny`d,
+    is a directory, and carries a `.git` subdirectory. A `map` proposal
+    naming anything outside this set is dropped at apply time — never
+    trusted from the model's own claim, or from the prompt's own list, alone
+    (see BOUNDS THAT DO NOT MOVE in the module docstring)."""
+    try:
+        data = json.loads(DISPATCH_REPOS_JSON.read_text())
+    except (OSError, json.JSONDecodeError):
+        return set()
+    root = Path(os.path.realpath(os.path.expanduser(data.get("root", "~/SourceRoot"))))
+    deny = set(data.get("deny") or [])
+    try:
+        entries = os.listdir(root)
+    except OSError:
+        return set()
+    out: set[str] = set()
+    for name in entries:
+        if name.startswith(".") or name in deny:
+            continue
+        p = root / name
+        if p.is_dir() and (p / ".git").exists():
+            out.add(name)
+    return out
+
+
+def _signature_first_seen(row: sqlite3.Row) -> dt.datetime | None:
+    """When this SIGNATURE was first seen, not when its current open period began.
+
+    A grouped source's payload carries `ts_first` — a unix timestamp set the very
+    first time the dedup key appeared and never reset — while `events.first_seen`
+    is rewritten every time reconcile() reopens a resolved row. Any question of
+    the form "has this been going on a while" must read the former; the latter
+    answers a different question and understates it badly."""
+    payload = _safe_json(row["payload_json"] if "payload_json" in row.keys() else None)
+    raw = payload.get("ts_first")
+    if raw is None:
+        return None
+    try:
+        return dt.datetime.fromtimestamp(float(raw), dt.timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def _propose_mapping_candidates(conn: sqlite3.Connection, policy: dict[str, Any],
+                                 now: dt.datetime) -> list[sqlite3.Row]:
+    """Every item classify() found no rule for, whose event is at least
+    `proposeMappingsAgeDays` old, excluding anything the model already said
+    `unsure` about within PROPOSE_UNSURE_COOLDOWN_DAYS — oldest first, capped
+    at PROPOSE_MAPPINGS_MAX_SIGNATURES.
+
+    Deliberately NOT restricted to `state = new`. Keying the pool on current
+    state made this whole pass inert: resolve_quiet_grouped() runs earlier in
+    the same cycle, so a grouped `slack_alert` signature flips to `resolved` on
+    the 2h quiet timer long before this query sees it. Measured against the
+    live DB, 16 of 19 unmapped signatures vanished that way and the other 3
+    were younger than the age floor — zero candidates, permanently.
+
+    The question this pass answers is "has this signature ever been mapped",
+    which is a property of the POLICY FILE, not of an item's lifecycle. A
+    signature that resolved quietly is still unmapped and will fire again; that
+    is precisely the case worth mapping. `ignored` is the one state excluded —
+    a human or a rule already decided it deliberately, and re-proposing it
+    would relitigate a settled call. Items are collapsed per signature, since
+    the same signature can own several rows over time."""
+    age_days = policy["proposeMappingsAgeDays"]
+    # Age alone is the wrong test on its own. The floor exists to avoid spending a
+    # proposal on a one-off, but a signature that has already fired many times is
+    # demonstrably not one — `homelab-temperature-above-threshold` had 25
+    # occurrences in 5 days and would have sat under a 7-day floor while paging
+    # the whole time. Either signal qualifies it: old enough to have proven
+    # persistent, OR frequent enough to have proven the same thing faster.
+    min_occurrences = PROPOSE_MAPPINGS_MIN_OCCURRENCES
+    unsure_cutoff = now - dt.timedelta(days=PROPOSE_UNSURE_COOLDOWN_DAYS)
+    rows = conn.execute(
+        "SELECT ti.event_id, ti.signature, ti.occurrences, ti.first_seen, ti.last_seen, "
+        "ti.propose_unsure_at, e.title, e.payload_json FROM triage_items ti JOIN events e ON e.id = ti.event_id "
+        "WHERE ti.state != ? AND ti.repo IS NULL AND ti.verb IS NULL "
+        "GROUP BY ti.signature ORDER BY MIN(ti.first_seen) ASC",
+        (STATE_IGNORED,),
+    ).fetchall()
+    candidates: list[sqlite3.Row] = []
+    for row in rows:
+        # Age must be measured from when the SIGNATURE was first seen, not from
+        # when this row's current open period began. For a grouped source those
+        # differ by months: `homelab-temperature-above-threshold` carries
+        # ts_first = 2026-04-30 in its payload while events.first_seen reads
+        # 2026-09-04, because reconcile() reopens a resolved row with a fresh
+        # first_seen. Reading the row's own column made a 132-day-old recurring
+        # signature look five days old and kept it under every floor.
+        first_seen = _signature_first_seen(row) or _parse_ts(row["first_seen"])
+        old_enough = first_seen is not None and now - first_seen >= dt.timedelta(days=age_days)
+        # occurrences is the LAST poll's batch count, not a cumulative total, so
+        # it cannot stand in for persistence on its own — it is a fast path for a
+        # signature that fired hard in one window, nothing more.
+        frequent_enough = (row["occurrences"] or 0) >= min_occurrences
+        if not (old_enough or frequent_enough):
+            continue
+        unsure_at = _parse_ts(row["propose_unsure_at"])
+        if unsure_at is not None and unsure_at > unsure_cutoff:
+            continue
+        candidates.append(row)
+        if len(candidates) >= PROPOSE_MAPPINGS_MAX_SIGNATURES:
+            break
+    return candidates
+
+
+def _build_propose_mappings_prompt(candidates: list[sqlite3.Row], repo_names: list[str]) -> str:
+    lines = [
+        "You maintain a signature -> repo mapping table for an infrastructure alert "
+        "triage system. Each signature below has fired repeatedly for at least a week "
+        "with no owning repo, so it never escalates and never gets a card.",
+        "",
+        "For EACH signature, decide exactly ONE of:",
+        '  {"action": "ignore", "reason": "<one line>"}  — a known-benign pattern or a '
+        "genuine recovery, safe to silence forever",
+        '  {"action": "map", "repo": "<repo name>", "reason": "<one line>"}  — future '
+        "occurrences should open a read-only investigation of this repo",
+        '  {"action": "unsure"}  — you cannot confidently decide either way',
+        "",
+        "Valid repo names — a name outside this list is dropped, never applied:",
+        ", ".join(repo_names) if repo_names else "(none discoverable)",
+        "",
+        "Respond with STRICT JSON ONLY: a single JSON object keyed by the EXACT signature "
+        "string, each value one of the three shapes above. No prose, no markdown fences, "
+        "no extra keys, no signatures other than the ones listed below.",
+        "",
+        "Signatures:",
+    ]
+    for c in candidates:
+        lines.append(
+            f"- signature: {c['signature']}\n"
+            f"  title: {c['title'] or ''}\n"
+            f"  occurrences: {c['occurrences']}\n"
+            f"  first_seen: {c['first_seen']}\n"
+            f"  last_seen: {c['last_seen']}"
+        )
+    return "\n".join(lines)
+
+
+def _call_propose_mappings_model(prompt: str) -> dict[str, Any] | None:
+    """The ONLY LLM call in this file. One request, strict JSON, hard-bounded
+    on every axis this loop can bound (timeout, output tokens, and the
+    caller's own cap on how many signatures went into the prompt). ANY
+    failure — unresolved secrets, network, timeout, non-2xx, unexpected
+    response shape, or unparseable JSON — is caught here and returns None;
+    propose_mappings() logs to stderr and moves on. This loop must never
+    depend on this call succeeding."""
+    base_url = _resolve_openai_base_url()
+    api_key = _resolve_openai_api_key()
+    if not base_url or not api_key:
+        print("triage: propose_mappings — OPENAI_BASE_URL/OPENAI_API_KEY unresolved, skipping",
+              file=sys.stderr)
+        return None
+    body = json.dumps({
+        "model": PROPOSE_MAPPINGS_MODEL,
+        "messages": [
+            {"role": "system", "content": "You output strict JSON only — no prose, no markdown fences."},
+            {"role": "user", "content": prompt},
+        ],
+        "max_tokens": PROPOSE_MAPPINGS_MAX_OUTPUT_TOKENS,
+        "temperature": 0,
+    }).encode()
+    req = urllib.request.Request(
+        f"{base_url.rstrip('/')}/chat/completions",
+        data=body,
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=PROPOSE_MAPPINGS_TIMEOUT) as resp:
+            data = json.loads(resp.read().decode())
+    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, TimeoutError, OSError) as e:
+        print(f"triage: propose_mappings — model call failed: {e}", file=sys.stderr)
+        return None
+    try:
+        content = data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError):
+        print(f"triage: propose_mappings — unexpected response shape: {str(data)[:300]}", file=sys.stderr)
+        return None
+    content = (content or "").strip()
+    if content.startswith("```"):
+        content = content.strip("`")
+        if content[:4].lower() == "json":
+            content = content[4:]
+    try:
+        parsed = json.loads(content)
+    except json.JSONDecodeError as e:
+        print(f"triage: propose_mappings — response was not valid JSON: {e}", file=sys.stderr)
+        return None
+    if not isinstance(parsed, dict):
+        print("triage: propose_mappings — response JSON was not an object, skipping", file=sys.stderr)
+        return None
+    return parsed
+
+
+def _apply_propose_mappings(conn: sqlite3.Connection, now: dt.datetime, response: dict[str, Any],
+                             candidates_by_sig: dict[str, sqlite3.Row],
+                             valid_repos: set[str]) -> list[dict[str, str]]:
+    """Applies each decision for a signature actually in THIS batch (a
+    signature the model invents is ignored — it was never asked about). A
+    `map` repo is re-checked against `valid_repos` (the SAME discovery
+    hermes-cc.sh's own resolve_repo() uses) AND the deny list — never
+    trusted from the model alone. `unsure` writes a cooldown marker directly
+    to triage_items; `map`/`ignore` write NOTHING to triage_items here —
+    they only ever become policy entries, picked up by classify() on a
+    LATER run, exactly like a hand-written rule would be. Returns the
+    applied `map`/`ignore` decisions only (for the policy file + digest —
+    `unsure` is not "applied", it is deferred)."""
+    applied: list[dict[str, str]] = []
+    now_iso = _now_iso(now)
+    denied = _denied_repos()
+    for sig, decision in response.items():
+        row = candidates_by_sig.get(sig)
+        if row is None:
+            continue
+        if not isinstance(decision, dict):
+            print(f"triage: propose_mappings — malformed decision for {sig!r}, dropping", file=sys.stderr)
+            continue
+        action = decision.get("action")
+        reason = decision.get("reason") if isinstance(decision.get("reason"), str) else ""
+        if action == "ignore":
+            applied.append({"signature": sig, "action": "ignore", "reason": reason})
+        elif action == "map":
+            repo = decision.get("repo")
+            if not isinstance(repo, str) or repo not in valid_repos or repo in denied:
+                print(f"triage: propose_mappings — dropping map proposal for {sig!r}: repo "
+                      f"{repo!r} does not resolve under the dispatch root or is denied", file=sys.stderr)
+                continue
+            applied.append({"signature": sig, "action": "map", "repo": repo, "reason": reason})
+        elif action == "unsure":
+            conn.execute(
+                "UPDATE triage_items SET propose_unsure_at=?, updated_at=? WHERE event_id=?",
+                (now_iso, now_iso, row["event_id"]),
+            )
+        else:
+            print(f"triage: propose_mappings — unknown action {action!r} for {sig!r}, dropping", file=sys.stderr)
+    conn.commit()
+    return applied
+
+
+def _dump_policy_json(data: dict[str, Any]) -> str:
+    """Serializes the policy file preserving top-level key order, rendering
+    `_readme`/`rules`/`ignore` one array element per line (the file's own
+    hand-authored style) rather than json.dump's default fully-expanded
+    nesting, which would rewrite every untouched rule and turn one new line
+    into a whole-file diff."""
+    parts = []
+    for key, value in data.items():
+        if isinstance(value, list):
+            if not value:
+                rendered = "[]"
+            else:
+                items = ",\n    ".join(json.dumps(v) for v in value)
+                rendered = "[\n    " + items + "\n  ]"
+        else:
+            rendered = json.dumps(value, indent=2).replace("\n", "\n  ")
+        parts.append(f"  {json.dumps(key)}: {rendered}")
+    return "{\n" + ",\n".join(parts) + "\n}\n"
+
+
+def _write_policy_additions(applied: list[dict[str, str]], now: dt.datetime) -> bool:
+    """Reads the RAW policy JSON (never load_policy()'s normalized/defaulted
+    view — that would drop unknown keys and reorder nothing back), appends
+    one stamped rules/ignore entry per applied proposal, and writes it back
+    preserving `_readme` and key order. False (no-op) on any read/parse
+    failure or an empty `applied` list."""
+    if not applied:
+        return False
+    try:
+        data = json.loads(POLICY_PATH.read_text())
+    except (OSError, json.JSONDecodeError) as e:
+        print(f"triage: propose_mappings — cannot read policy file to apply proposals: {e}", file=sys.stderr)
+        return False
+    stamp = _now_iso(now)
+    rules = list(data.get("rules") or [])
+    ignore = list(data.get("ignore") or [])
+    for item in applied:
+        if item["action"] == "map":
+            rules.append({
+                "match": item["signature"],
+                "repo": item["repo"],
+                "proposedAt": stamp,
+                "proposedBy": "triage-auto",
+                "reason": item["reason"],
+            })
+        elif item["action"] == "ignore":
+            ignore.append({
+                "match": item["signature"],
+                "proposedAt": stamp,
+                "proposedBy": "triage-auto",
+                "reason": item["reason"],
+            })
+    data["rules"] = rules
+    data["ignore"] = ignore
+    POLICY_PATH.write_text(_dump_policy_json(data))
+    return True
+
+
+def _policy_git_rel_path() -> Path | None:
+    try:
+        return POLICY_PATH.resolve().relative_to(TRIAGE_REPO_DIR.resolve())
+    except (OSError, ValueError):
+        return None
+
+
+def _policy_path_is_dirty(rel: Path) -> bool:
+    """True if config/triage-policy.json ALREADY carries a pending
+    staged-or-unstaged change before this run's own write — checked before
+    _write_policy_additions() ever touches the file, so a human's own
+    in-progress edit is never swept into an auto-authored commit. Also true
+    (fail closed) if `git status` itself cannot be run at all."""
+    try:
+        res = subprocess.run(
+            ["git", "-C", str(TRIAGE_REPO_DIR), "status", "--porcelain", "--", str(rel)],
+            capture_output=True, text=True, timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return True
+    if res.returncode != 0:
+        return True
+    return bool(res.stdout.strip())
+
+
+def _git_commit_policy_file(rel: Path, applied: list[dict[str, str]]) -> None:
+    """`git add` + `git commit` ONLY config/triage-policy.json, in this
+    repo's own checkout — never `git add -A`, never `git push` (a human
+    sends anything further). The file is symlinked live into
+    ~/.hermes/config/, so the change already took effect the moment
+    _write_policy_additions() returned; committing turns that into a
+    reviewable diff instead of the dirty-working-tree drift this repo has
+    been bitten by before (see CLAUDE.md "After any edit: commit here"). No
+    lock is taken — this is the only writer of this file — the dirtiness
+    check the caller already did before writing is what keeps this from
+    sweeping an unrelated pending edit into an auto-authored commit."""
+    repo_dir = str(TRIAGE_REPO_DIR)
+    summary = "; ".join(
+        f"{a['signature']} -> {a['repo']}" if a["action"] == "map" else f"{a['signature']} -> ignore"
+        for a in applied
+    )
+    msg = f"chore(triage-policy): auto-propose {len(applied)} mapping(s)\n\n{summary}"
+    add = subprocess.run(["git", "-C", repo_dir, "add", "--", str(rel)],
+                          capture_output=True, text=True, timeout=30)
+    if add.returncode != 0:
+        print(f"triage: propose_mappings — git add failed: {add.stderr.strip()}", file=sys.stderr)
+        return
+    commit = subprocess.run(["git", "-C", repo_dir, "commit", "-m", msg, "--", str(rel)],
+                             capture_output=True, text=True, timeout=30)
+    if commit.returncode != 0:
+        print(f"triage: propose_mappings — git commit failed: {commit.stderr.strip()}", file=sys.stderr)
+
+
+def propose_mappings(conn: sqlite3.Connection, policy: dict[str, Any], now: dt.datetime,
+                      *, dry_run: bool) -> list[dict[str, str]]:
+    """Step 8 — see the module docstring's PROPOSE MAPPINGS paragraph for the
+    full contract. Returns the applied map/ignore proposals (possibly
+    empty), so run() can hand them to maybe_post_daily_digest() for
+    announcement the same day. Under --dry-run this makes zero calls of any
+    kind (model, git) and returns []  — matching every other externally
+    visible action in this file's DRY-RUN CONTRACT."""
+    if dry_run:
+        return []
+
+    row = conn.execute("SELECT value FROM cursors WHERE key=?", (PROPOSE_MAPPINGS_CURSOR_KEY,)).fetchone()
+    if row is not None:
+        last_run = _parse_ts(row["value"])
+        if last_run is not None and now - last_run < dt.timedelta(hours=24):
+            return []
+
+    candidates = _propose_mapping_candidates(conn, policy, now)
+    # The cursor is a once-per-24h BUDGET, not a "keep retrying until it
+    # succeeds" loop — stamped here, before the call, so a failed call still
+    # counts against today's attempt rather than hammering the endpoint on
+    # every 10-minute cycle until one happens to succeed.
+    now_iso = _now_iso(now)
+    conn.execute(
+        "INSERT INTO cursors(key, value, updated_at) VALUES (?, ?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+        (PROPOSE_MAPPINGS_CURSOR_KEY, now_iso, now_iso),
+    )
+    conn.commit()
+    if not candidates:
+        return []
+
+    valid_repos = _discoverable_repos()
+    prompt = _build_propose_mappings_prompt(candidates, sorted(valid_repos))
+    response = _call_propose_mappings_model(prompt)
+    if response is None:
+        return []  # already logged by the call itself
+
+    candidates_by_sig = {c["signature"]: c for c in candidates}
+    applied = _apply_propose_mappings(conn, now, response, candidates_by_sig, valid_repos)
+    if not applied:
+        return []
+
+    rel = _policy_git_rel_path()
+    if rel is None:
+        print(f"triage: propose_mappings — policy file is not inside a git checkout at "
+              f"{TRIAGE_REPO_DIR}, skipping this run's proposals entirely", file=sys.stderr)
+        return []
+    if _policy_path_is_dirty(rel):
+        print(f"triage: propose_mappings — {rel} already has a pending change, skipping this "
+              "run's proposals entirely rather than sweeping it into an auto-authored commit",
+              file=sys.stderr)
+        return []
+    if not _write_policy_additions(applied, now):
+        return []
+    _git_commit_policy_file(rel, applied)
+    return applied
+
+
 # --- unmapped-signature digest -------------------------------------------------
 
 def _fetch_note_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
@@ -2569,14 +3138,19 @@ def _fetch_note_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
 
 
 def maybe_post_daily_digest(conn: sqlite3.Connection, policy: dict[str, Any], unmapped: set[str],
-                             now: dt.datetime, *, dry_run: bool) -> None:
-    """One Slack message, at most once per UTC day, with up to two sections:
-    unmapped signatures (no policy rule matched — see classify()) and
+                             now: dt.datetime, *, dry_run: bool,
+                             auto_mapped: list[dict[str, str]] | None = None) -> None:
+    """One Slack message, at most once per UTC day, with up to three
+    sections: unmapped signatures (no policy rule matched — see classify()),
     STATE_NOTE rows (unstructured #alerts prose that might be an unactioned
-    root cause — see that state's own docstring). Both are silent by
-    default; this is the only place either becomes visible."""
+    root cause — see that state's own docstring), and whatever
+    propose_mappings() just auto-added THIS run (see PROPOSE MAPPINGS) — the
+    latter is how an auto-authored policy commit gets ANNOUNCED rather than
+    only discovered later in `git log`. All three are silent by default;
+    this is the only place any of them becomes visible."""
+    auto_mapped = auto_mapped or []
     notes = _fetch_note_rows(conn)
-    if not unmapped and not notes:
+    if not unmapped and not notes and not auto_mapped:
         return
     today = now.date().isoformat()
     row = conn.execute("SELECT value FROM cursors WHERE key=?", (DAILY_DIGEST_CURSOR_KEY,)).fetchone()
@@ -2584,7 +3158,16 @@ def maybe_post_daily_digest(conn: sqlite3.Connection, policy: dict[str, Any], un
         return
 
     lines: list[str] = []
+    if auto_mapped:
+        lines.append("*Auto-proposed triage-policy changes* — added to `triage-policy.json` and "
+                      "committed this run (`proposedBy: triage-auto`):")
+        for a in auto_mapped:
+            target = f"repo `{a['repo']}`" if a["action"] == "map" else "`ignore`"
+            reason = a.get("reason") or "(no reason given)"
+            lines.append(f"- `{a['signature']}` -> {target} — {reason}")
     if unmapped:
+        if lines:
+            lines.append("")
         sigs = sorted(unmapped)
         lines.append("*Unmapped triage signatures* — no rule in `triage-policy.json`, so these never escalate:")
         lines.extend(f"- `{s}`" for s in sigs[:20])
@@ -2604,7 +3187,8 @@ def maybe_post_daily_digest(conn: sqlite3.Connection, policy: dict[str, Any], un
     text = "\n".join(lines)
     channel = _card_channel(policy)
     if dry_run:
-        print(f"[dry-run] would post daily digest ({len(unmapped)} unmapped, {len(notes)} notes) to {channel}")
+        print(f"[dry-run] would post daily digest ({len(unmapped)} unmapped, {len(notes)} notes, "
+              f"{len(auto_mapped)} auto-mapped) to {channel}")
         return
     token = resolve_slack_token()
     if not token:
@@ -2660,7 +3244,13 @@ def run(conn: sqlite3.Connection, *, dry_run: bool) -> int:
             continue
         sync_card(conn, members, event_rows, policy, dry_run=dry_run)
 
-    maybe_post_daily_digest(conn, policy, unmapped, now, dry_run=dry_run)
+    # Step 8 — the one LLM call in this file, at most once per 24h. Runs
+    # AFTER classify() so `unmapped` above already reflects this run's own
+    # rule matching, and its result feeds directly into today's digest below
+    # rather than waiting for a separate delivery mechanism.
+    auto_mapped = propose_mappings(conn, policy, now, dry_run=dry_run)
+
+    maybe_post_daily_digest(conn, policy, unmapped, now, dry_run=dry_run, auto_mapped=auto_mapped)
     return 0
 
 

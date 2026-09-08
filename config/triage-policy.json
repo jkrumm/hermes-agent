@@ -136,13 +136,26 @@
     "                  item resolves — an alert going quiet is also what a fully-down service",
     "                  looks like, so silence alone is never proof of a fix here either.",
     "`vps` is seeded below at the narrowest possible scope (`observability/**` only) — its",
-    "own compose files, apps and everything else stay outside every one of these gates."
+    "own compose files, apps and everything else stay outside every one of these gates.",
+    "",
+    "`proposeMappingsAgeDays` (default 7) gates scripts/triage.py's propose_mappings() —",
+    "the ONE LLM call anywhere in that file, and the only mechanism that ever grows THIS",
+    "file automatically. Once every 24h it batches every signature that has sat unmapped",
+    "(no `rules` match) in state `new` for at least this many days — a fresh signature may",
+    "still be a one-off, and mapping it this early wastes a whole investigate episode — and",
+    "asks the SAME gpt-5.6-luna brain config.yaml already configures to propose `map`",
+    "(append a rule — a wrong one costs one wasted read-only episode), `ignore` (append to",
+    "the ignore list), or `unsure` (leave unmapped, not re-asked for 7 more days). Every",
+    "applied entry below is stamped `proposedAt`/`proposedBy: \"triage-auto\"` plus the",
+    "model's own one-line reason, then committed (never pushed) by that same script — read",
+    "docs/triage.md's PROPOSE MAPPINGS section before touching an auto-added entry."
   ],
   "cardChannel": "C0BVDE5R562",
   "minOccurrences": 3,
   "minOpenMinutes": 30,
   "cooldownHours": 6,
   "quietResolveHours": 2,
+  "proposeMappingsAgeDays": 7,
   "ignoreUnstructuredSlackProse": true,
   "repos": {
     "vps": {

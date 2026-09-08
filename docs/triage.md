@@ -5,7 +5,10 @@ see *Why a LaunchAgent, not `hermes cron`* below) closes the loop
 `scripts/watchdog-poll.py` opened but never acted on: deduplicated `events`
 rows become one durable, updated-in-place Slack card per problem, with a real
 sideclaw investigation attached once a signature repeats or stays open.
-**No LLM call happens anywhere in this file.**
+**The act path (ingest → classify → cluster → escalate → card → resolve)
+makes no LLM call at all.** The one exception is `propose_mappings()` — a
+bounded, once-a-day maintenance pass that proposes new policy entries for
+signatures that have sat unmapped too long; see *Propose mappings* below.
 
 ## Why this exists
 
@@ -106,9 +109,17 @@ edges* and *Clustering* below.
    `dispatch_job`, a verb outcome is its own singleton "cluster"), posted
    once state leaves `new` (see *Carded states* below) and updated in place
    after, no-op when the rendered content hasn't changed.
-8. **Daily digest** — once per UTC day (tracked in the `cursors` table,
-   shared with `watchdog-poll.py`), a single Slack message with up to two
-   sections: signatures that matched no rule, and `STATE_NOTE` rows.
+8. **Propose mappings** — at most once per 24h (tracked in the `cursors`
+   table, same pattern the digest already uses), the ONE LLM call in this
+   file: batches every `new`+unmapped item whose event has stayed open at
+   least `proposeMappingsAgeDays`, and proposes `map`/`ignore`/`unsure` per
+   signature. Applied outcomes land only in `config/triage-policy.json`
+   (never `triage_items` directly), committed — never pushed — in this
+   repo's own checkout. See *Propose mappings* below.
+9. **Daily digest** — once per UTC day (tracked in the `cursors` table,
+   shared with `watchdog-poll.py`), a single Slack message with up to three
+   sections: signatures that matched no rule, `STATE_NOTE` rows, and
+   whatever step 8 just auto-added this run.
 
 `scripts/dispatch-sweep.py` closes the other half: when a dispatch tied to a
 triage cluster (`dispatches.origin_event_id` set) reaches a terminal status,
@@ -508,6 +519,98 @@ yet — before proposing something new. This is the direct fix for the
 scenario in the brief that shipped this file: a PR already existed and 61
 re-triages never noticed.
 
+## Propose mappings
+
+`config/triage-policy.json` was designed to grow only by a human reading the
+daily unmapped-signature digest and hand-editing the file — measurably not
+happening: an `api-*-red-circle-down-*` signature pair fired in May 2026, was
+hand-fixed once, and never entered the map, so it matched nothing when it
+fired again four months later. `propose_mappings()` (step 8 in the loop
+above) is the ONE LLM call anywhere in `scripts/triage.py` — everywhere else,
+"no LLM call" still means exactly what it always did (the dispatched
+`investigate` episode itself running Claude Code is a property of
+hermes-cc.sh, not of this file).
+
+**Cadence and input.** At most once per 24h — a timestamp cursor in the same
+`cursors` table the daily digest already uses (`triage_propose_mappings_last_run`),
+checked before the model is ever called. Candidates: every `triage_items` row
+in `state=new` with no `repo`/`verb` (i.e. `classify()` found no rule for it)
+whose event has stayed open at least `proposeMappingsAgeDays` (policy knob,
+default 7 — a signature younger than that may still be a one-off, and mapping
+it wastes a whole investigate episode), oldest first, capped at
+`PROPOSE_MAPPINGS_MAX_SIGNATURES` (25). The rest simply wait for a later run.
+
+**The call.** One batched request against the Hermes brain over the same
+OpenAI-compatible endpoint `config.yaml` already configures
+(`OPENAI_BASE_URL`/`OPENAI_API_KEY`, model `gpt-5.6-luna`, `chat_completions`
+— never the Responses-API leg the main agent uses), secrets resolved the same
+way every other secret in this file is (`_resolve_openai_api_key()` mirrors
+`resolve_slack_token()`'s own env-var-then-`secrets-run` shape — never a
+plaintext key). Bounded on every axis this loop can bound: a hard timeout
+(`PROPOSE_MAPPINGS_TIMEOUT`, default 90s), a cap on output tokens
+(`PROPOSE_MAPPINGS_MAX_OUTPUT_TOKENS`, 2000), and the input cap above. Strict
+JSON only, one of three shapes per signature: `{"action": "ignore", "reason":
+…}`, `{"action": "map", "repo": …, "reason": …}`, or `{"action": "unsure"}`.
+A failed, timed-out, or unparseable call is logged to stderr and otherwise a
+no-op — this loop must never depend on it succeeding, exactly like every
+other externally-visible call in this file.
+
+**Applying a proposal.** `ignore` and `map` are NEVER written to
+`triage_items` directly — they only ever become policy entries, picked up by
+`classify()` on a LATER run, exactly like a hand-written rule would be. A
+`map` proposal's `repo` is re-validated against `_discoverable_repos()` (the
+same discovery `hermes-cc.sh`'s own `resolve_repo()` uses: every non-dotted,
+non-`deny`d entry directly under `root` with a `.git` subdirectory) AND the
+deny list — never trusted from the model's own claim, or from the prompt's
+own repo list, alone. `unsure` writes a cooldown marker
+(`triage_items.propose_unsure_at`) directly, so the SAME signature is not
+re-billed into the model for `PROPOSE_UNSURE_COOLDOWN_DAYS` (7).
+
+**Writing the file.** Every applied entry is stamped `proposedAt` (ISO
+timestamp), `proposedBy: "triage-auto"`, and the model's own one-line
+`reason`, appended to `rules` (for `map`) or `ignore` (for `ignore` — that
+array can now hold either a bare pattern string, hand-authored, or a stamped
+object; `load_policy()` reads the `match` field of either shape identically).
+`_dump_policy_json()` writes the whole file back preserving `_readme` and
+top-level key order, rendering each array one element per line rather than
+`json.dump`'s default fully-expanded nesting, so a small addition doesn't
+turn into a whole-file diff.
+
+**Committing.** `git add` + `git commit` — never `git push` — ONLY
+`config/triage-policy.json`, in this repo's own checkout
+(`TRIAGE_REPO_DIR`, resolved from `scripts/triage.py`'s own `__file__`, which
+follows the `~/.hermes/scripts/` → `~/SourceRoot/hermes-agent/scripts/`
+symlink to the real checkout). The file is symlinked live into
+`~/.hermes/config/`, so the change already took effect the moment the write
+returned — committing turns that into a reviewable diff instead of the
+dirty-working-tree drift this repo has been bitten by before. No lock is
+taken (this is the only writer of this file), but the path's own `git status
+--porcelain` is checked BEFORE the write; if it already carries a pending
+change, this run's proposals are skipped entirely — logged loudly — rather
+than sweeping an unrelated in-progress edit into an auto-authored commit.
+
+**Announcing it.** The applied proposals are handed straight from
+`propose_mappings()`'s return value into that same run's
+`maybe_post_daily_digest()` call, which gains a third section naming exactly
+what was auto-added and why — so an auto-authored policy commit is announced
+the same day, not only discoverable later in `git log`.
+
+**A known gap, found by running this against a copy of the live DB.**
+`resolve_quiet_grouped()` (step 4b) runs BEFORE `propose_mappings()` in the
+same cycle, and a `slack_alert`/`hermes_log` (`GROUPED_TRIAGE_SOURCES`) item
+that has produced no new occurrence in `quietResolveHours` (2h default) flips
+to `resolved` there — before `propose_mappings()`'s own `state=new` candidate
+query ever runs. In practice this means most currently-unmapped grouped-source
+signatures (the majority of a real backlog — 16 of the 19 unmapped signatures
+in the live DB at the time this was built) never reach the candidate pool at
+all; only unmapped STATE-source signatures (`uk`, `docker_*`, `op_refs_*`,
+which disappearance-resolve via `events.resolved_at` instead) stay stably
+`new`. This is a faithful implementation of the brief's literal input
+contract ("every signature in STATE_NEW"), not a bug — but it is a real
+limitation worth a deliberate follow-up decision (e.g. whether the candidate
+query should also examine `resolved` grouped rows that were never escalated,
+i.e. `dispatch_job IS NULL`), not something this change decided unilaterally.
+
 ## `config/triage-policy.json` contract
 
 ```json
@@ -517,20 +620,30 @@ re-triages never noticed.
   "minOpenMinutes": 30,
   "cooldownHours": 6,
   "quietResolveHours": 2,
+  "proposeMappingsAgeDays": 7,
   "ignoreUnstructuredSlackProse": true,
   "rules": [
     {"match": "<fnmatch on either match target>", "repo": "<repo name>",
      "evidence": ["<EVIDENCE_ALLOWLIST key>", "..."]},
     {"match": "<fnmatch on either match target>", "verb": "<VERB_ALLOWLIST key>"}
   ],
-  "ignore": ["<fnmatch on either match target>"]
+  "ignore": [
+    "<fnmatch on either match target>",
+    {"match": "<fnmatch on either match target>", "proposedAt": "<ISO timestamp>",
+     "proposedBy": "triage-auto", "reason": "<model's one-line reason>"}
+  ]
 }
 ```
 
 `evidence` is optional and only ever valid alongside `repo` (never `verb` — a
 verb outcome is already a deterministic local probe, not an episode with a
-brief to fence evidence into). `quietResolveHours` is top-level, not
-per-rule — see *Grouped-source resolution* above.
+brief to fence evidence into). `quietResolveHours` and `proposeMappingsAgeDays`
+are top-level, not per-rule — see *Grouped-source resolution* and *Propose
+mappings* above. `ignore` entries are usually a bare pattern string
+(hand-authored); `propose_mappings()` instead appends a stamped object — both
+shapes classify() identically (only `match` is ever used for fnmatch). A
+`rules` entry `propose_mappings()` writes carries the same `proposedAt`/
+`proposedBy`/`reason` stamp alongside its `match`/`repo`.
 
 A "signature" is `source:external_id` (`triage_items.signature`, and the
 argument every `--snooze`/`--ignore`/`--reopen` CLI verb takes) — this is
@@ -853,3 +966,15 @@ liveness FAILING past its deadline and REOPENING the item to `new` with the
 PR and last check on the card (exactly one `chat.update`, zero
 `chat.postMessage`), and liveness still inside its window neither resolving
 nor reopening (zero Slack calls).
+
+64 cases total as of `propose_mappings()` — the final 9 cover: the 24h
+cursor preventing a second model call within the same window (and allowing
+one past it), the age threshold excluding a signature younger than
+`proposeMappingsAgeDays`, an unparseable model response being non-fatal
+(no raise, nothing applied), a proposed repo that does not resolve under the
+dispatch root being dropped (and separately, one that resolves but is
+`deny`d), an `unsure` verdict suppressing re-proposal of that exact signature
+for 7 days and lifting after, the policy file round-tripping with `_readme`
+and top-level key order intact after an applied `map` proposal, the commit
+(and the write itself) being skipped when `config/triage-policy.json` already
+carries a pending change, and `--dry-run` making zero model calls.

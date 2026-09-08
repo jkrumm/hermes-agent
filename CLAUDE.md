@@ -140,10 +140,14 @@ budget) — keep entry points thin, logic in an imported module. Detail:
 `hermes cron` job, see `docs/triage.md`) is the act-loop `watchdog-poll.py`'s dedup always
 needed: it turns deduplicated `events` rows into one durable, updated-in-place
 Slack card per problem and, once eligible, a real sideclaw `investigate`
-episode — **no LLM call anywhere in the file**. It replaced a full
+episode — **the act path itself makes no LLM call**. It replaced a full
 `reasoning_effort: high` turn on every `#alerts` message, which had zero
 memory across messages (`reply_in_thread`) and re-triaged the same signature
-dozens of times a day.
+dozens of times a day. The one exception is `propose_mappings()`: a bounded,
+once-a-day batch call over signatures unmapped for over a week, proposing
+`config/triage-policy.json` entries (stamped `proposedBy: "triage-auto"`),
+committed — never pushed — so the map grows without depending on a human
+reading the daily digest. See `docs/triage.md` §*Propose mappings*.
 
 | Fact | Detail |
 |-|-|

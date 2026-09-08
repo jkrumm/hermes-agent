@@ -33,6 +33,7 @@ import importlib.util
 import json
 import shutil
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import traceback
@@ -109,6 +110,10 @@ def _triage_env(*, policy: dict[str, Any] | None = None, deny: list[str] | None 
         "METEO_HEALTH_PATH": triage.METEO_HEALTH_PATH,
         "GATEWAY_STARTS_LOG": triage.GATEWAY_STARTS_LOG,
         "HERMES_ERROR_LOG": triage.HERMES_ERROR_LOG,
+        "TRIAGE_REPO_DIR": triage.TRIAGE_REPO_DIR,
+        "_call_propose_mappings_model": triage._call_propose_mappings_model,
+        "_resolve_openai_base_url": triage._resolve_openai_base_url,
+        "_resolve_openai_api_key": triage._resolve_openai_api_key,
     }
     try:
         triage.DB_PATH = tmp_dir / "watchdog.db"
@@ -200,6 +205,40 @@ def _fake_dispatcher(conn: sqlite3.Connection, calls: list[dict[str, Any]], *, o
 
 NOW = dt.datetime.now(dt.timezone.utc)
 OLD = NOW - dt.timedelta(hours=1)
+VERY_OLD = NOW - dt.timedelta(days=10)
+
+
+def _init_policy_git_repo(tmp_dir: Path, policy_data: dict[str, Any]) -> Path:
+    """Sets up a throwaway git checkout shaped like this repo's own
+    (`config/triage-policy.json` under a repo root, one clean initial
+    commit) and points triage.TRIAGE_REPO_DIR / triage.POLICY_PATH at it —
+    the fixture propose_mappings()'s git-commit path needs, since it always
+    resolves POLICY_PATH relative to TRIAGE_REPO_DIR before ever touching
+    git. Caller must be inside a `with _triage_env()` block (or otherwise
+    responsible for restoring these two module globals) — _triage_env's own
+    `saved` dict already covers TRIAGE_REPO_DIR."""
+    repo_dir = tmp_dir / "policy-repo"
+    (repo_dir / "config").mkdir(parents=True)
+    policy_path = repo_dir / "config" / "triage-policy.json"
+    policy_path.write_text(triage._dump_policy_json(policy_data))
+    subprocess.run(["git", "init", "-q", str(repo_dir)], check=True)
+    subprocess.run(["git", "-C", str(repo_dir), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(repo_dir), "commit", "-q", "-m", "initial"], check=True)
+    triage.TRIAGE_REPO_DIR = repo_dir
+    triage.POLICY_PATH = policy_path
+    return repo_dir
+
+
+def _setup_discoverable_repos(ctx, names: list[str], *, deny: list[str] | None = None) -> Path:
+    """Points triage.DISPATCH_REPOS_JSON at a throwaway `root` containing one
+    fake `.git` checkout per name in `names` — the hermetic equivalent of
+    hermes-cc.sh's own discoverable() step, so propose_mappings() tests never
+    depend on this dev machine's real ~/SourceRoot layout."""
+    root_dir = ctx.tmp_dir / "fake-source-root"
+    for n in names:
+        (root_dir / n / ".git").mkdir(parents=True)
+    _write_json(triage.DISPATCH_REPOS_JSON, {"root": str(root_dir), "deny": deny or []})
+    return root_dir
 
 
 # --- tests -----------------------------------------------------------------
@@ -1589,6 +1628,281 @@ def test_liveness_still_inside_window_neither_resolves_nor_reopens():
         item = triage._get_item(conn, eid)
         assert item["state"] == triage.STATE_LIVENESS_PENDING, "still inside the window — neither outcome yet"
         assert ctx.total_calls() == 0
+
+
+# --- propose_mappings() — the one LLM call in this file ---------------------
+
+def test_propose_candidates_age_reads_the_signature_not_the_row():
+    """Age must come from the payload's ts_first, not events.first_seen.
+
+    reconcile() rewrites first_seen every time it reopens a resolved row, so for a
+    grouped source the two differ by months. Measured on the live DB:
+    homelab-temperature-above-threshold carries ts_first = 2026-04-30 while
+    first_seen reads 2026-09-04 — a 130-day-old recurring signature that looked
+    five days old and sat under every age floor, permanently invisible to this
+    pass. Regression test for that exact shape."""
+    with _triage_env() as (conn, ctx):
+        _insert_event(
+            conn, source="slack_alert", external_id="reopened-old-sig",
+            title="Recurring for months, row reopened two days ago",
+            first_seen=NOW - dt.timedelta(days=2),
+            payload={
+                "first_text": "Recurring for months",
+                "ts_first": str((NOW - dt.timedelta(days=130)).timestamp()),
+                "ts_last": str(NOW.timestamp()),
+            },
+        )
+        triage.ingest(conn, NOW)
+        policy = {"proposeMappingsAgeDays": 7.0}
+
+        sigs = {c["signature"] for c in triage._propose_mapping_candidates(conn, policy, NOW)}
+        assert "slack_alert:reopened-old-sig" in sigs, (
+            f"age must come from the payload's ts_first, not the reopened row's "
+            f"first_seen — got {sigs}")
+
+
+def test_propose_mappings_24h_cursor_prevents_second_run():
+    with _triage_env() as (conn, ctx):
+        _insert_event(conn, source="slack_alert", external_id="cursor-sig", title="Cursor test",
+                       first_seen=VERY_OLD)
+        triage.ingest(conn, NOW)
+        _init_policy_git_repo(ctx.tmp_dir, {"_readme": [], "rules": [], "ignore": []})
+        policy = {"proposeMappingsAgeDays": 7.0}
+
+        calls = {"n": 0}
+
+        def _stub(_prompt):
+            calls["n"] += 1
+            return {"slack_alert:cursor-sig": {"action": "ignore", "reason": "test"}}
+
+        triage._call_propose_mappings_model = _stub
+
+        applied1 = triage.propose_mappings(conn, policy, NOW, dry_run=False)
+        assert calls["n"] == 1
+        assert len(applied1) == 1
+
+        applied2 = triage.propose_mappings(conn, policy, NOW + dt.timedelta(hours=1), dry_run=False)
+        assert calls["n"] == 1, "within 24h of the last run, the model must not be called again"
+        assert applied2 == []
+
+        applied3 = triage.propose_mappings(conn, policy, NOW + dt.timedelta(hours=25), dry_run=False)
+        assert calls["n"] == 2, "past 24h, the next run must call the model again"
+        assert len(applied3) == 1
+
+
+def test_propose_mappings_age_threshold_excludes_young_signatures():
+    with _triage_env() as (conn, ctx):
+        _insert_event(conn, source="slack_alert", external_id="young-sig", title="Too young",
+                       first_seen=NOW - dt.timedelta(days=1))
+        _insert_event(conn, source="slack_alert", external_id="old-sig", title="Old enough",
+                       first_seen=VERY_OLD)
+        triage.ingest(conn, NOW)
+        policy = {"proposeMappingsAgeDays": 7.0}
+
+        candidates = triage._propose_mapping_candidates(conn, policy, NOW)
+        sigs = {c["signature"] for c in candidates}
+        assert sigs == {"slack_alert:old-sig"}, (
+            "a signature younger than proposeMappingsAgeDays must never be a candidate")
+
+
+def test_propose_mappings_unparseable_response_is_non_fatal():
+    with _triage_env() as (conn, ctx):
+        eid = _insert_event(conn, source="slack_alert", external_id="bad-json-sig", title="Bad json",
+                             first_seen=VERY_OLD)
+        triage.ingest(conn, NOW)
+        _init_policy_git_repo(ctx.tmp_dir, {"_readme": [], "rules": [], "ignore": []})
+        policy = {"proposeMappingsAgeDays": 7.0}
+
+        triage._resolve_openai_base_url = lambda: "https://example.test/v1"
+        triage._resolve_openai_api_key = lambda: "test-key"
+
+        class _FakeResp:
+            def __init__(self, body: bytes):
+                self._body = body
+
+            def read(self):
+                return self._body
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_a):
+                return False
+
+        def _fake_urlopen(_req, timeout=None):
+            body = json.dumps({"choices": [{"message": {"content": "not json at all {{{"}}]}).encode()
+            return _FakeResp(body)
+
+        saved_urlopen = triage.urllib.request.urlopen
+        triage.urllib.request.urlopen = _fake_urlopen
+        try:
+            applied = triage.propose_mappings(conn, policy, NOW, dry_run=False)
+        finally:
+            triage.urllib.request.urlopen = saved_urlopen
+
+        assert applied == [], "an unparseable model response must never raise or apply anything"
+        item = triage._get_item(conn, eid)
+        assert item["state"] == triage.STATE_NEW
+        assert item["repo"] is None
+
+
+def test_propose_mappings_drops_repo_that_does_not_resolve():
+    with _triage_env() as (conn, ctx):
+        _insert_event(conn, source="slack_alert", external_id="maps-ok", title="Maps ok", first_seen=VERY_OLD)
+        _insert_event(conn, source="slack_alert", external_id="maps-bad", title="Maps bad", first_seen=VERY_OLD)
+        triage.ingest(conn, NOW)
+        _setup_discoverable_repos(ctx, ["real-repo"])
+        _init_policy_git_repo(ctx.tmp_dir, {"_readme": [], "rules": [], "ignore": []})
+        policy = {"proposeMappingsAgeDays": 7.0}
+
+        def _stub(_prompt):
+            return {
+                "slack_alert:maps-ok": {"action": "map", "repo": "real-repo", "reason": "matches"},
+                "slack_alert:maps-bad": {"action": "map", "repo": "not-a-real-repo", "reason": "hallucinated"},
+            }
+
+        triage._call_propose_mappings_model = _stub
+
+        applied = triage.propose_mappings(conn, policy, NOW, dry_run=False)
+        applied_sigs = {a["signature"] for a in applied}
+        assert applied_sigs == {"slack_alert:maps-ok"}, (
+            "a repo that does not resolve under the dispatch root must be dropped, never applied")
+
+        data = json.loads(triage.POLICY_PATH.read_text())
+        matches = [r["match"] for r in data["rules"]]
+        assert "slack_alert:maps-ok" in matches
+        assert "slack_alert:maps-bad" not in matches
+
+
+def test_propose_mappings_drops_denied_repo():
+    with _triage_env() as (conn, ctx):
+        _insert_event(conn, source="slack_alert", external_id="maps-denied", title="Maps denied",
+                       first_seen=VERY_OLD)
+        triage.ingest(conn, NOW)
+        _setup_discoverable_repos(ctx, ["denied-repo"], deny=["denied-repo"])
+        _init_policy_git_repo(ctx.tmp_dir, {"_readme": [], "rules": [], "ignore": []})
+        policy = {"proposeMappingsAgeDays": 7.0}
+
+        triage._call_propose_mappings_model = lambda _prompt: {
+            "slack_alert:maps-denied": {"action": "map", "repo": "denied-repo", "reason": "test"},
+        }
+
+        applied = triage.propose_mappings(conn, policy, NOW, dry_run=False)
+        assert applied == [], "a denied repo must be dropped even if it resolves under root"
+
+
+def test_propose_mappings_unsure_suppresses_reproposal_for_7_days():
+    with _triage_env() as (conn, ctx):
+        eid = _insert_event(conn, source="slack_alert", external_id="unsure-sig", title="Ambiguous",
+                             first_seen=VERY_OLD)
+        triage.ingest(conn, NOW)
+        _init_policy_git_repo(ctx.tmp_dir, {"_readme": [], "rules": [], "ignore": []})
+        policy = {"proposeMappingsAgeDays": 7.0}
+
+        calls: list[str] = []
+        triage._call_propose_mappings_model = lambda prompt: (
+            calls.append(prompt) or {"slack_alert:unsure-sig": {"action": "unsure"}}
+        )
+
+        applied = triage.propose_mappings(conn, policy, NOW, dry_run=False)
+        assert applied == []
+        assert len(calls) == 1
+        item = triage._get_item(conn, eid)
+        assert item["propose_unsure_at"] is not None
+
+        # 3 days later — still inside the cooldown.
+        candidates = triage._propose_mapping_candidates(conn, policy, NOW + dt.timedelta(days=3))
+        assert candidates == [], "an `unsure` signature must not be re-proposed within 7 days"
+
+        # 8 days later — cooldown has expired.
+        candidates = triage._propose_mapping_candidates(conn, policy, NOW + dt.timedelta(days=8))
+        assert len(candidates) == 1 and candidates[0]["signature"] == "slack_alert:unsure-sig"
+
+
+def test_propose_mappings_policy_round_trip_preserves_readme_and_key_order():
+    with _triage_env() as (conn, ctx):
+        _insert_event(conn, source="slack_alert", external_id="round-trip-sig", title="Round trip",
+                       first_seen=VERY_OLD)
+        triage.ingest(conn, NOW)
+        original = {
+            "_readme": ["line one", "line two"],
+            "cardChannel": "C0TESTCHAN01",
+            "minOccurrences": 3,
+            "minOpenMinutes": 30,
+            "cooldownHours": 6,
+            "quietResolveHours": 2,
+            "ignoreUnstructuredSlackProse": True,
+            "repos": {},
+            "rules": [{"match": "slack_alert:existing-*", "repo": "existing-repo"}],
+            "ignore": ["slack_alert:ignoreme-*"],
+        }
+        _init_policy_git_repo(ctx.tmp_dir, original)
+        _setup_discoverable_repos(ctx, ["mapped-repo"])
+        policy = {"proposeMappingsAgeDays": 7.0}
+
+        triage._call_propose_mappings_model = lambda _prompt: {
+            "slack_alert:round-trip-sig": {"action": "map", "repo": "mapped-repo", "reason": "matched"},
+        }
+
+        applied = triage.propose_mappings(conn, policy, NOW, dry_run=False)
+        assert len(applied) == 1
+
+        data = json.loads(triage.POLICY_PATH.read_text())
+        assert list(data.keys()) == list(original.keys()), "top-level key order must survive"
+        assert data["_readme"] == original["_readme"]
+        assert len(data["rules"]) == 2
+        new_rule = next(r for r in data["rules"] if r["match"] == "slack_alert:round-trip-sig")
+        assert new_rule["repo"] == "mapped-repo"
+        assert new_rule["proposedBy"] == "triage-auto"
+        assert new_rule["reason"] == "matched"
+        assert "proposedAt" in new_rule
+        assert data["ignore"] == original["ignore"], "an unrelated section must round-trip untouched"
+
+
+def test_propose_mappings_commit_skipped_when_policy_path_already_dirty():
+    with _triage_env() as (conn, ctx):
+        _insert_event(conn, source="slack_alert", external_id="dirty-sig", title="Dirty path",
+                       first_seen=VERY_OLD)
+        triage.ingest(conn, NOW)
+        repo_dir = _init_policy_git_repo(ctx.tmp_dir, {"_readme": [], "rules": [], "ignore": []})
+        # An uncommitted edit already sitting in the working tree, simulating
+        # a human's in-progress change to this exact file.
+        triage.POLICY_PATH.write_text(triage.POLICY_PATH.read_text() + "\n// pending human edit\n")
+        policy = {"proposeMappingsAgeDays": 7.0}
+
+        triage._call_propose_mappings_model = lambda _prompt: {
+            "slack_alert:dirty-sig": {"action": "ignore", "reason": "test"},
+        }
+
+        before_log = subprocess.run(["git", "-C", str(repo_dir), "log", "--oneline"],
+                                     capture_output=True, text=True, check=True).stdout
+
+        applied = triage.propose_mappings(conn, policy, NOW, dry_run=False)
+        assert applied == [], "a dirty policy path must skip applying this run's proposals entirely"
+
+        after_log = subprocess.run(["git", "-C", str(repo_dir), "log", "--oneline"],
+                                    capture_output=True, text=True, check=True).stdout
+        assert before_log == after_log, "no new commit must be created when the path is already dirty"
+
+        status = subprocess.run(["git", "-C", str(repo_dir), "status", "--porcelain"],
+                                 capture_output=True, text=True, check=True).stdout
+        assert "triage-policy.json" in status, "the pre-existing dirty edit must remain, untouched by us"
+
+
+def test_propose_mappings_dry_run_makes_zero_calls():
+    with _triage_env() as (conn, ctx):
+        _insert_event(conn, source="slack_alert", external_id="dry-run-sig", title="Dry run",
+                       first_seen=VERY_OLD)
+        triage.ingest(conn, NOW)
+        _init_policy_git_repo(ctx.tmp_dir, {"_readme": [], "rules": [], "ignore": []})
+        policy = {"proposeMappingsAgeDays": 7.0}
+
+        calls = {"n": 0}
+        triage._call_propose_mappings_model = lambda _prompt: calls.__setitem__("n", calls["n"] + 1) or {}
+
+        applied = triage.propose_mappings(conn, policy, NOW, dry_run=True)
+        assert applied == []
+        assert calls["n"] == 0, "--dry-run must never call the model"
 
 
 # --- runner ------------------------------------------------------------------
