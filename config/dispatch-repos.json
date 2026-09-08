@@ -73,6 +73,23 @@
     "    that their contents are not referenced from anywhere else; an agent-readable",
     "    episode inside them would undo that.",
     "",
+    "SENSITIVE — the one carve-out of that denial, and it is narrow on purpose. Both names",
+    "stay in `deny` above AND appear in `sensitive` below. That is not a contradiction the way",
+    "`deny`+`tiers` is one (see the line at the bottom of this block): `sensitive` does not",
+    "grant a tier the way `tiers` does, it grants exactly one thing — a name in `sensitive`",
+    "MUST also be in `deny`, and a dispatch against it is allowed to run `investigate` ONLY",
+    "(there is no caller-facing flag; hermes-cc.sh derives this from the repo name alone), with",
+    "`\"sensitive\": true` set automatically on the submitted body so sideclaw's own",
+    "`assertSensitiveTierAllowed` + `applySensitiveScan` (dispatch-security.md) re-checks the",
+    "same two facts independently — defence in depth, not a single point of trust. `author` and",
+    "`implement` stay refused for a sensitive name exactly as for any other denied one: a filed",
+    "issue or a pushed branch has no safe artifact path in a repo whose whole point is that its",
+    "contents never leave it. A reader who greps `deny` still sees both names there — the",
+    "default reachable from `deny` alone is still refusal at every tier, `sensitive` only",
+    "narrows it for a caller that explicitly asks. A name in `sensitive` that is NOT also in",
+    "`deny` is a config error the resolver refuses to run rather than to guess about, exactly",
+    "like the `deny`/`tiers` contradiction below.",
+    "",
     "brain moved from `deny` to `tiers.investigate` (2026-08-15). Read-only",
     "and worktree-isolated, so an episode here cannot write to the vault. `investigate` is the",
     "only path that loads the vault's own rule hierarchy (brain/CLAUDE.md, AGENTS.md, voice.md),",
@@ -83,11 +100,13 @@
     "rewrite of a curated page (Areas/, Projects/) stays human.",
     "",
     "A name in `deny` that also appears in `tiers` is a contradiction, not a precedence",
-    "question — hermes-cc.sh refuses to run rather than pick a winner."
+    "question — hermes-cc.sh refuses to run rather than pick a winner. A name in `sensitive`",
+    "that is NOT also in `deny` is the same class of contradiction, refused the same way."
   ],
   "root": "~/SourceRoot",
   "defaultTier": "implement",
   "deny": ["dotfiles-private", "homelab-private"],
+  "sensitive": ["dotfiles-private", "homelab-private"],
   "tiers": {
     "investigate": ["dotfiles", "brain"]
   }

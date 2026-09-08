@@ -79,6 +79,10 @@ Same pipeline, same record, three permission profiles. Not three features.
 Every tier runs in a handler-managed worktree, torn down when the episode ends —
 see the deviations below for why the read tiers need one too.
 
+`investigate` also has a narrow reach into two normally-`deny`d secret-bearing
+repos (`dotfiles-private`, `homelab-private`) via the `sensitive` policy flag —
+see *Decisions* below, § `sensitive` is a narrow, explicit carve-out of `deny`.
+
 **`implement` always ends in a PR, in every repo, including direct-to-master
 ones.** This deviates from the repo's normal convention on purpose: a human wrote
 the direct-to-master rule for their own commits, not for an unattended agent's.
@@ -409,6 +413,37 @@ regression-tested. `dotfiles-private`/`homelab-private` are denied and stay
 denied; `brain` is **not** — it moved to `tiers.investigate` on 2026-08-15
 (read-only, worktree-isolated, the one path that loads the vault's own rule
 hierarchy).
+
+**`sensitive` is a narrow, explicit carve-out of `deny`, not a second door.**
+sideclaw shipped `sensitive: true` (`fe40d30`, `docs/dispatch-security.md` §
+Sensitive dispatch on that side): a repo opted in gets `investigate` and only
+`investigate`, with the returned verdict scanned by the same
+`scanForSecrets`/`SECRET_PATTERNS` that already guard issue and PR bodies —
+a match withholds the verdict behind a notice and keeps the full text in an
+owner-only `0600` file on the mini rather than leaking it. Until this change
+`hermes-cc.sh` never sent `sensitive` and `dispatch-repos.json`'s `deny` check
+ran before any tier logic and was absolute, so the capability was unreachable
+from Hermes — the one mechanically-fixable gap two independent adversarial
+reviews both found: an `homelab-private/uptime-kuma` alert flapping on its own
+retry cadence, and a dead 1Password ref, were both permanently undiagnosable
+because the repo that would answer either question was denied outright.
+
+`dispatch-repos.json` now carries `"sensitive": ["dotfiles-private",
+"homelab-private"]` **in addition to** `deny` — both names stay listed in
+`deny`, so a reader who greps only `deny` still sees the denial and the
+default reachable from `deny` alone is unchanged: refusal at every tier.
+`sensitive` narrows that refusal for a caller that explicitly asks, and only
+for `investigate`; `resolve_tier` refuses `author`/`implement` against a
+sensitive repo by name ("a filed issue or a pushed branch has no safe
+artifact path in a secret-bearing repo"), not by falling through to the
+generic ceiling message. A name in `sensitive` that is **not** also in `deny`
+is refused as a malformed policy (exit 2) — the same contradiction class as a
+name in both `deny` and `tiers`, and checked the same way, before discovery
+ever runs. `hermes-cc.sh` submits `"sensitive": true` on the job body only for
+those two repos; sideclaw re-checks the same investigate-only restriction
+independently (`assertSensitiveTierAllowed`) rather than trusting the flag on
+its own — defence in depth on both sides of the bridge, not a single point of
+trust.
 
 **There is no `implement` allowlist, deliberately.** One existed for about a day
 (`hermes-agent`, `sideclaw`, `usage-tracker`, the scratch target) and went the

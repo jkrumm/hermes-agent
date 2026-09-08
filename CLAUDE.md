@@ -71,7 +71,7 @@ and the help text says so).
 | Invariant | Detail |
 |-|-|
 | No verb takes a path, command or URL | a dispatch names a **repo**, resolved under the single `root` in `config/dispatch-repos.json`. `.`/`..`/dotted names refused; the resolved checkout's parent must **be** the resolved root. |
-| `deny` list | `dotfiles-private`, `homelab-private`. `brain` is **not** denied: `tiers.investigate` (read-only, worktree-isolated) since 2026-08-15. |
+| `deny` list | `dotfiles-private`, `homelab-private`. Both also carry `sensitive: true` — the one carve-out of `deny`, opening `investigate` only, `"sensitive": true` on the submitted body, sideclaw's own scan withholding a matched verdict rather than leaking it. `author`/`implement` stay refused. `brain` is **not** denied: `tiers.investigate` (read-only, worktree-isolated) since 2026-08-15. |
 | Brief is data, never argv | stdin (`<<'BRIEF'` quoted heredoc) or `--brief-file`. **No `--brief`** — as argv it would be shell-expanded before the script ran. |
 | Tiers | `investigate` (read-only → verdict) · `author` (+ one GitHub issue) · `implement` (`dispatch/…` branch + **draft** PR). **Every tier runs in its own throwaway worktree**, read tiers included — `readOnly` removes Edit/Write, not Bash. |
 | Ceilings | `defaultTier: implement`, `investigate` floor for `dotfiles`/`vps`/`homelab`/`brain`. Above-ceiling/denied/outside-root refuses exit 4; a misspelled name is exit 64. No `implement` allowlist, deliberately. |

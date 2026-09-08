@@ -371,6 +371,11 @@ require_backend() {
 # Set by resolve_repo. Never assembled from caller input.
 REPO_PATH=""
 REPO_MAX_TIER=""
+# 1 when the repo is named in the policy's `sensitive` array — the one carve-out of a
+# `deny` entry, opening `investigate` only, with `"sensitive": true` submitted so
+# sideclaw re-checks the same tier restriction independently. 0 for every other repo,
+# denied or not. See config/dispatch-repos.json's `_comment` for the full precedence.
+REPO_SENSITIVE=0
 
 # The property that matters is unchanged: a path never crosses this interface. The caller
 # says `sideclaw`, this resolves `~/SourceRoot/sideclaw`. What changed (see the rationale
@@ -406,6 +411,11 @@ with open(os.environ["REPOS_JSON"]) as f:
 root = os.path.realpath(os.path.expanduser(policy.get("root", "~/SourceRoot")))
 default_tier = policy.get("defaultTier", "investigate")
 deny = set(policy.get("deny", []))
+# The one carve-out of a `deny` entry: `investigate` only, never a tier from `tiers`.
+# Must be a SUBSET of `deny` — a `sensitive` name that is not denied would just be an
+# ordinary `tiers` entry, and this file only ever narrows a denial via `sensitive`,
+# never grants standing on its own.
+sensitive = set(policy.get("sensitive", []))
 overrides = {}
 for tier, names in (policy.get("tiers") or {}).items():
     # An unknown tier KEY must not be ignored. Ignoring it would silently drop every repo
@@ -430,6 +440,20 @@ if both:
     sys.stderr.write("named in both `deny` and `tiers`: %s\n" % ", ".join(sorted(both)))
     sys.exit(2)
 
+# sensitive must be a subset of deny — the same contradiction shape as deny/tiers above,
+# just the other direction: a name here that is not denied is not narrowing anything.
+not_denied = sensitive - deny
+if not_denied:
+    sys.stderr.write("named in `sensitive` but not in `deny`: %s\n" % ", ".join(sorted(not_denied)))
+    sys.exit(2)
+
+# sensitive and tiers disagreeing is the same contradiction as deny/tiers: a name cannot
+# both carry an ordinary tier override and be sensitive-only-investigate.
+both_sensitive = sensitive & set(overrides)
+if both_sensitive:
+    sys.stderr.write("named in both `sensitive` and `tiers`: %s\n" % ", ".join(sorted(both_sensitive)))
+    sys.exit(2)
+
 def discoverable():
     try:
         entries = os.listdir(root)
@@ -446,7 +470,7 @@ def discoverable():
 
 name = os.environ["NAME"]
 
-if name in deny:
+if name in deny and name not in sensitive:
     sys.stderr.write("denied by policy\n")
     sys.exit(3)
 
@@ -470,7 +494,8 @@ if not os.path.isdir(real) or not os.path.exists(os.path.join(real, ".git")):
     sys.exit(5 if name in overrides else 4)
 
 print(real)
-print(overrides.get(name, default_tier))
+print("investigate" if name in sensitive else overrides.get(name, default_tier))
+print("1" if name in sensitive else "0")
 ') || {
     local rc=$?
     case "$rc" in
@@ -483,6 +508,7 @@ print(overrides.get(name, default_tier))
   }
   REPO_PATH=$(printf '%s' "$out" | sed -n 1p)
   REPO_MAX_TIER=$(printf '%s' "$out" | sed -n 2p)
+  REPO_SENSITIVE=$(printf '%s' "$out" | sed -n 3p)
   # The ceiling has to FAIL CLOSED on a malformed value. tier_rank maps anything it does
   # not recognize to 99, which is above every real tier — so a typo in the policy
   # ("implment") would silently lift the cap entirely and hand a write episode to a repo
@@ -490,6 +516,10 @@ print(overrides.get(name, default_tier))
   # it is the check that holds if the two ever disagree about what a valid tier is.
   in_list "$REPO_MAX_TIER" "${VALID_TIERS[@]}" \
     || precond_err "repo '$name' resolved to an unrecognized tier '$REPO_MAX_TIER' via $REPOS_JSON (must be one of: ${VALID_TIERS[*]}). Refusing rather than defaulting — a malformed ceiling must never read as a permissive one."
+  case "$REPO_SENSITIVE" in
+    0|1) : ;;
+    *) precond_err "repo '$name' resolved to an unrecognized sensitive flag '$REPO_SENSITIVE' via $REPOS_JSON. Refusing rather than defaulting." ;;
+  esac
 }
 
 # The requested tier must be (a) a real tier, (b) implemented, and (c) within the
@@ -502,6 +532,12 @@ resolve_tier() {
     || usage_err "unknown tier: $requested (must be one of: ${VALID_TIERS[*]})"
   in_list "$requested" "${BUILT_TIERS[@]}" \
     || policy_err "tier '$requested' is not implemented yet (Phase 4) — refusing rather than silently downgrading to a read-only run that produces no artifact"
+  # A sensitive (secret-bearing) repo permits investigate ONLY, named explicitly rather
+  # than left to the generic ceiling message below: a filed issue or a pushed branch has
+  # no safe artifact path in a repo whose whole point is that its contents never leave it.
+  if [ "$REPO_SENSITIVE" = 1 ] && [ "$requested" != investigate ]; then
+    policy_err "repo '$name' is sensitive (secret-bearing) and only ever permits 'investigate'; '$requested' was requested. A filed issue or a pushed branch has no safe artifact path in a secret-bearing repo."
+  fi
   local rank_req rank_max
   rank_req=$(tier_rank "$requested")
   rank_max=$(tier_rank "$REPO_MAX_TIER")
@@ -1076,12 +1112,19 @@ conn.execute(
 sideclaw_submit() {
   local body out status resp
   need curl
-  body=$(S_CWD="$REPO_PATH" S_TIER="$TIER" S_BRIEF="$BRIEF" S_CONTEXT="$CONTEXT" python3 -c '
+  body=$(S_CWD="$REPO_PATH" S_TIER="$TIER" S_BRIEF="$BRIEF" S_CONTEXT="$CONTEXT" \
+      S_SENSITIVE="$REPO_SENSITIVE" python3 -c '
 import json, os
 params = {"cwd": os.environ["S_CWD"], "tier": os.environ["S_TIER"],
           "brief": os.environ["S_BRIEF"]}
 if os.environ.get("S_CONTEXT"):
     params["context"] = os.environ["S_CONTEXT"]
+# Only ever set for a repo the policy names in `sensitive` — never sent at all for an
+# ordinary repo, so an ordinary body stays byte-identical to before this existed.
+# sideclaw re-checks the same investigate-only restriction independently
+# (assertSensitiveTierAllowed) rather than trusting this flag on its own.
+if os.environ.get("S_SENSITIVE") == "1":
+    params["sensitive"] = True
 print(json.dumps({"tool": "dispatch", "params": params}))
 ') || precond_err "could not build the dispatch request body"
 

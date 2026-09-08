@@ -214,6 +214,10 @@ class Harness:
         #   - denied: a real checkout that ALSO appears in `deny` — proves deny
         #     wins over having a perfectly good checkout on disk; discovery alone
         #     would have let it through.
+        #   - sensitive: a real checkout in BOTH `deny` and `sensitive` — proves
+        #     the one carve-out: `investigate` opens (with `sensitive: true` on the
+        #     submitted body) while `author`/`implement` stay refused exactly like
+        #     any other denied repo.
         #   - ghost: named in `tiers` but never created on disk — the policy
         #     claims this machine has a checkout it does not, which is its own
         #     distinct precondition failure (exit 2), not a typo (exit 64).
@@ -226,7 +230,8 @@ class Harness:
         self.beta = self.repos_root / "beta"
         self.gamma = self.repos_root / "gamma"
         self.denied = self.repos_root / "denied"
-        for d in (self.alpha, self.beta, self.gamma, self.denied):
+        self.sensitive_repo = self.repos_root / "sensitive"
+        for d in (self.alpha, self.beta, self.gamma, self.denied, self.sensitive_repo):
             (d / ".git").mkdir(parents=True)
         self.ghost = self.repos_root / "ghost"  # named in `tiers`, deliberately never created
 
@@ -234,7 +239,8 @@ class Harness:
         self.repos_json.write_text(json.dumps({
             "root": str(self.repos_root),
             "defaultTier": "author",
-            "deny": ["denied"],
+            "deny": ["denied", "sensitive"],
+            "sensitive": ["sensitive"],
             "tiers": {
                 "investigate": ["beta", "ghost"],
                 "implement": ["gamma"],
@@ -2013,6 +2019,93 @@ def test_status_after_prune(h: Harness):
     return total, passed, failures
 
 
+# =============================================================================
+# 16. Sensitive dispatch — the one carve-out of `deny`. A repo named in both
+#     `deny` and `sensitive` opens `investigate` only, with `"sensitive": true`
+#     on the submitted job body; `author`/`implement` stay refused exactly like
+#     any other denied repo. A denied-and-NOT-sensitive repo (`denied`) refuses
+#     at every tier, unchanged. An ordinary repo's submitted body carries no
+#     `sensitive` key at all — byte-identical to before this existed.
+# =============================================================================
+
+def test_sensitive_repo(h: Harness):
+    failures = []
+    total = passed = 0
+
+    # (a) investigate on the sensitive repo submits with sensitive: true.
+    total += 1
+    curl_log = h.new_log("curl")
+    proc = h.run(["dispatch", "sensitive", "--tier", "investigate", "--json"],
+                  env_extra={"CC_TEST_CURL_LOG": str(curl_log)}, stdin=VALID_BRIEF)
+    submits = [c for c in _curl_lines(curl_log) if c.get("stdin")]
+    ok = False
+    if proc.returncode == 0 and len(submits) == 1:
+        body = json.loads(submits[0]["stdin"])
+        ok = body["params"].get("sensitive") is True and body["params"]["tier"] == "investigate"
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"investigate on a sensitive repo: expected a submit carrying "
+                         f"sensitive=true, got rc={proc.returncode} curl={submits!r}")
+
+    # (b) author and implement both refuse against the sensitive repo, naming why,
+    #     with nothing ever submitted to sideclaw.
+    for tier in ("author", "implement"):
+        total += 1
+        curl_log = h.new_log("curl")
+        args = ["dispatch", "sensitive", "--tier", tier]
+        if tier == "implement":
+            args += ["--why", "probing the sensitive ceiling", "--confirm"]
+        proc = h.run(args, env_extra={"CC_TEST_CURL_LOG": str(curl_log)}, stdin=VALID_BRIEF)
+        text = proc.stdout + proc.stderr
+        ok = (proc.returncode == 4 and "sensitive" in text
+              and "no safe artifact path" in text and not _curl_lines(curl_log))
+        if ok:
+            passed += 1
+        else:
+            failures.append(f"--tier {tier} on a sensitive repo: expected exit 4 naming "
+                             f"why, nothing submitted, got rc={proc.returncode} "
+                             f"stdout={proc.stdout[:300]!r} curl={_curl_lines(curl_log)!r}")
+
+    # (c) a denied-and-NOT-sensitive repo still refuses at every tier — the
+    #     carve-out never widens beyond the names actually listed in `sensitive`.
+    for tier in ("investigate", "author", "implement"):
+        total += 1
+        curl_log = h.new_log("curl")
+        args = ["dispatch", "denied", "--tier", tier]
+        if tier == "implement":
+            args += ["--why", "probing plain deny", "--confirm"]
+        proc = h.run(args, env_extra={"CC_TEST_CURL_LOG": str(curl_log)}, stdin=VALID_BRIEF)
+        text = proc.stdout + proc.stderr
+        ok = proc.returncode == 4 and "not dispatchable" in text and not _curl_lines(curl_log)
+        if ok:
+            passed += 1
+        else:
+            failures.append(f"--tier {tier} on a plain denied (non-sensitive) repo: "
+                             f"expected the unchanged exit-4 denial, got "
+                             f"rc={proc.returncode} stdout={proc.stdout[:300]!r} "
+                             f"curl={_curl_lines(curl_log)!r}")
+
+    # (d) an ordinary repo's submitted body carries no `sensitive` key at all —
+    #     byte-identical to before this capability existed.
+    total += 1
+    curl_log = h.new_log("curl")
+    proc = h.run(["dispatch", "alpha", "--tier", "investigate", "--json"],
+                  env_extra={"CC_TEST_CURL_LOG": str(curl_log)}, stdin=VALID_BRIEF)
+    submits = [c for c in _curl_lines(curl_log) if c.get("stdin")]
+    ok = False
+    if proc.returncode == 0 and len(submits) == 1:
+        body = json.loads(submits[0]["stdin"])
+        ok = "sensitive" not in body["params"]
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"an ordinary repo's submitted body carried a `sensitive` key: "
+                         f"{submits!r}")
+
+    return total, passed, failures
+
+
 def test_no_freeform_surface():
     failures = []
     src = CC_SCRIPT.read_text()
@@ -2067,6 +2160,7 @@ def main() -> int:
             ("13. artifact plumbing", test_artifact_plumbing(h)),
             ("14. merge verb", test_merge_verb(h)),
             ("15. status after prune + stored approval argv", test_status_after_prune(h)),
+            ("16. sensitive dispatch", test_sensitive_repo(h)),
         ]
     finally:
         h.cleanup()
