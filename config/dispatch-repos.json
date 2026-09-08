@@ -63,10 +63,9 @@
     "cannot, since nothing merges without `merge` — but 'what does this repo control if a bad",
     "change ever did land'.",
     "",
-    "  investigate  dotfiles, vps, homelab. These are the machine's own control plane:",
+    "  investigate  dotfiles. This is the machine's own control plane:",
     "             dotfiles carries the secrets tooling and the rules that bound every agent",
-    "             on this box (including this one), and vps/homelab are deployment surfaces",
-    "             watched by rollhook. Read-only here is a deliberate floor, not an oversight —",
+    "             on this box (including this one). Read-only here is a deliberate floor, not an oversight —",
     "             it is the one place where the cost of a bad proposal is not one click.",
     "",
     "DENIED, and staying denied:",
@@ -90,6 +89,6 @@
   "defaultTier": "implement",
   "deny": ["dotfiles-private", "homelab-private"],
   "tiers": {
-    "investigate": ["dotfiles", "vps", "homelab", "brain"]
+    "investigate": ["dotfiles", "brain"]
   }
 }
