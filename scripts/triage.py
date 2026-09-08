@@ -207,6 +207,16 @@ STATE_PR_OPEN = "pr_open"
 STATE_RESOLVED = "resolved"
 STATE_SNOOZED = "snoozed"
 STATE_IGNORED = "ignored"
+# --- the auto-implement chain (verdict -> implement -> validate -> merge ->
+# deploy -> verify), all downstream of a STATE_VERDICT item whose folded
+# investigate verdict already said nextAction=implement at confidence=high.
+# See maybe_auto_implement()/poll_implement_jobs()/poll_validation_jobs()/
+# maybe_check_liveness() and their own docstrings for the state machine.
+STATE_IMPLEMENTING = "implementing"      # implement episode dispatched, awaiting a PR
+STATE_VALIDATING = "validating"          # a SECOND, different-model episode reviewing that PR's diff
+STATE_MERGE_BLOCKED = "merge_blocked"    # implement failed, validation disagreed/errored, or merge itself refused
+STATE_MERGED = "merged"                  # landed; no deploy configured/enabled for this repo
+STATE_LIVENESS_PENDING = "liveness_pending"  # deployed; waiting on a positive liveness signal
 # Terminal, like `ignored` — never escalates, never gets its own card — but
 # UNLIKE `ignored`, it is NOT a recovery/known-benign match: it's a
 # `slack_alert` row that doesn't look like a structured bot alert
@@ -223,18 +233,39 @@ STATE_NOTE = "note"
 # docstring's CARDED STATES paragraph. `snoozed` and `note` are deliberately
 # excluded too: a human just silenced a snoozed row, and a `note` row is
 # visible via the digest, not a card (see STATE_NOTE above).
-CARDED_STATES = (STATE_INVESTIGATING, STATE_VERDICT, STATE_NEEDS_HUMAN, STATE_PR_OPEN, STATE_RESOLVED)
+#
+# THE INVARIANT (2026-09-08 correction — a 13-card burst reopened this exact
+# failure mode through the resolve path): a card is a conversation with the
+# human about an item they were told about; a state change on an item they
+# were never told about is not news. `STATE_RESOLVED` sits in this tuple
+# because a CARDED item's resolution is real news (the human saw the problem,
+# now sees it close) — but `resolved` is reachable from EVERY state including
+# `new` (apply_resolutions()/resolve_quiet_grouped()/resolve_recovery_paired()
+# all flip `new` straight to `resolved` on a quiet/disappeared signal that was
+# never escalated), and an item whose whole life was `new -> resolved` was
+# never told about in the first place. Being in CARDED_STATES only makes a row
+# ELIGIBLE for a card — sync_card() below is where "already had one" is
+# actually enforced (via `card_ts`), and that is the one place this rule is
+# checked, rather than every caller having to re-derive it.
+CARDED_STATES = (STATE_INVESTIGATING, STATE_VERDICT, STATE_NEEDS_HUMAN, STATE_PR_OPEN, STATE_RESOLVED,
+                  STATE_IMPLEMENTING, STATE_VALIDATING, STATE_MERGE_BLOCKED, STATE_MERGED,
+                  STATE_LIVENESS_PENDING)
 
-# `triage_items.note` prefixes for the two grouped-source resolve paths (see
-# resolve_quiet_grouped()/resolve_recovery_paired()) — render_card_blocks()
-# only surfaces `note` on a STATE_RESOLVED card when it starts with one of
-# these, specifically so an ordinary event-driven resolve (apply_resolutions,
-# which now clears `note` outright) never accidentally inherits stale text
-# from an earlier phase. Deliberately NOT "fixed"/"resolved" wording — a
-# service that is fully down also stops emitting, so silence alone is never
-# proof of a fix; see both functions' own docstrings.
+# `triage_items.note` prefixes for the grouped-source resolve paths (see
+# resolve_quiet_grouped()/resolve_recovery_paired()) plus the liveness path
+# (see maybe_check_liveness()) — render_card_blocks() only surfaces `note` on
+# a STATE_RESOLVED card when it starts with one of these, specifically so an
+# ordinary event-driven resolve (apply_resolutions, which now clears `note`
+# outright) never accidentally inherits stale text from an earlier phase.
+# Deliberately NOT "fixed"/"resolved" wording for the first two — a service
+# that is fully down also stops emitting, so silence alone is never proof of
+# a fix; see both functions' own docstrings. LIVENESS_CONFIRMED_NOTE_PREFIX is
+# the one genuine "this is actually fixed" claim in the file, because it is
+# backed by a POSITIVE probe (maybe_check_liveness()'s own gatherer), not
+# silence.
 QUIET_RESOLVE_NOTE_PREFIX = "signal quiet since "
 RECOVERY_PAIRED_NOTE_PREFIX = "recovery message observed: "
+LIVENESS_CONFIRMED_NOTE_PREFIX = "liveness confirmed: "
 
 STATE_EMOJI = {
     STATE_NEW: ":large_blue_circle:",
@@ -244,6 +275,11 @@ STATE_EMOJI = {
     STATE_PR_OPEN: ":twisted_rightwards_arrows:",
     STATE_RESOLVED: ":white_check_mark:",
     STATE_SNOOZED: ":zzz:",
+    STATE_IMPLEMENTING: ":hammer_and_wrench:",
+    STATE_VALIDATING: ":test_tube:",
+    STATE_MERGE_BLOCKED: ":no_entry:",
+    STATE_MERGED: ":rocket:",
+    STATE_LIVENESS_PENDING: ":hourglass_flowing_sand:",
 }
 
 DEFAULT_CARD_CHANNEL = "C0BVDE5R562"  # #agents — see config/triage-policy.json
@@ -359,6 +395,90 @@ EVIDENCE_TIMEOUT = int(os.environ.get("TRIAGE_EVIDENCE_TIMEOUT", "20"))
 EVIDENCE_CAP_CHARS = 1200
 EVIDENCE_TOTAL_CAP_CHARS = 3200
 
+# --- the auto-implement chain (steps 6-10: verdict -> implement -> validate ->
+# merge -> deploy -> verify) ---------------------------------------------------
+#
+# STEP 7's whole point is a genuinely DIFFERENT model reviewing the implement
+# episode's own diff — probed live against sideclaw before being hardcoded
+# here: a throwaway `investigate` job at `model: "gpt-5.6-terra"` failed
+# outright inside the Claude Code session with
+# `[claude-code:unrecognized_model]` (session exit 1, not the usual harmless
+# stderr telemetry line CLAUDE.md documents for that string elsewhere — this
+# one actually crashed the session). `claude-opus-5[1m]` — still a different
+# model from the claude-sonnet-5 default that writes the implement episode —
+# ran a real Claude Code session and returned a structured verdict. Re-probe
+# if this ever needs to change; do not guess a model id.
+VALIDATION_MODEL = os.environ.get("TRIAGE_VALIDATION_MODEL", "claude-opus-5[1m]")
+
+# Deterministic, not an LLM judgement by THIS file (see the module docstring's
+# "no LLM call anywhere in this file" — the episode itself runs one, which is
+# inherent to what "investigate" means). The validation brief instructs the
+# episode to end with exactly one of these two phrases; poll_validation_jobs()
+# does a plain substring check, the same technique DISSOLVE_MARKER already
+# uses for the clustering hypothesis.
+VALIDATION_CONFIRM_MARKER = "VALIDATION: CONFIRMED"
+VALIDATION_DISAGREE_MARKER = "VALIDATION: DISAGREE"
+
+# How long a deployed-but-unverified item waits for a positive liveness signal
+# before this loop gives up and REOPENS it (see maybe_check_liveness()) rather
+# than letting it sit "deployed" forever on a probe that never resolves either
+# way. Comfortably longer than one 10-minute cron cycle so a slow-to-propagate
+# change (HyperDX's own config apply, an alert re-evaluation window) isn't
+# mistaken for a failure.
+LIVENESS_WINDOW_HOURS = float(os.environ.get("TRIAGE_LIVENESS_WINDOW_HOURS", "2"))
+
+HYPERDX_BASE = os.environ.get("TRIAGE_HYPERDX_BASE", "https://hyperdx.jkrumm.com")
+
+
+def _gather_hyperdx_alert_state(expected: list[dict[str, Any]]) -> tuple[bool, str]:
+    """Re-reads every expected alert's LIVE `threshold`/`thresholdType` from
+    HyperDX's own `GET /api/api/v2/alerts` — the SAME REST endpoint
+    vps/scripts/hyperdx-sync.sh's own `export`/`apply` already use (verified
+    by reading that script, never a fabricated endpoint) — and asserts it
+    matches what the merged diff set (captured at deploy time by
+    hermes-cc.sh's `collect_expected_alerts()`, carried on
+    triage_items.deploy_expect_json). Returns (ok, detail); `ok` is a genuine
+    POSITIVE confirmation, never inferred from silence — see the module this
+    is called from for why that distinction matters here specifically."""
+    if not expected:
+        return False, "no expected alert definitions were captured at deploy time"
+    wp = _wp_module()
+    if wp is None:
+        return False, "watchdog-poll.py sibling module did not load — cannot reach HyperDX"
+    token = wp.resolve_secret("HYPERDX_AGENT_ACCESS_KEY")
+    if not token:
+        return False, "HYPERDX_AGENT_ACCESS_KEY unresolved"
+    req = urllib.request.Request(
+        f"{HYPERDX_BASE}/api/api/v2/alerts", headers={"Authorization": f"Bearer {token}"}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode())
+    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, TimeoutError, OSError) as e:
+        return False, f"HyperDX alerts fetch failed: {e}"
+    live_by_name = {a.get("name"): a for a in (data.get("data") or []) if isinstance(a, dict)}
+    mismatches = []
+    for exp in expected:
+        name = exp.get("name")
+        live = live_by_name.get(name)
+        if live is None:
+            mismatches.append(f"{name}: not found live")
+            continue
+        if live.get("threshold") != exp.get("threshold") or live.get("thresholdType") != exp.get("thresholdType"):
+            mismatches.append(f"{name}: live threshold={live.get('threshold')}/{live.get('thresholdType')} "
+                              f"!= expected {exp.get('threshold')}/{exp.get('thresholdType')}")
+    if mismatches:
+        return False, "; ".join(mismatches)
+    return True, f"{len(expected)} alert definition(s) verified live"
+
+
+# Same closed-set principle as VERB_ALLOWLIST/EVIDENCE_ALLOWLIST above: a
+# repo's `config/triage-policy.json` entry names a `liveness` KEY, never a
+# probe. Seeded with exactly one, matching the one seeded `deploy` key.
+LIVENESS_ALLOWLIST = {
+    "hyperdx-alert-state": _gather_hyperdx_alert_state,
+}
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -417,7 +537,14 @@ CREATE TABLE IF NOT EXISTS triage_items (
   snoozed_until TEXT,
   created_at    TEXT NOT NULL,
   updated_at    TEXT NOT NULL,
-  note          TEXT
+  note          TEXT,
+  -- The auto-implement chain (steps 6-10) — see maybe_auto_implement() and
+  -- its own siblings' docstrings for what writes/reads each column.
+  implement_job      TEXT,  -- job id of the auto-dispatched `implement` episode
+  validation_job     TEXT,  -- job id of the step-7 (different-model) review episode
+  pr_url             TEXT,  -- the implement episode's own pull request, once opened
+  deploy_expect_json TEXT,  -- expected alert def(s) captured at deploy time (hermes-cc.sh)
+  liveness_deadline  TEXT   -- maybe_check_liveness()'s reopen-if-not-confirmed-by window
 );
 CREATE INDEX IF NOT EXISTS idx_triage_state ON triage_items(state);
 """
@@ -441,6 +568,18 @@ def db_connect() -> sqlite3.Connection:
     if "verb" not in ti_cols:
         conn.execute("ALTER TABLE triage_items ADD COLUMN verb TEXT")
         conn.commit()
+    for col in ("implement_job", "validation_job", "pr_url", "deploy_expect_json", "liveness_deadline"):
+        if col not in ti_cols:
+            conn.execute(f"ALTER TABLE triage_items ADD COLUMN {col} TEXT")
+            conn.commit()
+    # Shared with hermes-cc.sh's own additive migration on this same table
+    # (its db_py() adds them too) — added here as well so this file never
+    # depends on hermes-cc.sh having run first against a given DB file.
+    d_cols = {r["name"] for r in conn.execute("PRAGMA table_info(dispatches)").fetchall()}
+    for col in ("validation_job_id", "validation_status"):
+        if col not in d_cols:
+            conn.execute(f"ALTER TABLE dispatches ADD COLUMN {col} TEXT")
+            conn.commit()
     return conn
 
 
@@ -608,6 +747,13 @@ def load_policy() -> dict[str, Any]:
         # as if they were alerts (297 signatures, ~30 permanently open) —
         # routed to STATE_NOTE, never STATE_IGNORED (see classify()).
         "ignoreUnstructuredSlackProse": bool(data.get("ignoreUnstructuredSlackProse")),
+        # Per-repo merge/deploy/liveness policy (autoMergePaths, noCiRequired,
+        # deploy, autoDeploy, liveness) — hermes-cc.sh's `merge` reads its own
+        # half straight from this same file; this file only reads `liveness`
+        # (maybe_check_liveness()). Malformed entries are left as-is here and
+        # validated at the point each key is actually used, matching `verb`/
+        # `evidence`'s own load_policy()-time-vs-use-time split above.
+        "repos": data.get("repos") if isinstance(data.get("repos"), dict) else {},
     }
 
 
@@ -1834,13 +1980,39 @@ def render_card_blocks(members: list[sqlite3.Row], event_rows: list[sqlite3.Row]
             "elements": [{"type": "mrkdwn", "text": f"Snoozed until {_fmt_ts(primary['snoozed_until'])}"}],
         })
     elif state == STATE_RESOLVED and (primary["note"] or "").startswith(
-            (QUIET_RESOLVE_NOTE_PREFIX, RECOVERY_PAIRED_NOTE_PREFIX)):
-        # Only ever rendered for the two grouped-source resolve paths (see
-        # resolve_quiet_grouped()/resolve_recovery_paired()) — an ordinary
-        # event-driven resolve clears `note` outright (apply_resolutions()),
-        # so this never fires for a genuine state-source (uk/docker/op_refs)
-        # recovery, which needs no caveat.
+            (QUIET_RESOLVE_NOTE_PREFIX, RECOVERY_PAIRED_NOTE_PREFIX, LIVENESS_CONFIRMED_NOTE_PREFIX)):
+        # Only ever rendered for the grouped-source resolve paths (see
+        # resolve_quiet_grouped()/resolve_recovery_paired()) and the liveness
+        # confirm path (maybe_check_liveness()) — an ordinary event-driven
+        # resolve clears `note` outright (apply_resolutions()), so this never
+        # fires for a genuine state-source (uk/docker/op_refs) recovery,
+        # which needs no caveat.
         blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": f"↳ _{_escape(primary['note'])}_"}]})
+    elif state == STATE_IMPLEMENTING and primary["implement_job"]:
+        blocks.append({
+            "type": "context",
+            "elements": [{"type": "mrkdwn", "text": f"Auto-implement running — job `{primary['implement_job'][:8]}`"}],
+        })
+    elif state == STATE_VALIDATING:
+        text = "Independent validation running"
+        if primary["validation_job"]:
+            text += f" — job `{primary['validation_job'][:8]}`"
+        if primary["pr_url"]:
+            text += f"\nPull request: <{primary['pr_url']}>"
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": text[:SECTION_TEXT_MAX]}})
+    elif state == STATE_MERGE_BLOCKED:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn",
+                        "text": _escape(primary["note"] or "blocked, no further detail")[:SECTION_TEXT_MAX]}})
+    elif state == STATE_MERGED:
+        text = f"Merged: <{primary['pr_url']}>" if primary["pr_url"] else "Merged"
+        if primary["note"]:
+            text += f"\n_{_escape(primary['note'])}_"
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": text[:SECTION_TEXT_MAX]}})
+    elif state == STATE_LIVENESS_PENDING:
+        text = f"Deployed — confirming liveness by {_fmt_ts(primary['liveness_deadline'])}"
+        if primary["pr_url"]:
+            text += f"\nPull request: <{primary['pr_url']}>"
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": text}]})
 
     footer_sig = primary["signature"] if len(members) == 1 else f"<signature> ({len(members)} in this cluster)"
     blocks.append({
@@ -1862,10 +2034,22 @@ def sync_card(conn: sqlite3.Connection, members: list[sqlite3.Row], event_rows: 
     member row carries an identical copy of card_channel/card_ts/card_hash
     (rather than one "owning" row) so cluster membership stays self-
     describing even after a process restart. Returns the (possibly reloaded)
-    member rows."""
+    member rows.
+
+    A `resolved` cluster with no `card_ts` was never carded in the first
+    place — every one of the resolve paths (apply_resolutions(),
+    resolve_quiet_grouped(), resolve_recovery_paired()) can flip an
+    unescalated `new` row straight to `resolved` on a quiet/disappeared
+    signal, and a card announcing the resolution of a problem nobody was
+    told about is exactly the noise this loop replaced (see CARDED_STATES's
+    own comment for the incident). The fix is a `chat.postMessage` this
+    branch must never make — an already-carded item still gets its final
+    `chat.update` below, unchanged."""
     if not members:
         return members
     primary = members[0]
+    if primary["state"] == STATE_RESOLVED and not primary["card_ts"]:
+        return members
     blocks = render_card_blocks(members, event_rows, conn)
     new_hash = _card_hash(blocks)
     if new_hash == primary["card_hash"]:
@@ -1961,6 +2145,419 @@ def fold_dispatch_verdict(conn: sqlite3.Connection, *, origin_event_id: int, job
         sync_card(conn, fresh_members, fresh_events, policy, dry_run=False)
 
 
+# --- the auto-implement chain: verdict -> implement -> validate -> merge ----
+# --- -> deploy -> verify (steps 6-10) -----------------------------------------
+#
+# Everything below is downstream of a STATE_VERDICT item whose folded
+# investigate verdict already said nextAction=implement at confidence=high.
+# Every step shells out to hermes-cc.sh (never sideclaw directly — that
+# script is "the ONLY way the Hermes agent opens a Claude Code episode", per
+# its own header) and re-derives what it needs from watchdog.db every run,
+# same as the rest of this file. No LLM call happens IN THIS FILE at any of
+# these steps either — the dispatched episodes run one each, which is
+# inherent to what "investigate"/"implement" mean, not something this loop
+# does itself.
+
+def _hermes_cc_status(job_id: str) -> dict[str, Any] | None:
+    """`hermes-cc.sh status <job-id> --json` — a single poll, never --wait
+    (an implement episode can run 30 minutes; this loop is a 10-minute cron
+    and must never block inside it). Returns the parsed --json object, or
+    None on anything that could not even be read (never raises)."""
+    argv = [str(HERMES_CC_BIN), "status", job_id, "--json"]
+    try:
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT)
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f"triage: hermes-cc.sh status failed for {job_id}: {e}", file=sys.stderr)
+        return None
+    try:
+        return json.loads(r.stdout)
+    except json.JSONDecodeError:
+        print(f"triage: hermes-cc.sh status returned non-JSON for {job_id}: {r.stdout[:300]}", file=sys.stderr)
+        return None
+
+
+def _run_hermes_cc_auto_implement(*, repo: str, event_id: int) -> str | None:
+    """Step 6 — `dispatch <repo> --tier implement --auto-from-item <event_id>`.
+    hermes-cc.sh re-checks every precondition itself from watchdog.db (see
+    its own require_auto_from_item()); this function only decides WHICH item
+    is a candidate (maybe_auto_implement()) and shells out. The brief is
+    deliberately terse — the analysis already happened in the linked
+    investigate episode, which the implement episode can and should re-read
+    itself inside the repo (CLAUDE.md, the actual code) rather than trusting
+    a second-hand summary here."""
+    brief = (
+        "A prior read-only investigation of this repo (dispatched by the alert triage loop) "
+        "already concluded, at high confidence, that the fix should be implemented — re-read "
+        "that investigation's own verdict and evidence yourself (it ran against this exact "
+        "repo) before writing anything, then implement the fix it described. If what you find "
+        "on re-reading no longer supports that conclusion, say so in your own verdict and stop "
+        "rather than forcing a change."
+    )
+    argv = [str(HERMES_CC_BIN), "dispatch", repo, "--tier", "implement",
+            "--auto-from-item", str(event_id), "--origin-event", str(event_id),
+            "--why", "triage auto-implement: investigation concluded implement at high confidence",
+            "--json"]
+    try:
+        r = subprocess.run(argv, input=brief, capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT)
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f"triage: hermes-cc.sh auto-implement failed to run for {repo}: {e}", file=sys.stderr)
+        return None
+    if r.returncode != 0:
+        print(f"triage: hermes-cc.sh auto-implement exited {r.returncode} for {repo}: "
+              f"{r.stderr.strip()[:500]}", file=sys.stderr)
+        return None
+    try:
+        obj = json.loads(r.stdout)
+    except json.JSONDecodeError:
+        print(f"triage: hermes-cc.sh auto-implement returned non-JSON for {repo}: {r.stdout[:300]}",
+              file=sys.stderr)
+        return None
+    if not obj.get("ok") or not obj.get("jobId"):
+        print(f"triage: hermes-cc.sh auto-implement not ok for {repo}: {obj}", file=sys.stderr)
+        return None
+    return obj["jobId"]
+
+
+def maybe_auto_implement(conn: sqlite3.Connection, policy: dict[str, Any], now: dt.datetime,
+                          *, dry_run: bool) -> None:
+    """Step 6. A STATE_VERDICT item is eligible once, the moment its folded
+    investigate verdict (dispatches.verdict_json, keyed by its own
+    dispatch_job) reads nextAction=implement at confidence=high AND it has
+    not already been auto-implemented (implement_job IS NULL) — the same
+    "runs at most once" shape run_verbs() already uses, for the same reason:
+    the outcome falls out of the state machine (a re-triggered item is no
+    longer in STATE_VERDICT once this fires)."""
+    candidates = conn.execute(
+        "SELECT * FROM triage_items WHERE state=? AND dispatch_job IS NOT NULL AND implement_job IS NULL "
+        "ORDER BY event_id", (STATE_VERDICT,)
+    ).fetchall()
+    for item in candidates:
+        if item["repo"] is None:
+            continue
+        d = conn.execute("SELECT verdict_json FROM dispatches WHERE job_id=?", (item["dispatch_job"],)).fetchone()
+        if d is None:
+            continue
+        verdict = _safe_json(d["verdict_json"])
+        if (verdict.get("nextAction") or "").strip().lower() != "implement":
+            continue
+        if (verdict.get("confidence") or "").strip().lower() != "high":
+            continue
+        if dry_run:
+            print(f"[dry-run] would auto-implement {item['signature']} in {item['repo']} "
+                  f"(event {item['event_id']})")
+            continue
+        # CLAIM BEFORE DISPATCH, not after. The eligibility query above is
+        # `state='verdict' AND implement_job IS NULL`, so recording the claim only
+        # after hermes-cc.sh returns leaves a window: if this process dies between
+        # the dispatch and the UPDATE, the item is still eligible on the next tick
+        # and a SECOND implement episode opens for the same verdict — duplicate
+        # branches and duplicate draft PRs, bounded only by the 5/day budget. The
+        # conditional UPDATE is the claim: `AND state=?` makes it a compare-and-set,
+        # so a concurrent run that already claimed this item changes 0 rows and this
+        # one skips instead of racing it.
+        now_iso = _now_iso(now)
+        claimed = conn.execute(
+            "UPDATE triage_items SET state=?, updated_at=? WHERE event_id=? AND state=? "
+            "AND implement_job IS NULL",
+            (STATE_IMPLEMENTING, now_iso, item["event_id"], STATE_VERDICT),
+        ).rowcount
+        conn.commit()
+        if not claimed:
+            continue
+        job_id = _run_hermes_cc_auto_implement(repo=item["repo"], event_id=item["event_id"])
+        if job_id is None:
+            # Dispatch refused or failed, so nothing is running — hand the claim back
+            # rather than stranding the item in `implementing` with no job to poll.
+            conn.execute(
+                "UPDATE triage_items SET state=?, updated_at=? WHERE event_id=? AND state=?",
+                (STATE_VERDICT, _now_iso(now), item["event_id"], STATE_IMPLEMENTING),
+            )
+            conn.commit()
+            continue
+        conn.execute(
+            "UPDATE triage_items SET implement_job=?, updated_at=? WHERE event_id=?",
+            (job_id, _now_iso(now), item["event_id"]),
+        )
+        conn.commit()
+        fresh_item, fresh_event = _get_item(conn, item["event_id"]), _get_event(conn, item["event_id"])
+        if fresh_item is not None and fresh_event is not None:
+            sync_card(conn, [fresh_item], [fresh_event], policy, dry_run=False)
+
+
+def _run_hermes_cc_validation(conn: sqlite3.Connection, *, repo: str, event_id: int,
+                               implement_job: str, pr_url: str) -> str | None:
+    """Step 7 — a SECOND investigate episode, on VALIDATION_MODEL (a
+    deliberately DIFFERENT model from the one that wrote the implement
+    episode), reviewing that pull request's actual diff against the repo:
+    is the change correct, and does the PR body's own claims match the
+    diff? This is not ceremony — in the incident that shipped this file, the
+    implement episode asserted the wrong comparator semantics in its own PR
+    body while the diff itself was right, and only a second, independent
+    read caught it. Binds the validation job onto the IMPLEMENT dispatch's
+    own row (dispatches.validation_job_id) the moment it opens — the
+    'extra writer touching a column it doesn't own' pattern dispatch-sweep.py
+    and escalate_cluster() already use on this same table — so cmd_merge's
+    gate has something to read even before this validation finishes (NULL
+    still correctly blocks a merge attempted too early)."""
+    brief = (
+        f"Review this pull request: {pr_url}\n\n"
+        "Fetch its actual diff (e.g. `gh pr diff <number>`, or the branch's commits against "
+        "the default branch — this worktree has the repo, use it) and read it against the "
+        "repo's own code and CLAUDE.md. Answer two questions: (1) Is the change correct — "
+        "does it do what it claims, with no obvious bug, and does it match this repo's own "
+        "conventions? (2) Does the pull request's own title/body accurately describe what the "
+        "diff actually does, or does it overstate/misstate it?\n\n"
+        f"End your summary or recommendation with the EXACT phrase '{VALIDATION_CONFIRM_MARKER}' "
+        f"if both answers are yes, or '{VALIDATION_DISAGREE_MARKER}' if either is not — always "
+        "exactly one of the two, verbatim, on its own — this is read by a script, not a human."
+    )
+    argv = [str(HERMES_CC_BIN), "dispatch", repo, "--tier", "investigate",
+            "--model", VALIDATION_MODEL, "--origin-event", str(event_id), "--json"]
+    try:
+        r = subprocess.run(argv, input=brief, capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT)
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f"triage: hermes-cc.sh validation dispatch failed for {repo}: {e}", file=sys.stderr)
+        return None
+    if r.returncode != 0:
+        print(f"triage: hermes-cc.sh validation dispatch exited {r.returncode} for {repo}: "
+              f"{r.stderr.strip()[:500]}", file=sys.stderr)
+        return None
+    try:
+        obj = json.loads(r.stdout)
+    except json.JSONDecodeError:
+        print(f"triage: hermes-cc.sh validation dispatch returned non-JSON for {repo}: {r.stdout[:300]}",
+              file=sys.stderr)
+        return None
+    if not obj.get("ok") or not obj.get("jobId"):
+        print(f"triage: hermes-cc.sh validation dispatch not ok for {repo}: {obj}", file=sys.stderr)
+        return None
+    job_id = obj["jobId"]
+    conn.execute("UPDATE dispatches SET validation_job_id=? WHERE job_id=?", (job_id, implement_job))
+    conn.commit()
+    return job_id
+
+
+def _run_hermes_cc_merge(job_id: str) -> dict[str, Any] | None:
+    """Step 8 — `merge <job-id> --confirm`. `merge`'s own `--confirm` is an
+    ungated, instruction-level flag (unlike `dispatch --tier implement`,
+    which needs the signed-approval OR --auto-from-item gate) — owner
+    decision, see hermes-cc.sh's own header: confirming the implement WAS
+    the approval, landing it is finishing the thing already said yes to.
+    Every real bound (declared path scope, CI reality, this exact
+    validation) is enforced INSIDE cmd_merge, re-checked against the
+    current head — this call is not itself a trust boundary."""
+    argv = [str(HERMES_CC_BIN), "merge", job_id, "--why",
+            "triage auto-merge: step-7 validation confirmed", "--confirm", "--json"]
+    try:
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT)
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f"triage: hermes-cc.sh merge failed to run for {job_id}: {e}", file=sys.stderr)
+        return None
+    try:
+        return json.loads(r.stdout)
+    except json.JSONDecodeError:
+        print(f"triage: hermes-cc.sh merge returned non-JSON for {job_id}: {r.stdout[:300]}", file=sys.stderr)
+        return None
+
+
+def poll_implement_jobs(conn: sqlite3.Connection, policy: dict[str, Any], now: dt.datetime,
+                         *, dry_run: bool) -> None:
+    """Step 6 -> 7. Polls every STATE_IMPLEMENTING item once. A terminal
+    result carrying a pull request opens the step-7 validation episode; a
+    terminal result with no artifact (failed, interrupted, or done with
+    nothing to show) blocks the chain outright — STATE_MERGE_BLOCKED, never
+    a silent drop, so the card says why nothing landed."""
+    if dry_run:
+        return
+    items = conn.execute(
+        "SELECT * FROM triage_items WHERE state=? AND implement_job IS NOT NULL", (STATE_IMPLEMENTING,)
+    ).fetchall()
+    for item in items:
+        resp = _hermes_cc_status(item["implement_job"])
+        if resp is None:
+            continue
+        status = resp.get("status")
+        if status not in ("done", "failed", "interrupted", "lost"):
+            continue
+        now_iso = _now_iso(now)
+        artifact_url = resp.get("artifactUrl")
+        if status != "done" or not artifact_url:
+            reason = resp.get("error") or ((resp.get("verdict") or {}).get("summary")) or "no further detail"
+            note = f"implement episode {item['implement_job']} finished '{status}' with no pull request: {reason}"
+            conn.execute(
+                "UPDATE triage_items SET state=?, note=?, updated_at=? WHERE event_id=?",
+                (STATE_MERGE_BLOCKED, note, now_iso, item["event_id"]),
+            )
+        else:
+            val_job = _run_hermes_cc_validation(conn, repo=item["repo"], event_id=item["event_id"],
+                                                 implement_job=item["implement_job"], pr_url=artifact_url)
+            if val_job is None:
+                conn.execute(
+                    "UPDATE triage_items SET state=?, note=?, pr_url=?, updated_at=? WHERE event_id=?",
+                    (STATE_MERGE_BLOCKED, "could not open the step-7 validation episode", artifact_url,
+                     now_iso, item["event_id"]),
+                )
+            else:
+                conn.execute(
+                    "UPDATE triage_items SET state=?, validation_job=?, pr_url=?, updated_at=? WHERE event_id=?",
+                    (STATE_VALIDATING, val_job, artifact_url, now_iso, item["event_id"]),
+                )
+        conn.commit()
+        fresh_item, fresh_event = _get_item(conn, item["event_id"]), _get_event(conn, item["event_id"])
+        if fresh_item is not None and fresh_event is not None:
+            sync_card(conn, [fresh_item], [fresh_event], policy, dry_run=False)
+
+
+def poll_validation_jobs(conn: sqlite3.Connection, policy: dict[str, Any], now: dt.datetime,
+                          *, dry_run: bool) -> None:
+    """Step 7 -> 8. Polls every STATE_VALIDATING item once. A DISAGREEING,
+    FAILED, or ERRORED validation blocks the merge outright — never read as
+    a pass (the brief's own words). Only an explicit CONFIRMED marker with
+    no DISAGREE marker in the same text calls `merge`; its own outcome
+    (landed, or refused by cmd_merge's gate) decides the next state."""
+    if dry_run:
+        return
+    items = conn.execute(
+        "SELECT * FROM triage_items WHERE state=? AND validation_job IS NOT NULL", (STATE_VALIDATING,)
+    ).fetchall()
+    for item in items:
+        resp = _hermes_cc_status(item["validation_job"])
+        if resp is None:
+            continue
+        status = resp.get("status")
+        if status not in ("done", "failed", "interrupted", "lost"):
+            continue
+        verdict = resp.get("verdict") or {}
+        text_blob = " ".join(str(verdict.get(k) or "") for k in ("summary", "verdict", "recommendation"))
+        confirmed = (status == "done" and VALIDATION_CONFIRM_MARKER in text_blob
+                     and VALIDATION_DISAGREE_MARKER not in text_blob)
+        outcome = "confirmed" if confirmed else ("disagreed" if status == "done" else "error")
+        conn.execute("UPDATE dispatches SET validation_status=? WHERE job_id=?",
+                     (outcome, item["implement_job"]))
+        conn.commit()
+        now_iso = _now_iso(now)
+        if outcome != "confirmed":
+            note = (f"step-7 validation ({outcome}): "
+                    f"{verdict.get('summary') or resp.get('error') or 'no further detail'}")
+            conn.execute(
+                "UPDATE triage_items SET state=?, note=?, updated_at=? WHERE event_id=?",
+                (STATE_MERGE_BLOCKED, note, now_iso, item["event_id"]),
+            )
+            conn.commit()
+        else:
+            merge_result = _run_hermes_cc_merge(item["implement_job"])
+            if merge_result is None:
+                conn.execute(
+                    "UPDATE triage_items SET state=?, note=?, updated_at=? WHERE event_id=?",
+                    (STATE_MERGE_BLOCKED, "validation confirmed but the merge call itself failed to run",
+                     now_iso, item["event_id"]),
+                )
+                conn.commit()
+            elif merge_result.get("ok") and merge_result.get("merged"):
+                deploy = merge_result.get("deploy") or {}
+                if deploy.get("attempted") and deploy.get("ok"):
+                    deadline = (now + dt.timedelta(hours=LIVENESS_WINDOW_HOURS)).isoformat()
+                    conn.execute(
+                        "UPDATE triage_items SET state=?, liveness_deadline=?, deploy_expect_json=?, "
+                        "note=NULL, updated_at=? WHERE event_id=?",
+                        (STATE_LIVENESS_PENDING, deadline, json.dumps(deploy.get("expectedAlerts") or []),
+                         now_iso, item["event_id"]),
+                    )
+                else:
+                    reason = deploy.get("reason") or "merged; no deploy configured for this repo"
+                    conn.execute(
+                        "UPDATE triage_items SET state=?, note=?, updated_at=? WHERE event_id=?",
+                        (STATE_MERGED, reason, now_iso, item["event_id"]),
+                    )
+                conn.commit()
+            else:
+                note = f"merge refused: {merge_result.get('error') or 'unknown reason'}"
+                conn.execute(
+                    "UPDATE triage_items SET state=?, note=?, updated_at=? WHERE event_id=?",
+                    (STATE_MERGE_BLOCKED, note, now_iso, item["event_id"]),
+                )
+                conn.commit()
+        fresh_item, fresh_event = _get_item(conn, item["event_id"]), _get_event(conn, item["event_id"])
+        if fresh_item is not None and fresh_event is not None:
+            sync_card(conn, [fresh_item], [fresh_event], policy, dry_run=False)
+
+
+def maybe_check_liveness(conn: sqlite3.Connection, policy: dict[str, Any], now: dt.datetime,
+                          *, dry_run: bool) -> None:
+    """Step 10. The item must not close because the alert went quiet — a
+    fully-down service is also quiet, same principle as
+    resolve_quiet_grouped()/resolve_recovery_paired() above. Runs the
+    repo's declared `liveness` probe (config/triage-policy.json's
+    `repos.<repo>.liveness`, same closed-allowlist shape as `verb`/
+    `evidence`) against the alert definition(s) captured at deploy time.
+    Only a genuine POSITIVE match resolves the item. Past
+    `liveness_deadline` with no positive match, the item REOPENS to `new`,
+    carrying the full history (the pull request, the last liveness check) —
+    the exact context that was missing when the same alert was
+    re-diagnosed 61 times before this file existed."""
+    items = conn.execute("SELECT * FROM triage_items WHERE state=?", (STATE_LIVENESS_PENDING,)).fetchall()
+    for item in items:
+        repo_entry = (policy.get("repos") or {}).get(item["repo"] or "") or {}
+        key = repo_entry.get("liveness")
+        gatherer = LIVENESS_ALLOWLIST.get(key) if key else None
+        try:
+            expected = json.loads(item["deploy_expect_json"] or "[]")
+        except json.JSONDecodeError:
+            expected = []
+
+        if gatherer is None:
+            live_ok, detail = False, f"no liveness key declared for repo {item['repo']!r}"
+        else:
+            ran_ok, result = _run_bounded(gatherer, expected, timeout=EVIDENCE_TIMEOUT)
+            live_ok, detail = result if ran_ok else (False, f"liveness probe error: {result}")
+
+        now_iso = _now_iso(now)
+        if live_ok:
+            if dry_run:
+                print(f"[dry-run] would resolve {item['signature']} on confirmed liveness: {detail}")
+                continue
+            note = f"{LIVENESS_CONFIRMED_NOTE_PREFIX}{detail}"
+            conn.execute(
+                "UPDATE triage_items SET state=?, note=?, updated_at=? WHERE event_id=?",
+                (STATE_RESOLVED, note, now_iso, item["event_id"]),
+            )
+            conn.commit()
+            fresh_item, fresh_event = _get_item(conn, item["event_id"]), _get_event(conn, item["event_id"])
+            if fresh_item is not None and fresh_event is not None:
+                sync_card(conn, [fresh_item], [fresh_event], policy, dry_run=False)
+            continue
+
+        deadline = _parse_ts(item["liveness_deadline"])
+        if deadline is not None and now < deadline:
+            continue  # still inside the window — try again next run
+        if dry_run:
+            print(f"[dry-run] would REOPEN {item['signature']} — liveness never confirmed: {detail}")
+            continue
+
+        # Reopen carries history on the card itself (mirrors _dissolve_cluster()'s
+        # own final-update-then-reset shape) — never through sync_card()/
+        # render_card_blocks(), because the row is about to land back in
+        # `new`, which must never be carded (see CARDED_STATES's own comment).
+        history = (f"PR: {item['pr_url'] or '(none)'} — reopened, liveness never confirmed "
+                   f"within the window. Last check: {detail}. Still failing as of "
+                   f"{_fmt_ts(now_iso)}.")
+        if item["card_channel"] and item["card_ts"]:
+            token = resolve_slack_token()
+            if token:
+                blocks = [
+                    {"type": "header", "text": {"type": "plain_text",
+                     "text": ":recycle: Reopened — liveness never confirmed"}},
+                    {"type": "section", "text": {"type": "mrkdwn", "text": _escape(history)[:SECTION_TEXT_MAX]}},
+                ]
+                update_blocks(item["card_channel"], item["card_ts"], blocks,
+                              "Reopened — liveness never confirmed", token)
+        conn.execute(
+            "UPDATE triage_items SET state=?, note=?, updated_at=? WHERE event_id=?",
+            (STATE_NEW, history, now_iso, item["event_id"]),
+        )
+        conn.commit()
+
+
 # --- unmapped-signature digest -------------------------------------------------
 
 def _fetch_note_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
@@ -2043,6 +2640,18 @@ def run(conn: sqlite3.Connection, *, dry_run: bool) -> int:
 
     escalate(conn, policy, now, dry_run=dry_run)
     run_verbs(conn, policy, now, dry_run=dry_run)
+
+    # Steps 6-10 — verdict -> implement -> validate -> merge -> deploy ->
+    # verify. Each is a poll-once-per-run step over its own state, so this
+    # ordering (implement before validation before liveness) lets an item
+    # that crossed a stage earlier THIS SAME RUN also be picked up by the
+    # next stage rather than waiting a full 10 minutes — never required for
+    # correctness (each stage re-derives its own eligibility from the DB
+    # every run regardless), just fewer idle cycles.
+    maybe_auto_implement(conn, policy, now, dry_run=dry_run)
+    poll_implement_jobs(conn, policy, now, dry_run=dry_run)
+    poll_validation_jobs(conn, policy, now, dry_run=dry_run)
+    maybe_check_liveness(conn, policy, now, dry_run=dry_run)
 
     for _key, members in _cluster_groups(conn).items():
         members = sorted(members, key=lambda r: r["event_id"])

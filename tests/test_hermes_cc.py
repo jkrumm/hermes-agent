@@ -124,6 +124,29 @@ if GH and url.startswith(GH):
         body = json.dumps({"sha": "mergedsha001", "merged": True})
     elif "/git/refs/heads/" in path:
         body, status = "", "204"
+    elif "/check-runs" in path:
+        # Default: one completed+success run, so a case that does not care about
+        # CI reality still merges — CC_TEST_CHECK_RUNS overrides the whole list
+        # (an empty "[]" exercises the noCiRequired gate).
+        runs = os.environ.get(
+            "CC_TEST_CHECK_RUNS",
+            '[{"name": "stub-ci", "status": "completed", "conclusion": "success"}]',
+        )
+        body = json.dumps({"check_runs": json.loads(runs)})
+    elif "/contents/" in path:
+        # collect_expected_alerts()'s GitHub contents fetch — CC_TEST_CONTENTS
+        # maps a path (as it appears after "/contents/", pre-"?ref=") to a raw
+        # (unencoded) file body; anything not named there 404s, same as a real
+        # missing/renamed file would.
+        import base64
+        import urllib.parse
+
+        raw_path = urllib.parse.unquote(path.split("/contents/", 1)[1].split("?", 1)[0])
+        contents = json.loads(os.environ.get("CC_TEST_CONTENTS", "{}"))
+        if raw_path in contents:
+            body = json.dumps({"content": base64.b64encode(contents[raw_path].encode()).decode()})
+        else:
+            body, status = json.dumps({"message": "Not Found"}), "404"
     elif "/files" in path:
         body = json.dumps(files)
     elif "/pulls/" in path:
@@ -174,6 +197,22 @@ if len(sys.argv) > 2 and sys.argv[1] == "read":
 sys.exit(0)
 """
 
+# Only `merge`'s deploy step (step 9, run_deploy_if_enabled()) ever shells out
+# to `ssh` — and only when a repo's policy entry explicitly sets
+# "autoDeploy": true, which no fixture repo does by default. Logs argv (one
+# JSON line per call) to $CC_TEST_SSH_LOG so a case can prove the exact deploy
+# command ran; exits CC_TEST_SSH_EXIT (default 0).
+FAKE_SSH = """#!/usr/bin/env python3
+import json, os, sys
+
+log = os.environ.get("CC_TEST_SSH_LOG")
+if log:
+    with open(log, "a") as f:
+        f.write(json.dumps({"argv": sys.argv[1:]}) + "\\n")
+print(os.environ.get("CC_TEST_SSH_OUTPUT", "deploy stub ok"))
+sys.exit(int(os.environ.get("CC_TEST_SSH_EXIT", "0")))
+"""
+
 
 def _write_exec(path: Path, content: str) -> None:
     path.write_text(content)
@@ -189,6 +228,7 @@ class Harness:
         self.bin = self.root / "bin"
         self.bin.mkdir()
         _write_exec(self.bin / "curl", FAKE_CURL)
+        _write_exec(self.bin / "ssh", FAKE_SSH)
 
         self.home = self.root / "home"
         (self.home / ".local" / "bin").mkdir(parents=True)
@@ -256,6 +296,18 @@ class Harness:
             {"repos": ["some-other-repo"], "directToMain": []}))
         self.pr_required_gamma = self.root / "pr-required-gamma.json"
         self.pr_required_gamma.write_text(json.dumps({"repos": ["gamma"]}))
+
+        # The merge gate's new primary key (cmd_merge / merge_gate_check()) —
+        # shared with scripts/triage.py, which owns the rest of this file's
+        # shape. `gamma` (the only fixture repo test_merge_verb dispatches
+        # against) gets a wide-open scope + noCiRequired so every EXISTING
+        # merge case keeps passing unchanged; test_merge_gate_and_deploy below
+        # writes its own narrower fixture per case to prove the gate itself.
+        self.triage_policy_json = self.root / "triage-policy.json"
+        self.triage_policy_json.write_text(json.dumps({
+            "repos": {"gamma": {"autoMergePaths": ["**"], "noCiRequired": True,
+                                 "autoDeploy": False}},
+        }))
 
         self.log_dir = self.root / "logs"
         self.log_dir.mkdir()
@@ -363,6 +415,7 @@ class Harness:
         env["HERMES_CC_GH_API"] = "http://gh.invalid"
         env["CC_TEST_GH_API"] = "http://gh.invalid"
         env["HERMES_CC_PR_REQUIRED_JSON"] = str(self.pr_required_json)
+        env["HERMES_CC_TRIAGE_POLICY_JSON"] = str(self.triage_policy_json)
         env["HERMES_CC_APPROVAL_PUBKEY"] = str(self.approval_pub)
         env["HERMES_CC_APPROVAL_PY"] = sys.executable
         env["HERMES_CC_SLACK_API"] = "http://slack.invalid/api"
@@ -1629,16 +1682,17 @@ GOOD_HEAD = {"ref": "dispatch/stub-branch", "sha": "deadbeef" * 5,
 
 
 def _seed_pr_dispatch(h: Harness, db_path, *, tier="implement", repo="gamma",
-                      status="done", artifact=PR_URL, job_id=MERGE_JOB) -> None:
+                      status="done", artifact=PR_URL, job_id=MERGE_JOB,
+                      validation_status="confirmed") -> None:
     # `list` first so the script creates the schema AND applies the additive
-    # merged_at migration before anything is inserted.
+    # merged_at/validation_* migrations before anything is inserted.
     h.run(["list"], env_extra={"HERMES_CC_DB": str(db_path)})
     now = dt.datetime.now(dt.timezone.utc).isoformat()
     conn = sqlite3.connect(db_path)
     conn.execute(
-        "INSERT INTO dispatches(job_id,tier,repo,brief,status,artifact_url,created_at) "
-        "VALUES(?,?,?,?,?,?,?)",
-        (job_id, tier, repo, "seed brief", status, artifact, now),
+        "INSERT INTO dispatches(job_id,tier,repo,brief,status,artifact_url,created_at,"
+        "validation_status) VALUES(?,?,?,?,?,?,?,?)",
+        (job_id, tier, repo, "seed brief", status, artifact, now, validation_status),
     )
     conn.commit()
     conn.close()
@@ -1777,8 +1831,14 @@ def test_merge_verb(h: Harness):
                          f"audited as planned, got rc={proc.returncode} "
                          f"data={data!r} mutating={mutating!r} audit={lines!r}")
 
-    # (d) mergeable_state is checked AFTER the un-draft, so this case proves the
-    #     merge still does not happen once it is too late to refuse earlier.
+    # (d) `mergeable` is re-read AFTER the un-draft (it is computed
+    #     asynchronously and can only be known once GitHub has finished), so
+    #     this case proves the merge still does not happen once it is too
+    #     late to refuse earlier. NOT `mergeable_state == "blocked"` any
+    #     more — that check was removed (see merge_gate_check()'s own
+    #     comment: `clean` reads true whenever a repo has zero required
+    #     checks, so it was never a reliable CI signal). `mergeable=False`
+    #     is the real, still-checked conflict signal.
     total += 1
     db_path = h.new_db()
     _seed_pr_dispatch(h, db_path)
@@ -1786,10 +1846,10 @@ def test_merge_verb(h: Harness):
     proc = h.run(["merge", MERGE_JOB, "--why", "test", "--confirm", "--json"],
                   env_extra={"HERMES_CC_DB": str(db_path),
                              "CC_TEST_CURL_LOG": str(curl_log),
-                             "CC_TEST_PR_JSON": pr(mergeable_state="blocked")})
+                             "CC_TEST_PR_JSON": pr(mergeable=False, mergeable_state="dirty")})
     merged_calls = [c for c in _curl_lines(curl_log) if c["argv"][-1].endswith("/merge")]
     text = proc.stdout + proc.stderr
-    ok = (proc.returncode == 4 and "blocked" in text and not merged_calls
+    ok = (proc.returncode == 4 and "not mergeable" in text and not merged_calls
           and _merged_at(db_path) is None)
     if ok:
         passed += 1
@@ -1884,6 +1944,311 @@ def test_merge_verb(h: Harness):
         failures.append(f"merge over its daily ceiling: expected exit 4 naming "
                          f"HERMES_CC_MERGE_BUDGET, got rc={proc.returncode} "
                          f"{text[:300]!r}")
+
+    return total, passed, failures
+
+
+# =============================================================================
+# 17. --auto-from-item — the triage loop's second door into `implement`
+# =============================================================================
+#
+# require_auto_from_item() reads only `state`, `repo`, `dispatch_job` off
+# triage_items and `status`/`verdict_json` off dispatches — this fixture's
+# schema is deliberately minimal, not a copy of triage.py's real one, because
+# those are the only columns the function under test ever touches.
+
+def _seed_triage_item(db_path, *, event_id=1, state="verdict", repo="gamma",
+                       dispatch_job="investigate-job-01") -> None:
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS triage_items "
+        "(event_id INTEGER PRIMARY KEY, state TEXT, repo TEXT, dispatch_job TEXT)"
+    )
+    conn.execute(
+        "INSERT OR REPLACE INTO triage_items(event_id, state, repo, dispatch_job) VALUES (?,?,?,?)",
+        (event_id, state, repo, dispatch_job),
+    )
+    conn.commit()
+    conn.close()
+
+
+def _seed_investigate_dispatch_no_verdict(db_path, *, job_id="investigate-job-01") -> None:
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT INTO dispatches(job_id,tier,repo,brief,status,created_at) VALUES(?,?,?,?,?,?)",
+        (job_id, "investigate", "gamma", "seed brief", "done",
+         dt.datetime.now(dt.timezone.utc).isoformat()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def _seed_investigate_dispatch(db_path, *, job_id="investigate-job-01", status="done",
+                                next_action="implement", confidence="high") -> None:
+    verdict = json.dumps({"summary": "stub", "nextAction": next_action, "confidence": confidence})
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT INTO dispatches(job_id,tier,repo,brief,status,verdict_json,created_at) "
+        "VALUES(?,?,?,?,?,?,?)",
+        (job_id, "investigate", "gamma", "seed brief", status, verdict,
+         dt.datetime.now(dt.timezone.utc).isoformat()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def _ensure_empty_triage_table(db_path) -> None:
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS triage_items "
+        "(event_id INTEGER PRIMARY KEY, state TEXT, repo TEXT, dispatch_job TEXT)"
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_auto_from_item(h: Harness):
+    failures = []
+    total = passed = 0
+
+    def _seeded_db(**item_kwargs):
+        db_path = h.new_db()
+        h.run(["list"], env_extra={"HERMES_CC_DB": str(db_path)})  # create dispatches schema
+        item_kwargs.setdefault("event_id", 1)
+        _seed_triage_item(db_path, **{k: v for k, v in item_kwargs.items()
+                                       if k in ("event_id", "state", "repo", "dispatch_job")})
+        return db_path
+
+    # (a) every precondition, each refusing independently with one thing wrong.
+    cases = [
+        ("no triage_items row", _ensure_empty_triage_table, {}, "no triage_items row"),
+        ("wrong state", lambda db: _seed_triage_item(db, state="new"), {}, "not 'verdict'"),
+        ("repo mismatch", lambda db: _seed_triage_item(db, repo="beta"), {}, "not 'gamma'"),
+        ("no linked dispatch_job", lambda db: _seed_triage_item(db, dispatch_job=None), {},
+         "no linked dispatch_job"),
+        ("dispatch record missing", lambda db: _seed_triage_item(db, dispatch_job="ghost-job"), {},
+         "no record in"),
+        ("investigation not done",
+         lambda db: (_seed_triage_item(db), _seed_investigate_dispatch(db, status="failed")), {},
+         "not 'done'"),
+        ("no parseable verdict",
+         lambda db: (_seed_triage_item(db), _seed_investigate_dispatch_no_verdict(db)),
+         {}, "no parseable verdict"),
+        ("nextAction is not implement",
+         lambda db: (_seed_triage_item(db), _seed_investigate_dispatch(db, next_action="human")), {},
+         "nextAction='human'"),
+        ("confidence is not high",
+         lambda db: (_seed_triage_item(db), _seed_investigate_dispatch(db, confidence="medium")), {},
+         "confidence='medium'"),
+    ]
+    for label, seed, env, want_text in cases:
+        total += 1
+        db_path = h.new_db()
+        h.run(["list"], env_extra={"HERMES_CC_DB": str(db_path)})
+        seed(db_path)
+        proc = h.run(["dispatch", "gamma", "--tier", "implement", "--auto-from-item", "1",
+                      "--why", "auto", "--json"],
+                     env_extra={"HERMES_CC_DB": str(db_path), **env}, stdin="probe")
+        text = proc.stdout + proc.stderr
+        ok = proc.returncode in (2, 4) and want_text in text
+        if ok:
+            passed += 1
+        else:
+            failures.append(f"auto-from-item refusal [{label}]: expected text {want_text!r}, "
+                             f"got rc={proc.returncode} {text[:300]!r}")
+
+    # (b) --auto-from-item with any tier other than implement is a usage error.
+    total += 1
+    proc = h.run(["dispatch", "gamma", "--tier", "investigate", "--auto-from-item", "1", "--json"],
+                 stdin="probe")
+    ok = proc.returncode == 64 and "only valid with --tier implement" in (proc.stdout + proc.stderr)
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"auto-from-item with wrong tier: expected exit 64, got "
+                         f"rc={proc.returncode} {proc.stdout[:200]!r}")
+
+    # (c) a non-numeric event id is a usage error, not a silent no-op.
+    total += 1
+    proc = h.run(["dispatch", "gamma", "--tier", "implement", "--auto-from-item", "not-a-number",
+                 "--why", "auto", "--json"], stdin="probe")
+    ok = proc.returncode == 64 and "event_id integer" in (proc.stdout + proc.stderr)
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"auto-from-item with non-numeric id: expected exit 64, got "
+                         f"rc={proc.returncode} {proc.stdout[:200]!r}")
+
+    # (d) every precondition holding: the episode opens with NO --confirm and NO
+    #     signed approval on file — the auto-from-item validation stands in for
+    #     both. Proves the positive path, not just the refusals above.
+    total += 1
+    db_path = _seeded_db()
+    _seed_investigate_dispatch(db_path)
+    proc = h.run(["dispatch", "gamma", "--tier", "implement", "--auto-from-item", "1",
+                 "--why", "auto-implement from triage", "--json"],
+                 env_extra={"HERMES_CC_DB": str(db_path)}, stdin="probe", auto_approve=False)
+    try:
+        data = json.loads(proc.stdout.strip())
+    except json.JSONDecodeError:
+        data = {}
+    ok = proc.returncode == 0 and data.get("ok") is True and data.get("status") == "queued"
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"auto-from-item full precondition pass: expected an opened dispatch, "
+                         f"got rc={proc.returncode} data={data!r} raw={proc.stdout[:300]!r}")
+
+    return total, passed, failures
+
+
+# =============================================================================
+# 18. merge gate re-keyed off declared path scope, CI reality, step-7 validation
+# =============================================================================
+
+def _write_triage_policy(h: Harness, repos: dict) -> Path:
+    h._counter += 1
+    p = h.root / f"triage-policy-{h._counter}.json"
+    p.write_text(json.dumps({"repos": repos}))
+    return p
+
+
+def test_merge_gate_and_deploy(h: Harness):
+    failures = []
+    total = passed = 0
+
+    def _try(label, *, policy_repos, want_rc, want_text, env=None, seed=None):
+        nonlocal total, passed
+        total += 1
+        db_path = h.new_db()
+        (seed or _seed_pr_dispatch)(h, db_path)
+        curl_log = h.new_log("curl")
+        ssh_log = h.new_log("ssh")
+        env_extra = {
+            "HERMES_CC_DB": str(db_path),
+            "CC_TEST_CURL_LOG": str(curl_log),
+            "CC_TEST_SSH_LOG": str(ssh_log),
+            "HERMES_CC_TRIAGE_POLICY_JSON": str(_write_triage_policy(h, policy_repos)),
+            **(env or {}),
+        }
+        proc = h.run(["merge", MERGE_JOB, "--why", "test", "--confirm", "--json"], env_extra=env_extra)
+        text = proc.stdout + proc.stderr
+        merged_calls = [c for c in _curl_lines(curl_log) if c["argv"][-1].endswith("/merge")]
+        ok = proc.returncode == want_rc and want_text in text
+        if want_rc != 0:
+            ok = ok and not merged_calls and _merged_at(db_path) is None
+        if ok:
+            passed += 1
+        else:
+            failures.append(f"merge gate [{label}]: expected rc={want_rc} containing {want_text!r}, "
+                             f"got rc={proc.returncode} merged={bool(merged_calls)} text={text[:400]!r}")
+        return proc, db_path, ssh_log
+
+    # (a) no autoMergePaths declared at all for the repo — the primary gate has
+    #     nothing to check against, so it refuses rather than defaulting open.
+    _try("no policy entry", policy_repos={}, want_rc=4, want_text="no autoMergePaths declared")
+
+    # (b) a changed path outside the declared scope refuses, even though it is
+    #     comfortably under the file/line backstop ceilings.
+    _try("path outside scope",
+         policy_repos={"gamma": {"autoMergePaths": ["docs/**"], "noCiRequired": True}},
+         want_rc=4, want_text="outside 'gamma's declared autoMergePaths")
+
+    # (c) zero CI check-runs on the head commit and no noCiRequired acknowledgement
+    #     — the exact bug this change closes: `vps`/`research-gateway` have no
+    #     .github/workflows at all, so `mergeable_state: clean` used to read that
+    #     as CI having passed. A repo with no required checks must FAIL now.
+    _try("no CI and no acknowledgement",
+         policy_repos={"gamma": {"autoMergePaths": ["**"]}},
+         env={"CC_TEST_CHECK_RUNS": "[]"},
+         want_rc=4, want_text="zero CI check-runs")
+
+    # (d) the same zero-check-runs commit merges cleanly once the repo's policy
+    #     entry explicitly acknowledges it — noCiRequired flips the SAME
+    #     condition from a refusal to an accepted, known one.
+    total += 1
+    db_path = h.new_db()
+    _seed_pr_dispatch(h, db_path)
+    proc = h.run(["merge", MERGE_JOB, "--why", "test", "--confirm", "--json"],
+                 env_extra={"HERMES_CC_DB": str(db_path),
+                            "CC_TEST_CHECK_RUNS": "[]",
+                            "HERMES_CC_TRIAGE_POLICY_JSON": str(_write_triage_policy(
+                                h, {"gamma": {"autoMergePaths": ["**"], "noCiRequired": True}}))})
+    ok = proc.returncode == 0 and _merged_at(db_path) is not None
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"noCiRequired acknowledgement should still merge: got rc={proc.returncode} "
+                         f"{proc.stdout[:300]!r}")
+
+    # (e) a present-but-failing check-run refuses — CI ran, and it did not pass.
+    _try("CI ran and failed",
+         policy_repos={"gamma": {"autoMergePaths": ["**"], "noCiRequired": True}},
+         env={"CC_TEST_CHECK_RUNS": json.dumps(
+             [{"name": "build", "status": "completed", "conclusion": "failure"}])},
+         want_rc=4, want_text="has not passed cleanly")
+
+    # (f) a disagreeing (or missing/errored) step-7 validation blocks the merge —
+    #     never read as a pass. Covers both explicit 'disagreed' and NULL.
+    for label, validation_status in [("disagreed", "disagreed"), ("missing", None)]:
+        _try(f"validation {label}",
+             policy_repos={"gamma": {"autoMergePaths": ["**"], "noCiRequired": True}},
+             want_rc=4, want_text="has not confirmed",
+             seed=lambda h, db, vs=validation_status: _seed_pr_dispatch(h, db, validation_status=vs))
+
+    # (g) deploy refused when autoDeploy is false (the default — ships disabled):
+    #     the merge still lands, but nothing runs on the VPS, and the JSON output
+    #     says so rather than staying silent about it.
+    total += 1
+    db_path = h.new_db()
+    _seed_pr_dispatch(h, db_path)
+    ssh_log = h.new_log("ssh")
+    proc = h.run(["merge", MERGE_JOB, "--why", "test", "--confirm", "--json"],
+                 env_extra={"HERMES_CC_DB": str(db_path),
+                            "CC_TEST_SSH_LOG": str(ssh_log),
+                            "HERMES_CC_TRIAGE_POLICY_JSON": str(_write_triage_policy(
+                                h, {"gamma": {"autoMergePaths": ["**"], "noCiRequired": True,
+                                              "autoDeploy": False, "deploy": "hyperdx-apply"}}))})
+    try:
+        data = json.loads(proc.stdout.strip())
+    except json.JSONDecodeError:
+        data = {}
+    ok = (proc.returncode == 0 and data.get("deploy", {}).get("attempted") is False
+          and "autoDeploy is false" in (data.get("deploy") or {}).get("reason", "")
+          and not _log_text(ssh_log).strip())
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"deploy off by default: expected attempted=false and no ssh call, got "
+                         f"data={data!r} sshlog={_log_text(ssh_log)!r}")
+
+    # (h) deploy runs, declared and path-scoped, once autoDeploy is explicitly
+    #     true — the exact `ssh vps "cd ~/vps && make hyperdx-apply ENV=prod"`
+    #     command, never a caller-composed one.
+    total += 1
+    db_path = h.new_db()
+    _seed_pr_dispatch(h, db_path)
+    ssh_log = h.new_log("ssh")
+    proc = h.run(["merge", MERGE_JOB, "--why", "test", "--confirm", "--json"],
+                 env_extra={"HERMES_CC_DB": str(db_path),
+                            "CC_TEST_SSH_LOG": str(ssh_log),
+                            "HERMES_CC_TRIAGE_POLICY_JSON": str(_write_triage_policy(
+                                h, {"gamma": {"autoMergePaths": ["**"], "noCiRequired": True,
+                                              "autoDeploy": True, "deploy": "hyperdx-apply"}}))})
+    try:
+        data = json.loads(proc.stdout.strip())
+    except json.JSONDecodeError:
+        data = {}
+    ssh_calls = _curl_lines(ssh_log)
+    ok = (proc.returncode == 0 and data.get("deploy", {}).get("attempted") is True
+          and data.get("deploy", {}).get("ok") is True and data.get("deploy", {}).get("key") == "hyperdx-apply"
+          and len(ssh_calls) == 1
+          and ssh_calls[0]["argv"] == ["vps", "cd ~/vps && make hyperdx-apply ENV=prod"])
+    if ok:
+        passed += 1
+    else:
+        failures.append(f"deploy runs its declared command when enabled: got data={data!r} "
+                         f"ssh_calls={ssh_calls!r}")
 
     return total, passed, failures
 
@@ -2161,6 +2526,8 @@ def main() -> int:
             ("14. merge verb", test_merge_verb(h)),
             ("15. status after prune + stored approval argv", test_status_after_prune(h)),
             ("16. sensitive dispatch", test_sensitive_repo(h)),
+            ("17. --auto-from-item", test_auto_from_item(h)),
+            ("18. merge gate + deploy", test_merge_gate_and_deploy(h)),
         ]
     finally:
         h.cleanup()

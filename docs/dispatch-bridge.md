@@ -89,6 +89,39 @@ the direct-to-master rule for their own commits, not for an unattended agent's.
 The episode never merges and never pushes to a default branch — landing the PR is
 the separate `merge` verb.
 
+### `--auto-from-item` — the triage loop's own door into `implement`
+
+`GATED_TIERS=(implement)` still means a Slack-signed `--confirm` for Hermes's
+conversational path. `scripts/triage.py` has no Slack round-trip to click one
+into, so `dispatch <repo> --tier implement --auto-from-item <event_id>` is a
+second, narrower door — see `docs/triage.md`'s *Closing the loop* for the full
+chain this feeds (steps 6-10: verdict → implement → validate → merge →
+deploy → verify). Every precondition is re-checked against `watchdog.db` at
+call time, never trusted from argv: a `verdict`-state `triage_items` row for
+that `event_id`, its linked investigate dispatch `done` with a parsed verdict
+reading `nextAction: implement` and `confidence: high`, the repo on the
+command line matching the verdict's own recorded repo, the repo resolving
+normally through policy (not denied, not sensitive, within its tier
+ceiling), and the implement budget having room. **Be honest about what this
+is and is not**: unlike `--confirm`'s signed approval artifact, nothing here
+is cryptographically bound — it is a precondition the caller cannot
+fabricate CHEAPLY (every fact it checks is a row a real, already-completed
+read-only episode wrote earlier), not a proof of origin. The threat it
+closes is the loop being WRONG (a stale item, a low-confidence verdict, a
+repo mismatch) — not the loop being HOSTILE, the same threat model
+`--confirm`'s own paragraph above already disclaims for a compromised
+Hermes. Once validated, it stands in for `--confirm` on that one
+invocation — `awaiting_confirm()` and the `require_signed_approval` call
+both treat a validated `--auto-from-item` as equivalent to a click.
+
+`dispatch` also takes `--model <id>`, a plain passthrough into sideclaw's own
+`dispatch` job body (`server/lib/routing.ts`'s `withModel()` handles
+validation/routing) — not a closed allowlist, since a model id is not a
+path, a command or a URL. Used by triage.py's step-7 validation episode,
+which deliberately runs on a DIFFERENT model (`claude-opus-5[1m]`, probed
+live — see `docs/triage.md`) than the `claude-sonnet-5` default that wrote
+the implement episode it reviews.
+
 ## Three deviations from the original design, all deliberate
 
 **The session never creates the artifact; the handler does.** The original design
@@ -266,13 +299,26 @@ Four things do, and the fourth is the one that generalizes:
    when a repo changes status is a list that is wrong most of the time. Here there
    is nothing to edit. Adding a repo to that file removes its auto-merge in the
    same commit that starts requiring review, and the two can never disagree.
-3. **Re-checked against the current head, not the inspected one.** Base is the
-   default branch, head is a `dispatch/…` branch in this same repo (never a fork),
-   no `.github/workflows|actions` path, sideclaw's own 40-file/2000-line episode
-   ceilings still hold, and `mergeable_state` is exactly `clean`. `blocked` (a
-   required review or check missing) and `unstable` (something failing) are
-   refusals, not judgement calls. The merge call **pins the head SHA**, so a push
-   landing between inspection and merge fails the merge rather than riding it.
+3. **Re-checked against the current head, not the inspected one — re-keyed
+   2026-09-08.** Base is the default branch, head is a `dispatch/…` branch in
+   this same repo (never a fork), no `.github/workflows|actions` path,
+   sideclaw's own 40-file/2000-line episode ceilings still hold as a
+   **backstop**, and `mergeable` is `true` (a real conflict signal). The
+   **primary** gate is now `config/triage-policy.json`'s `repos.<repo>` entry:
+   EVERY changed path must match its `autoMergePaths` glob list (a repo absent
+   from `repos`, or with none declared, refuses outright — no implicit allow),
+   and the head commit's CI check-runs must either all conclude
+   `success`/`neutral`/`skipped` or the repo must explicitly set
+   `noCiRequired: true`. **What this replaced, and why**: `mergeable_state ==
+   "clean"` used to stand in for "CI passed" — measured wrong, since GitHub
+   reports `clean` whenever a repo has ZERO required checks (`vps` has no
+   `.github/workflows` at all), so that condition was passing with nothing
+   having run. A repo with zero check-runs and no `noCiRequired` acknowledgement
+   now FAILS this gate, which is the whole point of the inversion. The step-7
+   validation (see `docs/triage.md`) must also read `dispatches.validation_status
+   == 'confirmed'` — a missing, disagreeing, or errored review blocks the merge,
+   never read as a pass. The merge call **pins the head SHA**, so a push landing
+   between inspection and merge fails the merge rather than riding it.
 4. **The order of operations is a bound.** Un-drafting happens *after* every
    check, so a PR that fails one is never left ready-for-review as a side effect
    of being refused — and `--confirm`'s absence stops it before that point, which
@@ -285,6 +331,18 @@ actually reached a default branch is the reason the log exists. The GitHub
 credential goes in as a curl config on **stdin, never argv** — this machine runs
 triage that reads `ps` output, so a token in the process table is a real leak
 path, and a test asserts it never appears there.
+
+**Deploy rides the same call, OFF by default.** On a successful merge,
+`cmd_merge` checks the repo's own `autoDeploy` (default **false** — ships
+reviewed but inert everywhere) and `deploy` key (a closed allowlist,
+`deploy_argv()` — the policy names a KEY, never a command, same principle as
+the repo argument itself). Seeded with exactly one: `hyperdx-apply` → `ssh
+vps "cd ~/vps && make hyperdx-apply ENV=prod"`. The outcome (`attempted`,
+`ok`, and — for `observability/alerts/*.json` paths — the expected
+`name`/`threshold`/`thresholdType` fetched at the merge SHA) rides in the
+merge response's `deploy` field, which `scripts/triage.py`'s step-10
+liveness check later reads back against. See `docs/triage.md`'s *Closing the
+loop* for the full chain and how to turn `autoDeploy` on.
 
 **What this does not solve.** `--confirm` is still instruction-level, and now it
 gates the most consequential verb in the script. The bounds above are structural

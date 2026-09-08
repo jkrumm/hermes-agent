@@ -79,7 +79,7 @@ and the help text says so).
 | Brief is data, never argv | stdin (`<<'BRIEF'` quoted heredoc) or `--brief-file`. **No `--brief`** — as argv it would be shell-expanded before the script ran. |
 | Tiers | `investigate` (read-only → verdict) · `author` (+ one GitHub issue) · `implement` (`dispatch/…` branch + **draft** PR). **Every tier runs in its own throwaway worktree**, read tiers included — `readOnly` removes Edit/Write, not Bash. |
 | Ceilings | `defaultTier: implement`, `investigate` floor for `dotfiles`/`brain`/`hermes-agent` (`vps` and `homelab` came off it 2026-09-08 — deployment surfaces, not the rules that bound the agents) — the last is this repo's own control plane (`config.yaml`, `scripts/`, `hooks/`, `skills/` are symlinked live into `~/.hermes/`), a different reason than `dotfiles`' — see `config/dispatch-repos.json`'s comment block. Above-ceiling/denied/outside-root refuses exit 4; a misspelled name is exit 64. No `implement` allowlist, deliberately. |
-| `implement` gate | `--why` **and** `--confirm`. Without `--confirm` it prints the plan + `wouldNeverDo` and exits **0**. |
+| `implement` gate | `--why` **and** `--confirm`. Without `--confirm` it prints the plan + `wouldNeverDo` and exits **0**. `--auto-from-item <event_id>` is a second, narrower door for `scripts/triage.py` only — every precondition re-checked from `watchdog.db`, no Slack click needed once it passes; see *Alert triage*'s auto-implement chain row below. |
 | Secret scan | refuses (never redacts) a brief carrying credentials, scans the diff's **added lines** too — handler-side. |
 | Budgets | 20 dispatches/UTC day, ≤5 `implement`, ≤3 `merge`, 170s `--wait` cap. `HERMES_CC_{DAILY,IMPLEMENT,MERGE}_BUDGET` to raise. |
 
@@ -94,7 +94,12 @@ non-gateway process overwrote the public key. Full evolution: **`docs/dispatch-b
 
 **`merge <job-id>` lands the draft PR with no human on GitHub** (owner decision) — a job id never
 a PR number, eligibility derived from `dotfiles/config/pr-required-repos.json`, every bound
-re-checked against the **current** head with the head SHA pinned. Deliberately **not** gated on
+re-checked against the **current** head with the head SHA pinned. **Primary gate re-keyed
+2026-09-08**: `config/triage-policy.json`'s per-repo `autoMergePaths` (every changed path must
+match, or refuse) and `noCiRequired` (a repo with zero CI check-runs on the head commit and no
+acknowledgement now FAILS — `mergeable_state: clean` used to read as "CI passed" even with
+nothing run), plus the step-7 validation (`dispatches.validation_status == 'confirmed'`); the old
+40-file/2000-line ceilings are a backstop, not primary, now. Deliberately **not** gated on
 the signed approval (reverted after an hour — see docs). GitHub credential on stdin, never argv.
 `op://mini/github/token` needs **three grants** — `Contents: write` plus `Issues: write` and
 `Pull requests: write`; with only the first, the last step fails as "Resource not accessible by
@@ -146,12 +151,13 @@ dozens of times a day.
 | Signature | `source:external_id` — `triage_items.signature`, also the CLI verbs' argument |
 | Repo mapping | `config/triage-policy.json`'s `rules`/`ignore`, fnmatch against TWO targets (`source:external_id` and `source:normalize_title(title)` — the latter is what makes `uk`'s opaque monitor ids mappable at all), first match wins; plus a structural `ignoreUnstructuredSlackProse` flag for Hermes's own pre-silencing #alerts replies |
 | Clustering | Eligible items are grouped BY REPO, at most one dispatch per repo per run (cap 5 signatures/brief) — two signatures with one root cause get one episode and one card, not two |
-| States | `new → investigating → {verdict, needs_human, pr_open}`, plus `resolved`/`snoozed`/`ignored`; a cluster whose verdict says `UNRELATED SIGNATURES` dissolves back to individual `new` items |
-| Carded states | Only `investigating`/`verdict`/`needs_human`/`pr_open`/`resolved` get a card — an unescalated `new` item, mapped or not, is silent |
+| States | `new → investigating → {verdict, needs_human, pr_open}`, plus `resolved`/`snoozed`/`ignored`; a cluster whose verdict says `UNRELATED SIGNATURES` dissolves back to individual `new` items. `verdict` at `nextAction: implement`/`confidence: high` continues into the auto-implement chain below |
+| Carded states | `investigating`/`verdict`/`needs_human`/`pr_open`/`resolved` plus the auto-implement chain's own five — an unescalated `new` item, mapped or not, is silent; **a `resolved` item with no prior `card_ts` is silent too** (2026-09-08 correction — `sync_card()` refuses outright rather than announcing the resolution of a problem the human was never told about) |
 | The two edges this fixes | `events.dispatch_id` (written for EVERY cluster member, never just the first) and `dispatches.origin_event_id` (accepted by `hermes-cc.sh --origin-event`, never passed — takes the cluster's primary member) |
 | Card channel | `C0BVDE5R562` (`#agents`) — shared with the agents-overview/project-narratives digests |
 | No-firehose guard | `card_hash` (sha256 of rendered Block Kit) — a sync is skipped entirely when nothing changed |
 | CLI | `--run` (default) · `--dry-run` · `--db <path>` · `--snooze <sig> --hours N` · `--ignore <sig>` · `--reopen <sig>` · `--list` |
+| Auto-implement chain (steps 6-10) | `verdict → implementing → validating → {merged, liveness_pending} → resolved`, or `merge_blocked`/reopen-to-`new` on any failure. `hermes-cc.sh dispatch --auto-from-item` (a second, narrower door into `implement`, re-checked from `watchdog.db` — no Slack click) → a SECOND, different-model (`claude-opus-5[1m]`, live-probed) validation episode reviewing the actual diff → `merge`, re-keyed off `config/triage-policy.json`'s per-repo `autoMergePaths`/`noCiRequired` (the old `mergeable_state: clean` CI check was vacuously true with zero checks run) → deploy (`autoDeploy`, ships **off**) → liveness (`hyperdx-alert-state`, re-reads HyperDX's own `/api/api/v2/alerts`). Full state machine, the policy contract, and the model probe result: `docs/triage.md` §*Closing the loop*, `docs/dispatch-bridge.md` §*--auto-from-item* |
 
 `scripts/dispatch-sweep.py` folds a triage-opened dispatch's terminal verdict
 onto its card immediately (`fold_dispatch_verdict()`) rather than waiting for

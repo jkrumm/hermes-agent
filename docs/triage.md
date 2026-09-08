@@ -319,7 +319,9 @@ prefixes, specifically so an ordinary event-driven resolve (which clears
 ## Carded states
 
 A card exists ONLY once a cluster has left `new` — state in `investigating`,
-`verdict`, `needs_human`, `pr_open`, or `resolved`. An item that is mapped
+`verdict`, `needs_human`, `pr_open`, `resolved`, or one of the auto-implement
+chain's own states (`implementing`, `validating`, `merge_blocked`, `merged`,
+`liveness_pending` — see *Closing the loop* below). An item that is mapped
 but hasn't yet crossed `minOccurrences`/`minOpenMinutes` — or is simply
 unmapped — is carried silently; it appears only in the daily digest (if
 unmapped) or not at all (if mapped but not yet eligible). `ignored` and
@@ -328,10 +330,29 @@ an empty or partial policy must never turn into dozens of cards of noise on
 day one, which is exactly what carding every non-`ignored` row (regardless of
 state) used to do.
 
+**Being in this list only makes a row ELIGIBLE for a card — `sync_card()` is
+where "was this item actually told to the human before" is enforced** (2026-09-08
+correction, the sibling failure the list above exists to prevent): `resolved`
+is reachable from EVERY state including `new` itself (`apply_resolutions()`,
+`resolve_quiet_grouped()` and `resolve_recovery_paired()` can all flip an
+unescalated `new` row straight to `resolved` on a quiet/disappeared signal
+that was never carded), and a card announcing the resolution of a problem the
+human was never told about is exactly the noise this whole file replaced —
+caught live from a 13-card burst where every card was a `new -> resolved`
+transition. `sync_card()` now refuses outright (zero Slack calls, neither
+`chat.postMessage` nor `chat.update`) whenever `state == resolved` and
+`card_ts` is still `NULL`; an item that had a card already still gets its
+final `chat.update`, unchanged. The invariant, stated once so every future
+state addition can be checked against it: **a card is a conversation with the
+human about an item they were told about; a state change on an item they were
+never told about is not news.**
+
 ## State machine
 
 ```
 new ──(escalate, clustered by repo)──> investigating ──(sweeper folds verdict)──┬──> verdict ──(DISSOLVE_MARKER)──> new (cluster splits)
+ │                                                                                │        │
+ │                                                                                │        └──(nextAction=implement, confidence=high)──> implementing (step 6)
  │                                                                                ├──> needs_human
  │                                                                                └──> pr_open
  ├──(verb outcome — run_verbs())──> needs_human  (terminal-ish: no dispatch_job, runs at most once)
@@ -339,6 +360,15 @@ new ──(escalate, clustered by repo)──> investigating ──(sweeper fold
  ├──(ignoreUnstructuredSlackProse)──> note  (terminal, never carded, but IN the daily digest)
  ├──(--snooze)──> snoozed ──(snoozed_until passes)──> new
  └──(event resolves)──> resolved ──(event reopens)──> new
+
+implementing ──(implement episode done, PR opened)──> validating (step 7, a DIFFERENT model)
+             └──(implement failed / no PR)──────────> merge_blocked
+
+validating ──(VALIDATION_CONFIRM_MARKER, merge lands)──> merged | liveness_pending (step 8/9)
+           └──(disagree / error / merge refused)───────> merge_blocked
+
+liveness_pending ──(positive liveness match)──────────> resolved (step 10)
+                 └──(window elapses, still not live)──> new  (REOPENED, full history on the card)
 ```
 
 Any state EXCEPT `ignored`/`snoozed`/`note` also goes to `resolved` the
@@ -631,6 +661,124 @@ ever registered by hand). `dispatch-sweep.py`'s own cron loader
 sideclaw and folds a verdict onto a card `triage.py` already wrote, so it has
 no chicken-and-egg dependency on the gateway being up.
 
+## Closing the loop — verdict → implement → validate → merge → deploy → verify
+
+The triage loop used to stop at a verdict. Five functions close the rest of
+the chain, each polling its own state once per run and re-deriving its own
+eligibility from the DB every time — no step trusts a previous step's memory,
+only what is actually recorded. No LLM call happens in any of them; the
+dispatched episodes each run one, same as `escalate_cluster()` always has.
+
+**Step 6 — `maybe_auto_implement()`.** A `verdict`-state item whose folded
+investigate verdict already reads `nextAction: implement` at
+`confidence: high`, and has never been auto-implemented before
+(`implement_job IS NULL`), gets one `hermes-cc.sh dispatch <repo> --tier
+implement --auto-from-item <event_id>` call. `--auto-from-item` is
+hermes-cc.sh's own second door into `implement` — a precondition the caller
+cannot fabricate cheaply (every fact it checks is a row a REAL, completed
+investigation wrote earlier), not a cryptographic proof of origin the way
+`--confirm`'s signed approval is. See `docs/dispatch-bridge.md` for the full
+gate. State: `verdict` → `implementing`.
+
+**Step 7 — `poll_implement_jobs()` → `_run_hermes_cc_validation()`.** Once the
+implement episode finishes with a pull request, a SECOND `investigate`
+episode opens against the same repo, on `VALIDATION_MODEL`
+(`claude-opus-5[1m]`) — deliberately a different model from the
+`claude-sonnet-5` default that wrote the change. Its brief asks it to read
+the PR's actual diff and say whether the change is correct and whether the
+PR body's own claims match it, ending with the exact phrase `VALIDATION:
+CONFIRMED` or `VALIDATION: DISAGREE` — a plain substring check
+(`poll_validation_jobs()`), the same technique `DISSOLVE_MARKER` already
+uses. **`VALIDATION_MODEL` was probed live, not guessed**: a throwaway
+`investigate` job at `model: "gpt-5.6-terra"` crashed the Claude Code session
+outright (`[claude-code:unrecognized_model]`, exit 1 — not the harmless
+stderr telemetry line CLAUDE.md documents for that string elsewhere);
+`claude-opus-5[1m]` ran a real session and returned a structured verdict.
+Re-probe before changing this constant. An implement episode with no PR
+(failed, interrupted, or done with nothing to show) skips validation
+entirely and goes straight to `merge_blocked`. State: `implementing` →
+`validating` | `merge_blocked`.
+
+**Step 8 — `poll_validation_jobs()` → `_run_hermes_cc_merge()`.** A
+DISAGREEING, FAILED, or ERRORED validation blocks the merge outright — never
+read as a pass. Only an explicit `CONFIRMED` marker (and no `DISAGREE`
+marker in the same text) calls `hermes-cc.sh merge <job-id> --confirm`.
+`merge`'s own `--confirm` is instruction-level, not signed (owner decision —
+confirming the implement WAS the approval, landing it finishes the thing
+already said yes to), so this call is not itself a trust boundary — the real
+bounds are inside `cmd_merge` itself, re-keyed off **declared path scope**:
+see `docs/dispatch-bridge.md`'s merge-verb section for the full gate
+(`autoMergePaths`, `noCiRequired`, the step-7 `validation_status` check).
+State: `validating` → `merged` | `liveness_pending` | `merge_blocked`.
+
+**Step 9 — deploy, inside `cmd_merge` itself, OFF by default.** Merging a
+repo like `vps` is not shipping — `observability/` has no CI, so an alert
+change only takes effect once `make hyperdx-apply ENV=prod` actually runs.
+On a successful merge, hermes-cc.sh checks the repo's own
+`config/triage-policy.json` entry: `autoDeploy` (default **false** — the
+mechanism ships reviewed but inert everywhere) and a `deploy` key from its
+own closed allowlist (`deploy_argv()` — a policy file names a KEY, never a
+command, same principle as `verb`/`evidence` above). **Turning it on**: flip
+`"autoDeploy": true` on the repo's entry in `config/triage-policy.json` —
+only after watching a run of merges land cleanly with it still off. For
+every path matching `observability/alerts/*.json` in the merged diff, the
+deploy step also fetches that file's content AT THE MERGE SHA (GitHub's
+contents API, never the local checkout) and records
+`name`/`threshold`/`thresholdType` as `deploy_expect_json` on the triage
+item — what step 10 verifies against. State: `merged` (no deploy) |
+`liveness_pending` (deploy attempted and succeeded).
+
+**Step 10 — `maybe_check_liveness()`.** The item must not close because the
+alert went quiet — a fully-down service is also quiet, the same principle
+`resolve_quiet_grouped()`/`resolve_recovery_paired()` already apply above.
+Runs the repo's declared `liveness` key (`config/triage-policy.json`, same
+closed-allowlist shape) against `deploy_expect_json`; seeded with exactly
+one, `hyperdx-alert-state`, which re-reads every expected alert's LIVE
+`threshold`/`thresholdType` from `GET
+https://hyperdx.jkrumm.com/api/api/v2/alerts` (the SAME REST endpoint
+`vps/scripts/hyperdx-sync.sh`'s own `export`/`apply` already use — read from
+that script, never a fabricated endpoint) and asserts it matches what the
+merged diff set. Only a genuine POSITIVE match resolves the item
+(`LIVENESS_CONFIRMED_NOTE_PREFIX`, the one prefix in this file that actually
+claims "fixed" — every other resolve note deliberately doesn't). Past
+`liveness_deadline` (`LIVENESS_WINDOW_HOURS`, default 2h) with no positive
+match, the item is REOPENED to `new`, carrying the PR link and the last
+liveness check on the existing card thread (a direct `update_blocks()` call,
+mirroring `_dissolve_cluster()`'s own final-update-then-reset shape — never
+through `sync_card()`, because a `new` row must never be carded) rather than
+sitting "deployed" forever or silently vanishing. This is precisely the
+context that was missing when the same alert was re-diagnosed 61 times
+before this file existed at all.
+
+### `config/triage-policy.json`'s `repos` object
+
+```json
+{
+  "repos": {
+    "vps": {
+      "autoMergePaths": ["observability/**"],
+      "noCiRequired": true,
+      "deploy": "hyperdx-apply",
+      "autoDeploy": false,
+      "liveness": "hyperdx-alert-state"
+    }
+  }
+}
+```
+
+`autoMergePaths`/`noCiRequired`/`deploy`/`autoDeploy` are read by
+`hermes-cc.sh`'s `cmd_merge` (via `HERMES_CC_TRIAGE_POLICY_JSON`, defaulting
+to this same file); `liveness` is read here, by `maybe_check_liveness()`.
+Every changed path in a PR must match `autoMergePaths` or the merge refuses
+outright — a repo absent from `repos`, or with no `autoMergePaths`, refuses
+too; there is no implicit allow. `noCiRequired` is the explicit
+acknowledgement that a repo has zero PR-time required checks, so their
+absence reads as a KNOWN condition rather than `mergeable_state: clean`
+being silently read as "CI passed" (measured wrong — `clean` is vacuously
+true whenever nothing ran, which is `vps`'s and `research-gateway`'s exact
+shape: no `.github/workflows` at all). A repo with zero check-runs and no
+`noCiRequired` entry FAILS the gate now, on purpose.
+
 ## Silencing `#alerts`
 
 `config.yaml`'s `slack.require_mention_channels` now includes `C0AS1LAUQ3C`
@@ -688,3 +836,20 @@ card exactly once, an in-flight `investigating` item never being yanked to
 resolved by the quiet timer, the `✅`-recovery-pairing path resolving on the
 very next run without waiting out the timer, and `--dry-run` making zero
 Slack calls for the pairing check.
+
+54 cases total as of the auto-implement chain (steps 6-10) — the final 12
+cover: a `new -> resolved` transition with no prior card making zero Slack
+calls and an `investigating -> resolved` transition making exactly one
+`chat.update` and zero `chat.postMessage` (the 2026-09-08 correction, both
+directions); `maybe_auto_implement()` firing on a `confidence: high` verdict
+and never firing at `medium`; `poll_implement_jobs()` opening the step-7
+validation on a successful implement episode and blocking outright on a
+failed one; a DISAGREEING validation blocking the merge without ever calling
+it and writing `validation_status='disagreed'`; a CONFIRMED validation
+merging and landing `merged` when deploy is off, or `deploy_expect_json`
+lands correctly and `liveness_pending` is entered when deploy succeeds;
+liveness CONFIRMING and resolving the item (exactly one `chat.update`),
+liveness FAILING past its deadline and REOPENING the item to `new` with the
+PR and last check on the card (exactly one `chat.update`, zero
+`chat.postMessage`), and liveness still inside its window neither resolving
+nor reopening (zero Slack calls).

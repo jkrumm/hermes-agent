@@ -112,7 +112,31 @@
     "housekeeping, not signal). A `✅ <same alert text>` HyperDX recovery message resolves a",
     "slack_alert item immediately instead, on the next run, whenever one is found — strictly",
     "better than waiting out the timer. NEITHER path ever means \"fixed\": the resolved card",
-    "always says \"signal quiet since <time>\" or \"recovery message observed: …\", never that."
+    "always says \"signal quiet since <time>\" or \"recovery message observed: …\", never that.",
+    "",
+    "`repos` (object, keyed by repo name) is the DIFFERENT half of this file: it does not",
+    "route a signature, it governs what scripts/hermes-cc.sh's `merge`/`deploy`/`liveness`",
+    "machinery is allowed to do once a triage-opened `implement` episode has a confirmed,",
+    "validated pull request. Per-repo entry:",
+    "  autoMergePaths  glob list — PRIMARY merge gate. EVERY changed path in the diff must",
+    "                  match one, or `merge` refuses outright; a repo absent from `repos` or",
+    "                  with no autoMergePaths refuses too — there is no implicit allow.",
+    "  noCiRequired    bool — an explicit acknowledgement that this repo has zero PR-time",
+    "                  required checks, so `merge` treats that as a KNOWN condition rather",
+    "                  than silently reading `mergeable_state: clean` as \"CI passed\" (it is",
+    "                  vacuously clean with nothing having run). Omit/false + zero check-runs",
+    "                  on the head commit = refused, on purpose — that inversion is the point.",
+    "  deploy          a KEY from hermes-cc.sh's own closed DEPLOY allowlist (deploy_argv()),",
+    "                  never a command — same closed-set principle as `verb`/`evidence` above.",
+    "  autoDeploy      bool, default false. Ships OFF everywhere: the mechanism lands reviewed",
+    "                  but inert. Flip it per-repo only after watching a run of merges land",
+    "                  cleanly with autoDeploy still off. See docs/triage.md for how.",
+    "  liveness        a KEY from triage.py's own LIVENESS_ALLOWLIST (same closed-set shape),",
+    "                  run after a deploy to positively confirm the intended state before the",
+    "                  item resolves — an alert going quiet is also what a fully-down service",
+    "                  looks like, so silence alone is never proof of a fix here either.",
+    "`vps` is seeded below at the narrowest possible scope (`observability/**` only) — its",
+    "own compose files, apps and everything else stay outside every one of these gates."
   ],
   "cardChannel": "C0BVDE5R562",
   "minOccurrences": 3,
@@ -120,6 +144,15 @@
   "cooldownHours": 6,
   "quietResolveHours": 2,
   "ignoreUnstructuredSlackProse": true,
+  "repos": {
+    "vps": {
+      "autoMergePaths": ["observability/**"],
+      "noCiRequired": true,
+      "deploy": "hyperdx-apply",
+      "autoDeploy": false,
+      "liveness": "hyperdx-alert-state"
+    }
+  },
   "rules": [
     {"match": "docker_*:unhealthy:garmin-*", "repo": "homelab"},
     {"match": "docker_*:restart:garmin-*", "repo": "homelab"},

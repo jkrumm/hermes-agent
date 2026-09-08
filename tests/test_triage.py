@@ -97,6 +97,11 @@ def _triage_env(*, policy: dict[str, Any] | None = None, deny: list[str] | None 
         "post_blocks": triage.post_blocks,
         "update_blocks": triage.update_blocks,
         "_run_hermes_cc_dispatch": triage._run_hermes_cc_dispatch,
+        "_run_hermes_cc_auto_implement": triage._run_hermes_cc_auto_implement,
+        "_run_hermes_cc_validation": triage._run_hermes_cc_validation,
+        "_run_hermes_cc_merge": triage._run_hermes_cc_merge,
+        "_hermes_cc_status": triage._hermes_cc_status,
+        "LIVENESS_ALLOWLIST": dict(triage.LIVENESS_ALLOWLIST),
         "MAX_OPEN_INVESTIGATIONS": triage.MAX_OPEN_INVESTIGATIONS,
         "DAILY_INVESTIGATE_BUDGET": triage.DAILY_INVESTIGATE_BUDGET,
         "VERB_ALLOWLIST": dict(triage.VERB_ALLOWLIST),
@@ -1108,6 +1113,10 @@ def test_evidence_total_stays_under_brief_cap():
 # --- grouped-source resolution (quiet timer + recovery pairing) --------------
 
 def test_quiet_grouped_resolves_after_window_and_updates_card_once():
+    """A CARDED item (card_ts already set, as a real escalation would leave
+    it) still gets its final chat.update on a quiet-timer resolve — the
+    positive half of the 2026-09-08 correction, see
+    test_new_to_resolved_with_no_card_is_silent for the negative half."""
     policy = dict(DEFAULT_POLICY, quietResolveHours=1)
     with _triage_env(policy=policy) as (conn, ctx):
         triage._watchdog_poll = _fake_wp_module([], homelab_key="")  # no token -> pairing path is a no-op
@@ -1119,9 +1128,11 @@ def test_quiet_grouped_resolves_after_window_and_updates_card_once():
                      (stale_anchor, stale_anchor, eid))
         conn.execute(
             "INSERT INTO triage_items(event_id, signature, repo, state, occurrences, first_seen, "
-            "last_seen, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+            "last_seen, created_at, updated_at, card_channel, card_ts, card_hash) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (eid, "slack_alert:sig-quiet", "demo-repo", triage.STATE_VERDICT, 5,
-             quiet_first_seen.isoformat(), stale_anchor, NOW.isoformat(), NOW.isoformat()),
+             quiet_first_seen.isoformat(), stale_anchor, NOW.isoformat(), NOW.isoformat(),
+             "C0TESTCHAN01", "1000.000001", "stale-hash-from-a-prior-post"),
         )
         conn.commit()
 
@@ -1130,11 +1141,70 @@ def test_quiet_grouped_resolves_after_window_and_updates_card_once():
         assert item["state"] == triage.STATE_RESOLVED
         assert item["note"].startswith(triage.QUIET_RESOLVE_NOTE_PREFIX)
         assert "fixed" not in item["note"].lower()
+        assert len(ctx.updated) == 1 and len(ctx.posted) == 0, (
+            "an already-carded item's resolve must be exactly one chat.update, never a chat.postMessage")
         calls_after_first = ctx.total_calls()
-        assert calls_after_first >= 1, "the resolve must still update the shared card"
 
         triage.run(conn, dry_run=False)
         assert ctx.total_calls() == calls_after_first, "a resolved card must update exactly once"
+
+
+def test_new_to_resolved_with_no_card_is_silent():
+    """The 2026-09-08 correction, negative half: an item whose whole life is
+    `new -> resolved` — never escalated, never carded — must announce
+    NOTHING. This is the exact shape of the 13-card burst: apply_resolutions()
+    flips a `new` row straight to `resolved` the moment its underlying event
+    resolves, with no card_ts ever having been set."""
+    # Mapped (so it never becomes an "unmapped" digest entry either — this
+    # test is about the CARD, not the digest) but held below minOccurrences/
+    # minOpenMinutes forever, so it stays `new` through the first pass.
+    policy = dict(DEFAULT_POLICY, minOccurrences=999, minOpenMinutes=999999)
+    with _triage_env(policy=policy) as (conn, ctx):
+        eid = _insert_event(conn, source="slack_alert", external_id="sig-never-carded",
+                             title="Never carded", first_seen=OLD)
+        triage.run(conn, dry_run=False)  # ingest + classify only — the event is still open
+        item = triage._get_item(conn, eid)
+        assert item["state"] == triage.STATE_NEW and item["card_ts"] is None
+        assert ctx.total_calls() == 0, "an unescalated `new` item must never get a card"
+
+        conn.execute("UPDATE events SET resolved_at=? WHERE id=?", (NOW.isoformat(), eid))
+        conn.commit()
+        triage.run(conn, dry_run=False)
+
+        item = triage._get_item(conn, eid)
+        assert item["state"] == triage.STATE_RESOLVED
+        assert item["card_ts"] is None
+        assert ctx.total_calls() == 0, "new -> resolved with no prior card must make zero Slack calls"
+
+
+def test_investigating_to_resolved_updates_card_exactly_once():
+    """The narrower, exact-shape sibling of the quiet-timer test above: an
+    ordinary event-driven resolve (apply_resolutions(), not the quiet timer)
+    on an already-carded `investigating` item is exactly one chat.update and
+    zero chat.postMessage."""
+    with _triage_env() as (conn, ctx):
+        eid = _insert_event(conn, source="slack_alert", external_id="sig-inv-resolve",
+                             title="🚨 in flight", first_seen=OLD)
+        conn.execute(
+            "INSERT INTO triage_items(event_id, signature, repo, state, occurrences, first_seen, "
+            "last_seen, created_at, updated_at, dispatch_job, card_channel, card_ts, card_hash) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (eid, "slack_alert:sig-inv-resolve", "demo-repo", triage.STATE_INVESTIGATING, 3,
+             OLD.isoformat(), OLD.isoformat(), NOW.isoformat(), NOW.isoformat(),
+             "job-in-flight", "C0TESTCHAN01", "1000.000002", "stale-hash-from-a-prior-post"),
+        )
+        conn.commit()
+
+        conn.execute("UPDATE events SET resolved_at=? WHERE id=?", (NOW.isoformat(), eid))
+        conn.commit()
+        triage.run(conn, dry_run=False)
+
+        item = triage._get_item(conn, eid)
+        assert item["state"] == triage.STATE_RESOLVED
+        assert len(ctx.updated) == 1 and len(ctx.posted) == 0, (
+            "investigating -> resolved on an already-carded item must be exactly one "
+            f"chat.update and zero chat.postMessage, got updated={len(ctx.updated)} posted={len(ctx.posted)}"
+        )
 
 
 def test_quiet_grouped_does_not_resolve_while_investigating():
@@ -1207,6 +1277,318 @@ def test_recovery_pairing_skipped_under_dry_run():
                        first_seen=OLD)
         triage.run(conn, dry_run=True)
         assert calls["n"] == 0, "resolve_recovery_paired must never fetch Slack under --dry-run"
+
+
+# =============================================================================
+# The auto-implement chain (steps 6-10) — verdict -> implement -> validate ->
+# merge -> deploy -> verify. hermes-cc.sh itself is stubbed at the Python
+# function boundary (triage._run_hermes_cc_auto_implement / _validation /
+# _merge / _hermes_cc_status), the same shape _fake_dispatcher already uses
+# for triage._run_hermes_cc_dispatch above — these are the only four points
+# this file ever crosses into a subprocess for this chain.
+# =============================================================================
+
+def _seed_verdict_item(conn, *, event_id_source="slack_alert", external_id="sig-verdict",
+                        repo="demo-repo", next_action="implement", confidence="high",
+                        investigate_job="investigate-job") -> int:
+    eid = _insert_event(conn, source=event_id_source, external_id=external_id, title="Verdict item",
+                         first_seen=OLD)
+    conn.execute(
+        "INSERT INTO dispatches(job_id,tier,repo,brief,status,verdict_json,created_at) "
+        "VALUES(?,?,?,?,?,?,?)",
+        (investigate_job, "investigate", repo, "b", "done",
+         json.dumps({"summary": "s", "nextAction": next_action, "confidence": confidence}),
+         NOW.isoformat()),
+    )
+    conn.execute(
+        "INSERT INTO triage_items(event_id, signature, repo, state, occurrences, first_seen, "
+        "last_seen, created_at, updated_at, dispatch_job) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (eid, f"{event_id_source}:{external_id}", repo, triage.STATE_VERDICT, 3,
+         OLD.isoformat(), OLD.isoformat(), NOW.isoformat(), NOW.isoformat(), investigate_job),
+    )
+    conn.commit()
+    return eid
+
+
+def _seed_implement_dispatch(conn, job_id: str, *, repo="demo-repo") -> None:
+    conn.execute(
+        "INSERT INTO dispatches(job_id,tier,repo,brief,status,created_at) VALUES(?,?,?,?,?,?)",
+        (job_id, "implement", repo, "b", "done", NOW.isoformat()),
+    )
+    conn.commit()
+
+
+def test_auto_implement_fires_only_at_high_confidence():
+    with _triage_env() as (conn, ctx):
+        eid_hi = _seed_verdict_item(conn, external_id="sig-hi", confidence="high",
+                                     investigate_job="investigate-hi")
+        eid_med = _seed_verdict_item(conn, external_id="sig-med", confidence="medium",
+                                      investigate_job="investigate-med")
+
+        calls: list[tuple[str, int]] = []
+
+        def _fake_auto_implement(*, repo, event_id):
+            calls.append((repo, event_id))
+            return "implement-job-001"
+
+        triage._run_hermes_cc_auto_implement = _fake_auto_implement
+        triage.maybe_auto_implement(conn, DEFAULT_POLICY, NOW, dry_run=False)
+
+        assert calls == [("demo-repo", eid_hi)], f"expected exactly the high-confidence item, got {calls}"
+        item_hi = triage._get_item(conn, eid_hi)
+        assert item_hi["state"] == triage.STATE_IMPLEMENTING
+        assert item_hi["implement_job"] == "implement-job-001"
+        item_med = triage._get_item(conn, eid_med)
+        assert item_med["state"] == triage.STATE_VERDICT, "a medium-confidence verdict must never auto-implement"
+
+
+def test_auto_implement_claims_the_item_before_dispatching():
+    """The claim must be written BEFORE hermes-cc.sh is called, not after.
+
+    Eligibility is `state='verdict' AND implement_job IS NULL`. If the claim were
+    recorded only after the dispatch returned, a crash in that window would leave the
+    item eligible again on the next tick and open a SECOND implement episode for the
+    same verdict — duplicate branches and duplicate draft PRs. Asserts the state the
+    dispatcher observes while it runs, which is the only way to see the ordering.
+    Also asserts the claim is handed back when the dispatch refuses, so a failed
+    dispatch cannot strand an item in `implementing` with no job to poll."""
+    with _triage_env() as (conn, ctx):
+        eid = _seed_verdict_item(conn, external_id="sig-claim", confidence="high",
+                                 investigate_job="investigate-claim")
+        observed: list[str] = []
+
+        def _observing_dispatch(*, repo, event_id):
+            observed.append(triage._get_item(conn, event_id)["state"])
+            return "implement-job-claim"
+
+        triage._run_hermes_cc_auto_implement = _observing_dispatch
+        triage.maybe_auto_implement(conn, DEFAULT_POLICY, NOW, dry_run=False)
+        assert observed == [triage.STATE_IMPLEMENTING], (
+            f"item must already be claimed while the dispatch runs, saw {observed}")
+
+        # A refused dispatch hands the claim back.
+        eid2 = _seed_verdict_item(conn, external_id="sig-claim-fail", confidence="high",
+                                  investigate_job="investigate-claim-fail")
+        triage._run_hermes_cc_auto_implement = lambda *, repo, event_id: None
+        triage.maybe_auto_implement(conn, DEFAULT_POLICY, NOW, dry_run=False)
+        back = triage._get_item(conn, eid2)
+        assert back["state"] == triage.STATE_VERDICT, back["state"]
+        assert back["implement_job"] is None, back["implement_job"]
+
+
+def test_implement_success_opens_validation_on_a_different_model():
+    with _triage_env() as (conn, ctx):
+        eid = _seed_verdict_item(conn, external_id="sig-impl-ok")
+        conn.execute(
+            "UPDATE triage_items SET state=?, implement_job=? WHERE event_id=?",
+            (triage.STATE_IMPLEMENTING, "implement-job-002", eid),
+        )
+        conn.commit()
+
+        triage._hermes_cc_status = lambda job_id: {
+            "ok": True, "status": "done", "artifactUrl": "https://github.com/jkrumm/demo-repo/pull/9",
+        }
+        validation_calls = []
+
+        def _fake_validation(conn_arg, *, repo, event_id, implement_job, pr_url):
+            validation_calls.append((repo, event_id, implement_job, pr_url))
+            return "validation-job-001"
+
+        triage._run_hermes_cc_validation = _fake_validation
+        triage.poll_implement_jobs(conn, DEFAULT_POLICY, NOW, dry_run=False)
+
+        assert validation_calls == [("demo-repo", eid, "implement-job-002",
+                                     "https://github.com/jkrumm/demo-repo/pull/9")]
+        item = triage._get_item(conn, eid)
+        assert item["state"] == triage.STATE_VALIDATING
+        assert item["validation_job"] == "validation-job-001"
+        assert item["pr_url"] == "https://github.com/jkrumm/demo-repo/pull/9"
+
+
+def test_implement_failure_blocks_without_opening_validation():
+    with _triage_env() as (conn, ctx):
+        eid = _seed_verdict_item(conn, external_id="sig-impl-fail")
+        conn.execute(
+            "UPDATE triage_items SET state=?, implement_job=? WHERE event_id=?",
+            (triage.STATE_IMPLEMENTING, "implement-job-003", eid),
+        )
+        conn.commit()
+
+        triage._hermes_cc_status = lambda job_id: {"ok": False, "status": "failed", "error": "budget exhausted"}
+        validation_calls = []
+        triage._run_hermes_cc_validation = lambda *a, **kw: validation_calls.append(1) or "should-not-run"
+
+        triage.poll_implement_jobs(conn, DEFAULT_POLICY, NOW, dry_run=False)
+
+        assert validation_calls == []
+        item = triage._get_item(conn, eid)
+        assert item["state"] == triage.STATE_MERGE_BLOCKED
+        assert "failed" in item["note"]
+
+
+def test_disagreeing_validation_blocks_the_merge():
+    """A validation verdict that disagrees blocks the merge and puts the
+    disagreement on the card — `merge` must never even be called."""
+    with _triage_env() as (conn, ctx):
+        eid = _seed_verdict_item(conn, external_id="sig-val-disagree")
+        conn.execute(
+            "UPDATE triage_items SET state=?, implement_job=?, validation_job=?, pr_url=? WHERE event_id=?",
+            (triage.STATE_VALIDATING, "implement-job-004", "validation-job-004",
+             "https://github.com/jkrumm/demo-repo/pull/10", eid),
+        )
+        conn.commit()
+        _seed_implement_dispatch(conn, "implement-job-004")
+
+        triage._hermes_cc_status = lambda job_id: {
+            "ok": True, "status": "done",
+            "verdict": {"summary": "the diff does not match the PR body. " + triage.VALIDATION_DISAGREE_MARKER},
+        }
+        merge_calls = []
+        triage._run_hermes_cc_merge = lambda job_id: merge_calls.append(job_id) or None
+
+        triage.poll_validation_jobs(conn, DEFAULT_POLICY, NOW, dry_run=False)
+
+        assert merge_calls == [], "a disagreeing validation must never call merge"
+        item = triage._get_item(conn, eid)
+        assert item["state"] == triage.STATE_MERGE_BLOCKED
+        assert "disagree" in item["note"].lower()
+        d = conn.execute("SELECT validation_status FROM dispatches WHERE job_id=?",
+                         ("implement-job-004",)).fetchone()
+        assert d["validation_status"] == "disagreed"
+
+
+def test_confirmed_validation_merges_and_a_failed_deploy_check_still_lands_merged():
+    with _triage_env() as (conn, ctx):
+        eid = _seed_verdict_item(conn, external_id="sig-val-confirm")
+        conn.execute(
+            "UPDATE triage_items SET state=?, implement_job=?, validation_job=?, pr_url=? WHERE event_id=?",
+            (triage.STATE_VALIDATING, "implement-job-005", "validation-job-005",
+             "https://github.com/jkrumm/demo-repo/pull/11", eid),
+        )
+        conn.commit()
+        _seed_implement_dispatch(conn, "implement-job-005")
+
+        triage._hermes_cc_status = lambda job_id: {
+            "ok": True, "status": "done",
+            "verdict": {"summary": "looks right. " + triage.VALIDATION_CONFIRM_MARKER},
+        }
+        triage._run_hermes_cc_merge = lambda job_id: {
+            "ok": True, "merged": True,
+            "deploy": {"attempted": False, "reason": "autoDeploy is false for demo-repo"},
+        }
+
+        triage.poll_validation_jobs(conn, DEFAULT_POLICY, NOW, dry_run=False)
+
+        item = triage._get_item(conn, eid)
+        assert item["state"] == triage.STATE_MERGED
+        assert "autoDeploy" in item["note"]
+        d = conn.execute("SELECT validation_status FROM dispatches WHERE job_id=?",
+                         ("implement-job-005",)).fetchone()
+        assert d["validation_status"] == "confirmed"
+
+
+def test_confirmed_merge_with_successful_deploy_enters_liveness_pending():
+    with _triage_env() as (conn, ctx):
+        eid = _seed_verdict_item(conn, external_id="sig-val-deploy")
+        conn.execute(
+            "UPDATE triage_items SET state=?, implement_job=?, validation_job=?, pr_url=? WHERE event_id=?",
+            (triage.STATE_VALIDATING, "implement-job-006", "validation-job-006",
+             "https://github.com/jkrumm/vps/pull/12", eid),
+        )
+        conn.commit()
+        _seed_implement_dispatch(conn, "implement-job-006", repo="vps")
+
+        triage._hermes_cc_status = lambda job_id: {
+            "ok": True, "status": "done",
+            "verdict": {"summary": "correct. " + triage.VALIDATION_CONFIRM_MARKER},
+        }
+        expected = [{"path": "observability/alerts/x.json", "name": "X", "threshold": 5, "thresholdType": "above"}]
+        triage._run_hermes_cc_merge = lambda job_id: {
+            "ok": True, "merged": True,
+            "deploy": {"attempted": True, "ok": True, "key": "hyperdx-apply", "expectedAlerts": expected},
+        }
+
+        triage.poll_validation_jobs(conn, DEFAULT_POLICY, NOW, dry_run=False)
+
+        item = triage._get_item(conn, eid)
+        assert item["state"] == triage.STATE_LIVENESS_PENDING
+        assert item["liveness_deadline"] is not None
+        assert json.loads(item["deploy_expect_json"]) == expected
+
+
+def test_liveness_confirmed_resolves_the_item():
+    with _triage_env() as (conn, ctx):
+        eid = _seed_verdict_item(conn, external_id="sig-live-ok")
+        deadline = (NOW + dt.timedelta(hours=1)).isoformat()
+        conn.execute(
+            "UPDATE triage_items SET state=?, pr_url=?, liveness_deadline=?, deploy_expect_json=?, "
+            "card_channel=?, card_ts=? WHERE event_id=?",
+            (triage.STATE_LIVENESS_PENDING, "https://github.com/jkrumm/vps/pull/13", deadline,
+             json.dumps([{"name": "X"}]), "C0TESTCHAN01", "1000.000009", eid),
+        )
+        conn.commit()
+
+        policy = dict(DEFAULT_POLICY, repos={"demo-repo": {"liveness": "stub-live"}})
+        triage.LIVENESS_ALLOWLIST["stub-live"] = lambda expected: (True, "matches live")
+
+        triage.maybe_check_liveness(conn, policy, NOW, dry_run=False)
+
+        item = triage._get_item(conn, eid)
+        assert item["state"] == triage.STATE_RESOLVED
+        assert item["note"].startswith(triage.LIVENESS_CONFIRMED_NOTE_PREFIX)
+        assert len(ctx.updated) == 1 and len(ctx.posted) == 0
+
+
+def test_liveness_failure_reopens_the_item_with_history():
+    """The direct fix for the 61-re-triage scenario one level up the chain:
+    an item that deployed but never verified live must not silently vanish
+    OR silently sit "deployed" forever — past the window it REOPENS to
+    `new`, carrying the PR link and the last liveness check on the card, so
+    the next escalation does not start from zero."""
+    with _triage_env() as (conn, ctx):
+        eid = _seed_verdict_item(conn, external_id="sig-live-fail")
+        past_deadline = (NOW - dt.timedelta(hours=1)).isoformat()
+        conn.execute(
+            "UPDATE triage_items SET state=?, pr_url=?, liveness_deadline=?, deploy_expect_json=?, "
+            "card_channel=?, card_ts=? WHERE event_id=?",
+            (triage.STATE_LIVENESS_PENDING, "https://github.com/jkrumm/vps/pull/14", past_deadline,
+             json.dumps([{"name": "Y", "threshold": 5}]), "C0TESTCHAN01", "1000.000010", eid),
+        )
+        conn.commit()
+
+        policy = dict(DEFAULT_POLICY, repos={"demo-repo": {"liveness": "stub-live-fail"}})
+        triage.LIVENESS_ALLOWLIST["stub-live-fail"] = lambda expected: (False, "Y: live threshold=9 != expected 5")
+
+        triage.maybe_check_liveness(conn, policy, NOW, dry_run=False)
+
+        item = triage._get_item(conn, eid)
+        assert item["state"] == triage.STATE_NEW, "must reopen to `new`, not sit deployed forever"
+        assert "pull/14" in item["note"], "the reopened item must carry the PR in its history"
+        assert "Y: live threshold=9" in item["note"], "the reopened item must carry the last liveness check"
+        assert len(ctx.updated) == 1 and len(ctx.posted) == 0, (
+            "the reopen must post its final update on the EXISTING card thread, never a new post")
+
+
+def test_liveness_still_inside_window_neither_resolves_nor_reopens():
+    with _triage_env() as (conn, ctx):
+        eid = _seed_verdict_item(conn, external_id="sig-live-waiting")
+        future_deadline = (NOW + dt.timedelta(hours=1)).isoformat()
+        conn.execute(
+            "UPDATE triage_items SET state=?, pr_url=?, liveness_deadline=?, deploy_expect_json=? "
+            "WHERE event_id=?",
+            (triage.STATE_LIVENESS_PENDING, "https://github.com/jkrumm/vps/pull/15", future_deadline,
+             json.dumps([{"name": "Z"}]), eid),
+        )
+        conn.commit()
+
+        policy = dict(DEFAULT_POLICY, repos={"demo-repo": {"liveness": "stub-live-waiting"}})
+        triage.LIVENESS_ALLOWLIST["stub-live-waiting"] = lambda expected: (False, "not yet")
+
+        triage.maybe_check_liveness(conn, policy, NOW, dry_run=False)
+
+        item = triage._get_item(conn, eid)
+        assert item["state"] == triage.STATE_LIVENESS_PENDING, "still inside the window — neither outcome yet"
+        assert ctx.total_calls() == 0
 
 
 # --- runner ------------------------------------------------------------------

@@ -45,6 +45,24 @@
 # An agent that passes --confirm because it "seems fine" has removed the only
 # human in the loop; the skill says so in those words.
 #
+# --AUTO-FROM-ITEM IS A SECOND, NARROWER DOOR, NOT A REPLACEMENT. --confirm stays
+# the gate for Hermes's conversational path — a signed Slack click. The alert
+# triage loop (scripts/triage.py) has no Slack round-trip to click one into, so
+# `dispatch <repo> --tier implement --auto-from-item <event_id>` lets it in a
+# different way: every precondition (a `verdict`-state triage_items row for that
+# event, its linked investigate dispatch done with nextAction=implement AND
+# confidence=high, the repo matching what that verdict was actually about, the
+# repo's own policy ceiling, the implement budget) is RE-CHECKED against
+# watchdog.db at call time, never trusted from the caller's argv. BE HONEST ABOUT
+# WHAT THIS IS NOT: it is not a signature the way --confirm's approval artifact
+# is — nothing here is cryptographically bound the way a Slack click is. It is a
+# precondition the caller cannot fabricate CHEAPLY: every fact it checks is a row
+# a real, already-completed read-only episode wrote earlier, not an argument
+# supplied now. The threat it closes is the loop being WRONG (a stale item, a
+# low-confidence verdict, a repo mismatch) — not the loop being HOSTILE. A wholly
+# compromised triage.py (or anything else on this uid) is the same threat model
+# --confirm's own paragraph above already disclaims for a compromised Hermes.
+#
 # NO RECURSION. A dispatched episode may never dispatch. Enforced structurally,
 # not by instruction: this script refuses to run inside a Claude Code session, and
 # the brief handed to an episode never carries a credential that would let it call
@@ -87,6 +105,11 @@ HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
 REPOS_JSON="${HERMES_CC_REPOS_JSON:-$HERMES_HOME/config/dispatch-repos.json}"
 DB_PATH="${HERMES_CC_DB:-$HERMES_HOME/watchdog.db}"
 AUDIT_LOG="${HERMES_CC_LOG:-$HOME/Library/Logs/hermes-cc.log}"
+# scripts/triage.py's own policy file — shared here for exactly one thing: the
+# `merge` verb's per-repo `autoMergePaths`/`noCiRequired`/`deploy`/`autoDeploy`
+# entries (see cmd_merge's own comment). triage.py owns the signature->repo/verb
+# routing in this same file; this script never reads that half of it.
+TRIAGE_POLICY_JSON="${HERMES_CC_TRIAGE_POLICY_JSON:-$HERMES_HOME/config/triage-policy.json}"
 
 SECRETS_RUN="$HOME/.local/bin/secrets-run"
 BACKEND_FILE="${SECRETS_BACKEND_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/secrets/backend}"
@@ -100,6 +123,10 @@ HTTP_TIMEOUT=30
 # this, --wait gives up and the sweeper owns delivery.
 WAIT_TIMEOUT=170
 WAIT_INTERVAL=5
+# Bound on the one-shot deploy command a successful `merge` may run (step 9,
+# OFF by default — see run_deploy_if_enabled()). Comfortably over an ssh round
+# trip plus a Makefile target upserting a handful of alert definitions.
+DEPLOY_TIMEOUT="${HERMES_CC_DEPLOY_TIMEOUT:-180}"
 
 # Structural spend ceiling: dispatches opened per rolling calendar day (UTC),
 # counted from the dispatches table. Hermes runs unattended and a routing bug
@@ -145,7 +172,10 @@ MERGES_TODAY=-1
 PR_REQUIRED_JSON="${HERMES_CC_PR_REQUIRED_JSON:-$HOME/.claude/pr-required-repos.json}"
 # Re-checked at merge time against sideclaw's own episode ceilings. The episode
 # already refused anything bigger, so this catches only the case that matters:
-# something pushed to the branch between the PR opening and now.
+# something pushed to the branch between the PR opening and now. A BACKSTOP
+# bound, not the primary gate — see merge_gate_check()'s own comment for why:
+# a one-line `restart: no` in a production compose file passes any line count
+# and still has to be refused by declared path scope.
 MAX_MERGE_FILES=40
 MAX_MERGE_LINES=2000
 
@@ -198,6 +228,18 @@ CONTEXT_FILE=""
 ORIGIN_CHANNEL=""
 ORIGIN_THREAD=""
 ORIGIN_EVENT=""
+# triage.py's own second door into `implement` — see the header comment and
+# require_auto_from_item(). Set only by --auto-from-item; validated once, in
+# cmd_dispatch, before it can influence anything.
+AUTO_FROM_ITEM=""
+AUTO_FROM_ITEM_JOB=""
+# Per-job model override, forwarded verbatim into sideclaw's `dispatch` body
+# (see sideclaw_submit()). A model id is not a path, a command or a URL — sideclaw
+# itself validates and routes it (server/lib/routing.ts) — so this is a plain
+# passthrough, not a closed allowlist. Used today by triage.py's step-7
+# validation episode, which deliberately runs on a DIFFERENT model than the one
+# that wrote the implement episode it is reviewing.
+MODEL=""
 
 VERB=""
 AUDIT_ARGS=""
@@ -555,7 +597,11 @@ resolve_tier() {
 # them". Three call sites asked that question inline before; three copies of a security
 # condition is three chances for one of them to drift out of step with the others.
 tier_is_gated() { in_list "$TIER" "${GATED_TIERS[@]}"; }
-awaiting_confirm() { tier_is_gated && [ "$CONFIRM" != 1 ]; }
+# A validated --auto-from-item stands in for the signed approval on THIS
+# invocation only — require_auto_from_item() already policy_err'd out before
+# this can ever be reached with a value that failed its own re-checks, so
+# "AUTO_FROM_ITEM is set" here means "AUTO_FROM_ITEM already passed."
+awaiting_confirm() { tier_is_gated && [ "$CONFIRM" != 1 ] && [ -z "$AUTO_FROM_ITEM" ]; }
 
 tier_rank() {
   case "$1" in
@@ -563,6 +609,80 @@ tier_rank() {
     author)      printf '2' ;;
     implement)   printf '3' ;;
     *)           printf '99' ;;
+  esac
+}
+
+# --- --auto-from-item: the triage loop's own implement gate ------------------
+#
+# See the header comment for what this is and is not. Every fact below is read
+# fresh from $DB_PATH — the same watchdog.db triage.py itself writes into — never
+# trusted from an argument, because the whole point is that the caller cannot
+# fabricate any of it cheaply.
+require_auto_from_item() {
+  local event_id="$1" name="$2"
+  [ "$TIER" = implement ] \
+    || usage_err "--auto-from-item is only valid with --tier implement (got '$TIER')"
+  case "$event_id" in
+    ''|*[!0-9]*) usage_err "--auto-from-item must be a triage_items.event_id integer (got: $event_id)" ;;
+  esac
+  local verdict
+  verdict=$(E_ID="$event_id" E_REPO="$name" db_py '
+row = conn.execute(
+    "SELECT state, repo, dispatch_job FROM triage_items WHERE event_id=?",
+    (int(os.environ["E_ID"]),),
+).fetchone()
+if row is None:
+    print("NOROW"); raise SystemExit(0)
+if row["state"] != "verdict":
+    print("STATE " + row["state"]); raise SystemExit(0)
+if row["repo"] != os.environ["E_REPO"]:
+    print("REPO " + str(row["repo"])); raise SystemExit(0)
+job_id = row["dispatch_job"]
+if not job_id:
+    print("NOJOB"); raise SystemExit(0)
+d = conn.execute("SELECT status, verdict_json FROM dispatches WHERE job_id=?", (job_id,)).fetchone()
+if d is None:
+    print("NODISPATCH " + job_id); raise SystemExit(0)
+if d["status"] != "done":
+    print("NOTDONE " + d["status"]); raise SystemExit(0)
+try:
+    verdict_obj = json.loads(d["verdict_json"]) if d["verdict_json"] else None
+except ValueError:
+    verdict_obj = None
+if not isinstance(verdict_obj, dict):
+    print("NOVERDICT"); raise SystemExit(0)
+next_action = str(verdict_obj.get("nextAction") or "")
+confidence = str(verdict_obj.get("confidence") or "")
+if next_action != "implement":
+    print("NEXTACTION " + next_action); raise SystemExit(0)
+if confidence != "high":
+    print("CONFIDENCE " + confidence); raise SystemExit(0)
+print("OK " + job_id)
+') || precond_err "could not read triage item $event_id from $DB_PATH"
+  case "$verdict" in
+    "OK "*)
+      AUTO_FROM_ITEM_JOB="${verdict#OK }"
+      return 0 ;;
+    NOROW)
+      policy_err "no triage_items row for event_id $event_id — --auto-from-item names a triage_items.event_id, not a dispatch job id or a bare events.id from another table" ;;
+    "STATE "*)
+      policy_err "triage item $event_id is in state '${verdict#STATE }', not 'verdict' — --auto-from-item only fires off a completed investigation" ;;
+    "REPO "*)
+      policy_err "triage item $event_id's own recorded repo is '${verdict#REPO }', not '$name' — the repo on this dispatch must match the repo the verdict was actually about" ;;
+    NOJOB)
+      policy_err "triage item $event_id has no linked dispatch_job — nothing was ever investigated for it" ;;
+    "NODISPATCH "*)
+      policy_err "triage item $event_id points at dispatch job '${verdict#NODISPATCH }', which has no record in $DB_PATH" ;;
+    "NOTDONE "*)
+      policy_err "triage item $event_id's investigation finished as '${verdict#NOTDONE }', not 'done' — a failed or still-running episode is not a verdict" ;;
+    NOVERDICT)
+      policy_err "triage item $event_id's dispatch recorded no parseable verdict" ;;
+    "NEXTACTION "*)
+      policy_err "triage item $event_id's verdict says nextAction='${verdict#NEXTACTION }', not 'implement' — --auto-from-item only fires on an investigation that concluded implement is warranted" ;;
+    "CONFIDENCE "*)
+      policy_err "triage item $event_id's verdict says confidence='${verdict#CONFIDENCE }', not 'high' — a medium/low-confidence verdict needs a human, not an unattended implement" ;;
+    *)
+      precond_err "unexpected --auto-from-item verdict from $DB_PATH: $verdict" ;;
   esac
 }
 
@@ -689,6 +809,12 @@ CREATE INDEX IF NOT EXISTS idx_approvals_hash ON dispatch_approvals(payload_hash
 #                                 the path holds by then (the file is usually gone).
 #   dispatches.poll_misses        consecutive sideclaw 404s the sweeper has
 #                                 seen for this job; 3 -> status `lost`.
+#   dispatches.validation_job_id  the job id of triage.py's own step-7 review
+#                                 episode of THIS (implement) dispatch's diff.
+#   dispatches.validation_status  NULL | 'confirmed' | 'disagreed' | 'error',
+#                                 written by triage.py once that review lands.
+#                                 cmd_merge's gate refuses anything but the
+#                                 literal string 'confirmed'.
 
 # Every DB helper passes values as bound parameters from the environment. No verb
 # accepts SQL, and none is assembled from caller input — same rule as the paths.
@@ -707,6 +833,16 @@ if 'merged_at' not in cols:
     conn.execute('ALTER TABLE dispatches ADD COLUMN merged_at TEXT')
 if 'poll_misses' not in cols:
     conn.execute('ALTER TABLE dispatches ADD COLUMN poll_misses INTEGER NOT NULL DEFAULT 0')
+# The step-7 validation leg (triage.py's own second episode, a different model
+# reviewing an implement dispatch's actual diff) writes these two directly —
+# same 'extra writer touching a column it doesn't own' pattern dispatch-sweep.py
+# already uses on this table. validation_status is NULL until a validation
+# episode reaches a terminal verdict; cmd_merge's gate treats anything other
+# than the literal string 'confirmed' (including NULL) as a block.
+if 'validation_job_id' not in cols:
+    conn.execute('ALTER TABLE dispatches ADD COLUMN validation_job_id TEXT')
+if 'validation_status' not in cols:
+    conn.execute('ALTER TABLE dispatches ADD COLUMN validation_status TEXT')
 acols = {r[1] for r in conn.execute('PRAGMA table_info(dispatch_approvals)')}
 if 'argv_json' not in acols:
     conn.execute('ALTER TABLE dispatch_approvals ADD COLUMN argv_json TEXT')
@@ -1113,7 +1249,7 @@ sideclaw_submit() {
   local body out status resp
   need curl
   body=$(S_CWD="$REPO_PATH" S_TIER="$TIER" S_BRIEF="$BRIEF" S_CONTEXT="$CONTEXT" \
-      S_SENSITIVE="$REPO_SENSITIVE" python3 -c '
+      S_SENSITIVE="$REPO_SENSITIVE" S_MODEL="$MODEL" python3 -c '
 import json, os
 params = {"cwd": os.environ["S_CWD"], "tier": os.environ["S_TIER"],
           "brief": os.environ["S_BRIEF"]}
@@ -1125,6 +1261,10 @@ if os.environ.get("S_CONTEXT"):
 # (assertSensitiveTierAllowed) rather than trusting this flag on its own.
 if os.environ.get("S_SENSITIVE") == "1":
     params["sensitive"] = True
+# --model is a plain passthrough (see the MODEL global comment above) — absent
+# by default, so an ordinary body stays byte-identical to before this existed.
+if os.environ.get("S_MODEL"):
+    params["model"] = os.environ["S_MODEL"]
 print(json.dumps({"tool": "dispatch", "params": params}))
 ') || precond_err "could not build the dispatch request body"
 
@@ -1232,6 +1372,11 @@ cmd_dispatch() {
   resolve_repo "$name"
   TIER="${TIER:-investigate}"
   resolve_tier "$TIER" "$name"
+  # Re-checked from watchdog.db at call time, before anything else — see
+  # require_auto_from_item()'s own header. Only ever set by --auto-from-item.
+  if [ -n "$AUTO_FROM_ITEM" ]; then
+    require_auto_from_item "$AUTO_FROM_ITEM" "$name"
+  fi
   # --why is checked before the brief is read: it is a property of the request,
   # not of the payload, so a caller that forgot it should be told immediately
   # rather than after piping in 8k of material.
@@ -1278,9 +1423,17 @@ cmd_dispatch() {
   check_budget
 
   # The gate, before anything is submitted. It refuses unless a Slack button was
-  # actually clicked for this exact brief + context — see the SIGNED APPROVAL section.
+  # actually clicked for this exact brief + context — see the SIGNED APPROVAL
+  # section — UNLESS --auto-from-item already stood in for it above (validated
+  # once, before the plan branch; awaiting_confirm() already treated it as
+  # confirmed for the plan-vs-execute split, so this is the same decision made
+  # consistently on the execute path).
   if tier_is_gated; then
-    require_signed_approval "dispatch" "$name" "$TIER" "$BRIEF" "$WHY" "$CONTEXT"
+    if [ -n "$AUTO_FROM_ITEM" ]; then
+      APPROVED_BY="triage:item-${AUTO_FROM_ITEM}:job-${AUTO_FROM_ITEM_JOB}"
+    else
+      require_signed_approval "dispatch" "$name" "$TIER" "$BRIEF" "$WHY" "$CONTEXT"
+    fi
   fi
 
   local resp job_id
@@ -1573,6 +1726,193 @@ check_merge_budget() {
     || policy_err "daily merge budget exhausted ($used/$MAX_MERGES_PER_DAY landed today, UTC — resets at 00:00 UTC). This is the tightest ceiling in the script because a merge is the only act here that changes what runs. To proceed now, raise it deliberately: HERMES_CC_MERGE_BUDGET=<n> hermes-cc.sh merge …"
 }
 
+# --- the merge gate: declared path scope, CI reality, step-7 validation ------
+#
+# Re-keyed off measured findings, not a redesign for its own sake. The OLD
+# primary key was MAX_MERGE_FILES/MAX_MERGE_LINES (40 files / 2000 lines) —
+# nothing like the narrow class this verb was meant for, and its CI check was
+# `mergeable_state == "clean"`, which GitHub reports as clean whenever a repo
+# has ZERO required PR-time checks — true for `vps` (no .github/workflows at
+# all) and `research-gateway`, so that condition was passing with nothing
+# having run. The size ceilings stay, but only as a BACKSTOP now (checked
+# earlier in cmd_merge, unchanged) — a one-line `restart: no` in a production
+# compose file passes any line count and must still be refused by path scope.
+#
+# The new primary key is `config/triage-policy.json`'s `repos.<repo>` entry:
+#   autoMergePaths  a glob list. EVERY changed path must match one, or refuse —
+#                   no repo gets an implicit allow by omission.
+#   noCiRequired    an explicit per-repo acknowledgement that this repo has no
+#                   PR-time checks, so their absence is a known condition
+#                   rather than a silently-passed test. A repo with zero
+#                   check-runs on the head commit and NO noCiRequired entry
+#                   FAILS this gate — that inversion is the point.
+# Plus, unconditionally: the step-7 validation (a DIFFERENT model reviewing
+# the actual diff — see triage.py) must have written 'confirmed', never a
+# missing, disagreeing, or errored review read as a pass.
+merge_gate_check() {
+  local repo="$1" files_json="$2" check_runs_json="$3" validation="$4"
+  M_REPO="$repo" M_FILES="$files_json" M_CHECKS="$check_runs_json" \
+  M_VALIDATION="$validation" M_POLICY="$TRIAGE_POLICY_JSON" python3 -c '
+import fnmatch, json, os
+
+try:
+    with open(os.environ["M_POLICY"]) as f:
+        policy = json.load(f)
+except (OSError, ValueError) as e:
+    print("POLICYERR " + str(e)); raise SystemExit(0)
+
+entry = (policy.get("repos") or {}).get(os.environ["M_REPO"]) or {}
+paths = entry.get("autoMergePaths")
+if not isinstance(paths, list) or not paths or not all(isinstance(p, str) for p in paths):
+    print("NOPATHS"); raise SystemExit(0)
+
+files = [f.get("filename") for f in json.loads(os.environ["M_FILES"]) if f.get("filename")]
+bad = [f for f in files if not any(fnmatch.fnmatch(f, p) for p in paths)]
+if bad:
+    print("OUTOFSCOPE " + ",".join(bad)); raise SystemExit(0)
+
+runs = json.loads(os.environ["M_CHECKS"]).get("check_runs", [])
+if not runs:
+    if not entry.get("noCiRequired"):
+        print("NOCI"); raise SystemExit(0)
+else:
+    bad_runs = [str(r.get("name")) for r in runs
+                if r.get("status") != "completed"
+                or r.get("conclusion") not in ("success", "neutral", "skipped")]
+    if bad_runs:
+        print("CIFAILED " + ",".join(bad_runs)); raise SystemExit(0)
+
+if os.environ["M_VALIDATION"] != "confirmed":
+    print("NOVALIDATION " + (os.environ["M_VALIDATION"] or "(none)")); raise SystemExit(0)
+
+print("OK")
+'
+}
+
+# --- deploy — declared, path-scoped, OFF by default ---------------------------
+#
+# Merging is not shipping here: `vps/observability/` has no CI, so an alert
+# change only takes effect once someone runs the deploy command — which is
+# exactly why a false threshold sat correct-and-unapplied. Same closed-
+# allowlist shape as `verb`/`evidence` in triage.py's own VERB_ALLOWLIST/
+# EVIDENCE_ALLOWLIST: config/triage-policy.json names a KEY, this script owns
+# the argv — a policy file must never be able to name an arbitrary command.
+# Seeded with exactly one. Ships with every repo's `autoDeploy` unset/false —
+# see docs/triage.md for how to turn it on.
+deploy_argv() {
+  case "$1" in
+    hyperdx-apply) DEPLOY_ARGV=(ssh vps "cd ~/vps && make hyperdx-apply ENV=prod") ;;
+    *) return 1 ;;
+  esac
+}
+DEPLOY_ARGV=()
+
+# For every merged path matching observability/alerts/*.json, fetch its content
+# AT THE MERGE SHA via GitHub's contents API — never the local checkout, which
+# has no reason to have pulled yet — and pull out name/threshold/thresholdType.
+# This is what triage.py's `hyperdx-alert-state` liveness probe later re-reads
+# FROM HyperDX's own /api/api/v2/alerts (the same endpoint vps/scripts/
+# hyperdx-sync.sh uses) and compares against — closing the loop this whole
+# chain exists for. Best-effort: a fetch or parse failure for one path is
+# skipped, never fatal to the deploy itself, which already ran.
+collect_expected_alerts() {
+  local owner="$1" repo="$2" files_json="$3" merge_sha="$4"
+  local paths
+  paths=$(RESP="$files_json" python3 -c '
+import json, os
+for f in json.loads(os.environ["RESP"]):
+    fn = f.get("filename") or ""
+    if fn.startswith("observability/alerts/") and fn.endswith(".json"):
+        print(fn)
+')
+  local items=() p content
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    github_api GET "/repos/$owner/$repo/contents/$p?ref=$merge_sha"
+    [ "$GH_STATUS" = "200" ] || continue
+    content=$(RESP="$GH_BODY" P="$p" python3 -c '
+import base64, json, os
+obj = json.loads(os.environ["RESP"])
+try:
+    alert = json.loads(base64.b64decode(obj.get("content", "")))
+except Exception:
+    print(""); raise SystemExit(0)
+print(json.dumps({"path": os.environ["P"], "name": alert.get("name"),
+                   "threshold": alert.get("threshold"), "thresholdType": alert.get("thresholdType")}))
+' 2>/dev/null) || content=""
+    [ -n "$content" ] && items+=("$content")
+  done <<< "$paths"
+  if [ "${#items[@]}" -eq 0 ]; then
+    printf '[]'
+  else
+    python3 -c '
+import json, sys
+print(json.dumps([json.loads(x) for x in sys.argv[1:]]))
+' "${items[@]}"
+  fi
+}
+
+# Called only after a real merge succeeded. Never raises: every branch prints a
+# small JSON object describing what happened (or why nothing did) so cmd_merge
+# can fold it straight into emit_merged's own output — deploy is best-effort
+# and must never turn a landed merge into a script failure.
+run_deploy_if_enabled() {
+  local repo="$1" owner="$2" files_json="$3" merge_sha="$4"
+  local verdict
+  verdict=$(M_REPO="$repo" M_POLICY="$TRIAGE_POLICY_JSON" python3 -c '
+import json, os
+try:
+    with open(os.environ["M_POLICY"]) as f:
+        policy = json.load(f)
+except (OSError, ValueError) as e:
+    print("ERR " + str(e)); raise SystemExit(0)
+entry = (policy.get("repos") or {}).get(os.environ["M_REPO"]) or {}
+if not entry.get("autoDeploy"):
+    print("OFF"); raise SystemExit(0)
+key = entry.get("deploy")
+if not key or not isinstance(key, str):
+    print("NOKEY"); raise SystemExit(0)
+print("GO " + key)
+') || verdict="ERR could not read $TRIAGE_POLICY_JSON"
+  case "$verdict" in
+    OFF)
+      printf '{"attempted": false, "reason": "autoDeploy is false for %s"}' "$repo" ;;
+    NOKEY)
+      printf '{"attempted": false, "reason": "autoDeploy is true for %s but no deploy key is declared"}' "$repo" ;;
+    "ERR "*)
+      D_REASON="${verdict#ERR }" python3 -c '
+import json, os
+print(json.dumps({"attempted": False, "reason": os.environ["D_REASON"]}))
+' ;;
+    "GO "*)
+      local key="${verdict#GO }" out rc expected_json="[]"
+      DEPLOY_ARGV=()
+      if ! deploy_argv "$key"; then
+        D_KEY="$key" python3 -c '
+import json, os
+print(json.dumps({"attempted": False,
+                   "reason": "deploy key " + os.environ["D_KEY"] + " is not in the allowlist"}))
+'
+        return 0
+      fi
+      out=$(timeout "$DEPLOY_TIMEOUT" "${DEPLOY_ARGV[@]}" 2>&1) ; rc=$?
+      [ "$rc" -eq 0 ] && expected_json=$(collect_expected_alerts "$owner" "$repo" "$files_json" "$merge_sha")
+      D_KEY="$key" D_RC="$rc" D_OUT="$out" D_EXPECTED="$expected_json" python3 -c '
+import json, os
+rc = int(os.environ["D_RC"])
+try:
+    expected = json.loads(os.environ["D_EXPECTED"])
+except ValueError:
+    expected = []
+print(json.dumps({"attempted": True, "ok": rc == 0, "key": os.environ["D_KEY"],
+                   "exitCode": rc, "output": os.environ["D_OUT"][-2000:],
+                   "expectedAlerts": expected}))
+' ;;
+    *)
+      printf '{"attempted": false, "reason": "unexpected deploy policy verdict"}' ;;
+  esac
+}
+
 cmd_merge() {
   local job_id="${1:-}"
   [ -n "$job_id" ] || usage_err "usage: hermes-cc.sh merge <job-id> --why \"<reason>\" --confirm [--json]"
@@ -1591,7 +1931,7 @@ cmd_merge() {
   # single quotes, and this block is expanded inside db_py's double-quoted python
   # source, where escaping them is a trap with no upside.
   row=$(JOB_ID="$job_id" db_py '
-r = conn.execute("SELECT tier, repo, status, artifact_url, merged_at "
+r = conn.execute("SELECT tier, repo, status, artifact_url, merged_at, validation_status "
                  "FROM dispatches WHERE job_id=?", (os.environ["JOB_ID"],)).fetchone()
 if r is None:
     print("MISSING")
@@ -1604,6 +1944,7 @@ else:
   status=$(printf '%s' "$row" | sed -n 3p)
   artifact=$(printf '%s' "$row" | sed -n 4p)
   local already; already=$(printf '%s' "$row" | sed -n 5p)
+  local validation_status; validation_status=$(printf '%s' "$row" | sed -n 6p)
   TIER="$tier"
 
   [ -z "$already" ] || policy_err "dispatch $job_id was already merged at $already. Re-merging is not a retry — if something is wrong with what landed, that is a new change, not a second merge."
@@ -1688,6 +2029,33 @@ print(",".join(bad))
   [ -z "$forbidden" ] \
     || policy_err "$owner/$repo#$pr touches CI definitions ($forbidden). A dispatch may never change what runs in CI, and merging one that does would launder exactly that."
 
+  # --- the re-keyed gate: path scope, CI reality, step-7 validation ----------
+  # See merge_gate_check()'s own comment for what changed and why.
+  local check_runs_json gate_verdict
+  github_api GET "/repos/$owner/$repo/commits/$pr_head_sha/check-runs"
+  [ "$GH_STATUS" = "200" ] \
+    || remote_err "GitHub returned HTTP $GH_STATUS reading check-runs for $owner/$repo@$pr_head_sha"
+  check_runs_json="$GH_BODY"
+  gate_verdict=$(merge_gate_check "$repo" "$files_json" "$check_runs_json" "$validation_status") \
+    || precond_err "could not evaluate the merge gate for $owner/$repo#$pr"
+  case "$gate_verdict" in
+    OK) : ;;
+    NOPATHS)
+      policy_err "no autoMergePaths declared for '$repo' in $TRIAGE_POLICY_JSON — path scope is the primary merge gate now; nothing merges without an explicit declared scope. Nothing was merged." ;;
+    OUTOFSCOPE\ *)
+      policy_err "$owner/$repo#$pr touches path(s) outside '$repo's declared autoMergePaths: ${gate_verdict#OUTOFSCOPE }. Nothing was merged." ;;
+    NOCI)
+      policy_err "$owner/$repo#$pr's head commit has zero CI check-runs and '$repo' has no noCiRequired acknowledgement in $TRIAGE_POLICY_JSON. A repo with no required checks must FAIL this gate, not pass it silently — add noCiRequired deliberately, or add required checks. Nothing was merged." ;;
+    CIFAILED\ *)
+      policy_err "$owner/$repo#$pr's CI has not passed cleanly on the head commit: ${gate_verdict#CIFAILED }. Nothing was merged." ;;
+    NOVALIDATION\ *)
+      policy_err "the step-7 validation for dispatch $job_id has not confirmed (status: ${gate_verdict#NOVALIDATION }). A missing, disagreeing, or errored validation blocks the merge. Nothing was merged." ;;
+    POLICYERR\ *)
+      precond_err "$TRIAGE_POLICY_JSON is malformed: ${gate_verdict#POLICYERR }" ;;
+    *)
+      precond_err "unexpected merge gate verdict: $gate_verdict" ;;
+  esac
+
   local method
   method=$(pick_merge_method "$repo_json") \
     || policy_err "$owner/$repo allows no merge method this verb can use (squash, rebase, merge commit all disabled)."
@@ -1729,8 +2097,11 @@ print(",".join(bad))
   done
   [ "$mergeable" = true ] \
     || policy_err "$owner/$repo#$pr is not mergeable (state: $state_now) — usually a conflict with $default_branch. Nothing was merged."
-  [ "$state_now" = clean ] \
-    || policy_err "$owner/$repo#$pr is '$state_now', not 'clean'. 'blocked' means a required review or status check is missing; 'unstable' means something is failing; 'behind' means the branch needs updating. Each of those is a human's call, not this verb's. Nothing was merged."
+  # NOT `[ "$state_now" = clean ]` — measured wrong, see merge_gate_check()'s own
+  # comment: `clean` is what GitHub reports whenever a repo has zero required
+  # checks, so this used to read as "CI passed" with nothing having run. `mergeable`
+  # above already carries the real conflict signal; CI reality is now the
+  # check-runs-based gate that already ran, above.
 
   local body_file merge_resp
   body_file=$(mktemp "${TMPDIR:-/tmp}/hermes-cc-merge.XXXXXX") \
@@ -1770,8 +2141,13 @@ conn.execute("UPDATE dispatches SET merged_at=? WHERE job_id=?",
   github_api DELETE "/repos/$owner/$repo/git/refs/heads/$pr_head"
   case "$GH_STATUS" in 204|422) deleted=true ;; esac
 
+  # --- deploy (step 9) — best-effort, OFF by default, never fails the merge --
+  local deploy_json
+  deploy_json=$(run_deploy_if_enabled "$repo" "$owner" "$files_json" "$merge_sha") \
+    || deploy_json='{"attempted": false, "reason": "deploy check itself failed to run"}'
+
   merge_count
-  emit_merged "$owner/$repo" "$pr" "$pr_title" "$method" "$merge_sha" "$pr_head" "$deleted"
+  emit_merged "$owner/$repo" "$pr" "$pr_title" "$method" "$merge_sha" "$pr_head" "$deleted" "$deploy_json"
 }
 
 # Squash first: a dispatch branch is one unit of work by construction, and a
@@ -2092,12 +2468,12 @@ print(json.dumps(out, indent=2))
 }
 
 emit_merged() {
-  local slug=$1 pr=$2 title=$3 method=$4 sha=$5 head=$6 deleted=$7
+  local slug=$1 pr=$2 title=$3 method=$4 sha=$5 head=$6 deleted=$7 deploy_json="${8:-}"
   if [ "$JSON" = 1 ]; then
     JSON_EMITTED=1
     E_SLUG="$slug" E_PR="$pr" E_TITLE="$title" E_METHOD="$method" E_SHA="$sha" \
     E_HEAD="$head" E_DELETED="$deleted" E_MERGES="$MERGES_TODAY" \
-    E_MERGEMAX="$MAX_MERGES_PER_DAY" python3 -c '
+    E_MERGEMAX="$MAX_MERGES_PER_DAY" E_DEPLOY="$deploy_json" python3 -c '
 import json, os
 used, mx = int(os.environ["E_MERGES"]), int(os.environ["E_MERGEMAX"])
 out = {"verb": "merge", "ok": True, "merged": True,
@@ -2114,6 +2490,10 @@ if mx - used <= 1:
     out["mergeBudget"]["warning"] = (
         f"{max(mx - used, 0)} of {mx} merges left today (UTC day). Raise it "
         "deliberately with HERMES_CC_MERGE_BUDGET=<n> if the ceiling is wrong.")
+try:
+    out["deploy"] = json.loads(os.environ["E_DEPLOY"]) if os.environ.get("E_DEPLOY") else None
+except ValueError:
+    out["deploy"] = None
 print(json.dumps(out, indent=2))
 '
   else
@@ -2121,6 +2501,16 @@ print(json.dumps(out, indent=2))
     [ -n "$sha" ] && printf '  commit: %s\n' "$sha"
     [ "$deleted" = true ] && printf '  branch %s deleted\n' "$head"
     printf '  budget: %s/%s merges today\n' "$MERGES_TODAY" "$MAX_MERGES_PER_DAY"
+    if [ -n "$deploy_json" ]; then
+      E_DEPLOY="$deploy_json" python3 -c '
+import json, os
+d = json.loads(os.environ["E_DEPLOY"])
+if d.get("attempted"):
+    print(f"  deploy: {d.get(\"key\")} {\"ok\" if d.get(\"ok\") else \"FAILED\"} (exit {d.get(\"exitCode\")})")
+else:
+    print(f"  deploy: skipped ({d.get(\"reason\")})")
+'
+    fi
   fi
 }
 
@@ -2134,11 +2524,21 @@ hermes-cc — hand a bounded Claude Code episode to one repo, and track it.
                             [--why "reason"] [--confirm]
                             [--brief-file P] [--context-file P]
                             [--origin-channel C…] [--origin-thread TS]
-                            [--origin-event N]
+                            [--origin-event N] [--auto-from-item N] [--model ID]
 
 VERBS
   dispatch <repo>      Open an episode inside <repo>. Brief on stdin (quoted
                        heredoc) or --brief-file. --wait polls in-turn.
+                       --auto-from-item <event_id> is a second, narrower door
+                       into `implement`, for scripts/triage.py only — every
+                       precondition (a `verdict`-state triage item for that
+                       event, its investigate dispatch done with
+                       nextAction=implement + confidence=high, the repo
+                       matching, budget) is re-checked from watchdog.db at
+                       call time; no --confirm needed once it passes. --model
+                       overrides the worker model for this one job (sideclaw
+                       validates/routes it) — used by triage.py's step-7
+                       validation episode, deliberately a different model.
   status <job-id>      Poll one episode; folds a terminal outcome into its record.
                        After sideclaw prunes the job (24 h) it answers from the
                        record's own verdict instead.
@@ -2178,10 +2578,21 @@ MERGE     `merge <job-id>` lands the draft PR an `implement` episode opened, wit
           same file the branch-protection hook reads — and only when every bound
           the episode was held to still holds against the CURRENT head: base is
           the default branch, head is a dispatch/… branch in this repo (never a
-          fork), no .github/workflows change, size ceilings intact,
-          mergeable_state exactly `clean`. The head SHA is pinned in the merge
+          fork), no .github/workflows change, size ceilings intact (a BACKSTOP,
+          not primary — see below), no merge conflict. The PRIMARY gate is
+          config/triage-policy.json's `repos.<repo>` entry: EVERY changed path
+          must match `autoMergePaths`, and the head commit's CI check-runs must
+          either all pass or the repo must explicitly declare `noCiRequired` —
+          a repo with zero checks and no such entry FAILS this gate rather than
+          reading `mergeable_state: clean` (vacuously true with nothing run) as
+          a pass. The step-7 validation (dispatches.validation_status) must
+          also read exactly `confirmed`. The head SHA is pinned in the merge
           call, so a push landing mid-inspection fails the merge instead of
-          riding it.
+          riding it. On success, a repo whose policy entry sets
+          `"autoDeploy": true` (default false — ships disabled) runs its
+          declared `deploy` key (same closed-allowlist shape) if every merged
+          path is inside `autoMergePaths`; the outcome rides in the merge
+          response's `deploy` field.
 
 THE BRIEF IS DATA, NEVER COMMAND
   It is read from stdin or a file — never taken as an argv string. Use a QUOTED
@@ -2255,6 +2666,14 @@ while [ $# -gt 0 ]; do
       [ $# -ge 2 ] || usage_err "--origin-event needs an events.id"
       ORIGIN_EVENT="$2"; shift 2 ;;
     --origin-event=*) ORIGIN_EVENT="${1#--origin-event=}"; shift ;;
+    --auto-from-item)
+      [ $# -ge 2 ] || usage_err "--auto-from-item needs a triage_items.event_id"
+      AUTO_FROM_ITEM="$2"; shift 2 ;;
+    --auto-from-item=*) AUTO_FROM_ITEM="${1#--auto-from-item=}"; shift ;;
+    --model)
+      [ $# -ge 2 ] || usage_err "--model needs a model id"
+      MODEL="$2"; shift 2 ;;
+    --model=*) MODEL="${1#--model=}"; shift ;;
     # The brief is never an argv string. Rejecting the flag by name (rather than
     # letting it fall into "unknown flag") is what teaches the caller the right
     # shape instead of leaving it to guess.
