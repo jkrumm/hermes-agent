@@ -68,6 +68,23 @@
     "             on this box (including this one). Read-only here is a deliberate floor, not an oversight —",
     "             it is the one place where the cost of a bad proposal is not one click.",
     "",
+    "  investigate  hermes-agent. This is the AGENT'S OWN control plane, for a different",
+    "             reason than dotfiles' — the rationale is not a shared 'cost of a bad proposal'",
+    "             sentence, it is this repo's specific property: config.yaml, cron/, scripts/,",
+    "             hooks/ and skills/ are all SYMLINKED LIVE into ~/.hermes/ (see this repo's own",
+    "             docs/symlinks-and-agents.md). A change here is not a deployable artifact reviewed",
+    "             before it ships, it IS the running configuration the moment it lands on disk —",
+    "             a merged edit to config.yaml or scripts/triage.py changes what this very agent",
+    "             does on its next invocation, with no build or deploy step between the two.",
+    "             `implement` opening a draft PR does not by itself change anything live: `merge`",
+    "             operates against GitHub only, and nothing auto-pulls a merged PR into the local",
+    "             ~/SourceRoot/hermes-agent checkout the symlinks point at. The real risk is not",
+    "             automatic — it is a human reflexively pulling a merged config change into the",
+    "             running process without registering that this repo is uniquely a live-config",
+    "             surface, unlike every other repo `implement` reaches. `investigate` keeps an",
+    "             unattended episode read-only here the same way it does for dotfiles, but for",
+    "             this repo-specific reason, not dotfiles' 'bounds every agent on this box' one.",
+    "",
     "DENIED, and staying denied:",
     "  dotfiles-private, homelab-private — private by construction. Their whole point is",
     "    that their contents are not referenced from anywhere else; an agent-readable",
@@ -108,6 +125,6 @@
   "deny": ["dotfiles-private", "homelab-private"],
   "sensitive": ["dotfiles-private", "homelab-private"],
   "tiers": {
-    "investigate": ["dotfiles", "brain"]
+    "investigate": ["dotfiles", "brain", "hermes-agent"]
   }
 }

@@ -35,7 +35,7 @@ Mac Mini M2 Pro — Hermes Agent (always-on)
 | `#media` | C0AS5GUH5U4 | read only (`require_mention_channels`) | — | Podcast/image completions — Hermes is the producer, not a conversant |
 | `#watchdog` | C0ASRULFTSS | write only | — | Hermes posts its own proactive monitoring results (cron `4b1faabda97d`) |
 | `#briefings` | C0AT6TH404R | write only | — | Morning/evening audio reports (cron `cc7900c424a9`, `2d38c80e685c`) |
-| `#agents` | C0BVDE5R562 | write only | — | Agent overview + project-narratives digests (crons `72aa2fb36307`, `9909f808fe17`) plus alert-triage cards (`scripts/triage.py`, not yet registered), only when something moved — `docs/agents-overview.md`, `docs/triage.md` |
+| `#agents` | C0BVDE5R562 | write only | — | Agent overview + project-narratives digests (crons `72aa2fb36307`, `9909f808fe17`) plus alert-triage cards (`scripts/triage.py`, its own LaunchAgent), only when something moved — `docs/agents-overview.md`, `docs/triage.md` |
 
 ### Trigger Matrix
 

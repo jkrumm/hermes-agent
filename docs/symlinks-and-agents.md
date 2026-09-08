@@ -32,11 +32,12 @@
 **Host-level scripts (run by user LaunchAgents, not symlinked):**
 - `scripts/hermes-liveness.sh` — every 5 min (`com.jkrumm.hermes-liveness`, `StartInterval 300`), checks gateway state + Slack connection, pings the push URL resolved via `secrets-run read op://hermes/uptime-kuma/agent-push-url` on success.
 - `scripts/hermes-backup.sh` — daily 03:00 (`com.jkrumm.hermes-backup`, `StartCalendarInterval`), rsyncs `~/.hermes/` → `homelab:/mnt/hdd/backups/hermes/`, pings the push URL resolved via `secrets-run read op://hermes/uptime-kuma/backup-push-url` on success. Holds a `mkdir`-based single-instance lock (`~/Library/Caches/hermes-backup.lock`) so two overlapping runs can never race one another's `rsync --delete`.
+- `scripts/triage.py` — every 10 min (`com.jkrumm.hermes-triage`, `StartInterval 600`), invoked directly as `~/.hermes/hermes-agent/venv/bin/python3 scripts/triage.py --run`. Deliberately a LaunchAgent and not a `hermes cron` job — see `docs/triage.md` § *Why a LaunchAgent, not `hermes cron`* — so the act-loop that notices Hermes is broken keeps running when the gateway is down. No UptimeKuma ping: its own liveness is that its Slack cards keep updating, graded by `make status` like the other two.
 
 Templates live in `launchd/`, rendered into `~/Library/LaunchAgents` by `make setup`
 (`_agents` → `_render-plists`, `__HOME__` substituted; unchanged content is a no-op,
 so re-running never bounces a healthy agent). Logs are declared, never globbed, in
-`dotfiles/scripts/log-rotate.sh`'s `FILES` array: `hermes-{liveness,backup}.{log,err}`
+`dotfiles/scripts/log-rotate.sh`'s `FILES` array: `hermes-{liveness,backup,triage}.{log,err}`
 under `~/Library/Logs`, `~/.hermes/logs/gateway.{log,error.log}` (absolute — the
 gateway's own launchd streams, not this repo's LaunchAgents), plus the audit logs
 `hermes-ops.log` and `hermes-cc.log`.

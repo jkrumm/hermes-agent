@@ -42,8 +42,12 @@ rewritten by accretion. Detection: `watchdog-poll.py`'s `stray_skill` source (30
 mechanism + adoption path: **`docs/symlinks-and-agents.md`**.
 
 **Host-level scripts** (user LaunchAgents, not symlinked): `hermes-liveness.sh` (300s — gateway
-state + Slack connected + the live pid belongs to launchd's job) and `hermes-backup.sh` (daily
-03:00 — rsync to homelab, `mkdir`-lock against overlap). `HERMES_PLISTS_RETIRED` unloads +
+state + Slack connected + the live pid belongs to launchd's job), `hermes-backup.sh` (daily
+03:00 — rsync to homelab, `mkdir`-lock against overlap), and `triage.py` (600s — the alert
+triage act-loop, see **Alert triage** below). Triage moved off `hermes cron` onto its own
+LaunchAgent (2026-09-08) precisely so it does not depend on the gateway process being up to
+run — the loop that notices Hermes is broken cannot itself live inside Hermes.
+`HERMES_PLISTS_RETIRED` unloads +
 removes labels this repo no longer installs — the four `hermes-{webui,serve}{,-liveness}` labels
 sit there since the 2026-09-07 teardown (Collie + Slack are the surfaces; the third-party WebUI
 clone and `hermes serve`/Hermes Desktop are gone). `make status` grades every agent like
@@ -74,7 +78,7 @@ and the help text says so).
 | `deny` list | `dotfiles-private`, `homelab-private`. Both also carry `sensitive: true` — the one carve-out of `deny`, opening `investigate` only, `"sensitive": true` on the submitted body, sideclaw's own scan withholding a matched verdict rather than leaking it. `author`/`implement` stay refused. `brain` is **not** denied: `tiers.investigate` (read-only, worktree-isolated) since 2026-08-15. |
 | Brief is data, never argv | stdin (`<<'BRIEF'` quoted heredoc) or `--brief-file`. **No `--brief`** — as argv it would be shell-expanded before the script ran. |
 | Tiers | `investigate` (read-only → verdict) · `author` (+ one GitHub issue) · `implement` (`dispatch/…` branch + **draft** PR). **Every tier runs in its own throwaway worktree**, read tiers included — `readOnly` removes Edit/Write, not Bash. |
-| Ceilings | `defaultTier: implement`, `investigate` floor for `dotfiles`/`vps`/`homelab`/`brain`. Above-ceiling/denied/outside-root refuses exit 4; a misspelled name is exit 64. No `implement` allowlist, deliberately. |
+| Ceilings | `defaultTier: implement`, `investigate` floor for `dotfiles`/`brain`/`hermes-agent` (`vps` and `homelab` came off it 2026-09-08 — deployment surfaces, not the rules that bound the agents) — the last is this repo's own control plane (`config.yaml`, `scripts/`, `hooks/`, `skills/` are symlinked live into `~/.hermes/`), a different reason than `dotfiles`' — see `config/dispatch-repos.json`'s comment block. Above-ceiling/denied/outside-root refuses exit 4; a misspelled name is exit 64. No `implement` allowlist, deliberately. |
 | `implement` gate | `--why` **and** `--confirm`. Without `--confirm` it prints the plan + `wouldNeverDo` and exits **0**. |
 | Secret scan | refuses (never redacts) a brief carrying credentials, scans the diff's **added lines** too — handler-side. |
 | Budgets | 20 dispatches/UTC day, ≤5 `implement`, ≤3 `merge`, 170s `--wait` cap. `HERMES_CC_{DAILY,IMPLEMENT,MERGE}_BUDGET` to raise. |
@@ -112,9 +116,10 @@ the secret scan, the nonce fence around the brief).
 coverage); `watchdog-poll.py`/`watchdog-slack.py` (`no_agent`, 30 min) poll UptimeKuma/Docker/
 GitHub/Slack/1Password-ref-health into `watchdog.db` and post the digest; `watchdog-summary.py`
 is a read-only briefing snapshot; `dispatch-sweep.py` (`no_agent`, 5 min, registered via
-`hermes cron` not `make setup`) polls sideclaw and delivers verdicts via `hermes send`;
-`triage.py`/`triage-cron.py` (`no_agent`, 10 min, not yet registered) act on that dedup instead
-of just reporting it — see **Alert triage** below.
+`hermes cron` not `make setup`) polls sideclaw and delivers verdicts via `hermes send`.
+`triage.py` used to be planned as a `hermes cron` `no_agent` job here too, but it moved to its
+own LaunchAgent instead (`com.jkrumm.hermes-triage`, 10 min, installed by `make setup`) — see
+**Alert triage** below for why.
 
 **Quiet hours (00:00–07:00) and vacation defer a notification, they do not burn it** — rows
 still insert/refresh/resolve under suppression, only the notification is withheld. A failed
@@ -126,8 +131,8 @@ budget) — keep entry points thin, logic in an imported module. Detail:
 
 ## Alert triage
 
-`scripts/triage.py` (`no_agent` cron, every 10 min — **not yet registered**,
-see `docs/triage.md`) is the act-loop `watchdog-poll.py`'s dedup always
+`scripts/triage.py` (LaunchAgent `com.jkrumm.hermes-triage`, every 10 min — **not** a
+`hermes cron` job, see `docs/triage.md`) is the act-loop `watchdog-poll.py`'s dedup always
 needed: it turns deduplicated `events` rows into one durable, updated-in-place
 Slack card per problem and, once eligible, a real sideclaw `investigate`
 episode — **no LLM call anywhere in the file**. It replaced a full

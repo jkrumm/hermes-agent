@@ -1,7 +1,7 @@
 # Alert triage — the act-loop over watchdog.db
 
-`scripts/triage.py` (`no_agent` cron, every 10 min via `scripts/triage-cron.py` —
-**not yet registered**, see *Registering the cron* below) closes the loop
+`scripts/triage.py` (its own LaunchAgent, `com.jkrumm.hermes-triage`, every 10 min —
+see *Why a LaunchAgent, not `hermes cron`* below) closes the loop
 `scripts/watchdog-poll.py` opened but never acted on: deduplicated `events`
 rows become one durable, updated-in-place Slack card per problem, with a real
 sideclaw investigation attached once a signature repeats or stays open.
@@ -472,24 +472,39 @@ against `triage_items` alone) so a preview against a throwaway copy of
 `update_blocks`) and never shells out to `hermes-cc.sh` — those are the only
 two externally-visible actions this file can take.
 
-## Registering the cron
+## Why a LaunchAgent, not `hermes cron`
 
-**Not done by this change — the user does it.** `scripts/triage-cron.py` is
-the thin registered entry point (mirrors `agents-cron.py`/`narratives-cron.py`
-exactly — `cron/lifecycle_guard.py` rejects a long registered script or one
-whose comments quote command lines, so the logic lives in `triage.py` and the
-loader stays terse):
+**This file originally proposed registering `triage.py` as a `hermes cron`
+`no_agent` job** (via a thin `triage-cron.py` loader, the same shape as
+`agents-cron.py`/`narratives-cron.py`/`dispatch-sweep-cron.py`). An adversarial
+review found the structural flaw before that registration ever happened: a
+`hermes cron` job is scheduled and run *inside* the `ai.hermes.gateway`
+process, so the loop whose entire job is noticing Hermes is broken cannot run
+when Hermes is down. Four real, currently-open `hermes_log` rows in
+`watchdog.db` are exactly that class — one (`slack_bolt.AsyncApp: Failed to
+connect`) open 11 days with `reminder_count` 5 and no action ever taken,
+because the only delivery path a gateway-scheduled job has is the same Slack
+connection that row says is broken.
 
-```bash
-hermes cron create "*/10 * * * *" --name "Alert triage" \
-  --script triage-cron.py --no-agent --deliver slack:C0BVDE5R562
-```
+`triage.py` is instead installed by `make setup` as its own LaunchAgent
+(`com.jkrumm.hermes-triage`, `launchd/com.jkrumm.hermes-triage.plist.template`,
+`StartInterval 600`) invoking `~/.hermes/hermes-agent/venv/bin/python3
+scripts/triage.py --run` directly — no gateway process in the loop at all.
+This is safe specifically because Slack delivery here was already independent
+of the gateway: `post_blocks`/`update_blocks` call `chat.postMessage`/
+`chat.update` over plain HTTP with a token from `resolve_slack_token()`
+(`secrets-run read op://hermes/slack/bot-token`, same as `agents-overview.py`),
+never the gateway's live `slack_bolt.AsyncApp` connection — so this keeps
+working with the gateway fully stopped, which is the one case it exists for.
 
-Verify with `hermes cron list` — `Script: triage-cron.py`, `Mode: no-agent
-(script stdout delivered directly)`. Stdout is always empty in production
-(triage.py posts/updates Slack cards directly and logs diagnostics to
-stderr), so an idle 10-minute pass delivers nothing under `no_agent` — exactly
-the same shape as `dispatch-sweep.py`'s own cron.
+`scripts/triage-cron.py`, the thin `hermes cron`-registered loader this
+section used to describe, is deleted — a `hermes cron` registration is now
+the wrong home for this loop, and a dead loader that still works correctly is
+a trap for the next reader (it would silently duplicate every card/dispatch if
+ever registered by hand). `dispatch-sweep.py`'s own cron loader
+(`dispatch-sweep-cron.py`) is unrelated and unaffected: that job only *reads*
+sideclaw and folds a verdict onto a card `triage.py` already wrote, so it has
+no chicken-and-egg dependency on the gateway being up.
 
 ## Silencing `#alerts`
 

@@ -19,7 +19,7 @@ HERMES_PLUGINS := dispatch-approval
 # banner below for why. Templates live in launchd/, rendered into ~/Library/LaunchAgents.
 LAUNCHD_DIR   := $(HERMES_REPO)/launchd
 LAUNCHAGENTS  := $(HOME)/Library/LaunchAgents
-HERMES_PLISTS := com.jkrumm.hermes-liveness com.jkrumm.hermes-backup
+HERMES_PLISTS := com.jkrumm.hermes-liveness com.jkrumm.hermes-backup com.jkrumm.hermes-triage
 # Labels this repo used to install and no longer does. `_agents` unloads and
 # removes each one, so a rename can never leave two agents racing the same port.
 # com.parantoux.hermes-webui: hand-written into ~/Library/LaunchAgents by the
@@ -136,7 +136,7 @@ _symlinks:
 
 .PHONY: _agents
 _agents:
-	@echo "  LaunchAgents (liveness + backup, both ping UptimeKuma)..."
+	@echo "  LaunchAgents (liveness + backup ping UptimeKuma; triage is the gateway-independent act-loop)..."
 	@chmod +x $(HERMES_REPO)/scripts/hermes-liveness.sh $(HERMES_REPO)/scripts/hermes-backup.sh
 	@mkdir -p "$(LAUNCHAGENTS)"
 	@for label in $(HERMES_PLISTS_RETIRED); do \
