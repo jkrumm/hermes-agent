@@ -658,6 +658,159 @@ def test_uk_sync_env_check_gate(h: Harness):
 
 
 # =============================================================================
+# 9. argo-down ssh fallback — the 2026-05-10 incident shape: argo-api itself
+#    is what's down, so the API probe that normally lists containers fails.
+#    valid_container()/cmd_containers() must still see (and validate against)
+#    the live container list via `ssh <host> docker ps -a`, and a --json
+#    payload during the fallback must stay exactly one parseable object (the
+#    regression this guards: argo_get's failure path stages a --json error
+#    unconditionally — reusing it for the probe would leak a stale object
+#    behind the real payload once the fallback succeeds).
+# =============================================================================
+
+VPS_PS_OUTPUT = (
+    "argo-api\texited\tExited (1) 5 minutes ago\n"
+    "argo-dashboard\trunning\tUp 2 hours\n"
+)
+
+
+def test_container_ssh_fallback(h: Harness):
+    failures = []
+    total = passed = 0
+
+    # (a) API down, ssh up: cmd_containers falls back and succeeds, reporting
+    # source=ssh-fallback, as exactly one parseable --json object.
+    total += 1
+    proc = h.run(["containers", "vps", "--json"], env_extra={
+        "OPS_TEST_CURL_STATUS": "502",
+        "OPS_TEST_SSH_OUTPUT_VPS": VPS_PS_OUTPUT,
+    })
+    try:
+        data = json.loads(proc.stdout.strip())
+    except json.JSONDecodeError as exc:
+        data = None
+        failures.append(f"containers fallback: stdout not exactly one JSON "
+                         f"object: {exc} (stdout={proc.stdout!r})")
+    if data is not None:
+        names = {c.get("name") for c in data.get("containers", [])}
+        ok = (proc.returncode == 0 and data.get("ok") is True
+              and data.get("source") == "ssh-fallback"
+              and names == {"argo-api", "argo-dashboard"})
+        if ok:
+            passed += 1
+        else:
+            failures.append(f"containers fallback: unexpected payload {data!r} "
+                             f"(rc={proc.returncode})")
+
+    # (b) API down AND ssh down: a clean remote failure (exit 3), still
+    # exactly one --json object — never the API's stale error plus a second.
+    total += 1
+    proc = h.run(["containers", "vps", "--json"], env_extra={
+        "OPS_TEST_CURL_STATUS": "502",
+        "OPS_TEST_SSH_EXIT_VPS": "1",
+    })
+    try:
+        data = json.loads(proc.stdout.strip())
+    except json.JSONDecodeError as exc:
+        failures.append(f"containers both-down: stdout not exactly one JSON "
+                         f"object: {exc} (stdout={proc.stdout!r})")
+    else:
+        if proc.returncode == 3 and data.get("ok") is False:
+            passed += 1
+        else:
+            failures.append(f"containers both-down: expected rc=3/ok=false, "
+                             f"got rc={proc.returncode} data={data!r}")
+
+    # (c) The incident this bug is about: `restart vps argo-api` (the down
+    # container) resolves and reaches the dry-run plan even though the API
+    # that would normally validate it is the thing that's down.
+    total += 1
+    ssh_log = h.new_log("ssh")
+    proc = h.run(
+        ["restart", "vps", "argo-api", "--why", "incident drill"],
+        env_extra={
+            "OPS_TEST_CURL_STATUS": "502",
+            "OPS_TEST_SSH_OUTPUT_VPS": VPS_PS_OUTPUT,
+            "OPS_TEST_SSH_LOG": str(ssh_log),
+        },
+    )
+    ok = (proc.returncode == 0 and "DRY RUN" in proc.stdout
+          and "docker restart argo-api" in proc.stdout)
+    if ok:
+        for line in _log_text(ssh_log).splitlines():
+            argv = json.loads(line)
+            if argv and "docker restart" in argv[-1]:
+                ok = False  # dry-run must never reach ssh with the mutating command
+    if ok:
+        passed += 1
+    else:
+        failures.append("restart vps argo-api did not reach a clean dry-run "
+                         f"via the ssh fallback (rc={proc.returncode}, "
+                         f"stdout={proc.stdout[:300]!r})")
+
+    # (d) A name the fallback list does NOT contain is still refused (exit
+    # 64) — the fallback source is validated exactly like the API source,
+    # never a weaker check.
+    total += 1
+    ssh_log = h.new_log("ssh")
+    proc = h.run(
+        ["restart", "vps", "totally-unknown-container", "--why", "test"],
+        env_extra={
+            "OPS_TEST_CURL_STATUS": "502",
+            "OPS_TEST_SSH_OUTPUT_VPS": VPS_PS_OUTPUT,
+            "OPS_TEST_SSH_LOG": str(ssh_log),
+        },
+    )
+    ok = proc.returncode == 64 and "no container named" in (proc.stdout + proc.stderr)
+    if ok:
+        for line in _log_text(ssh_log).splitlines():
+            argv = json.loads(line)
+            if argv and "docker restart" in argv[-1]:
+                ok = False
+    if ok:
+        passed += 1
+    else:
+        failures.append("an unknown container answered by the ssh fallback "
+                         f"was not refused (rc={proc.returncode}, "
+                         f"stdout={proc.stdout[:300]!r})")
+
+    return total, passed, failures
+
+
+# =============================================================================
+# 10. vps stack list — `redeploy vps argo` used to be refused (exit 64)
+#     before it ever reached ssh. Confirms it now resolves to the Makefile's
+#     own per-app target (which owns the image-pinning dance), and that the
+#     three original root stacks are untouched.
+# =============================================================================
+
+def test_redeploy_vps_stacks(h: Harness):
+    failures = []
+    total = passed = 0
+
+    cases = [
+        ("argo", "make argo-up", True),
+        ("networking", "docker compose -f compose.networking.yml up -d", True),
+        ("totally-bogus-stack", None, False),
+    ]
+    for stack, expect_substr, expect_valid in cases:
+        total += 1
+        proc = h.run(["redeploy", "vps", stack, "--why", "test"])
+        if expect_valid:
+            ok = (proc.returncode == 0 and "DRY RUN" in proc.stdout
+                  and expect_substr in proc.stdout)
+        else:
+            ok = proc.returncode == 64 and "unknown stack" in (proc.stdout + proc.stderr)
+        if ok:
+            passed += 1
+        else:
+            failures.append(f"redeploy vps {stack}: unexpected result "
+                             f"(rc={proc.returncode}, stdout={proc.stdout[:300]!r})")
+
+    return total, passed, failures
+
+
+# =============================================================================
 
 def main() -> int:
     h = Harness()
@@ -671,6 +824,8 @@ def main() -> int:
             ("6. audit log", test_audit_log(h)),
             ("7. launchd-repair label allowlist", test_launchd_label_allowlist(h)),
             ("8. uk-sync env-check gate", test_uk_sync_env_check_gate(h)),
+            ("9. container ssh fallback", test_container_ssh_fallback(h)),
+            ("10. redeploy vps stack list", test_redeploy_vps_stacks(h)),
         ]
     finally:
         h.cleanup()

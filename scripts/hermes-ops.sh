@@ -82,8 +82,26 @@ VALID_HOSTS=(homelab vps)
 #
 # Space-separated strings, not arrays: macOS ships bash 3.2 only, which has no
 # namerefs, so `VALID_STACKS_$host` cannot be dereferenced dynamically.
+#
+# homelab has exactly one stack — the whole repo deploys as one
+# docker-compose.yml at its root (`make up`) — so "homelab" is already
+# complete, not a placeholder.
+#
+# vps is NOT one stack: three root compose files (networking, infra,
+# monitoring) PLUS one apps/<name>/compose.yml per app, each with its own
+# `make <name>-up` target. The three root names were the whole list here
+# until the apps were added below — `redeploy vps argo` used to be refused
+# before it ever reached ssh, on the exact stack most likely to need it (the
+# argo-api/argo-dashboard incident this script exists for). This list is
+# still a hardcoded, closed set — deliberately NOT generated from `ls
+# apps/*/compose.yml` at runtime, which would let anything writable into
+# that directory (e.g. a `compose.dev.yml`-shaped surprise, or a future app
+# with no matching Makefile target) silently widen what `redeploy` accepts
+# with no diff to this file. Kept in sync by hand against
+# `grep -E '^[a-zA-Z0-9_-]+-up:' vps/Makefile`; re-check that grep whenever a
+# vps app stack is added or removed.
 VALID_STACKS_homelab="homelab"
-VALID_STACKS_vps="networking infra monitoring"
+VALID_STACKS_vps="networking infra monitoring argo audio-gateway basalt-ui-marketing bun-email-api fpp image-gen-gateway imgproxy meteo photo-gallery research-gateway"
 
 # The four `op run`-wrapped homelab host crons (crontab -l). All share
 # ~/homelab/.env.tpl — which is why one dangling 1Password ref takes out all four
@@ -282,6 +300,38 @@ argo_get() {
   printf '%s' "$body"
 }
 
+# Same request as argo_get, but never raises — a quiet duplicate rather than a
+# thin wrapper, because argo_get's failure path (via load_api_key/remote_err)
+# stages a --json error object into ERR_JSON_FILE UNCONDITIONALLY (see its
+# header comment). That is correct for a real failure; it is wrong for a probe
+# whose failure is expected to be swallowed and retried over ssh — staging it
+# anyway would leak a second, stale JSON object behind the real payload once
+# the ssh fallback goes on to succeed. Used only by containers_for() below.
+argo_get_quiet() {
+  local path=$1 out status body
+  if [ -z "$API_KEY" ]; then
+    local backend
+    backend=$(cat "$BACKEND_FILE" 2>/dev/null || true)
+    case "$backend" in
+      cache) : ;;
+      op) [ -t 0 ] || return 1 ;;
+      *) return 1 ;;
+    esac
+    [ -x "$SECRETS_RUN" ] || return 1
+    command -v timeout >/dev/null 2>&1 || return 1
+    API_KEY=$(timeout "$SECRET_TIMEOUT" "$SECRETS_RUN" read "$REF_API_KEY" 2>/dev/null) || return 1
+    [ -n "$API_KEY" ] || return 1
+  fi
+  command -v curl >/dev/null 2>&1 || return 1
+  out=$(printf 'header = "Authorization: Bearer %s"\n' "$API_KEY" \
+    | timeout "$HTTP_TIMEOUT" curl -sS -K - -w '\n%{http_code}' \
+        --connect-timeout 5 --max-time "$HTTP_TIMEOUT" "${ARGO_BASE}${path}" 2>/dev/null) || return 1
+  status="${out##*$'\n'}"
+  body="${out%$'\n'"${status}"}"
+  [ "$status" = "200" ] && [ -n "$body" ] || return 1
+  printf '%s' "$body"
+}
+
 # Read-only ssh. BatchMode so a missing key fails instead of prompting; timeout so
 # a half-open tailnet connection cannot wedge a cron.
 ssh_run() {
@@ -304,6 +354,67 @@ valid_int() {
   esac
 }
 
+# The live container list, API first, ssh fallback second. valid_container()
+# and cmd_containers() both used to go through argo_get alone — served BY
+# argo-api — so the one incident class this whole script exists for (argo-api
+# itself down, the 2026-05-10 shape) took the read path out along with the
+# write path: the verb that could restart argo couldn't even name it. When the
+# API probe fails, this falls back to a direct read-only `ssh <host> docker ps
+# -a` for host in {vps, homelab} — the only two VALID_HOSTS, so no new host
+# surface is opened — and normalizes it into the same shape argo returns
+# (name/state/health/restartCount), health and restartCount left null since
+# plain `docker ps` doesn't carry them. Sets CONTAINER_SOURCE to "api" or
+# "ssh-fallback" so a caller can report which path answered; a name coming
+# back from either source is still just data fed to the same allowlist check
+# below — this function only ever LISTS, never names a command to run.
+#
+# Results go out through globals (CONTAINER_SOURCE, CONTAINERS_BODY), NOT a
+# `$(containers_for …)` capture — command substitution runs the function in a
+# subshell, and an assignment made there never reaches the caller. Every
+# caller must invoke it as a plain statement (`containers_for "$host" || …`),
+# then read CONTAINERS_BODY.
+CONTAINER_SOURCE=""
+CONTAINERS_BODY=""
+containers_for() {
+  local host=$1 body
+  CONTAINER_SOURCE=""
+  CONTAINERS_BODY=""
+  if body=$(argo_get_quiet "/docker/${host}/containers"); then
+    CONTAINER_SOURCE="api"
+    CONTAINERS_BODY="$body"
+    return 0
+  fi
+  case "$host" in
+    vps|homelab) : ;;
+    *) return 1 ;;
+  esac
+  local raw rc
+  set +e
+  raw=$(ssh_run "$host" "docker ps -a --format '{{.Names}}\t{{.State}}\t{{.Status}}'")
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || return 1
+  CONTAINER_SOURCE="ssh-fallback"
+  CONTAINERS_BODY=$(RAW="$raw" python3 -c '
+import json, os
+
+rows = []
+for line in os.environ["RAW"].splitlines():
+    if not line.strip():
+        continue
+    parts = line.split("\t")
+    name = parts[0] if len(parts) > 0 else ""
+    if not name:
+        continue
+    state = parts[1] if len(parts) > 1 else None
+    status = parts[2] if len(parts) > 2 else None
+    rows.append({"name": name, "state": state, "health": None,
+                 "restartCount": None, "status": status})
+print(json.dumps(rows))
+')
+  return 0
+}
+
 # Two gates, deliberately. The shape check rejects anything that could not be a
 # container name before it is ever put in a URL; the live-list check is what makes
 # `restart` and `logs` incapable of naming something that does not exist.
@@ -312,7 +423,10 @@ valid_container() {
   case "$name" in
     ''|*[!A-Za-z0-9_.-]*) usage_err "not a container name: $name" ;;
   esac
-  body=$(argo_get "/docker/${host}/containers")
+  containers_for "$host" \
+    || remote_err "could not list containers on $host — argo-api unreachable and the ssh fallback also failed"
+  body="$CONTAINERS_BODY"
+  [ "$JSON" = 1 ] || printf 'hermes-ops: container list via %s\n' "$CONTAINER_SOURCE" >&2
   NAME="$name" python3 -c '
 import json, os, sys
 names = [c.get("name") for c in json.loads(sys.stdin.read())]
@@ -494,20 +608,26 @@ cmd_containers() {
   valid_host "$host"
   AUDIT_TARGET="$host"
   local body
-  body=$(argo_get "/docker/${host}/containers")
-  JSON="$JSON" HOST="$host" python3 - "$body" <<'PY'
+  containers_for "$host" \
+    || remote_err "could not list containers on $host — argo-api unreachable and the ssh fallback also failed"
+  body="$CONTAINERS_BODY"
+  [ "$JSON" = 1 ] || printf 'hermes-ops: container list via %s\n' "$CONTAINER_SOURCE" >&2
+  JSON="$JSON" HOST="$host" SOURCE="$CONTAINER_SOURCE" python3 - "$body" <<'PY'
 import json, os, sys
 cs = json.loads(sys.argv[1])
 if os.environ["JSON"] == "1":
     print(json.dumps({"verb": "containers", "ok": True, "tier": "A",
-                      "host": os.environ["HOST"], "count": len(cs),
+                      "host": os.environ["HOST"], "source": os.environ["SOURCE"],
+                      "count": len(cs),
                       "containers": cs}, indent=2))
     sys.exit()
 print(f"{'state':<10} {'health':<10} {'restarts':>8}  name")
 for c in sorted(cs, key=lambda x: x.get("name") or ""):
-    print(f"{c.get('state',''):<10} {(c.get('health') or '-'):<10} "
-          f"{c.get('restartCount',0):>8}  {c.get('name','')}")
-print(f"\n{len(cs)} container(s) on {os.environ['HOST']}")
+    rc = c.get("restartCount")
+    rc_text = str(rc) if rc is not None else "-"
+    print(f"{c.get('state','') or '-':<10} {(c.get('health') or '-'):<10} "
+          f"{rc_text:>8}  {c.get('name','')}")
+print(f"\n{len(cs)} container(s) on {os.environ['HOST']} (source: {os.environ['SOURCE']})")
 PY
 }
 
@@ -1000,11 +1120,28 @@ cmd_redeploy() {
       PLAN=("ssh -o BatchMode=yes -o ConnectTimeout=10 homelab \"cd ~/homelab && git pull && op run --env-file=.env.tpl -- docker compose up -d --remove-orphans\"")
       ;;
     vps)
-      # The VPS Makefile spells this `op run --account <acct> --env-file=...`.
-      # The flag is a no-op under the server's service-account token — env-check
-      # resolves the same template without it, on this exact host — so it is
-      # dropped rather than baked into this repo.
-      PLAN=("ssh -o BatchMode=yes -o ConnectTimeout=10 vps \"cd ~/vps && git pull && op run --env-file=.env.tpl -- docker compose -f compose.${stack}.yml up -d\"")
+      case "$stack" in
+        networking|infra|monitoring)
+          # The VPS Makefile spells this `op run --account <acct> --env-file=...`.
+          # The flag is a no-op under the server's service-account token — env-check
+          # resolves the same template without it, on this exact host — so it is
+          # dropped rather than baked into this repo.
+          PLAN=("ssh -o BatchMode=yes -o ConnectTimeout=10 vps \"cd ~/vps && git pull && op run --env-file=.env.tpl -- docker compose -f compose.${stack}.yml up -d\"")
+          ;;
+        *)
+          # Every other valid vps stack is an app: apps/<name>/compose.yml, NOT
+          # compose.<name>.yml — the root-stack command above would resolve the
+          # wrong path. Several of these (argo, audio-gateway, research-gateway,
+          # meteo, image-gen-gateway) also need the currently-pinned image SHA
+          # so a bare `docker compose up -d` doesn't roll back to a stale
+          # RollHook :latest — see vps/Makefile's argo-up comment. Rather than
+          # duplicate that pinning dance inside a PLAN string, delegate to the
+          # Makefile target that already owns it per app. The server's own
+          # `.env` sets ENV=prod, so `require-prod` passes with nothing extra
+          # to pass here.
+          PLAN=("ssh -o BatchMode=yes -o ConnectTimeout=10 vps \"cd ~/vps && git pull && make ${stack}-up\"")
+          ;;
+      esac
       ;;
   esac
   run_plan
@@ -1146,7 +1283,10 @@ TIER B — mutating. Requires --why "<reason>"; prints a plan and changes NOTHIN
   restart-kuma                  docker restart uptime-kuma — fixes the Docker-IP
                                 cascade and the stale MySQL pool
   restart <host> <container>    Container name validated against the live list
-  redeploy <host> <stack>       homelab: homelab · vps: networking, infra, monitoring
+  redeploy <host> <stack>       homelab: homelab · vps: networking, infra, monitoring,
+                                argo, audio-gateway, basalt-ui-marketing,
+                                bun-email-api, fpp, image-gen-gateway, imgproxy,
+                                meteo, photo-gallery, research-gateway
                                 (homelab-private excluded: its `make up` is a full
                                 VPN cycle, not a redeploy)
   cron-rerun <job>              vpn-watchdog | auto-update | garmin-auto-relogin |
