@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import contextlib
 import datetime as dt
+import time
 import importlib.util
 import json
 import shutil
@@ -35,6 +36,7 @@ import sqlite3
 import sys
 import tempfile
 import traceback
+import types
 from pathlib import Path
 from typing import Any
 
@@ -98,6 +100,10 @@ def _triage_env(*, policy: dict[str, Any] | None = None, deny: list[str] | None 
         "MAX_OPEN_INVESTIGATIONS": triage.MAX_OPEN_INVESTIGATIONS,
         "DAILY_INVESTIGATE_BUDGET": triage.DAILY_INVESTIGATE_BUDGET,
         "VERB_ALLOWLIST": dict(triage.VERB_ALLOWLIST),
+        "_watchdog_poll": triage._watchdog_poll,
+        "METEO_HEALTH_PATH": triage.METEO_HEALTH_PATH,
+        "GATEWAY_STARTS_LOG": triage.GATEWAY_STARTS_LOG,
+        "HERMES_ERROR_LOG": triage.HERMES_ERROR_LOG,
     }
     try:
         triage.DB_PATH = tmp_dir / "watchdog.db"
@@ -869,6 +875,338 @@ def test_unknown_verb_key_is_rejected_at_policy_load():
     with _triage_env(policy=policy) as (conn, ctx):
         loaded = triage.load_policy()
         assert loaded["rules"] == [], "an unknown verb key must be dropped, not passed through"
+
+
+# --- evidence commands (declared runtime-state probes) -----------------------
+
+def _fake_wp_module(messages=None, *, homelab_key: str = "test-homelab-key", fetch_ok: bool = True):
+    """A stand-in for the watchdog-poll.py sibling module used by
+    _gather_kuma_push_last()/resolve_recovery_paired() — no real network call,
+    no dependency on a real HOMELAB_API_KEY being resolvable in this venv."""
+    return types.SimpleNamespace(
+        resolve_secret=lambda key: homelab_key if key == "HOMELAB_API_KEY" else "",
+        poll_slack_messages=lambda env, channel_id, since_ts, skip_uk_push=False: (
+            list(messages or []), None, fetch_ok
+        ),
+    )
+
+
+def _slack_msg(ts: str, text: str) -> dict[str, Any]:
+    return {"external_id": ts, "title": text[:240], "url": "", "payload": {"text": text}}
+
+
+def test_evidence_meteo_health_bounded_output():
+    """meteo-health must summarize (not dump) var/health.json, and the
+    rendered evidence block must stay bounded even when the source file is
+    large — ~40 real checks, several failing, well over EVIDENCE_CAP_CHARS
+    once rendered raw."""
+    with _triage_env() as (conn, ctx):
+        health_path = ctx.tmp_dir / "meteo-health.json"
+        checks = [{"name": f"check-{i}", "ok": False, "detail": "x" * 200} for i in range(40)]
+        _write_json(health_path, {"ok": False, "heartbeat": "skipped(failure)",
+                                   "timestamp": "2026-09-08T18:47:52+00:00", "checks": checks})
+        triage.METEO_HEALTH_PATH = health_path
+
+        raw = triage._gather_evidence("meteo-health", [])
+        assert "ok=False" in raw and "40/40 checks failing" in raw
+
+        block = triage._build_evidence_block(["meteo-health"], {1: None}, triage.EVIDENCE_TOTAL_CAP_CHARS)
+        assert "meteo-health" in block
+        assert len(block) <= triage.EVIDENCE_TOTAL_CAP_CHARS
+        assert "…" in block, "a 40-check dump must have been truncated by the per-key cap"
+
+
+def test_evidence_gateway_starts_bounded_output():
+    with _triage_env() as (conn, ctx):
+        starts_path = ctx.tmp_dir / "gateway-starts.log"
+        base = dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc).timestamp()
+        starts_path.write_text("\n".join(str(base + i * 3600) for i in range(20)) + "\n")
+        triage.GATEWAY_STARTS_LOG = starts_path
+
+        result = triage._gather_evidence("gateway-starts", [])
+        assert "last 5 gateway start(s)" in result
+        assert result.count(" UTC") == 5, "must show the 5 most recent starts, not every one on file"
+        assert "2026-01-01 00:00" not in result, "must show the 5 MOST RECENT starts, not the earliest ones"
+        assert len(result) <= triage.EVIDENCE_CAP_CHARS
+
+
+def test_evidence_hermes_log_tail_slices_at_gateway_start():
+    """The fix skills/hermes-gateway/SKILL.md's Rule 0 documents: a raw tail
+    mixes a dead incarnation's errors with the live one. gateway-starts.log's
+    last entry is the boundary; nothing before it may appear in the result."""
+    with _triage_env() as (conn, ctx):
+        boundary_dt = dt.datetime(2026, 1, 1, 12, 0, 0)
+        starts_path = ctx.tmp_dir / "gateway-starts.log"
+        starts_path.write_text(f"{boundary_dt.timestamp()}\n")
+        triage.GATEWAY_STARTS_LOG = starts_path
+
+        error_log = ctx.tmp_dir / "errors.log"
+        error_log.write_text(
+            "2026-01-01 11:59:00,000 WARNING old.module: BEFORE_BOUNDARY_MUST_BE_EXCLUDED\n"
+            "2026-01-01 12:00:00,000 WARNING new.module: AT_BOUNDARY_MUST_BE_INCLUDED\n"
+            "2026-01-01 12:00:05,000 WARNING new.module: AFTER_BOUNDARY_MUST_BE_INCLUDED\n"
+        )
+        triage.HERMES_ERROR_LOG = error_log
+
+        result = triage._gather_evidence("hermes-log-tail", [])
+        assert "BEFORE_BOUNDARY_MUST_BE_EXCLUDED" not in result
+        assert "AT_BOUNDARY_MUST_BE_INCLUDED" in result
+        assert "AFTER_BOUNDARY_MUST_BE_INCLUDED" in result
+        assert "sliced at current gateway start" in result
+
+
+def test_evidence_kuma_push_last_matches_bracket_and_normalizes():
+    with _triage_env() as (conn, ctx):
+        eid = _insert_event(conn, source="uk", external_id="204", title="MacMini Dev Host - Push",
+                             first_seen=OLD)
+        uk_event = triage._get_event(conn, eid)
+
+        older = "[MacMini Dev Host - Push] all green"
+        newest = "[MacMini Dev Host - Push] FAIL: disk 90% used (max 90%)"
+        unrelated = "[Some Other Monitor - Push] unrelated"
+        triage._watchdog_poll = _fake_wp_module([
+            _slack_msg("100.000001", older),
+            _slack_msg("300.000001", newest),
+            _slack_msg("200.000001", unrelated),
+        ])
+
+        result = triage._gather_evidence("kuma-push-last", [uk_event])
+        assert result == newest, "must pick the CHRONOLOGICALLY LATEST match, not list order"
+        assert "Some Other Monitor" not in result
+
+
+def test_evidence_kuma_push_last_no_uk_member_is_non_fatal():
+    with _triage_env() as (conn, ctx):
+        eid = _insert_event(conn, source="slack_alert", external_id="sig-a", title="not a uk event",
+                             first_seen=OLD)
+        event_row = triage._get_event(conn, eid)
+        triage._watchdog_poll = _fake_wp_module([])
+        result = triage._gather_evidence("kuma-push-last", [event_row])
+        assert "no uk" in result.lower()
+
+
+def test_evidence_hang_does_not_block_past_its_timeout():
+    """_run_bounded() must RETURN at its timeout, not merely report one.
+
+    Regression test for a real bug: the executor was used as a context manager,
+    whose __exit__ calls shutdown(wait=True) and blocks until the worker thread
+    finishes. A hung gatherer (a stuck network read, an unresponsive mount) would
+    therefore sail past `timeout` and stall the whole 10-minute loop, while the
+    caller still saw a tidy "timed out" string. The bug was invisible to every
+    other evidence test, because a gatherer that raises or returns quickly exits
+    the `with` block immediately either way — only an actual hang exposes it.
+    Asserts wall-clock, which is the only thing that would have caught it."""
+    started = time.monotonic()
+    ok, result = triage._run_bounded(lambda: time.sleep(20), timeout=1)
+    elapsed = time.monotonic() - started
+    assert ok is False, ok
+    assert "timed out" in result, result
+    assert elapsed < 5, f"_run_bounded blocked {elapsed:.1f}s past a 1s timeout"
+
+
+def test_evidence_command_failure_is_non_fatal():
+    """A raising gatherer must never abort the run — _run_bounded() folds it
+    into an error string, and _build_evidence_block() still renders every
+    OTHER requested key normally alongside it."""
+    with _triage_env() as (conn, ctx):
+        starts_path = ctx.tmp_dir / "gateway-starts.log"
+        starts_path.write_text(f"{dt.datetime.now(dt.timezone.utc).timestamp()}\n")
+        triage.GATEWAY_STARTS_LOG = starts_path
+
+        saved_gatherers = dict(triage._EVIDENCE_GATHERERS)
+        try:
+            def _boom(_event_rows):
+                raise RuntimeError("simulated evidence failure")
+
+            triage._EVIDENCE_GATHERERS = {**saved_gatherers, "meteo-health": _boom}
+
+            single = triage._gather_evidence("meteo-health", [])
+            assert "evidence command 'meteo-health' failed" in single
+            assert "simulated evidence failure" in single
+
+            block = triage._build_evidence_block(["meteo-health", "gateway-starts"], {1: None},
+                                                   triage.EVIDENCE_TOTAL_CAP_CHARS)
+            assert "meteo-health" in block and "gateway-starts" in block
+            assert "simulated evidence failure" in block
+            assert "gateway start" in block, "a failing key must not take down a sibling key's output"
+        finally:
+            triage._EVIDENCE_GATHERERS = saved_gatherers
+
+
+def test_unknown_evidence_key_rejected_at_policy_load():
+    """Same closed-set contract as verbs — a policy file must never be able
+    to name anything outside EVIDENCE_ALLOWLIST."""
+    policy = dict(DEFAULT_POLICY, rules=[{"match": "slack_alert:sig-*", "repo": "demo-repo",
+                                           "evidence": ["not-a-real-key"]}])
+    with _triage_env(policy=policy) as (conn, ctx):
+        loaded = triage.load_policy()
+        assert loaded["rules"] == [], "an unknown evidence key must drop the whole rule, not pass it through"
+
+
+def test_evidence_total_stays_under_brief_cap():
+    """A cluster whose title is already huge leaves little budget for
+    evidence — the whole brief (structure + evidence) must still respect
+    MAX_BRIEF_CHARS, the evidence block must be what gets cut, never the
+    closing instructions, and a truncation note must say so."""
+    policy = dict(DEFAULT_POLICY, rules=[
+        {"match": "slack_alert:sig-*", "repo": "demo-repo",
+         "evidence": ["meteo-health", "gateway-starts", "hermes-log-tail", "kuma-push-last"]},
+    ])
+    with _triage_env(policy=policy) as (conn, ctx):
+        health_path = ctx.tmp_dir / "meteo-health.json"
+        checks = [{"name": f"check-{i}", "ok": False, "detail": "y" * 200} for i in range(40)]
+        _write_json(health_path, {"ok": False, "heartbeat": "skipped(failure)",
+                                   "timestamp": "2026-09-08T00:00:00+00:00", "checks": checks})
+        triage.METEO_HEALTH_PATH = health_path
+        triage.GATEWAY_STARTS_LOG = ctx.tmp_dir / "does-not-exist.log"
+        triage.HERMES_ERROR_LOG = ctx.tmp_dir / "does-not-exist-errors.log"
+        triage._watchdog_poll = _fake_wp_module([])
+
+        # Large enough to leave a tight-but-positive evidence budget once the
+        # brief's own structure (the title appears twice: once in the alert
+        # line, once as its own "raw:" echo) is accounted for — see
+        # _build_cluster_brief()'s own evidence-budget comment. A title big
+        # enough to ALSO blow the structure itself is a different, pre-
+        # existing case (see test_dispatch_brief_on_stdin_and_capped) and
+        # would not isolate what this test is checking.
+        huge_title = "A" * 3000
+        _insert_event(conn, source="slack_alert", external_id="sig-huge-evidence", title=huge_title,
+                       first_seen=OLD)
+
+        stub_path = ctx.tmp_dir / "hermes-cc-stub.py"
+        log_path = ctx.tmp_dir / "cc_calls.jsonl"
+        stub_path.write_text(
+            "#!/usr/bin/env python3\n"
+            "import json, sys\n"
+            "argv = sys.argv[1:]\n"
+            "stdin_text = sys.stdin.read()\n"
+            f"with open({str(log_path)!r}, 'a') as f:\n"
+            "    f.write(json.dumps({'stdin': stdin_text}) + chr(10))\n"
+            "repo = argv[1] if len(argv) > 1 else '?'\n"
+            "print(json.dumps({'verb': 'dispatch', 'ok': True, 'jobId': 'job-evidence-cap-test', "
+            "'repo': repo, 'tier': 'investigate', 'status': 'queued'}))\n"
+        )
+        stub_path.chmod(0o755)
+        triage.HERMES_CC_BIN = stub_path
+
+        triage.run(conn, dry_run=False)
+
+        lines = log_path.read_text().strip().splitlines()
+        assert len(lines) == 1
+        brief = json.loads(lines[0])["stdin"]
+
+        assert len(brief) <= triage.MAX_BRIEF_CHARS, (
+            f"brief was {len(brief)} chars, over the {triage.MAX_BRIEF_CHARS} cap"
+        )
+        assert "This alert reached the auto-triage escalation threshold" in brief, (
+            "the brief's own closing structure must survive intact — only evidence gets cut"
+        )
+        assert "CAPTURED RUNTIME STATE" in brief
+        assert "truncated to fit the brief cap" in brief, "a 40-check dump plus a 7000-char title must force evidence truncation"
+
+
+# --- grouped-source resolution (quiet timer + recovery pairing) --------------
+
+def test_quiet_grouped_resolves_after_window_and_updates_card_once():
+    policy = dict(DEFAULT_POLICY, quietResolveHours=1)
+    with _triage_env(policy=policy) as (conn, ctx):
+        triage._watchdog_poll = _fake_wp_module([], homelab_key="")  # no token -> pairing path is a no-op
+        quiet_first_seen = NOW - dt.timedelta(hours=5)
+        eid = _insert_event(conn, source="slack_alert", external_id="sig-quiet", title="🚨 quiet thing",
+                             first_seen=quiet_first_seen)
+        stale_anchor = (NOW - dt.timedelta(hours=3)).isoformat()
+        conn.execute("UPDATE events SET notified_at=?, last_reminder_at=? WHERE id=?",
+                     (stale_anchor, stale_anchor, eid))
+        conn.execute(
+            "INSERT INTO triage_items(event_id, signature, repo, state, occurrences, first_seen, "
+            "last_seen, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+            (eid, "slack_alert:sig-quiet", "demo-repo", triage.STATE_VERDICT, 5,
+             quiet_first_seen.isoformat(), stale_anchor, NOW.isoformat(), NOW.isoformat()),
+        )
+        conn.commit()
+
+        triage.run(conn, dry_run=False)
+        item = triage._get_item(conn, eid)
+        assert item["state"] == triage.STATE_RESOLVED
+        assert item["note"].startswith(triage.QUIET_RESOLVE_NOTE_PREFIX)
+        assert "fixed" not in item["note"].lower()
+        calls_after_first = ctx.total_calls()
+        assert calls_after_first >= 1, "the resolve must still update the shared card"
+
+        triage.run(conn, dry_run=False)
+        assert ctx.total_calls() == calls_after_first, "a resolved card must update exactly once"
+
+
+def test_quiet_grouped_does_not_resolve_while_investigating():
+    """An open dispatch (state=investigating) must never be yanked to
+    resolved by the quiet timer — let the investigation finish first."""
+    policy = dict(DEFAULT_POLICY, quietResolveHours=1)
+    with _triage_env(policy=policy) as (conn, ctx):
+        triage._watchdog_poll = _fake_wp_module([], homelab_key="")
+        first_seen = NOW - dt.timedelta(hours=5)
+        eid = _insert_event(conn, source="slack_alert", external_id="sig-inflight", title="🚨 in flight",
+                             first_seen=first_seen)
+        stale_anchor = (NOW - dt.timedelta(hours=3)).isoformat()
+        conn.execute("UPDATE events SET notified_at=?, last_reminder_at=? WHERE id=?",
+                     (stale_anchor, stale_anchor, eid))
+        conn.execute(
+            "INSERT INTO triage_items(event_id, signature, repo, state, dispatch_job, occurrences, "
+            "first_seen, last_seen, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (eid, "slack_alert:sig-inflight", "demo-repo", triage.STATE_INVESTIGATING, "job-inflight", 5,
+             first_seen.isoformat(), stale_anchor, NOW.isoformat(), NOW.isoformat()),
+        )
+        conn.commit()
+        triage.resolve_quiet_grouped(conn, policy, NOW)
+        item = triage._get_item(conn, eid)
+        assert item["state"] == triage.STATE_INVESTIGATING, "must not resolve out from under an open dispatch"
+
+
+def test_recovery_paired_resolves_immediately_without_waiting_for_quiet():
+    """The exact scenario the brief shipped this for: research-gateway
+    job.reaped fixed and deployed, HyperDX posts a ✅ recovery message —
+    this must resolve on the VERY NEXT run, not wait out quietResolveHours."""
+    policy = dict(DEFAULT_POLICY, quietResolveHours=999)
+    with _triage_env(policy=policy) as (conn, ctx):
+        eid = _insert_event(conn, source="slack_alert", external_id="research-gateway-job-reaped-1-15m",
+                             title="🚨 research-gateway job.reaped >= 1 (15m) (×3 in batch)", first_seen=OLD)
+        conn.execute(
+            "INSERT INTO triage_items(event_id, signature, repo, state, occurrences, first_seen, "
+            "last_seen, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+            (eid, "slack_alert:research-gateway-job-reaped-1-15m", "vps", triage.STATE_NEEDS_HUMAN, 3,
+             OLD.isoformat(), NOW.isoformat(), NOW.isoformat(), NOW.isoformat()),
+        )
+        conn.commit()
+
+        recovery_text = "✅ research-gateway job.reaped >= 1 (15m)"
+        triage._watchdog_poll = _fake_wp_module([_slack_msg("999.000001", recovery_text)])
+
+        triage.run(conn, dry_run=False)
+        item = triage._get_item(conn, eid)
+        assert item["state"] == triage.STATE_RESOLVED
+        assert item["note"].startswith(triage.RECOVERY_PAIRED_NOTE_PREFIX)
+        assert recovery_text in item["note"]
+        assert "fixed" not in item["note"].lower()
+
+
+def test_recovery_pairing_skipped_under_dry_run():
+    """--dry-run must make zero outbound calls, Slack reads included — a
+    preview against a throwaway DB copy must never depend on live
+    credentials or network."""
+    policy = dict(DEFAULT_POLICY, quietResolveHours=999)
+    with _triage_env(policy=policy) as (conn, ctx):
+        calls = {"n": 0}
+
+        def _counting_poll(env, channel_id, since_ts, skip_uk_push=False):
+            calls["n"] += 1
+            return [], None, True
+
+        triage._watchdog_poll = types.SimpleNamespace(
+            resolve_secret=lambda key: "test-key", poll_slack_messages=_counting_poll,
+        )
+        _insert_event(conn, source="slack_alert", external_id="sig-dryrun-pair", title="🚨 dry run pairing",
+                       first_seen=OLD)
+        triage.run(conn, dry_run=True)
+        assert calls["n"] == 0, "resolve_recovery_paired must never fetch Slack under --dry-run"
 
 
 # --- runner ------------------------------------------------------------------

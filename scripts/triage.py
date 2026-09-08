@@ -40,6 +40,15 @@ THE LOOP, once per run — see docs/triage.md for the full state machine:
                    ever touches a row still in state `new`.
   4. Resolve      — an event whose events.resolved_at is now set flips its
                    triage_items row to `resolved`.
+  4b. Quiet/paired resolve — the two GROUPED_TRIAGE_SOURCES (slack_alert,
+                   hermes_log) never disappearance-resolve via step 4 at all
+                   (watchdog-poll.py's own sweep_stale_grouped only clears
+                   them after 7 idle days). resolve_recovery_paired() checks
+                   a fresh #alerts fetch for a `✅`-prefixed message pairing
+                   the same alert text (see that function's own docstring);
+                   resolve_quiet_grouped() falls back to a quietResolveHours
+                   silence timer. Neither ever claims "fixed" — see
+                   QUIET_RESOLVE_NOTE_PREFIX/RECOVERY_PAIRED_NOTE_PREFIX.
   5. Dissolve     — a cluster (see CLUSTERING below) whose folded verdict says
                    its members do not share a root cause splits back into
                    individually-eligible `new` items.
@@ -140,12 +149,14 @@ Source of truth: ~/SourceRoot/hermes-agent/scripts/triage.py
 
 from __future__ import annotations
 
+import concurrent.futures
 import datetime as dt
 import fnmatch
 import hashlib
 import importlib.util
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -182,6 +193,12 @@ POLICY_PATH = Path(_env_policy).expanduser() if _env_policy else (HERMES_HOME / 
 INGEST_SOURCES = ("slack_alert", "uk", "docker_homelab", "docker_vps", "hermes_log",
                    "op_refs_homelab", "op_refs_vps")
 
+# The two INGEST_SOURCES that are grouped (upsert_grouped()-based, append-only)
+# rather than state (reconcile()-based, disappearance-resolved) — mirrors
+# watchdog-poll.py's own GROUPED_SOURCES, minus slack_update, which this loop
+# never ingests. See resolve_quiet_grouped()/resolve_recovery_paired().
+GROUPED_TRIAGE_SOURCES = ("slack_alert", "hermes_log")
+
 STATE_NEW = "new"
 STATE_INVESTIGATING = "investigating"
 STATE_VERDICT = "verdict"
@@ -208,6 +225,17 @@ STATE_NOTE = "note"
 # visible via the digest, not a card (see STATE_NOTE above).
 CARDED_STATES = (STATE_INVESTIGATING, STATE_VERDICT, STATE_NEEDS_HUMAN, STATE_PR_OPEN, STATE_RESOLVED)
 
+# `triage_items.note` prefixes for the two grouped-source resolve paths (see
+# resolve_quiet_grouped()/resolve_recovery_paired()) — render_card_blocks()
+# only surfaces `note` on a STATE_RESOLVED card when it starts with one of
+# these, specifically so an ordinary event-driven resolve (apply_resolutions,
+# which now clears `note` outright) never accidentally inherits stale text
+# from an earlier phase. Deliberately NOT "fixed"/"resolved" wording — a
+# service that is fully down also stops emitting, so silence alone is never
+# proof of a fix; see both functions' own docstrings.
+QUIET_RESOLVE_NOTE_PREFIX = "signal quiet since "
+RECOVERY_PAIRED_NOTE_PREFIX = "recovery message observed: "
+
 STATE_EMOJI = {
     STATE_NEW: ":large_blue_circle:",
     STATE_INVESTIGATING: ":mag:",
@@ -222,6 +250,18 @@ DEFAULT_CARD_CHANNEL = "C0BVDE5R562"  # #agents — see config/triage-policy.jso
 DEFAULT_MIN_OCCURRENCES = 3
 DEFAULT_MIN_OPEN_MINUTES = 30
 DEFAULT_COOLDOWN_HOURS = 6
+# Grouped sources (slack_alert, hermes_log) never disappearance-resolve on
+# their own — watchdog-poll.py's sweep_stale_grouped() only clears them
+# after 7 idle DAYS (GROUPED_TTL_DAYS), which is deliberately housekeeping,
+# not signal (its own docstring: silent specifically so a months-old row
+# doesn't trigger a notification burst). 2h is the triage-side fix's
+# default: comfortably past the 30-min watchdog-poll cadence (4+ consecutive
+# misses before a false resolve) and short of either grouped source's own
+# reminder window (6h/24h in REM_HOURS), so a signature that is GENUINELY
+# still flapping gets re-noticed well before this would ever fire — while a
+# fixed-and-deployed alert still closes the same day instead of sitting
+# open for a week. See resolve_quiet_grouped().
+DEFAULT_QUIET_RESOLVE_HOURS = 2.0
 
 # Concurrency ceiling: simultaneously-open CLUSTERS (distinct dispatch_job
 # values in state=investigating) this loop is allowed to have outstanding at
@@ -282,6 +322,42 @@ VERB_ALLOWLIST: dict[str, list[str]] = {
 # a legitimately slow-but-healthy probe before hermes-ops.sh's own timeout
 # ever got a chance to fire.
 VERB_TIMEOUT = 260
+
+# --- evidence commands — declared runtime-state probes, fenced into the brief -
+#
+# The episode this loop dispatches runs in a read-only sideclaw WORKTREE — it
+# can see the repo, never the machine. All three real investigations this
+# loop has run so far came back `nextAction: human` citing exactly that: no
+# runtime state (var/health.json, watchdog-alerts.log, live OTel) was
+# reachable from inside the checkout. A policy rule can now declare an
+# `evidence` list — but, same closed-set principle as VERB_ALLOWLIST just
+# above, ONLY a key from EVIDENCE_ALLOWLIST, never an arbitrary command: a
+# policy file must never be able to name an arbitrary argv (or, here, an
+# arbitrary probe). Unlike VERB_ALLOWLIST these four run IN-PROCESS rather
+# than via subprocess.run on a fixed argv: three are bounded local file
+# reads, and the fourth (kuma-push-last) needs both a secret
+# (HOMELAB_API_KEY, which must never cross an argv/`ps` boundary) and
+# per-cluster context (which UptimeKuma monitor actually fired) that a fixed
+# argv has no way to carry. The closed-key-set contract itself — a policy
+# file can only ever select one of these four, never invent a fifth — is
+# still enforced the same way, at load_policy() time (see _valid_rule()).
+EVIDENCE_ALLOWLIST: tuple[str, ...] = ("meteo-health", "gateway-starts", "hermes-log-tail", "kuma-push-last")
+
+METEO_HEALTH_PATH = Path.home() / "SourceRoot" / "meteo" / "var" / "health.json"
+GATEWAY_STARTS_LOG = HERMES_HOME / "gateway-starts.log"
+HERMES_ERROR_LOG = HERMES_HOME / "logs" / "errors.log"
+ALERTS_CHANNEL = "C0AS1LAUQ3C"  # #alerts — same channel watchdog-poll.py's slack_alert source reads
+
+# Every evidence probe is read-only and bounded: a hard wall-clock timeout
+# (a hung file read on a stale network mount, or a slow argo API call, must
+# never stall a 10-minute cron) and a hard output cap. EVIDENCE_TOTAL_CAP_CHARS
+# is well under MAX_BRIEF_CHARS so a 5-signature cluster (each pulling its own
+# evidence) still leaves room for the rest of the brief — _build_evidence_block()
+# enforces the remaining-budget cut described in the module docstring, never
+# eating into the brief's own structure.
+EVIDENCE_TIMEOUT = int(os.environ.get("TRIAGE_EVIDENCE_TIMEOUT", "20"))
+EVIDENCE_CAP_CHARS = 1200
+EVIDENCE_TOTAL_CAP_CHARS = 3200
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
@@ -480,18 +556,36 @@ def _valid_rule(r: Any) -> bool:
     `verb` (run a declared local command — see VERB_ALLOWLIST). A `verb` not
     in the allowlist is rejected here, loudly, rather than silently matching
     nothing at classify() time — a policy file names a KEY, never a command,
-    and a typo'd key is a policy bug worth surfacing immediately."""
+    and a typo'd key is a policy bug worth surfacing immediately. An optional
+    `evidence` list is validated the same way, against EVIDENCE_ALLOWLIST —
+    see that constant's own comment."""
     if not (isinstance(r, dict) and r.get("match")):
         return False
+    has_target = False
     if r.get("repo"):
-        return True
-    verb = r.get("verb")
-    if verb:
-        if verb in VERB_ALLOWLIST:
-            return True
-        print(f"triage: policy rule {r.get('match')!r} names verb {verb!r}, not in VERB_ALLOWLIST "
-              f"{sorted(VERB_ALLOWLIST)} — dropping this rule", file=sys.stderr)
-    return False
+        has_target = True
+    else:
+        verb = r.get("verb")
+        if verb:
+            if verb in VERB_ALLOWLIST:
+                has_target = True
+            else:
+                print(f"triage: policy rule {r.get('match')!r} names verb {verb!r}, not in VERB_ALLOWLIST "
+                      f"{sorted(VERB_ALLOWLIST)} — dropping this rule", file=sys.stderr)
+    if not has_target:
+        return False
+    evidence = r.get("evidence")
+    if evidence is not None:
+        if not (isinstance(evidence, list) and all(isinstance(e, str) for e in evidence)):
+            print(f"triage: policy rule {r.get('match')!r} has a malformed 'evidence' field (must be a "
+                  f"list of strings) — dropping this rule", file=sys.stderr)
+            return False
+        unknown = [e for e in evidence if e not in EVIDENCE_ALLOWLIST]
+        if unknown:
+            print(f"triage: policy rule {r.get('match')!r} names evidence key(s) {unknown} not in "
+                  f"EVIDENCE_ALLOWLIST {sorted(EVIDENCE_ALLOWLIST)} — dropping this rule", file=sys.stderr)
+            return False
+    return True
 
 
 def load_policy() -> dict[str, Any]:
@@ -506,6 +600,7 @@ def load_policy() -> dict[str, Any]:
         "minOccurrences": int(data.get("minOccurrences") or DEFAULT_MIN_OCCURRENCES),
         "minOpenMinutes": int(data.get("minOpenMinutes") or DEFAULT_MIN_OPEN_MINUTES),
         "cooldownHours": int(data.get("cooldownHours") or DEFAULT_COOLDOWN_HOURS),
+        "quietResolveHours": float(data.get("quietResolveHours") or DEFAULT_QUIET_RESOLVE_HOURS),
         "rules": [r for r in (data.get("rules") or []) if _valid_rule(r)],
         "ignore": [p for p in (data.get("ignore") or []) if isinstance(p, str)],
         # See CLAUDE.md/docs/triage.md — filters Hermes's OWN pre-silencing
@@ -709,9 +804,175 @@ def apply_resolutions(conn: sqlite3.Connection, now: dt.datetime) -> None:
     ).fetchall()
     now_iso = _now_iso(now)
     for row in rows:
+        # note=NULL: a genuine event-driven resolve has no need to retain
+        # whatever text a PRIOR investigation phase left in `note` (a
+        # needs_human blocker, an env-check remediation, ...) — and clearing
+        # it here is also what stops a stale QUIET_RESOLVE_NOTE_PREFIX/
+        # RECOVERY_PAIRED_NOTE_PREFIX note from a much earlier quiet-resolve
+        # surviving a reopen -> genuine fix -> resolve cycle and rendering
+        # under render_card_blocks()'s STATE_RESOLVED branch as if it were
+        # still current.
         conn.execute(
-            "UPDATE triage_items SET state=?, updated_at=? WHERE event_id=?",
+            "UPDATE triage_items SET state=?, note=NULL, updated_at=? WHERE event_id=?",
             (STATE_RESOLVED, now_iso, row["event_id"]),
+        )
+    conn.commit()
+
+
+def _quiet_resolve_hours(policy: dict[str, Any]) -> float:
+    return float(policy.get("quietResolveHours") or DEFAULT_QUIET_RESOLVE_HOURS)
+
+
+# States a grouped item must NOT be in to be eligible for either resolve path
+# below — same terminal exclusions as apply_resolutions(), PLUS `investigating`:
+# an open dispatch is already in flight, so a quiet timer or a recovery
+# message racing dispatch-sweep.py's own fold_dispatch_verdict() would be
+# premature. Let the investigation finish; either resolve path can still
+# close it out on THAT state (verdict/needs_human/pr_open) on a later run.
+_GROUPED_RESOLVE_EXCLUDED_STATES = (STATE_RESOLVED, STATE_IGNORED, STATE_SNOOZED, STATE_NOTE,
+                                     STATE_INVESTIGATING)
+
+
+def resolve_recovery_paired(conn: sqlite3.Connection, policy: dict[str, Any], now: dt.datetime,
+                             *, dry_run: bool) -> None:
+    """The stronger of the two grouped-source resolve paths (see
+    resolve_quiet_grouped() for the fallback): a `✅ <same alert text>`
+    recovery message is itself a positive signal that the paired `🚨` alert
+    cleared, strictly better than waiting out a quiet window — a service
+    that is fully DOWN also stops emitting, so silence alone can never tell
+    the two apart, but an explicit recovery message can.
+
+    This is cheap specifically because HyperDX's own webhook posts the
+    IDENTICAL alert text with only the leading glyph flipped (see the brief
+    that shipped this: "the titles differ only by the leading glyph"), and
+    normalize_title() already strips every non-alnum character — including
+    both glyphs — so a `✅ research-gateway job.reaped >= 1 (15m)` message
+    normalizes to the SAME string as `🚨 research-gateway job.reaped >= 1
+    (15m)`. For a grouped source that string already IS the event's own
+    stable `external_id` (see docs/triage.md's MATCH TARGETS — computed once
+    at first-batch time and never re-derived), so no new text-matching
+    scheme is needed: one fresh #alerts fetch, one dict lookup per
+    candidate.
+
+    This CANNOT be read back out of `events`/`payload_json` — upsert_grouped()
+    only retains one title (whichever batch's group needed to emit) and never
+    a per-occurrence history (see docs/triage.md's own note on that), so a ✅
+    that lands in the same 30-min batch as its 🚨 counterpart is silently
+    folded into a bumped `batch_count` with no trace of which glyph it was.
+    Reading live #alerts instead of `events` is what makes this possible at
+    all — and it stays cheap because it is ONE fetch per triage run
+    (poll_slack_messages's own single call), shared across every open
+    slack_alert candidate via one dict, not one call per item."""
+    if dry_run:
+        # Mirrors escalate_cluster()/run_verbs(): --dry-run makes NO outbound
+        # call, Slack reads included, so a preview against a throwaway DB
+        # copy never depends on live credentials or network.
+        placeholders = ",".join("?" * len(_GROUPED_RESOLVE_EXCLUDED_STATES))
+        candidates = conn.execute(
+            f"SELECT ti.event_id FROM triage_items ti JOIN events e ON e.id = ti.event_id "
+            f"WHERE e.source='slack_alert' AND e.resolved_at IS NULL AND ti.state NOT IN ({placeholders})",
+            _GROUPED_RESOLVE_EXCLUDED_STATES,
+        ).fetchall()
+        if candidates:
+            print(f"[dry-run] would check {len(candidates)} open slack_alert item(s) against live "
+                  f"#alerts for a ✅ recovery pairing (skipped under --dry-run)")
+        return
+
+    wp = _wp_module()
+    if wp is None:
+        return
+    token = wp.resolve_secret("HOMELAB_API_KEY")
+    if not token:
+        return
+    msgs, _latest, ok = wp.poll_slack_messages({"HOMELAB_API_KEY": token}, ALERTS_CHANNEL, None,
+                                                skip_uk_push=True)
+    if not ok or not msgs:
+        return
+    latest_by_key: dict[str, tuple[str, str]] = {}
+    for m in msgs:
+        text = (m.get("payload") or {}).get("text") or m.get("title") or ""
+        key = normalize_title(text)
+        if not key:
+            continue
+        ts = m.get("external_id") or "0"
+        prev = latest_by_key.get(key)
+        if prev is None or ts > prev[0]:
+            latest_by_key[key] = (ts, text)
+
+    placeholders = ",".join("?" * len(_GROUPED_RESOLVE_EXCLUDED_STATES))
+    rows = conn.execute(
+        f"SELECT ti.event_id, e.external_id FROM triage_items ti JOIN events e ON e.id = ti.event_id "
+        f"WHERE e.source='slack_alert' AND e.resolved_at IS NULL AND ti.state NOT IN ({placeholders})",
+        _GROUPED_RESOLVE_EXCLUDED_STATES,
+    ).fetchall()
+    now_iso = _now_iso(now)
+    for row in rows:
+        match = latest_by_key.get(row["external_id"])
+        if match is None:
+            continue
+        _ts, text = match
+        if not text.lstrip().startswith("✅"):
+            continue
+        note = f"{RECOVERY_PAIRED_NOTE_PREFIX}{text.strip()[:200]}"
+        conn.execute(
+            "UPDATE triage_items SET state=?, note=?, updated_at=? WHERE event_id=?",
+            (STATE_RESOLVED, note, now_iso, row["event_id"]),
+        )
+    conn.commit()
+
+
+def resolve_quiet_grouped(conn: sqlite3.Connection, policy: dict[str, Any], now: dt.datetime) -> None:
+    """The fallback half of grouped-source resolution (see
+    resolve_recovery_paired() for the stronger positive-signal path):
+    GROUPED_TRIAGE_SOURCES (slack_alert, hermes_log) never disappearance-
+    resolve on their own event lifecycle — watchdog-poll.py's own
+    sweep_stale_grouped() only clears them after 7 idle DAYS, deliberately
+    housekeeping rather than signal (its own docstring: silent specifically
+    so a months-old row doesn't trigger a notification burst). This is the
+    triage-SIDE fix: a row whose underlying event has produced no new
+    occurrence in `quietResolveHours` (DEFAULT_QUIET_RESOLVE_HOURS's own
+    comment justifies the default) flips to `resolved` here — a purely
+    local state transition that never touches `events.resolved_at` (that
+    column stays owned end to end by watchdog-poll.py, per this file's own
+    brief: "Do not change watchdog-poll.py's own sweep_stale_grouped").
+
+    No new column is needed to track "quiet since": `events.last_reminder_at`
+    / `notified_at` / `first_seen` (the same idle anchor sweep_stale_grouped()
+    itself uses) only ADVANCES when watchdog-poll.py re-stamps the row on a
+    fresh occurrence (see upsert_grouped()) — so a value that has stopped
+    changing already IS the quiet duration.
+
+    Deliberately never claims a fix: render_card_blocks() only ever shows
+    this as "signal quiet since <time>" (QUIET_RESOLVE_NOTE_PREFIX) — a
+    service that is fully down also stops emitting, so silence alone is
+    never proof of anything beyond silence. Pure local bookkeeping (no
+    Slack, no dispatch), so — like apply_resolutions()/classify() — this
+    runs for real even under --dry-run; only the eventual card sync
+    respects `dry_run` (see run()'s own sync_card() call)."""
+    quiet_hours = _quiet_resolve_hours(policy)
+    placeholders_sources = ",".join("?" * len(GROUPED_TRIAGE_SOURCES))
+    placeholders_states = ",".join("?" * len(_GROUPED_RESOLVE_EXCLUDED_STATES))
+    rows = conn.execute(
+        f"SELECT ti.event_id, e.last_reminder_at, e.notified_at, e.first_seen "
+        f"FROM triage_items ti JOIN events e ON e.id = ti.event_id "
+        f"WHERE e.source IN ({placeholders_sources}) AND e.resolved_at IS NULL "
+        f"AND ti.state NOT IN ({placeholders_states})",
+        (*GROUPED_TRIAGE_SOURCES, *_GROUPED_RESOLVE_EXCLUDED_STATES),
+    ).fetchall()
+    now_iso = _now_iso(now)
+    for row in rows:
+        anchor_raw = row["last_reminder_at"] or row["notified_at"] or row["first_seen"]
+        quiet_since = _parse_ts(anchor_raw)
+        if quiet_since is None:
+            continue
+        if (now - quiet_since).total_seconds() < quiet_hours * 3600:
+            continue
+        note = (f"{QUIET_RESOLVE_NOTE_PREFIX}{_fmt_ts(anchor_raw)} — no new occurrence for "
+                f"{quiet_hours:g}h. This closes the item on silence alone; it is NOT a confirmed "
+                f"fix, and the signature reopens automatically the moment it recurs.")
+        conn.execute(
+            "UPDATE triage_items SET state=?, note=?, updated_at=? WHERE event_id=?",
+            (STATE_RESOLVED, note, now_iso, row["event_id"]),
         )
     conn.commit()
 
@@ -846,8 +1107,268 @@ def _cap_brief(text: str) -> str:
     return text[: MAX_BRIEF_CHARS - 1].rstrip() + "…"
 
 
+# --- evidence gathering — declared runtime-state probes (see EVIDENCE_ALLOWLIST) --
+
+def _cap_evidence(text: str, cap: int) -> str:
+    text = text or ""
+    if len(text) <= cap:
+        return text
+    return text[: max(cap - 1, 0)].rstrip() + "…"
+
+
+def _wp_module() -> Any | None:
+    """The sibling watchdog-poll.py module, if it loaded (see the module-level
+    try/except above `normalize_title` for why it might not have) — used only
+    by evidence gatherers that need its already-proven resolve_secret()/
+    poll_slack_messages(), never re-implemented here. None (never raises) if
+    that sibling load failed, so a broken import degrades one evidence key,
+    not the whole run."""
+    return globals().get("_watchdog_poll")
+
+
+def _run_bounded(fn: Any, *args: Any, timeout: int = EVIDENCE_TIMEOUT) -> tuple[bool, str]:
+    """Runs fn(*args) with a hard wall-clock timeout. Every evidence gatherer
+    below is read-only and side-effect-free, so this is the in-process
+    equivalent of the `timeout=` subprocess.run() already gives VERB_ALLOWLIST
+    commands — a hang (a stuck network mount, a slow argo API call) can't
+    stall a 10-minute cron. A timeout or ANY exception folds into a returned
+    error string rather than raising — a failing evidence command must never
+    abort the run (see the module docstring's DRY-RUN/loop contract)."""
+    # NOT `with ThreadPoolExecutor(...)`: its __exit__ calls shutdown(wait=True),
+    # which blocks until the worker thread finishes — so a gatherer that hung
+    # would sail straight past `timeout` and stall the loop anyway, defeating the
+    # whole point of this function. shutdown(wait=False) lets a stuck thread keep
+    # running (it is read-only and side-effect-free by contract, and the process
+    # is a short-lived cron invocation that will exit) while the caller moves on.
+    ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    try:
+        fut = ex.submit(fn, *args)
+        try:
+            return True, fut.result(timeout=timeout)
+        except concurrent.futures.TimeoutError:
+            return False, f"timed out after {timeout}s"
+        except Exception as e:  # noqa: BLE001 - must never raise into the caller
+            return False, f"{type(e).__name__}: {e}"
+    finally:
+        ex.shutdown(wait=False)
+
+
+def _gather_meteo_health(_event_rows: list[sqlite3.Row]) -> str:
+    """meteo's own health probe (var/health.json, written by its own
+    heartbeat) — the exact gap the meteo episode named: a repo checkout has
+    no runtime state at all. Summarized (ok/heartbeat/timestamp + failing
+    checks only), not dumped raw — the file runs ~40 checks and dumping all
+    of them would blow the per-key cap on a mostly-healthy day for no
+    benefit."""
+    try:
+        data = json.loads(METEO_HEALTH_PATH.read_text())
+    except (OSError, json.JSONDecodeError) as e:
+        return f"could not read {METEO_HEALTH_PATH}: {e}"
+    if not isinstance(data, dict):
+        return f"{METEO_HEALTH_PATH} did not contain a JSON object"
+    checks = data.get("checks")
+    checks = checks if isinstance(checks, list) else []
+    bad = [c for c in checks if isinstance(c, dict) and not c.get("ok")]
+    lines = [f"ok={data.get('ok')} heartbeat={data.get('heartbeat')!r} as of {data.get('timestamp')}",
+             f"{len(bad)}/{len(checks)} checks failing"]
+    for c in bad[:10]:
+        lines.append(f"- {c.get('name')}: {c.get('detail')}")
+    return "\n".join(lines)
+
+
+def _gather_gateway_starts(_event_rows: list[sqlite3.Row]) -> str:
+    """The last few recorded Hermes gateway process starts — gateway-starts.log
+    is an append-only ledger of one UTC epoch per start (gateway/status.py's
+    record_start_and_check_storm()), which happens to sit outside every repo
+    worktree (~/.hermes/, not ~/SourceRoot/hermes-agent/) — the one source
+    the hermes-agent episode could already see, by accident, per the brief
+    that shipped this. This makes it reliable rather than incidental."""
+    try:
+        lines = GATEWAY_STARTS_LOG.read_text().splitlines()
+    except OSError as e:
+        return f"could not read {GATEWAY_STARTS_LOG}: {e}"
+    out = []
+    for raw in lines[-5:]:
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            ts = dt.datetime.fromtimestamp(float(raw), dt.timezone.utc)
+        except ValueError:
+            continue
+        out.append(ts.strftime("%Y-%m-%d %H:%M UTC"))
+    if not out:
+        return f"{GATEWAY_STARTS_LOG} has no parseable start timestamps"
+    return f"last {len(out)} gateway start(s) (UTC): " + "; ".join(out)
+
+
+def _current_gateway_start_local() -> dt.datetime | None:
+    """The latest recorded gateway start, in LOCAL system time — errors.log's
+    own lines are unqualified local timestamps (Python logging's default), so
+    the slice boundary below has to be computed in the same zone or the
+    string comparison in _gather_hermes_log_tail() is silently off by the
+    system's UTC offset."""
+    try:
+        lines = GATEWAY_STARTS_LOG.read_text().splitlines()
+    except OSError:
+        return None
+    for raw in reversed(lines):
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            return dt.datetime.fromtimestamp(float(raw))
+        except ValueError:
+            continue
+    return None
+
+
+def _gather_hermes_log_tail(_event_rows: list[sqlite3.Row]) -> str:
+    """Tail of Hermes's own error log, SLICED AT the current gateway process
+    start — skills/hermes-gateway/SKILL.md Rule 0 exists because this was
+    gotten wrong once already: agent.log/errors.log are not rotated per
+    process, so an unsliced tail mixes a dead incarnation's errors with the
+    live one, and a 48-hour-old burst got reported as a live fault. That
+    skill establishes the boundary via a live PID + `ps -o lstart=`; this
+    script isn't the gateway process and has no business inspecting
+    launchd/pgrep, so gateway-starts.log's own append-only ledger (one epoch
+    per start) stands in for the same boundary."""
+    start = _current_gateway_start_local()
+    try:
+        raw_lines = HERMES_ERROR_LOG.read_text(errors="replace").splitlines()
+    except OSError as e:
+        return f"could not read {HERMES_ERROR_LOG}: {e}"
+    ts_re = getattr(_wp_module(), "LOG_TS_RE", None) or re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})")
+    if start is None:
+        sliced = raw_lines
+        note = "no gateway-starts.log boundary found — showing the unsliced tail"
+    else:
+        boundary = start.strftime("%Y-%m-%d %H:%M:%S")
+        idx = None
+        for i, ln in enumerate(raw_lines):
+            m = ts_re.match(ln)
+            if m and m.group(1) >= boundary:
+                idx = i
+                break
+        sliced = raw_lines[idx:] if idx is not None else []
+        note = f"sliced at current gateway start {boundary} (local)"
+    tail = sliced[-40:]
+    if not tail:
+        return f"{note}; zero lines since the current process started — a real finding, not a gap"
+    return f"{note}; last {len(tail)} line(s):\n" + "\n".join(tail)
+
+
+_BRACKET_PREFIX_RE = re.compile(r"^\[([^\]]+)\]")
+
+
+def _gather_kuma_push_last(event_rows: list[sqlite3.Row]) -> str:
+    """The most recent `[<monitor name>] ...` message text from #alerts for
+    whichever member of this cluster is a `uk` (UptimeKuma) signal. The gap
+    this fixes: watchdog-poll.py's own `uk` event payload is literally
+    `{"type", "status"}` (see poll_uk()), and the 16-component heartbeat line
+    (e.g. `FAIL: disk 90% used (max 90%)`) exists ONLY in the raw Slack
+    text — poll_slack_messages() deliberately DROPS it via `skip_uk_push`
+    before it ever reaches `events`, and argo's own monitor endpoint doesn't
+    carry it either. Reuses watchdog-poll.py's own proven Slack-fetch path
+    (same #alerts channel, same HOMELAB_API_KEY) rather than a second HTTP
+    mechanism against the raw Slack API, whose read-scope on this bot token
+    is unverified."""
+    uk_event = next((e for e in event_rows if e is not None and e["source"] == "uk"), None)
+    if uk_event is None:
+        return "no uk (UptimeKuma) member in this cluster — nothing to match a push line against"
+    wp = _wp_module()
+    if wp is None:
+        return "watchdog-poll.py sibling module did not load — cannot fetch #alerts"
+    token = wp.resolve_secret("HOMELAB_API_KEY")
+    if not token:
+        return "HOMELAB_API_KEY unresolved — cannot fetch #alerts history"
+    monitor_key = normalize_title(uk_event["title"] or "")
+    msgs, _latest, ok = wp.poll_slack_messages({"HOMELAB_API_KEY": token}, ALERTS_CHANNEL, None,
+                                                skip_uk_push=False)
+    if not ok:
+        return "#alerts fetch failed (see watchdog-poll.py's own poll_slack_messages)"
+    matches = []
+    for m in msgs:
+        text = (m.get("payload") or {}).get("text") or m.get("title") or ""
+        bm = _BRACKET_PREFIX_RE.match(text.strip())
+        if bm and normalize_title(bm.group(1)) == monitor_key:
+            matches.append((m.get("external_id") or "0", text))
+    if not matches:
+        return f"no `[{uk_event['title']}] ...` message found in the last {len(msgs)} #alerts messages"
+    matches.sort(key=lambda t: t[0])
+    return matches[-1][1]
+
+
+_EVIDENCE_GATHERERS = {
+    "meteo-health": _gather_meteo_health,
+    "gateway-starts": _gather_gateway_starts,
+    "hermes-log-tail": _gather_hermes_log_tail,
+    "kuma-push-last": _gather_kuma_push_last,
+}
+assert set(_EVIDENCE_GATHERERS) == set(EVIDENCE_ALLOWLIST), "EVIDENCE_ALLOWLIST and its gatherers drifted"
+
+EVIDENCE_BLOCK_HEADER = (
+    "CAPTURED RUNTIME STATE — gathered by the triage loop from the live machine just "
+    "before this brief was built. This is NOT visible from the repo checkout the episode "
+    "runs in, and the episode CANNOT re-run these commands itself; treat it as "
+    "authoritative for what it reports, but it may be incomplete (see any per-key error "
+    "below) or already stale by the time it's read."
+)
+
+
+def _gather_evidence(key: str, event_rows: list[sqlite3.Row]) -> str:
+    fn = _EVIDENCE_GATHERERS.get(key)
+    if fn is None:
+        return f"unknown evidence key {key!r} (policy/code drifted after load_policy() validated it)"
+    ok, result = _run_bounded(fn, event_rows)
+    return result if ok else f"evidence command {key!r} failed: {result}"
+
+
+def _evidence_keys_for_members(members: list[sqlite3.Row], event_rows_by_id: dict[int, sqlite3.Row],
+                                policy: dict[str, Any]) -> list[str]:
+    """Re-derives which policy rule matched each member — triage_items only
+    stores the resolved `repo`, never which rule produced it — and unions
+    their declared `evidence` lists, in first-member-seen order. A cluster's
+    evidence set is whatever its own member signatures' rules ask for."""
+    keys: list[str] = []
+    for m in members:
+        er = event_rows_by_id.get(m["event_id"])
+        if er is None:
+            continue
+        rule = _match_rule(_match_targets(er), policy["rules"])
+        if rule is None:
+            continue
+        for key in rule.get("evidence") or []:
+            if key not in keys:
+                keys.append(key)
+    return keys
+
+
+def _build_evidence_block(keys: list[str], event_rows_by_id: dict[int, sqlite3.Row], max_chars: int) -> str:
+    """Renders every requested key's output into one labelled block, each
+    capped at EVIDENCE_CAP_CHARS, the whole block additionally capped at
+    `max_chars` — the REMAINING budget in the brief the caller computed, so
+    evidence is what gets truncated when a brief is tight, never the brief's
+    own structure (the alert list, the sibling items, the closing
+    instructions) around it."""
+    if not keys or max_chars <= 0:
+        return ""
+    event_rows = list(event_rows_by_id.values())
+    parts = []
+    for key in keys:
+        text = _cap_evidence(_gather_evidence(key, event_rows), EVIDENCE_CAP_CHARS)
+        parts.append(f"--- {key} ---\n{text}")
+    block = EVIDENCE_BLOCK_HEADER + "\n" + "\n".join(parts)
+    cap = min(max_chars, EVIDENCE_TOTAL_CAP_CHARS)
+    if len(block) > cap:
+        truncation_note = "\n…(evidence truncated to fit the brief cap)"
+        keep = max(cap - len(truncation_note), 0)
+        block = block[:keep].rstrip() + truncation_note
+    return block
+
+
 def _build_cluster_brief(*, repo: str, members: list[sqlite3.Row], event_rows_by_id: dict[int, sqlite3.Row],
-                          sibling_events: list[dict[str, str]]) -> str:
+                          sibling_events: list[dict[str, str]], evidence_keys: list[str] | None = None) -> str:
     lines = [f"Repo: {repo}"]
     if len(members) == 1:
         lines.append("Alert:")
@@ -867,21 +1388,37 @@ def _build_cluster_brief(*, repo: str, members: list[sqlite3.Row], event_rows_by
     if sibling_events:
         lines.append(f"Other open triage items in {repo}:")
         lines.extend(f"- {s['signature']}: {s['title']}" for s in sibling_events)
-    lines.append("")
+
+    closing_lines = [""]
     if len(members) > 1:
-        lines.append(
+        closing_lines.append(
             "Determine whether these signatures share a single root cause before proposing separate "
             "fixes. This grouping is a HYPOTHESIS from deterministic co-occurrence, never an "
             "assertion — confirm or split it. If they do NOT share a root cause, say so explicitly "
             f"in your summary or recommendation using the exact phrase '{DISSOLVE_MARKER}' so they "
             "can be re-triaged individually."
         )
-    lines.append(
+    closing_lines.append(
         "This alert reached the auto-triage escalation threshold (repeat occurrences or stayed open "
         "long enough). Investigate the root cause and report a verdict. No LLM was involved in "
         "reaching this point — deduplication, clustering and escalation are all deterministic."
     )
-    return _cap_brief("\n".join(lines))
+
+    # Evidence is built LAST, sized against whatever budget the rest of the
+    # brief (which must never itself be truncated) leaves behind — see
+    # _build_evidence_block()'s own docstring and the module docstring's
+    # DRY-RUN/brief-cap contract.
+    rest = "\n".join(lines + closing_lines)
+    evidence_block = ""
+    if evidence_keys:
+        remaining = MAX_BRIEF_CHARS - len(rest) - 2  # 2 for the blank-line join below
+        evidence_block = _build_evidence_block(evidence_keys, event_rows_by_id, max(remaining, 0))
+
+    if evidence_block:
+        full = "\n".join(lines) + "\n\n" + evidence_block + "\n" + "\n".join(closing_lines)
+    else:
+        full = rest
+    return _cap_brief(full)
 
 
 def _run_hermes_cc_dispatch(*, repo: str, brief: str, event_id: int, channel: str | None,
@@ -954,8 +1491,9 @@ def escalate_cluster(conn: sqlite3.Connection, repo: str, members: list[sqlite3.
     event_rows_by_id = {m["event_id"]: _get_event(conn, m["event_id"]) for m in members}
     exclude_ids = [m["event_id"] for m in members]
     sibling_events = _sibling_open_items(conn, repo, exclude_ids)
+    evidence_keys = _evidence_keys_for_members(members, event_rows_by_id, policy)
     brief = _build_cluster_brief(repo=repo, members=members, event_rows_by_id=event_rows_by_id,
-                                  sibling_events=sibling_events)
+                                  sibling_events=sibling_events, evidence_keys=evidence_keys)
     primary = members[0]
     channel = _card_channel(policy)
     result = _run_hermes_cc_dispatch(
@@ -1295,6 +1833,14 @@ def render_card_blocks(members: list[sqlite3.Row], event_rows: list[sqlite3.Row]
             "type": "context",
             "elements": [{"type": "mrkdwn", "text": f"Snoozed until {_fmt_ts(primary['snoozed_until'])}"}],
         })
+    elif state == STATE_RESOLVED and (primary["note"] or "").startswith(
+            (QUIET_RESOLVE_NOTE_PREFIX, RECOVERY_PAIRED_NOTE_PREFIX)):
+        # Only ever rendered for the two grouped-source resolve paths (see
+        # resolve_quiet_grouped()/resolve_recovery_paired()) — an ordinary
+        # event-driven resolve clears `note` outright (apply_resolutions()),
+        # so this never fires for a genuine state-source (uk/docker/op_refs)
+        # recovery, which needs no caveat.
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": f"↳ _{_escape(primary['note'])}_"}]})
 
     footer_sig = primary["signature"] if len(members) == 1 else f"<signature> ({len(members)} in this cluster)"
     blocks.append({
@@ -1491,6 +2037,8 @@ def run(conn: sqlite3.Connection, *, dry_run: bool) -> int:
     unsnooze_if_expired(conn, now)
     unmapped = classify(conn, policy, now)
     apply_resolutions(conn, now)
+    resolve_recovery_paired(conn, policy, now, dry_run=dry_run)
+    resolve_quiet_grouped(conn, policy, now)
     maybe_dissolve_clusters(conn, now, dry_run=dry_run)
 
     escalate(conn, policy, now, dry_run=dry_run)

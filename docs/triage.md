@@ -81,7 +81,18 @@ edges* and *Clustering* below.
 4. **Resolve** — an event whose `resolved_at` is now set flips its
    `triage_items` row to `resolved` — except `ignored`/`snoozed`/`STATE_NOTE`
    rows, which stay in their terminal state (a note must never get a
-   one-time "resolved" card either).
+   one-time "resolved" card either). `note` is also cleared here, so a stale
+   quiet/recovery note (below) never survives into a later, unrelated
+   resolve.
+4b. **Quiet / recovery-paired resolve** — the two GROUPED sources
+   (`slack_alert`, `hermes_log`) never disappearance-resolve via step 4 at
+   all: `watchdog-poll.py`'s own `sweep_stale_grouped()` only clears them
+   after 7 idle DAYS, deliberate housekeeping, not signal. Two triage-side
+   fixes instead, checked in this order and never touching
+   `events.resolved_at`: `resolve_recovery_paired()` looks for a fresh `✅`
+   HyperDX recovery message pairing the same alert text, and
+   `resolve_quiet_grouped()` falls back to a `quietResolveHours` silence
+   timer. See *Evidence commands and grouped-source resolution* below.
 5. **Dissolve** — a cluster whose folded verdict says its members don't
    share a root cause (`DISSOLVE_MARKER`, see *Clustering*) splits: every
    member resets to `new` and re-escalates independently later.
@@ -201,6 +212,109 @@ strips ISO-8601 and slash/dash-separated date-time shapes plus any bare
 6+-digit run from the text BEFORE it reaches `normalize_title()` — on this
 one fallback path only; `normalize_title()` itself is unchanged, every other
 source depends on its current behavior.
+
+## Evidence commands
+
+Every real investigation this loop has run so far (meteo, vps, hermes-agent)
+came back `nextAction: human` citing the SAME reason: the dispatched sideclaw
+episode runs in a read-only repo WORKTREE, which has the repo but never the
+live machine — `var/health.json` and `watchdog-alerts.log` are gitignored/
+empty there, live OTel data isn't in the checkout at all, and the one episode
+that got anywhere only did because `~/.hermes/gateway-starts.log` happens to
+sit outside the worktree by accident. A policy `rules` entry can now carry an
+optional `evidence` list, fencing DECLARED, read-only, bounded probes into the
+escalation brief — same closed-set principle as `verb` (see *Verb outcomes*):
+this file names KEYS from `EVIDENCE_ALLOWLIST` in `scripts/triage.py`, never a
+command or argv. An unknown key drops the WHOLE rule at `load_policy()` time,
+loudly, exactly like an unknown `verb`.
+
+Seeded with four:
+
+| Key | What | Why it can't come from the repo checkout |
+|-|-|-|
+| `meteo-health` | meteo's own `var/health.json`, summarized (ok/heartbeat/timestamp + failing checks only, never dumped raw) | gitignored, empty in the worktree |
+| `gateway-starts` | The last 5 lines of `~/.hermes/gateway-starts.log` (an append-only ledger of every gateway process start) | Outside every repo worktree by construction |
+| `hermes-log-tail` | The tail of Hermes's `errors.log`, SLICED at the current gateway process start | Same file, same boundary requirement as `skills/hermes-gateway/SKILL.md` Rule 0 — an unsliced tail mixes a dead incarnation's errors with the live one |
+| `kuma-push-last` | The live `[<monitor name>] ...` UptimeKuma push text for a `uk`-sourced cluster member | `events.payload_json` for a `uk` row is literally `{"type", "status"}` (see `poll_uk()`) — the actual heartbeat line (e.g. `FAIL: disk 90% used`) exists ONLY in raw #alerts Slack text, which `poll_slack_messages()`'s `skip_uk_push` deliberately drops before it ever reaches `events`; argo's own monitor endpoint doesn't carry it either |
+
+Three of the four run as bounded, in-process Python (local file reads); the
+fourth (`kuma-push-last`) additionally needs a secret (`HOMELAB_API_KEY`,
+which must never cross an argv/`ps` boundary) and per-cluster context (which
+monitor actually fired) that a fixed subprocess argv has no way to carry — see
+`EVIDENCE_ALLOWLIST`'s own comment for why this deliberately diverges from
+`VERB_ALLOWLIST`'s literal-argv shape while keeping the identical closed-key
+contract. Every gatherer runs under `_run_bounded()` (a hard wall-clock
+timeout, `TRIAGE_EVIDENCE_TIMEOUT`, default 20s) and any exception folds into
+a returned error string — a failing evidence command is non-fatal and never
+aborts the run; the brief still gets built with whatever evidence succeeded.
+
+Evidence is rendered into one clearly-labelled block inside the brief,
+explicitly told to the episode as CAPTURED runtime state gathered by the loop
+— authoritative for what it reports, but not re-runnable by the episode
+itself and possibly already stale by the time it's read. It is capped twice:
+each key at `EVIDENCE_CAP_CHARS` (1200), the whole block at
+`EVIDENCE_TOTAL_CAP_CHARS` (3200) or whatever budget the REST of the brief
+(the alert list, sibling items, closing instructions) leaves behind inside
+`MAX_BRIEF_CHARS` — whichever is smaller. When evidence has to be cut, only
+evidence is cut, never the brief's own structure, and the block says so
+("…truncated to fit the brief cap"). `config/triage-policy.json` seeds
+`meteo-health` on the meteo rules, `kuma-push-last` on every `uk:*` rule, and
+`gateway-starts`/`hermes-log-tail` on the hermes-agent-related `uk:hermes-*`
+and `hermes_log:*` rules.
+
+## Grouped-source resolution (quiet timer + recovery pairing)
+
+`slack_alert` and `hermes_log` (`GROUPED_TRIAGE_SOURCES`) are the two
+INGEST_SOURCES that are grouped (`upsert_grouped()`-based, append-only) rather
+than state (`reconcile()`-based, disappearance-resolved) — the concrete gap
+this closes: `research-gateway job.reaped`/`audio-gateway podcast.failed`
+were fixed and deployed to prod HyperDX at ~18:37, the alert itself posted
+`✅ resolved` at 18:45, and the `triage_items` row stayed open regardless,
+because step 4 above only ever fires from `events.resolved_at`, and
+`watchdog-poll.py`'s own `sweep_stale_grouped()` — which this file
+deliberately never touches; that column and that sweep stay owned end to end
+by `watchdog-poll.py` — only clears a grouped row after 7 idle DAYS.
+
+Two triage-SIDE fixes (`triage_items` state only, never `events.resolved_at`),
+checked in this order, both excluding an item mid-investigation
+(`state == investigating` — an open dispatch should finish before either path
+races it):
+
+- **`resolve_recovery_paired()`** — a `✅ <same alert text>` HyperDX recovery
+  message is a strictly better signal than silence: a service that is fully
+  DOWN also stops emitting, so absence of new occurrences alone can never
+  tell the two apart. This is cheap because HyperDX's webhook posts the
+  IDENTICAL alert text with only the leading glyph flipped, and
+  `normalize_title()` already strips every non-alnum character — including
+  both glyphs — so `✅ research-gateway job.reaped >= 1 (15m)` and
+  `🚨 research-gateway job.reaped >= 1 (15m)` normalize to the exact same
+  string, which for a grouped source already IS the event's own stable
+  `external_id` (see *Match targets*). One fresh #alerts fetch per run (not
+  per item), one dict lookup per open `slack_alert` candidate. This CANNOT be
+  read back out of `events`/`payload_json` — `upsert_grouped()` retains only
+  one title per batch, never a per-occurrence history (see *The brief*) — so
+  reading live #alerts is the only way to see it at all. Skipped entirely
+  under `--dry-run`, same as every other outbound call this file makes.
+- **`resolve_quiet_grouped()`** — the fallback: a row whose underlying event
+  has produced no new occurrence in `quietResolveHours` (policy knob, default
+  2h — comfortably past the 30-min watchdog-poll cadence and short of either
+  source's own 6h/24h reminder window, so one missed poll can never trip a
+  false resolve) flips to `resolved`. No new column needed:
+  `last_reminder_at`/`notified_at`/`first_seen` (the same idle anchor
+  `sweep_stale_grouped()` itself uses) only advances when `watchdog-poll.py`
+  re-stamps the row on a fresh occurrence, so a value that has stopped
+  changing already IS the quiet duration. Pure local bookkeeping (no Slack,
+  no dispatch), so it runs for real even under `--dry-run`, like
+  `apply_resolutions()`.
+
+**Neither path ever means "fixed."** A service that is fully down also stops
+emitting, so silence is never proof of anything beyond silence, and a ✅
+message is HyperDX's own claim, not this loop's. The resolved card always
+reads "signal quiet since \<time\>" (`QUIET_RESOLVE_NOTE_PREFIX`) or "recovery
+message observed: …" (`RECOVERY_PAIRED_NOTE_PREFIX`) — `render_card_blocks()`
+only surfaces `note` on a `resolved` card when it starts with one of those two
+prefixes, specifically so an ordinary event-driven resolve (which clears
+`note` outright) never inherits stale text from an earlier phase.
 
 ## Carded states
 
@@ -372,14 +486,21 @@ re-triages never noticed.
   "minOccurrences": 3,
   "minOpenMinutes": 30,
   "cooldownHours": 6,
+  "quietResolveHours": 2,
   "ignoreUnstructuredSlackProse": true,
   "rules": [
-    {"match": "<fnmatch on either match target>", "repo": "<repo name>"},
+    {"match": "<fnmatch on either match target>", "repo": "<repo name>",
+     "evidence": ["<EVIDENCE_ALLOWLIST key>", "..."]},
     {"match": "<fnmatch on either match target>", "verb": "<VERB_ALLOWLIST key>"}
   ],
   "ignore": ["<fnmatch on either match target>"]
 }
 ```
+
+`evidence` is optional and only ever valid alongside `repo` (never `verb` — a
+verb outcome is already a deterministic local probe, not an episode with a
+brief to fence evidence into). `quietResolveHours` is top-level, not
+per-rule — see *Grouped-source resolution* above.
 
 A "signature" is `source:external_id` (`triage_items.signature`, and the
 argument every `--snooze`/`--ignore`/`--reopen` CLI verb takes) — this is
@@ -447,6 +568,10 @@ it explains the same contract from inside the file itself.
 | `SUBPROCESS_TIMEOUT` | 60s | `TRIAGE_SUBPROCESS_TIMEOUT` | Bounds the hermes-cc.sh subprocess call inside a 10-minute cron |
 | `VERB_TIMEOUT` | 260s | — | `env-check` runs TWO sequential ssh probes, each individually bounded by hermes-ops.sh's own `SSH_TIMEOUT=120` — the outer bound has to clear 240s or it would kill a legitimately slow-but-healthy probe |
 | `MAX_BRIEF_CHARS` | 8000 | — | Mirrors hermes-cc.sh's own `MAX_BRIEF_CHARS`; enforced in Python before the brief reaches a subprocess |
+| `EVIDENCE_TIMEOUT` | 20s | `TRIAGE_EVIDENCE_TIMEOUT` | Hard wall-clock bound per evidence gatherer (a stuck file read or a slow argo API call must never stall a 10-minute cron) |
+| `EVIDENCE_CAP_CHARS` | 1200 | — | Per-key cap on rendered evidence text, before the whole-block cap below |
+| `EVIDENCE_TOTAL_CAP_CHARS` | 3200 | — | Whole evidence block cap — well under `MAX_BRIEF_CHARS` so a 5-signature cluster (each pulling its own evidence) still leaves room for the rest of the brief |
+| `DEFAULT_QUIET_RESOLVE_HOURS` | 2h | policy `quietResolveHours` | Grouped-source (`slack_alert`/`hermes_log`) quiet-timer resolve — see *Grouped-source resolution* |
 
 `DAILY_INVESTIGATE_BUDGET` is counted from `dispatches.origin_event_id IS NOT
 NULL AND created_at >= <today, UTC>` — the same marker `escalate_cluster()`
@@ -547,3 +672,19 @@ across a reopen, `fold_dispatch_verdict()` updating every member of a cluster
 (not just the primary), and — directly against `scripts/watchdog-poll.py`,
 not through triage.py — two `raw:` op-refs stderr strings differing only in
 their timestamp producing the identical dedup key.
+
+42 cases total — the later 12 cover *Evidence commands* and *Grouped-source
+resolution*: each of the four evidence keys producing correctly-shaped,
+bounded output (`meteo-health` summarizing rather than dumping, `gateway-
+starts` showing only the 5 most recent, `hermes-log-tail` excluding every
+line before its computed gateway-start boundary, `kuma-push-last` picking the
+chronologically latest bracket match and normalizing away the glyph), a
+raising gatherer folding into an error string without taking down a sibling
+key's evidence or the run, an unknown evidence key dropping the whole rule at
+`load_policy()`, a brief whose evidence had to be cut still landing under
+`MAX_BRIEF_CHARS` with its closing structure intact and a truncation note
+present, a grouped item resolving after `quietResolveHours` and updating its
+card exactly once, an in-flight `investigating` item never being yanked to
+resolved by the quiet timer, the `✅`-recovery-pairing path resolving on the
+very next run without waiting out the timer, and `--dry-run` making zero
+Slack calls for the pairing check.
