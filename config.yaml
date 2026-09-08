@@ -436,28 +436,32 @@ curator:
 timezone: ''
 slack:
   # require_mention: false makes EVERY channel Hermes is a member of a free-response
-  # channel — that is the default, not a decision. Two channels are pure echo surfaces
-  # (Hermes restating a bot post it just triggered itself), so they take the per-channel
-  # override; #alerts deliberately stays free-response because live auto-triage of the
-  # HomeLab/VPS/Argo bots is the point of `allow_bots: all`.
+  # channel — that is the default, not a decision. Three channels take the per-channel
+  # override, all for the same underlying reason: a per-message LLM turn is the wrong
+  # tool for a firehose Hermes doesn't need to read live.
   #   C0AS5GUH5U4 = #media    (podcast/image completions — Hermes is the producer)
   #   C0ARZJD824W = #updates  (also polled out-of-band by watchdog-poll.py as slack_update)
+  #   C0AS1LAUQ3C = #alerts   (see below — replaced by scripts/triage.py)
   # Silencing is inbound-only: `hermes send`, cron delivery and dispatch verdicts still
-  # post here, and the dispatch nudge targets origin_channel, never these two.
+  # post here, and the dispatch nudge targets origin_channel, never these three.
+  #
+  # #alerts USED to run a full reasoning_effort:high turn on every inbound alert
+  # message, then post-hoc suppress the reply with NO_REPLY for anything that wasn't
+  # new. Because reply_in_thread makes every alert its own session, that turn had zero
+  # memory of the last time the same alert fired — the same signature could be
+  # (and was) re-triaged dozens of times in a day, reaching the same conclusion every
+  # time, without ever noticing a fix already existed. `scripts/watchdog-poll.py`
+  # already ingests this channel out-of-band (source `slack_alert`, deduplicated by
+  # `normalize_title()` into a stable signature); `scripts/triage.py` (no_agent cron,
+  # every 10 min) now turns that dedup into one durable, updated-in-place Slack card
+  # per problem, with a real sideclaw investigation attached once a signature repeats
+  # or stays open — no LLM call anywhere in that loop. Mentioning Hermes directly in
+  # #alerts still works for an ad-hoc question; see docs/triage.md.
   require_mention: false
-  require_mention_channels: C0AS5GUH5U4,C0ARZJD824W
+  require_mention_channels: C0AS5GUH5U4,C0ARZJD824W,C0AS1LAUQ3C
   free_response_channels: ''
   allowed_channels: ''
-  channel_prompts:
-    # #alerts — keep the triage, drop the chatter. NO_REPLY is the gateway's silent
-    # marker (gateway/response_filters.py): the turn runs, nothing is posted.
-    C0AS1LAUQ3C: >-
-      This is the automated alert channel. Answer only when an alert is NEW and
-      actionable, and then only once per incident with the diagnosis — not a running
-      commentary across several messages. For a recovery / resolved / "Up" / "green
-      again" message, for a heartbeat that returns, and for any message that merely
-      restates something you already answered in this channel, reply with exactly
-      NO_REPLY and nothing else.
+  channel_prompts: {}
   enabled: true
   bot_token: ${SLACK_BOT_TOKEN}
   app_token: ${SLACK_APP_TOKEN}

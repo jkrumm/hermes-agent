@@ -30,12 +30,12 @@ Mac Mini M2 Pro — Hermes Agent (always-on)
 |-|-|-|-|-|
 | `#hermes` | C0ASRUD7K1U | read + write | HomeLab bot | Main conversation, HomeLab-triggered checks |
 | `#inbox` | C0AT6TB49HP | read + write | HomeLab bot | Johannes + HomeLab drops (voice memos, links, digests) → Hermes processes |
-| `#alerts` | C0AS1LAUQ3C | read + write, free-response | HomeLab bot, VPS app (A0BV9MG54TD), Argo app (A0BV9MFTM9R), external monitors | Docker/UptimeKuma and other monitors fire in → Hermes triages and acts, capped at one diagnosis per incident |
+| `#alerts` | C0AS1LAUQ3C | read only (`require_mention_channels`) | HomeLab bot, VPS app (A0BV9MG54TD), Argo app (A0BV9MFTM9R), external monitors | Silenced — no per-message LLM turn. `watchdog-poll.py` still ingests it out-of-band; `scripts/triage.py` deduplicates and acts, cards land in `#agents` — `docs/triage.md`. Mentioning Hermes here directly still works |
 | `#updates` | C0ARZJD824W | read only (`require_mention_channels`) | HomeLab bot | Silenced — Hermes was echoing its own pipeline's posts; still polled out-of-band by `watchdog-poll.py` |
 | `#media` | C0AS5GUH5U4 | read only (`require_mention_channels`) | — | Podcast/image completions — Hermes is the producer, not a conversant |
 | `#watchdog` | C0ASRULFTSS | write only | — | Hermes posts its own proactive monitoring results (cron `4b1faabda97d`) |
 | `#briefings` | C0AT6TH404R | write only | — | Morning/evening audio reports (cron `cc7900c424a9`, `2d38c80e685c`) |
-| `#agents` | C0BVDE5R562 | write only | — | Agent overview + project-narratives digests (crons `72aa2fb36307`, `9909f808fe17`), only when something moved — `docs/agents-overview.md` |
+| `#agents` | C0BVDE5R562 | write only | — | Agent overview + project-narratives digests (crons `72aa2fb36307`, `9909f808fe17`) plus alert-triage cards (`scripts/triage.py`, not yet registered), only when something moved — `docs/agents-overview.md`, `docs/triage.md` |
 
 ### Trigger Matrix
 

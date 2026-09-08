@@ -112,7 +112,9 @@ the secret scan, the nonce fence around the brief).
 coverage); `watchdog-poll.py`/`watchdog-slack.py` (`no_agent`, 30 min) poll UptimeKuma/Docker/
 GitHub/Slack/1Password-ref-health into `watchdog.db` and post the digest; `watchdog-summary.py`
 is a read-only briefing snapshot; `dispatch-sweep.py` (`no_agent`, 5 min, registered via
-`hermes cron` not `make setup`) polls sideclaw and delivers verdicts via `hermes send`.
+`hermes cron` not `make setup`) polls sideclaw and delivers verdicts via `hermes send`;
+`triage.py`/`triage-cron.py` (`no_agent`, 10 min, not yet registered) act on that dedup instead
+of just reporting it — see **Alert triage** below.
 
 **Quiet hours (00:00–07:00) and vacation defer a notification, they do not burn it** — rows
 still insert/refresh/resolve under suppression, only the notification is withheld. A failed
@@ -121,6 +123,38 @@ misses) rather than silently reading as "nothing new". **`hermes cron create --s
 any substantial script** (`cron/lifecycle_guard.py` fails closed on an exhausted recursion
 budget) — keep entry points thin, logic in an imported module. Detail:
 **`docs/watchdog.md`** · **`docs/scheduled-jobs.md`**.
+
+## Alert triage
+
+`scripts/triage.py` (`no_agent` cron, every 10 min — **not yet registered**,
+see `docs/triage.md`) is the act-loop `watchdog-poll.py`'s dedup always
+needed: it turns deduplicated `events` rows into one durable, updated-in-place
+Slack card per problem and, once eligible, a real sideclaw `investigate`
+episode — **no LLM call anywhere in the file**. It replaced a full
+`reasoning_effort: high` turn on every `#alerts` message, which had zero
+memory across messages (`reply_in_thread`) and re-triaged the same signature
+dozens of times a day.
+
+| Fact | Detail |
+|-|-|
+| Sources acted on | `slack_alert`, `uk`, `docker_homelab`, `docker_vps`, `hermes_log` |
+| Signature | `source:external_id` — `triage_items.signature`, also the CLI verbs' argument |
+| Repo mapping | `config/triage-policy.json`'s `rules`/`ignore`, fnmatch against TWO targets (`source:external_id` and `source:normalize_title(title)` — the latter is what makes `uk`'s opaque monitor ids mappable at all), first match wins; plus a structural `ignoreUnstructuredSlackProse` flag for Hermes's own pre-silencing #alerts replies |
+| Clustering | Eligible items are grouped BY REPO, at most one dispatch per repo per run (cap 5 signatures/brief) — two signatures with one root cause get one episode and one card, not two |
+| States | `new → investigating → {verdict, needs_human, pr_open}`, plus `resolved`/`snoozed`/`ignored`; a cluster whose verdict says `UNRELATED SIGNATURES` dissolves back to individual `new` items |
+| Carded states | Only `investigating`/`verdict`/`needs_human`/`pr_open`/`resolved` get a card — an unescalated `new` item, mapped or not, is silent |
+| The two edges this fixes | `events.dispatch_id` (written for EVERY cluster member, never just the first) and `dispatches.origin_event_id` (accepted by `hermes-cc.sh --origin-event`, never passed — takes the cluster's primary member) |
+| Card channel | `C0BVDE5R562` (`#agents`) — shared with the agents-overview/project-narratives digests |
+| No-firehose guard | `card_hash` (sha256 of rendered Block Kit) — a sync is skipped entirely when nothing changed |
+| CLI | `--run` (default) · `--dry-run` · `--db <path>` · `--snooze <sig> --hours N` · `--ignore <sig>` · `--reopen <sig>` · `--list` |
+
+`scripts/dispatch-sweep.py` folds a triage-opened dispatch's terminal verdict
+onto its card immediately (`fold_dispatch_verdict()`) rather than waiting for
+triage.py's own next pass; its `#watchdog` delivery path for every
+non-triage dispatch is unchanged. `config.yaml`'s `slack.require_mention_channels`
+now includes `#alerts` (`C0AS1LAUQ3C`) — mentioning Hermes there directly
+still works. Full state machine, the brief contract, the bounds table, and
+the policy file contract: **`docs/triage.md`**.
 
 ## Secrets — native `secrets.command` over the headless cache (v0.19.0+)
 

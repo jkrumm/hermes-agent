@@ -68,6 +68,7 @@ Source of truth: ~/SourceRoot/hermes-agent/scripts/dispatch-sweep.py
 from __future__ import annotations
 
 import datetime as dt
+import importlib.util
 import json
 import os
 import sqlite3
@@ -136,6 +137,20 @@ UNDELIVERABLE_SENTINEL = "undeliverable:no-origin-channel"
 # "(message truncated)" suffix itself and any mrkdwn formatting overhead.
 BODY_CHAR_LIMIT = 3800
 EVIDENCE_CAP = 5
+
+# scripts/triage.py's fold_dispatch_verdict() — loaded by path, the same
+# mechanism the cron entry-point wrappers use (the filename is not
+# importable). A dispatch tied to a triage item (origin_event_id set) needs
+# its card folded to the terminal verdict as soon as this sweeper sees it,
+# rather than waiting for triage.py's own next 10-minute pass. Import at
+# module load, not lazily inside process_dispatch, so a broken sibling
+# script fails loudly at import time instead of on the first row that
+# happens to need it.
+_TRIAGE_PATH = Path(__file__).resolve().parent / "triage.py"
+_triage_spec = importlib.util.spec_from_file_location("triage", _TRIAGE_PATH)
+assert _triage_spec and _triage_spec.loader, "Failed to load scripts/triage.py"
+_triage = importlib.util.module_from_spec(_triage_spec)
+_triage_spec.loader.exec_module(_triage)
 
 DB_SCHEMA = """
 CREATE TABLE IF NOT EXISTS dispatches (
@@ -622,6 +637,28 @@ def process_dispatch(conn: sqlite3.Connection, row: sqlite3.Row, *, dry_run: boo
             ),
         )
         conn.commit()
+
+    # Fold the terminal verdict onto the triage card, if this dispatch was
+    # opened BY triage.py (origin_event_id set — see scripts/triage.py's
+    # escalate_one()). This is a different concern from the #watchdog/thread
+    # delivery below: the card lives in its own Slack message, independent of
+    # whether `hermes send` below succeeds, so it runs unconditionally here
+    # rather than being duplicated into every branch of the delivery logic
+    # that follows. A dispatch with no origin_event_id (the pre-existing
+    # #watchdog path, and every non-triage dispatch) is untouched.
+    origin_event_id = row["origin_event_id"] if "origin_event_id" in row.keys() else None
+    if origin_event_id:
+        try:
+            _triage.fold_dispatch_verdict(
+                conn, origin_event_id=origin_event_id, job_id=job_id,
+                now=dt.datetime.now(dt.timezone.utc), dry_run=dry_run,
+            )
+        except Exception as e:  # a triage-card failure must never look like a sweep failure
+            print(
+                f"dispatch-sweep: folding triage card failed for job {job_id} "
+                f"(origin_event_id {origin_event_id}): {e}",
+                file=sys.stderr,
+            )
 
     origin_channel = row["origin_channel"]
     origin_thread_ts = row["origin_thread_ts"]
