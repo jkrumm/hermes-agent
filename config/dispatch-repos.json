@@ -107,6 +107,21 @@
     "`deny` is a config error the resolver refuses to run rather than to guess about, exactly",
     "like the `deny`/`tiers` contradiction below.",
     "",
+    "sideclaw and warden are capped at `investigate`, and this one is not a judgement call about",
+    "blast radius — it is structural. sideclaw is the executor every dispatch runs through, and",
+    "warden is the control plane that decides what to dispatch and then judges whether the",
+    "actuator worked. An unattended `implement` against either closes a loop with no outside:",
+    "the thing being changed is the thing that would have to notice the change was wrong. Same",
+    "reason a CI system does not deploy itself from its own pipeline.",
+    "",
+    "This cap is ALSO re-asserted inside sideclaw itself (server/lib/dispatch-policy.ts, visible",
+    "at GET /api/dispatch-policy), where the two names are pinned and no env var can raise them.",
+    "That is deliberate duplication, not drift: POST /api/jobs has no auth and, until 2026-09-09,",
+    "`resolve_repo` in hermes-cc.sh was the ENTIRE repo-scope control for a job API any local",
+    "process can reach. A policy that lives only in one caller of an executor that trusts",
+    "everyone is advisory. This copy is defence in depth; sideclaw's is the boundary — and the",
+    "two are meant to agree, so a change here needs the same change there.",
+    "",
     "brain moved from `deny` to `tiers.investigate` (2026-08-15). Read-only",
     "and worktree-isolated, so an episode here cannot write to the vault. `investigate` is the",
     "only path that loads the vault's own rule hierarchy (brain/CLAUDE.md, AGENTS.md, voice.md),",
@@ -125,6 +140,6 @@
   "deny": ["dotfiles-private", "homelab-private"],
   "sensitive": ["dotfiles-private", "homelab-private"],
   "tiers": {
-    "investigate": ["dotfiles", "brain", "hermes-agent"]
+    "investigate": ["dotfiles", "brain", "hermes-agent", "sideclaw", "warden"]
   }
 }
