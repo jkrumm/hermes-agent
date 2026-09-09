@@ -978,3 +978,50 @@ for 7 days and lifting after, the policy file round-tripping with `_readme`
 and top-level key order intact after an applied `map` proposal, the commit
 (and the write itself) being skipped when `config/triage-policy.json` already
 carries a pending change, and `--dry-run` making zero model calls.
+
+## Known: grouped reopen churn, and why brain-sync is invisible
+
+Two related defects, both measured 2026-09-09, neither fixed. They are written
+down because each is easy to re-derive wrongly.
+
+### A grouped item reopens every run
+
+`reopen_if_needed()` reopens a `resolved` triage item whenever its event has
+`resolved_at IS NULL`. For a grouped source (`slack_alert`, `hermes_log`) that
+column stays NULL for months — `watchdog-poll.py`'s `sweep_stale_grouped()`
+only clears it after 7 idle days, deliberately. So a quiet-resolved grouped item
+is reopened on the very next run, quiet-resolves again, and repeats every ten
+minutes forever.
+
+This is currently **invisible**, and only by luck: the re-rendered card is
+byte-identical, so `card_hash` short-circuits the Slack call. Any change that
+varies the resolve note by a single character — including making the quiet
+window adaptive, which is the obvious fix for the next defect — turns that
+silent churn into a `chat.update` every ten minutes.
+
+The fix is to reopen on a **new occurrence** (the grouped payload's `ts_last`
+moving) rather than on `resolved_at IS NULL`. That is the item lifecycle's core
+and wants its own change with live validation, not a patch on top of another.
+
+### brain-sync is never investigated
+
+27 `Brain Sync - Push` DOWN messages in a week, the third-largest alert source,
+and the loop has never once looked at it. Three causes stack:
+
+- **The correctly mapped signature never opens.** `uk:brain-sync-push` → `dotfiles`
+  is a real rule, but `uk:209` requires the monitor to still be down at the next
+  poll (`UK_DOWN_GATE_MIN = 30`). brain-sync recovers in minutes, so the event
+  resolved on 2026-09-07 with `notified_at` NULL and has not reopened since.
+- **What reaches Slack is a different signature.** The message a human sees is the
+  `[Local]` parent group's `Child monitors down: Brain Sync - Push`, which passes
+  `skip_uk_push` (no `Push]` in its own brackets), lands as `slack_alert`, and is
+  **unmapped** — so it never escalates.
+- **It quiet-resolves before it can accumulate.** Median gap between firings is
+  1.4h, but **10 of 26 gaps exceed the 2h quiet window**, so the item closes
+  during an ordinary lull and starts over.
+
+A fixed quiet window silently defeats itself on any signal whose own period is
+near it. The intended fix is to widen the window per resolve/recur cycle —
+self-tuning, needing no knowledge of the signal's period — but it must land
+*after* the reopen fix above, because on its own it converts the invisible churn
+into visible card spam.

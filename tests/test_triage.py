@@ -1181,11 +1181,21 @@ def test_quiet_grouped_resolves_after_window_and_updates_card_once():
         assert item["note"].startswith(triage.QUIET_RESOLVE_NOTE_PREFIX)
         assert "fixed" not in item["note"].lower()
         assert len(ctx.updated) == 1 and len(ctx.posted) == 0, (
-            "an already-carded item's resolve must be exactly one chat.update, never a chat.postMessage")
+            f"an already-carded item's resolve must be exactly one chat.update, never a "
+            f"chat.postMessage — got {len(ctx.updated)} update(s), {len(ctx.posted)} post(s)")
         calls_after_first = ctx.total_calls()
 
         triage.run(conn, dry_run=False)
-        assert ctx.total_calls() == calls_after_first, "a resolved card must update exactly once"
+        # NOTE: this passes only because the re-rendered card is byte-identical, so
+        # card_hash short-circuits it — NOT because the item stops churning. It is
+        # reopened by reopen_if_needed() every run (a grouped event's resolved_at
+        # stays NULL for months) and quiet-resolved again immediately. Any change
+        # that varies the resolve note by even one character turns that invisible
+        # churn into a chat.update every ten minutes. See docs/triage.md
+        # §Known: grouped reopen churn.
+        assert ctx.total_calls() == calls_after_first, (
+            f"a resolved card must update exactly once — got "
+            f"{ctx.total_calls() - calls_after_first} extra call(s) on the second run")
 
 
 def test_new_to_resolved_with_no_card_is_silent():
