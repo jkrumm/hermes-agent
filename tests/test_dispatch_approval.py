@@ -32,6 +32,17 @@ The cases:
   - a missing public key refuses rather than falling back to instruction-level
   - only the gateway publishes a signing key, and a clobbered one is republished
     before signing (the 2026-08-03 outage, as a test)
+  - the plugin has NO write path of its own left: with warden's intent queue stubbed
+    out, a click cannot decide a row
+  - the whole chain against the REAL warden/scripts/intents.py — spool, drain, and a
+    row carrying a signature that verifies, with payload_hash/expires_at/spent_at
+    untouched
+  - an already-decided row short-circuits before signing and before spawning anything
+  - a drain that exits non-zero over somebody ELSE'S rejected file still succeeds,
+    because the row is the source of truth
+  - the intent the plugin builds passes warden's own `intents.validate()` — the
+    contract test between the two repos
+  - `_load_invocation` cannot write
 
 Run:
 
@@ -72,6 +83,22 @@ Harness = _cc.Harness
 _pspec = importlib.util.spec_from_file_location("dispatch_approval", PLUGIN)
 plugin = importlib.util.module_from_spec(_pspec)
 _pspec.loader.exec_module(plugin)
+
+# warden's intent queue — the thing that writes the row now. Loaded by path, the way
+# warden's own suites load it, because scripts/ filenames are not importable and a
+# plain `import intents` would resolve to nothing or to a different copy. One override
+# point, matching test_hermes_cc.py's WARDEN_LEDGER_PY.
+WARDEN_INTENTS_PY = Path(os.environ.get(
+    "WARDEN_INTENTS_PY", str(_cc.WARDEN_LEDGER_PY.parent / "intents.py")))
+if not WARDEN_INTENTS_PY.exists():
+    sys.exit(
+        f"warden's intent queue is not available at {WARDEN_INTENTS_PY}. The approval "
+        "plugin no longer writes the ledger itself, so this suite cannot exercise a "
+        "click without it. Set WARDEN_INTENTS_PY if warden has moved."
+    )
+_ispec = importlib.util.spec_from_file_location("warden_intents", WARDEN_INTENTS_PY)
+warden_intents = importlib.util.module_from_spec(_ispec)
+_ispec.loader.exec_module(warden_intents)
 
 FAILURES = []
 CHECKS = [0]
@@ -644,6 +671,242 @@ def test_execute_with_origin_posts_to_thread(h, approver):
     check("Episode opened" in sent and "job `" in sent, "the posted body is the outcome")
 
 
+# --- the plugin stops writing the ledger (Slice 2b) ---------------------------
+#
+# DESIGN.md § The ledger wants ONE writer process. These cases prove the plugin is
+# no longer one of them: it reads read-only, signs, and requests the write through
+# warden's queue. The authority model is unchanged and is covered by the forgery
+# cases above — what is proven here is only who executes the UPDATE.
+
+
+def _stub_cli(h, name: str, body: str) -> Path:
+    """A stand-in for warden's intents.py. Run through `sys.executable`, exactly as
+    the plugin runs the real one, so nothing depends on a shebang or a mode bit."""
+    path = h.root / f"intents-stub-{name}.py"
+    path.write_text(body)
+    return path
+
+
+def record_decision(db, spool, *, nonce, decision="approve", by="U0JOHANNES", cli=None):
+    """Call the plugin's `_record_decision` with the ledger, the spool directory and
+    the queue CLI all pointed at throwaway locations. Raises whatever it raises."""
+    plugin._ensure_key()
+    saved = dict(os.environ)
+    try:
+        os.environ.update({
+            "HERMES_CC_DB": str(db),
+            "WARDEN_INTENTS_DIR": str(spool),
+            "WARDEN_INTENTS_CLI": str(cli or WARDEN_INTENTS_PY),
+        })
+        return plugin._record_decision(nonce, decision, by)
+    finally:
+        os.environ.clear()
+        os.environ.update(saved)
+
+
+def approval_row(db, nonce):
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    try:
+        return conn.execute("SELECT * FROM dispatch_approvals WHERE nonce=?", (nonce,)).fetchone()
+    finally:
+        conn.close()
+
+
+def pending_nonce(db):
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    try:
+        return conn.execute("SELECT nonce FROM dispatch_approvals").fetchone()["nonce"]
+    finally:
+        conn.close()
+
+
+def test_plugin_has_no_write_path_of_its_own(h, approver):
+    """Stub the queue out with a program that does nothing at all, and the click
+    cannot decide the row — because there is no longer any code in this plugin that
+    could. This is the whole point of the slice, stated as a test: if someone ever
+    re-adds a writable `sqlite3.connect`, this case stops failing and the one below
+    keeps passing, so it has to be here."""
+    db, env, plan = plan_and_db(h, approver)
+    check(plan.returncode == 0, "plan exits 0 (no-write-path case)")
+    nonce = pending_nonce(db)
+    spool = h.root / "spool-nowrite"
+
+    raised = None
+    try:
+        record_decision(db, spool, nonce=nonce,
+                        cli=_stub_cli(h, "noop", "import sys\nsys.exit(0)\n"))
+    except RuntimeError as exc:
+        raised = exc
+    check(raised is not None, "a queue that writes nothing makes the click raise")
+    check(approval_row(db, nonce)["decision"] is None,
+          "the plugin decided nothing on its own")
+
+
+def test_decision_lands_through_the_real_queue(h, approver):
+    """The whole chain, against the REAL warden/scripts/intents.py: the plugin signs,
+    spools one intent, drains it synchronously, and the row comes back decided with a
+    signature that verifies against the published public key. The drain has to be
+    synchronous because `execute_approved()` re-runs `--confirm` moments later and
+    `require_signed_approval()` reads this row — a click waiting on warden's 600s loop
+    would look like a click that did nothing.
+
+    `payload_hash`, `expires_at` and `spent_at` must be untouched: they are what bind
+    the approval to specific bytes and a specific deadline, and warden's queue refuses
+    the first two by name if a spool file tries to carry them."""
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+    db, env, plan = plan_and_db(h, approver)
+    check(plan.returncode == 0, "plan exits 0 (real-queue case)")
+    nonce = pending_nonce(db)
+    before = approval_row(db, nonce)
+    spool = h.root / "spool-real"
+
+    result = record_decision(db, spool, nonce=nonce)
+    check(result is not None and result.get("already") is False,
+          f"the click won and reports a fresh decision: {result!r}")
+    check(result.get("decision") == "approve" and result.get("repo") == "gamma"
+          and result.get("tier") == "implement" and result.get("verb") == "dispatch",
+          f"the return contract is unchanged: {result!r}")
+    check(result.get("expires_at") == before["expires_at"],
+          "the returned expires_at is the row's own")
+
+    after = approval_row(db, nonce)
+    check(after["decision"] == "approve", f"the row is decided: {after['decision']!r}")
+    check(after["decided_by"] == "U0JOHANNES", f"decided_by landed: {after['decided_by']!r}")
+    check(after["decided_at"] is not None, "decided_at landed")
+    check(after["payload_hash"] == before["payload_hash"], "payload_hash untouched")
+    check(after["expires_at"] == before["expires_at"], "expires_at untouched")
+    check(after["spent_at"] is None, "spent_at untouched — the drain does not spend")
+
+    verified = True
+    try:
+        Ed25519PublicKey.from_public_bytes(bytes.fromhex(plugin._PUBLIC_KEY_HEX)).verify(
+            bytes.fromhex(after["signature"]),
+            plugin.canonical_message(nonce, after["payload_hash"], "approve",
+                                     "U0JOHANNES", after["expires_at"]),
+        )
+    except Exception:
+        verified = False
+    check(verified, "the row carries a signature that verifies against the published key")
+    check(not list(spool.glob("*.json")), "the drained intent was consumed, not left behind")
+
+
+def test_already_decided_short_circuits(h, approver):
+    """An already-decided row is answered from the first read: nothing is signed and
+    nothing is spawned. Proven by removing the signing key — reaching `_sign()` would
+    raise — and by a stub CLI that leaves a file behind if it ever runs."""
+    db, env, plan = plan_and_db(h, approver)
+    check(plan.returncode == 0, "plan exits 0 (already-decided case)")
+    nonce = approver.decide(
+        db, plugin.payload_hash("dispatch", "gamma", "implement", BRIEF, WHY))
+
+    ran = h.root / "intents-stub-ran.marker"
+    cli = _stub_cli(h, "marker", f"open({str(ran)!r}, 'a').write('ran\\n')\n")
+    saved_key = plugin._SIGNING_KEY
+    plugin._SIGNING_KEY = None
+    try:
+        result = record_decision(db, h.root / "spool-already", nonce=nonce, cli=cli)
+    finally:
+        plugin._SIGNING_KEY = saved_key
+    check(result is not None and result.get("already") is True,
+          f"an already-decided row reports already: {result!r}")
+    check(result.get("decision") == "approve", f"it reports the row's decision: {result!r}")
+    check(not ran.exists(), "no subprocess was spawned for a row already decided")
+
+
+def test_unrelated_rejection_does_not_fail_the_click(h, approver):
+    """`intents.py --drain` exits 1 if ANY file in the spool was rejected, including
+    one some other surface dropped there. Branching on that exit code would make an
+    unrelated file break this click, so the plugin reads the ROW instead."""
+    db, env, plan = plan_and_db(h, approver)
+    check(plan.returncode == 0, "plan exits 0 (unrelated-rejection case)")
+    nonce = pending_nonce(db)
+
+    spool = h.root / "spool-junk"
+    spool.mkdir(parents=True, exist_ok=True)
+    junk = spool / "20260101T000000000000-deadbeef.json"
+    junk.write_text('{"v": 1, "kind": "not_a_kind"}\n')
+
+    result = record_decision(db, spool, nonce=nonce)
+    check(result is not None and result.get("already") is False,
+          f"the click still succeeds beside a rejected file: {result!r}")
+    check(approval_row(db, nonce)["decision"] == "approve", "the row landed anyway")
+    check((spool / "rejected" / junk.name).exists(),
+          "the unrelated file was isolated by warden, not discarded")
+
+
+def test_intent_passes_wardens_validate(h, approver):
+    """The contract test between the two repos. warden's `validate()` is a CLOSED
+    allowlist — an unknown key is a hard ValueError, and `expires_at`/`payload_hash`
+    are refused by name — so this captures the intent the plugin ACTUALLY builds and
+    hands it to warden's own validator. If warden tightens the schema, this fails
+    here rather than in production on a click."""
+    db, env, plan = plan_and_db(h, approver)
+    check(plan.returncode == 0, "plan exits 0 (validate-contract case)")
+    nonce = pending_nonce(db)
+
+    captured = h.root / "captured-intent.json"
+    cli = _stub_cli(h, "capture", (
+        "import sys\n"
+        "if '--record' in sys.argv:\n"
+        f"    open({str(captured)!r}, 'w').write(sys.stdin.read())\n"
+    ))
+    try:
+        record_decision(db, h.root / "spool-capture", nonce=nonce, cli=cli)
+    except RuntimeError:
+        pass  # the capture stub writes no row; the intent is what this case is about
+    check(captured.exists(), "the plugin spooled an intent on stdin")
+
+    intent = json.loads(captured.read_text())
+    err = None
+    try:
+        warden_intents.validate(intent)
+    except Exception as exc:
+        err = exc
+    check(err is None, f"warden's validate() accepts the plugin's intent: {err!r}")
+    check(intent.get("kind") == "approval_decision" and intent.get("source") == "dispatch-approval",
+          f"the intent names its kind and its source: {intent!r}")
+    check("expires_at" not in intent and "payload_hash" not in intent,
+          "the intent carries neither binding field — those come from the row")
+
+
+def test_the_plugin_cannot_write_the_ledger_at_all(h, approver):
+    """`_load_invocation` read `sqlite3.connect(str(db))` — a writable handle used for
+    nothing but SELECTs. warden's CLAUDE.md: read-only means read-only. Proven twice:
+    the URI the plugin now opens refuses an INSERT, and no `sqlite3.connect` anywhere
+    in the plugin is missing `mode=ro`."""
+    db, env, plan = plan_and_db(h, approver)
+    check(plan.returncode == 0, "plan exits 0 (read-only case)")
+    nonce = pending_nonce(db)
+
+    saved = dict(os.environ)
+    try:
+        os.environ["HERMES_CC_DB"] = str(db)
+        inv = plugin._load_invocation(nonce)
+    finally:
+        os.environ.clear()
+        os.environ.update(saved)
+    check(inv is not None and isinstance(inv.get("argv"), list),
+          f"the read-only handle still reads the stored invocation: {inv!r}")
+
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    refused = False
+    try:
+        conn.execute("INSERT INTO dispatch_approvals (nonce) VALUES ('x')")
+        conn.commit()
+    except sqlite3.OperationalError:
+        refused = True
+    finally:
+        conn.close()
+    check(refused, "an INSERT through the same URI is refused by SQLite")
+
+    connects = [l.strip() for l in PLUGIN.read_text().splitlines() if "sqlite3.connect(" in l]
+    check(connects and all("mode=ro" in l for l in connects),
+          f"every sqlite3.connect in the plugin is read-only: {connects!r}")
+
+
 CASES = [
     test_hash_agreement,
     test_plan_mints_pending,
@@ -665,6 +928,12 @@ CASES = [
     test_missing_pubkey_refuses,
     test_approve_executes_stored_invocation,
     test_execute_with_origin_posts_to_thread,
+    test_plugin_has_no_write_path_of_its_own,
+    test_decision_lands_through_the_real_queue,
+    test_already_decided_short_circuits,
+    test_unrelated_rejection_does_not_fail_the_click,
+    test_intent_passes_wardens_validate,
+    test_the_plugin_cannot_write_the_ledger_at_all,
 ]
 
 

@@ -27,6 +27,20 @@ approvals do not survive a restart: their signatures no longer verify and
 spent within minutes; an approval that outlived the process that witnessed the click
 would be a worse thing to trust than one that expired.
 
+WHO WRITES THE ROW (2026-09-09). This plugin no longer opens the ledger for writing
+at all — both of its connections are `mode=ro`. The decision is signed here and then
+*requested* as an `approval_decision` intent through warden's queue
+(`warden/scripts/intents.py`), which owns the single UPDATE. DESIGN.md § The ledger
+requires one writer process, and a Slack plugin living inside the gateway while
+holding a writable handle on the ledger is exactly the "control plane inside the
+thing it supervises" coupling the extraction removed. The authority model is
+untouched by that move: the private key still exists only in this process's RAM,
+still gets minted at startup, still signs a real Slack interaction payload, and
+`require_signed_approval()` in `hermes-cc.sh` remains the one and only verifier.
+Only the writer moved. The queue deliberately verifies nothing — a forged spool file
+cannot mint a signature, so the worst it can do is deny an approval nobody then acts
+on, and that is a human noticing nothing happened rather than a merge nobody sanctioned.
+
 APPROVE RUNS THE VERB (2026-09-07). Before, a click only signed the row and then
 waited for Hermes to notice and re-run `--confirm` — which it never reliably did, so
 approved dispatches sat unspent until they expired. Now the plan branch stores the
@@ -53,6 +67,7 @@ import json
 import logging
 import os
 import sqlite3
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -78,10 +93,16 @@ _PUBKEY_FILENAME = "dispatch-approval.pub"
 # Both overridable so the test suite can stand in a stub without a gateway.
 _DEFAULT_CC_SCRIPT = Path.home() / ".hermes" / "scripts" / "hermes-cc.sh"
 _DEFAULT_HERMES_BIN = Path.home() / ".local" / "bin" / "hermes"
+# warden's intent queue — the door this plugin requests a ledger change through,
+# because it no longer performs one. See `_record_decision`.
+_DEFAULT_INTENTS_CLI = Path.home() / "SourceRoot" / "warden" / "scripts" / "intents.py"
 # An implement episode is submitted in seconds (the wait is the sweeper's); a merge
 # talks to GitHub a handful of times. Anything past this is wedged, not slow.
 _RUN_TIMEOUT_S = 120
 _SEND_TIMEOUT_S = 30
+# Spooling one file and draining a handful of them is milliseconds of work against a
+# local SQLite file. Anything past this is a locked ledger, not a slow one.
+_INTENTS_TIMEOUT_S = 30
 
 
 def _hermes_home() -> Path:
@@ -94,15 +115,16 @@ def _hermes_home() -> Path:
 
 
 def _db_path() -> Path:
-    """The dispatch bridge's store. `hermes-cc.sh` owns this file; we only ever
-    UPDATE a row it already INSERTed, and never create the table."""
+    """The dispatch bridge's store. `hermes-cc.sh` owns the tables; warden owns the
+    schema and, since Slice 2b, the write — this plugin only ever READS this file,
+    read-only, and hands the write to `warden/scripts/intents.py`."""
     override = os.environ.get("HERMES_CC_DB")
     if override:
         return Path(override)
-    # Moved to warden with the control plane (2026-09-09); same file, same single
-    # UPDATE this plugin has always done. DESIGN.md wants this direct write replaced
-    # by an intent the loop drains, which is Wave 1 — until then the path has to
-    # follow the ledger or an Approve click writes to a database nothing reads.
+    # Moved to warden with the control plane (2026-09-09). The path still has to
+    # follow the ledger even though nothing here writes it: the drain is passed this
+    # same path, and a click that spooled against a database nothing reads would look
+    # exactly like a click that worked.
     return Path.home() / ".warden" / "warden.db"
 
 
@@ -226,56 +248,149 @@ def _sign(nonce: str, payload_hash: str, decision: str, decided_by: str, expires
     return _SIGNING_KEY.sign(msg).hex()
 
 
-def _record_decision(nonce: str, decision: str, decided_by: str) -> Optional[dict]:
-    """Write the signed decision onto the pending row.
+def _read_approval(db: Path, nonce: str) -> Optional[sqlite3.Row]:
+    """One approval row, READ-ONLY.
 
-    Returns the row's public fields on success, None if there was nothing to decide.
-    The UPDATE is guarded on `decision IS NULL`, so a second click — or a click racing
-    another — changes nothing and reports as already-decided.
+    `mode=ro` is not decoration: it is what makes "this plugin is not a ledger
+    writer" a property SQLite enforces on every connection this file opens,
+    rather than one the file merely promises. warden's CLAUDE.md states it as a
+    rule — read-only means read-only.
+
+    `signature` is selected alongside the fields the caller returns because the
+    post-drain read has to tell OUR write from somebody else's; see
+    `_record_decision`.
+    """
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        return conn.execute(
+            "SELECT nonce, repo, tier, verb, payload_hash, expires_at, decision, channel, "
+            "signature FROM dispatch_approvals WHERE nonce = ?",
+            (nonce,),
+        ).fetchone()
+    finally:
+        conn.close()
+
+
+def _run_intents(args: list[str], stdin_text: Optional[str] = None) -> subprocess.CompletedProcess:
+    """One `python3 intents.py …` call.
+
+    `sys.executable`, deliberately, and not a second interpreter constant to keep in
+    sync: `intents.py` and the `ledger.py` it loads are pure stdlib, and warden's venv
+    is pinned to the same Python version as the gateway's.
+
+    Never raises. A spawn or timeout failure folds into rc=-1 with the reason in
+    stderr — exactly like `_run_cc()` — because the caller decides from the ROW and
+    not from an exit code.
+    """
+    cmd = [sys.executable, str(_intents_cli()), *args]
+    try:
+        return subprocess.run(
+            cmd, input=stdin_text or "", capture_output=True, text=True,
+            timeout=_INTENTS_TIMEOUT_S, env=_subprocess_env(),
+        )
+    except (subprocess.TimeoutExpired, OSError, ValueError) as exc:
+        return subprocess.CompletedProcess(cmd, -1, "", f"could not run intents.py: {exc}")
+
+
+def _record_decision(nonce: str, decision: str, decided_by: str) -> Optional[dict]:
+    """Sign the pending row's decision here, and let warden's queue write it.
+
+    Returns the row's public fields on success, None if there was nothing to decide —
+    the same keys, the same types, the same meaning of None as when this function did
+    the UPDATE itself.
+
+    THIS OPENS NO WRITABLE HANDLE ON THE LEDGER. Both reads are `mode=ro`; the write
+    is one `approval_decision` intent spooled through `warden/scripts/intents.py`,
+    which owns the single guarded UPDATE (`AND decision IS NULL`, so a second click —
+    or a click racing another — still changes nothing).
+
+    THE DRAIN IS SYNCHRONOUS, AND THAT CONSTRAINT DECIDED THE WHOLE DESIGN.
+    `execute_approved()` re-runs `hermes-cc.sh <argv> --confirm` in a subprocess
+    immediately after this click, and `require_signed_approval()` reads the row. If
+    the drain were left to warden's 600s loop, the click would appear to do nothing
+    for up to ten minutes.
+
+    Nothing about the authority model moved: the key is still RAM-only, the signature
+    is still minted here from a real Slack interaction payload, and
+    `require_signed_approval()` is still the one verifier. Only the writer moved.
     """
     db = _db_path()
     if not db.exists():
         logger.warning("[dispatch-approval] no dispatch db at %s", db)
         return None
 
-    conn = sqlite3.connect(str(db))
-    conn.row_factory = sqlite3.Row
-    try:
-        row = conn.execute(
-            "SELECT nonce, repo, tier, verb, payload_hash, expires_at, decision, channel "
-            "FROM dispatch_approvals WHERE nonce = ?",
-            (nonce,),
-        ).fetchone()
-        if row is None:
-            logger.warning("[dispatch-approval] no pending approval for nonce %s", nonce)
-            return None
-        if row["decision"] is not None:
-            return {"already": True, "decision": row["decision"], "repo": row["repo"],
-                    "tier": row["tier"], "verb": row["verb"]}
+    row = _read_approval(db, nonce)
+    if row is None:
+        logger.warning("[dispatch-approval] no pending approval for nonce %s", nonce)
+        return None
+    if row["decision"] is not None:
+        return {"already": True, "decision": row["decision"], "repo": row["repo"],
+                "tier": row["tier"], "verb": row["verb"]}
 
-        now = dt.datetime.now(dt.timezone.utc).isoformat()
-        sig = _sign(nonce, row["payload_hash"], decision, decided_by, row["expires_at"])
-        cur = conn.execute(
-            "UPDATE dispatch_approvals SET decision = ?, decided_at = ?, decided_by = ?, "
-            "signature = ? WHERE nonce = ? AND decision IS NULL",
-            (decision, now, decided_by, sig, nonce),
+    # `payload_hash` and `expires_at` come from the ROW, exactly as they always have.
+    # They are what bind an approval to specific bytes and a specific deadline, which
+    # is why warden's intents.py refuses both by name if a spool file tries to carry
+    # them — the intent below deliberately does not.
+    sig = _sign(nonce, row["payload_hash"], decision, decided_by, row["expires_at"])
+    intent = {
+        "v": 1,
+        "kind": "approval_decision",
+        "created_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "source": "dispatch-approval",
+        "nonce": nonce,
+        "decision": decision,
+        "decided_by": decided_by,
+        "signature": sig,
+    }
+
+    # The intent goes on STDIN, never argv: it carries a signature, and argv crosses a
+    # `ps` boundary that anyone logged into this host can read.
+    spooled = _run_intents(["--record"], json.dumps(intent))
+    if spooled.returncode != 0:
+        logger.error("[dispatch-approval] intents --record failed (%s): %s",
+                     spooled.returncode, spooled.stderr.strip()[:300])
+
+    drained = _run_intents(["--drain", str(db)])
+    if drained.returncode != 0:
+        # NOT the success signal for this click, and do not turn it into one:
+        # `--drain` exits 1 when ANY file in the spool was rejected, including one
+        # some other surface wrote that has nothing to do with this button. The row
+        # is the source of truth.
+        logger.warning("[dispatch-approval] intents --drain reported a rejection (%s): %s",
+                       drained.returncode, drained.stderr.strip()[:300])
+
+    after = _read_approval(db, nonce)
+    if after is None or after["decision"] is None:
+        # Raise rather than return None. None means "no longer on file", which the
+        # click handler renders as ":grey_question: This approval request is no longer
+        # on file" — a lie when the row is sitting there undecided. The handler already
+        # catches exceptions and renders ":warning: Could not record the decision.",
+        # which is the truth.
+        raise RuntimeError(
+            f"the decision for nonce {nonce} did not reach the ledger — "
+            f"intents --record: {spooled.stderr.strip()[:300] or 'ok'} / "
+            f"intents --drain: {drained.stderr.strip()[:300] or 'ok'}"
         )
-        conn.commit()
-        if cur.rowcount == 0:
-            return {"already": True, "decision": "?", "repo": row["repo"],
-                    "tier": row["tier"], "verb": row["verb"]}
-        return {"already": False, "decision": decision, "repo": row["repo"],
-                "tier": row["tier"], "verb": row["verb"], "expires_at": row["expires_at"],
-                "channel": row["channel"]}
-    finally:
-        conn.close()
+
+    if after["signature"] != sig:
+        # Someone else's click won the race — report THEIR decision, exactly as the
+        # old `rowcount == 0` branch did. Ed25519 signing here is deterministic, so
+        # two identical clicks by the same user on the same row mint the SAME
+        # signature and land in the "we won" branch below instead. That is correct
+        # either way — the row says what it says — so nobody needs to "fix" it.
+        return {"already": True, "decision": after["decision"], "repo": row["repo"],
+                "tier": row["tier"], "verb": row["verb"]}
+    return {"already": False, "decision": decision, "repo": row["repo"],
+            "tier": row["tier"], "verb": row["verb"], "expires_at": row["expires_at"],
+            "channel": row["channel"]}
 
 
 def _load_invocation(nonce: str) -> Optional[dict]:
     """The stored argv + stdin for a row, or None when the plan predates the
     columns (an approval minted by an older hermes-cc.sh — the click still signs,
     and Hermes runs --confirm the old way)."""
-    conn = sqlite3.connect(str(_db_path()))
+    conn = sqlite3.connect(f"file:{_db_path()}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     try:
         cols = {r[1] for r in conn.execute("PRAGMA table_info(dispatch_approvals)")}
@@ -316,6 +431,14 @@ def _cc_script() -> Path:
 
 def _hermes_bin() -> Path:
     return Path(os.environ.get("HERMES_CC_HERMES_BIN", str(_DEFAULT_HERMES_BIN)))
+
+
+def _intents_cli() -> Path:
+    """warden's intent queue CLI. Env-var-first, documented-default-second — the same
+    shape `hermes-cc.sh` already uses to reach across into warden (`HERMES_CC_DB`,
+    `HERMES_CC_TRIAGE_POLICY_JSON`), so an operator or a test overrides one variable
+    and there is no second copy of the path to keep in sync."""
+    return Path(os.environ.get("WARDEN_INTENTS_CLI", str(_DEFAULT_INTENTS_CLI)))
 
 
 def _subprocess_env() -> dict:
