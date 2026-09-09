@@ -53,6 +53,51 @@ import os
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CC_SCRIPT = REPO_ROOT / "scripts" / "hermes-cc.sh"
 
+# --- warden ledger fixture -----------------------------------------------------
+
+# hermes-cc.sh's db_py() stopped creating or altering dispatches/dispatch_approvals
+# (the 2026-09-09 extraction moved that migrator to warden); it now only asserts
+# WARDEN_SCHEMA_VERSION and refuses on a mismatch. In production, warden's own loop
+# (triage.py, via ledger.py's connect(migrate=True)) stamps a fresh ledger before
+# hermes-cc.sh ever opens it — every throwaway DB this suite builds needs that same
+# boot-time migration or every case would refuse on a missing schema_version table.
+# One override point each, so a future move of warden's checkout or venv is a
+# single env var, not a grep-and-replace across two test files.
+WARDEN_VENV_PYTHON = Path(os.environ.get(
+    "WARDEN_VENV_PYTHON", str(Path.home() / "SourceRoot" / "warden" / ".venv" / "bin" / "python3")))
+WARDEN_LEDGER_PY = Path(os.environ.get(
+    "WARDEN_LEDGER_PY", str(Path.home() / "SourceRoot" / "warden" / "scripts" / "ledger.py")))
+
+
+def _require_warden_ledger() -> None:
+    """A silent pass with no schema is worse than a loud failure here — every
+    case in this suite depends on the fixture this builds."""
+    if not WARDEN_VENV_PYTHON.exists() or not WARDEN_LEDGER_PY.exists():
+        sys.exit(
+            "warden's ledger fixture is not available: expected an interpreter at "
+            f"{WARDEN_VENV_PYTHON} and a module at {WARDEN_LEDGER_PY}. hermes-cc.sh's "
+            "db_py() now asserts the warden schema instead of creating it, so this suite "
+            "cannot build a usable throwaway database without warden checked out next to "
+            "this repo. Set WARDEN_VENV_PYTHON / WARDEN_LEDGER_PY if it has moved."
+        )
+
+
+def migrate_ledger(db_path) -> None:
+    """Stand in for the loop's boot-time migration on a throwaway DB — the same
+    door warden/tests/test_dispatch_sweep.py uses in-process (ledger.connect(...,
+    migrate=True)), reached here over the CLI because this suite drives a shell
+    script in a different repo, not a Python import of warden's own module."""
+    _require_warden_ledger()
+    proc = subprocess.run(
+        [str(WARDEN_VENV_PYTHON), str(WARDEN_LEDGER_PY), "--migrate", str(db_path)],
+        capture_output=True, text=True,
+    )
+    if proc.returncode != 0:
+        sys.exit(
+            f"warden ledger --migrate failed for {db_path} (rc={proc.returncode}): "
+            f"{proc.stdout!r} {proc.stderr!r}"
+        )
+
 # --- stub programs -----------------------------------------------------------
 
 # Logs {"argv": [...], "stdin": <body-or-null>} as one JSON object per line to
@@ -343,7 +388,9 @@ class Harness:
 
     def new_db(self) -> Path:
         self._counter += 1
-        return self.db_dir / f"db-{self._counter}.sqlite"
+        path = self.db_dir / f"db-{self._counter}.sqlite"
+        migrate_ledger(path)
+        return path
 
     def _sign_pending(self, db_path: str) -> bool:
         """Sign the newest undecided approval row, the way a Slack click would.
@@ -1953,20 +2000,21 @@ def test_merge_verb(h: Harness):
 # =============================================================================
 #
 # require_auto_from_item() reads only `state`, `repo`, `dispatch_job` off
-# triage_items and `status`/`verdict_json` off dispatches — this fixture's
-# schema is deliberately minimal, not a copy of triage.py's real one, because
-# those are the only columns the function under test ever touches.
+# triage_items and `status`/`verdict_json` off dispatches, so those three stay
+# the only meaningful knobs here. triage_items itself is now warden's real
+# table (h.new_db() migrates it via ledger.py), which carries a few more NOT
+# NULL columns this fixture never exercises (signature, created_at,
+# updated_at) — this just satisfies them with placeholder values.
 
 def _seed_triage_item(db_path, *, event_id=1, state="verdict", repo="gamma",
                        dispatch_job="investigate-job-01") -> None:
     conn = sqlite3.connect(db_path)
+    now = dt.datetime.now(dt.timezone.utc).isoformat()
     conn.execute(
-        "CREATE TABLE IF NOT EXISTS triage_items "
-        "(event_id INTEGER PRIMARY KEY, state TEXT, repo TEXT, dispatch_job TEXT)"
-    )
-    conn.execute(
-        "INSERT OR REPLACE INTO triage_items(event_id, state, repo, dispatch_job) VALUES (?,?,?,?)",
-        (event_id, state, repo, dispatch_job),
+        "INSERT OR REPLACE INTO triage_items"
+        "(event_id, signature, state, repo, dispatch_job, created_at, updated_at) "
+        "VALUES (?,?,?,?,?,?,?)",
+        (event_id, f"sig-{event_id}", state, repo, dispatch_job, now, now),
     )
     conn.commit()
     conn.close()
@@ -2013,7 +2061,7 @@ def test_auto_from_item(h: Harness):
 
     def _seeded_db(**item_kwargs):
         db_path = h.new_db()
-        h.run(["list"], env_extra={"HERMES_CC_DB": str(db_path)})  # create dispatches schema
+        h.run(["list"], env_extra={"HERMES_CC_DB": str(db_path)})  # schema already migrated by new_db()
         item_kwargs.setdefault("event_id", 1)
         _seed_triage_item(db_path, **{k: v for k, v in item_kwargs.items()
                                        if k in ("event_id", "state", "repo", "dispatch_job")})
@@ -2505,7 +2553,58 @@ def test_no_freeform_surface():
 
 # =============================================================================
 
+# =============================================================================
+# 19. WARDEN_SCHEMA_VERSION assertion — db_py() refuses rather than migrates
+# =============================================================================
+#
+# hermes-cc.sh used to be a second, unversioned migrator pointed at the same
+# ledger warden's loop owns; db_py() now only asserts the pinned
+# WARDEN_SCHEMA_VERSION and refuses on any mismatch. Both cases below build
+# their DB directly with sqlite3 (deliberately NOT via h.new_db(), which
+# migrates through warden's own ledger.py fixture) so the row db_py() reads is
+# exactly what a stale or adopted-for-the-first-time ledger would look like.
+
+def test_ledger_schema_assertion(h: Harness):
+    failures = []
+    total = passed = 0
+
+    total += 1
+    no_schema_db = h.db_dir / "no-schema-version-table.sqlite"
+    conn = sqlite3.connect(str(no_schema_db))
+    conn.execute("CREATE TABLE dispatches (id INTEGER PRIMARY KEY)")
+    conn.commit()
+    conn.close()
+    proc = h.run(["list"], env_extra={"HERMES_CC_DB": str(no_schema_db)})
+    text = proc.stdout + proc.stderr
+    ok = proc.returncode != 0 and str(no_schema_db) in text
+    if ok:
+        passed += 1
+    else:
+        failures.append("no schema_version table: expected non-zero exit naming "
+                         f"the db path, got rc={proc.returncode} {text[:300]!r}")
+
+    total += 1
+    wrong_version_db = h.db_dir / "wrong-schema-version.sqlite"
+    conn = sqlite3.connect(str(wrong_version_db))
+    conn.execute("CREATE TABLE schema_version (version INTEGER NOT NULL, applied_at TEXT NOT NULL)")
+    conn.execute("INSERT INTO schema_version (version, applied_at) VALUES (99, ?)",
+                 (dt.datetime.now(dt.timezone.utc).isoformat(),))
+    conn.commit()
+    conn.close()
+    proc = h.run(["list"], env_extra={"HERMES_CC_DB": str(wrong_version_db)})
+    text = proc.stdout + proc.stderr
+    ok = proc.returncode != 0 and str(wrong_version_db) in text
+    if ok:
+        passed += 1
+    else:
+        failures.append("schema_version=99 (WARDEN_SCHEMA_VERSION expects 1): expected non-zero "
+                         f"exit naming the db path, got rc={proc.returncode} {text[:300]!r}")
+
+    return total, passed, failures
+
+
 def main() -> int:
+    _require_warden_ledger()
     h = Harness()
     try:
         groups = [
@@ -2528,6 +2627,7 @@ def main() -> int:
             ("16. sensitive dispatch", test_sensitive_repo(h)),
             ("17. --auto-from-item", test_auto_from_item(h)),
             ("18. merge gate + deploy", test_merge_gate_and_deploy(h)),
+            ("19. WARDEN_SCHEMA_VERSION assertion", test_ledger_schema_assertion(h)),
         ]
     finally:
         h.cleanup()

@@ -109,6 +109,11 @@ REPOS_JSON="${HERMES_CC_REPOS_JSON:-$HERMES_HOME/config/dispatch-repos.json}"
 # place, untouched, as the rollback — so this default is what decides which of the
 # two is live, and it is deliberately a default rather than a hardcoded path.
 DB_PATH="${HERMES_CC_DB:-$HOME/.warden/warden.db}"
+# warden/scripts/ledger.py owns this schema. This number is pinned against its
+# SCHEMA_VERSION and checked on every DB open — a mismatch is a loud refusal, not
+# a best-effort write, because the alternative is this script silently running an
+# older shape's assumptions against a newer ledger.
+WARDEN_SCHEMA_VERSION="${WARDEN_SCHEMA_VERSION:-1}"
 AUDIT_LOG="${HERMES_CC_LOG:-$HOME/Library/Logs/hermes-cc.log}"
 # scripts/triage.py's own policy file — shared here for exactly one thing: the
 # `merge` verb's per-repo `autoMergePaths`/`noCiRequired`/`deploy`/`autoDeploy`
@@ -757,57 +762,17 @@ valid_origin() {
 
 # --- dispatch record ---------------------------------------------------------
 
-# Lives in the same SQLite file as the watchdog's `events`, which is the mini's one
-# durable Hermes store and already holds the incidents a dispatch links back to.
-# DDL is idempotent and additive — `events` is never touched. Timestamps are ISO-8601
-# TEXT, matching watchdog-poll.py so the two tables join without conversion.
-DB_SCHEMA="
-CREATE TABLE IF NOT EXISTS dispatches (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    job_id TEXT NOT NULL UNIQUE,
-    tier TEXT NOT NULL,
-    repo TEXT NOT NULL,
-    brief TEXT NOT NULL,
-    why TEXT,
-    origin_channel TEXT,
-    origin_thread_ts TEXT,
-    origin_event_id INTEGER,
-    status TEXT NOT NULL,
-    verdict_json TEXT,
-    artifact_url TEXT,
-    created_at TEXT NOT NULL,
-    finished_at TEXT,
-    reported_at TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_dispatches_open ON dispatches(status) WHERE reported_at IS NULL;
-CREATE INDEX IF NOT EXISTS idx_dispatches_created ON dispatches(created_at);
-
--- The approval ledger for gated verbs. A row is minted here by the plan branch and
--- decided by a Slack button click, which lands in the gateway process — see
--- plugins/dispatch-approval/. Note what is NOT trusted: every column on this table is
--- writable by anything running as this uid, the agent included. Only the signature
--- column means anything, and it is verified against a public key whose private half
--- never leaves gateway memory. The rest of the row is rendering and sweep convenience.
--- (No backticks in this string: DB_SCHEMA is double-quoted shell, so they would run.)
-CREATE TABLE IF NOT EXISTS dispatch_approvals (
-    nonce TEXT PRIMARY KEY,
-    verb TEXT NOT NULL,
-    repo TEXT NOT NULL,
-    tier TEXT NOT NULL,
-    payload_hash TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    expires_at TEXT NOT NULL,
-    channel TEXT,
-    decision TEXT,
-    decided_at TEXT,
-    decided_by TEXT,
-    signature TEXT,
-    spent_at TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_approvals_hash ON dispatch_approvals(payload_hash);
-"
-# Columns added after the table first shipped — additive ALTERs in db_py, same
-# reason as dispatches.merged_at (CREATE TABLE IF NOT EXISTS never adds a column).
+# Lives in the same SQLite file as warden's ledger — the mini's one durable
+# control-plane store. Timestamps are ISO-8601 TEXT, matching watchdog-poll.py so
+# the tables join without conversion. The schema itself (CREATE TABLE, CREATE
+# INDEX, and every column added after a table first shipped) is owned and
+# migrated exclusively by warden/scripts/ledger.py now — this script only ever
+# writes rows into dispatches and dispatch_approvals, never their shape. db_py()
+# asserts WARDEN_SCHEMA_VERSION below instead of creating or altering anything;
+# see ledger.py's own schema block for the tables' current definitions.
+#
+# Columns added after each table first shipped, kept here as a reader's map for
+# the queries below (ledger.py, not this comment, is the source of truth):
 #   dispatch_approvals.argv_json  the exact argv the plan was minted for, minus
 #                                 --confirm — what the Approve click re-runs.
 #   dispatch_approvals.stdin_text the brief (dispatch) or NULL (merge). Stored
@@ -826,38 +791,30 @@ CREATE INDEX IF NOT EXISTS idx_approvals_hash ON dispatch_approvals(payload_hash
 
 # Every DB helper passes values as bound parameters from the environment. No verb
 # accepts SQL, and none is assembled from caller input — same rule as the paths.
+# The schema is asserted, not created: a WARDEN_SCHEMA_VERSION mismatch is a loud
+# refusal, because the alternative is a second, unversioned migrator racing
+# warden's loop on the same file — exactly the defect this replaced.
 db_py() {
-  DB_PATH="$DB_PATH" DB_SCHEMA="$DB_SCHEMA" python3 -c "
+  DB_PATH="$DB_PATH" WARDEN_SCHEMA_VERSION="$WARDEN_SCHEMA_VERSION" EX_PRECONDITION="$EX_PRECONDITION" python3 -c "
 import json, os, sqlite3, sys
 conn = sqlite3.connect(os.environ['DB_PATH'])
 conn.row_factory = sqlite3.Row
-conn.executescript(os.environ['DB_SCHEMA'])
-# Additive, idempotent, and outside DB_SCHEMA on purpose: CREATE TABLE IF NOT
-# EXISTS is a no-op against the table that already exists on this machine, so a
-# column added to it there would never appear. Same shape as the events.dispatch_id
-# migration in watchdog-poll.py.
-cols = {r[1] for r in conn.execute('PRAGMA table_info(dispatches)')}
-if 'merged_at' not in cols:
-    conn.execute('ALTER TABLE dispatches ADD COLUMN merged_at TEXT')
-if 'poll_misses' not in cols:
-    conn.execute('ALTER TABLE dispatches ADD COLUMN poll_misses INTEGER NOT NULL DEFAULT 0')
-# The step-7 validation leg (triage.py's own second episode, a different model
-# reviewing an implement dispatch's actual diff) writes these two directly —
-# same 'extra writer touching a column it doesn't own' pattern dispatch-sweep.py
-# already uses on this table. validation_status is NULL until a validation
-# episode reaches a terminal verdict; cmd_merge's gate treats anything other
-# than the literal string 'confirmed' (including NULL) as a block.
-if 'validation_job_id' not in cols:
-    conn.execute('ALTER TABLE dispatches ADD COLUMN validation_job_id TEXT')
-if 'validation_status' not in cols:
-    conn.execute('ALTER TABLE dispatches ADD COLUMN validation_status TEXT')
-acols = {r[1] for r in conn.execute('PRAGMA table_info(dispatch_approvals)')}
-if 'argv_json' not in acols:
-    conn.execute('ALTER TABLE dispatch_approvals ADD COLUMN argv_json TEXT')
-if 'stdin_text' not in acols:
-    conn.execute('ALTER TABLE dispatch_approvals ADD COLUMN stdin_text TEXT')
-if 'context_text' not in acols:
-    conn.execute('ALTER TABLE dispatch_approvals ADD COLUMN context_text TEXT')
+row = conn.execute(
+    \"SELECT version FROM schema_version\"
+).fetchone() if conn.execute(
+    \"SELECT name FROM sqlite_master WHERE type='table' AND name='schema_version'\"
+).fetchone() else None
+expected = int(os.environ['WARDEN_SCHEMA_VERSION'])
+if row is None or int(row[0]) != expected:
+    found = 'none' if row is None else str(row[0])
+    sys.stderr.write(
+        f\"hermes-cc: warden ledger at {os.environ['DB_PATH']} is at schema_version={found}, \"
+        f\"this process expects WARDEN_SCHEMA_VERSION={expected}. Only warden's loop \"
+        f\"(~/SourceRoot/warden, triage.py, via ledger.py's connect(migrate=True)) is allowed to \"
+        f\"migrate this file -- run it at least once, or if this ledger has already been migrated \"
+        f\"past this pin, upgrade WARDEN_SCHEMA_VERSION in hermes-cc.sh.\n\"
+    )
+    sys.exit(int(os.environ['EX_PRECONDITION']))
 $1
 conn.commit()
 conn.close()
