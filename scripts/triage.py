@@ -3251,7 +3251,55 @@ def run(conn: sqlite3.Connection, *, dry_run: bool) -> int:
     auto_mapped = propose_mappings(conn, policy, now, dry_run=dry_run)
 
     maybe_post_daily_digest(conn, policy, unmapped, now, dry_run=dry_run, auto_mapped=auto_mapped)
+
+    record_heartbeat(conn, now, dry_run=dry_run)
     return 0
+
+
+# --- Heartbeat ----------------------------------------------------------------
+
+HEARTBEAT_CURSOR_KEY = "triage_last_run"
+
+
+def record_heartbeat(conn: sqlite3.Connection, now: dt.datetime, *, dry_run: bool) -> None:
+    """Write one `cursors` row per completed pass, unconditionally.
+
+    Every other write in this file is conditional on something having CHANGED,
+    so a pass that finds nothing eligible leaves no trace at all. That makes
+    "the loop ran and had nothing to do" and "the loop did not run" literally
+    indistinguishable in the database — measured 2026-09-09, when
+    `triage_items.updated_at` showed 5.5h and 6h gaps against this agent's
+    600s `StartInterval` and nothing on disk could say which it was.
+
+    `launchctl print`'s `runs` counter cannot settle it either: it counts
+    process spawns, not completed work, and it is monotonic across a
+    reload — the plist comment already warns against trusting it. This row
+    can: `updated_at` is the wall-clock end of the last COMPLETED pass, and
+    `value` carries that pass's state census, so an idle run is visible,
+    a stalled loop is obvious from a stale `updated_at`, and reading it costs
+    one indexed lookup. Skipped under --dry-run, which by definition did not
+    complete a real pass.
+    """
+    if dry_run:
+        return
+    census = {
+        row["state"]: row["n"]
+        for row in conn.execute(
+            "SELECT state, COUNT(*) AS n FROM triage_items GROUP BY state"
+        )
+    }
+    open_clusters = conn.execute(
+        "SELECT COUNT(DISTINCT dispatch_job) AS n FROM triage_items "
+        "WHERE state=? AND dispatch_job IS NOT NULL",
+        (STATE_INVESTIGATING,),
+    ).fetchone()["n"]
+    value = json.dumps({"states": census, "open_clusters": open_clusters}, sort_keys=True)
+    conn.execute(
+        "INSERT INTO cursors(key, value, updated_at) VALUES (?, ?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+        (HEARTBEAT_CURSOR_KEY, value, _now_iso(now)),
+    )
+    conn.commit()
 
 
 # --- CLI verbs: --snooze / --ignore / --reopen / --list ------------------------

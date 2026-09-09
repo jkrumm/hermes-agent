@@ -1915,6 +1915,64 @@ def test_propose_mappings_dry_run_makes_zero_calls():
         assert calls["n"] == 0, "--dry-run must never call the model"
 
 
+def test_heartbeat_written_on_every_pass_including_an_idle_one():
+    """The whole point: a pass that changes NOTHING must still leave a trace.
+
+    Every other write in triage.py is conditional on something having changed,
+    which is why a 5.5h gap in triage_items.updated_at could not be told apart
+    from the loop being dead.
+    """
+    with _triage_env() as (conn, _ctx):
+        assert conn.execute(
+            "SELECT COUNT(*) AS n FROM triage_items"
+        ).fetchone()["n"] == 0, "this case is about an EMPTY, fully idle pass"
+
+        triage.record_heartbeat(conn, NOW, dry_run=False)
+
+        row = conn.execute(
+            "SELECT value, updated_at FROM cursors WHERE key=?",
+            (triage.HEARTBEAT_CURSOR_KEY,),
+        ).fetchone()
+        assert row is not None, "an idle pass still has to write the heartbeat"
+        assert json.loads(row["value"]) == {"states": {}, "open_clusters": 0}
+
+
+def test_heartbeat_census_counts_states_and_open_clusters():
+    with _triage_env() as (conn, _ctx):
+        _insert_event(conn, source="slack_alert", external_id="hb-a", title="A",
+                       first_seen=VERY_OLD)
+        _insert_event(conn, source="slack_alert", external_id="hb-b", title="B",
+                       first_seen=VERY_OLD)
+        triage.ingest(conn, NOW)
+        ids = [r["event_id"] for r in conn.execute(
+            "SELECT event_id FROM triage_items ORDER BY event_id")]
+        assert len(ids) == 2
+        # Two members of ONE cluster -> one open cluster, not two.
+        conn.execute(
+            "UPDATE triage_items SET state=?, dispatch_job=? WHERE event_id IN (?, ?)",
+            (triage.STATE_INVESTIGATING, "job-hb", ids[0], ids[1]),
+        )
+        conn.commit()
+
+        triage.record_heartbeat(conn, NOW, dry_run=False)
+
+        value = json.loads(conn.execute(
+            "SELECT value FROM cursors WHERE key=?",
+            (triage.HEARTBEAT_CURSOR_KEY,),
+        ).fetchone()["value"])
+        assert value["states"] == {triage.STATE_INVESTIGATING: 2}
+        assert value["open_clusters"] == 1, "cluster membership is by dispatch_job, not row count"
+
+
+def test_heartbeat_skipped_under_dry_run():
+    with _triage_env() as (conn, _ctx):
+        triage.record_heartbeat(conn, NOW, dry_run=True)
+        assert conn.execute(
+            "SELECT COUNT(*) AS n FROM cursors WHERE key=?",
+            (triage.HEARTBEAT_CURSOR_KEY,),
+        ).fetchone()["n"] == 0, "--dry-run did not complete a real pass"
+
+
 # --- runner ------------------------------------------------------------------
 
 def main() -> int:
