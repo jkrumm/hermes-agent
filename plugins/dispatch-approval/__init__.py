@@ -99,7 +99,11 @@ def _db_path() -> Path:
     override = os.environ.get("HERMES_CC_DB")
     if override:
         return Path(override)
-    return _hermes_home() / "watchdog.db"
+    # Moved to warden with the control plane (2026-09-09); same file, same single
+    # UPDATE this plugin has always done. DESIGN.md wants this direct write replaced
+    # by an intent the loop drains, which is Wave 1 — until then the path has to
+    # follow the ledger or an Approve click writes to a database nothing reads.
+    return Path.home() / ".warden" / "warden.db"
 
 
 def canonical_message(

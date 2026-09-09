@@ -11,10 +11,18 @@ import datetime
 import json
 import subprocess
 import sys
+import os
 from pathlib import Path
 
 STATE_FILE = Path(__file__).parent / "briefing-state.json"
-WATCHDOG_SUMMARY = Path(__file__).parent / "watchdog-summary.py"
+# Left for warden with the ledger it reads (2026-09-09) — this is a live cross-repo
+# path, not an oversight. It matters that it is spelled out: _run_subscript() below
+# is best-effort and returns silently when the file is missing, so a stale path here
+# would drop the Watchdog State block from the morning briefing with nothing said.
+WATCHDOG_SUMMARY = Path(
+    os.environ.get("WARDEN_WATCHDOG_SUMMARY")
+    or Path.home() / "SourceRoot" / "warden" / "scripts" / "watchdog-summary.py"
+)
 COVERAGE_SCRIPT = Path(__file__).parent / "briefing-coverage.py"
 AGENTS_OVERVIEW_SCRIPT = Path(__file__).parent / "agents-overview.py"
 PROJECT_NARRATIVES_SCRIPT = Path(__file__).parent / "project-narratives.py"

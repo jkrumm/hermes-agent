@@ -19,7 +19,9 @@ HERMES_PLUGINS := dispatch-approval
 # banner below for why. Templates live in launchd/, rendered into ~/Library/LaunchAgents.
 LAUNCHD_DIR   := $(HERMES_REPO)/launchd
 LAUNCHAGENTS  := $(HOME)/Library/LaunchAgents
-HERMES_PLISTS := com.jkrumm.hermes-liveness com.jkrumm.hermes-backup com.jkrumm.hermes-triage
+# com.jkrumm.hermes-triage left with the act-loop it ran (2026-09-09) — it is
+# com.jkrumm.warden-loop now, installed by warden's own `make setup`.
+HERMES_PLISTS := com.jkrumm.hermes-liveness com.jkrumm.hermes-backup
 # Labels this repo used to install and no longer does. `_agents` unloads and
 # removes each one, so a rename can never leave two agents racing the same port.
 # com.parantoux.hermes-webui: hand-written into ~/Library/LaunchAgents by the

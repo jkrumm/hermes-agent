@@ -103,13 +103,21 @@ SIDECLAW_BASE="${HERMES_CC_SIDECLAW_BASE:-http://localhost:7705}"
 
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
 REPOS_JSON="${HERMES_CC_REPOS_JSON:-$HERMES_HOME/config/dispatch-repos.json}"
-DB_PATH="${HERMES_CC_DB:-$HERMES_HOME/watchdog.db}"
+# The ledger moved to warden with the control plane (2026-09-09). This script still
+# owns the `dispatches` and `dispatch_approvals` tables inside it and still writes
+# them; what changed is only where the file lives. ~/.hermes/watchdog.db is left in
+# place, untouched, as the rollback — so this default is what decides which of the
+# two is live, and it is deliberately a default rather than a hardcoded path.
+DB_PATH="${HERMES_CC_DB:-$HOME/.warden/warden.db}"
 AUDIT_LOG="${HERMES_CC_LOG:-$HOME/Library/Logs/hermes-cc.log}"
 # scripts/triage.py's own policy file — shared here for exactly one thing: the
 # `merge` verb's per-repo `autoMergePaths`/`noCiRequired`/`deploy`/`autoDeploy`
 # entries (see cmd_merge's own comment). triage.py owns the signature->repo/verb
 # routing in this same file; this script never reads that half of it.
-TRIAGE_POLICY_JSON="${HERMES_CC_TRIAGE_POLICY_JSON:-$HERMES_HOME/config/triage-policy.json}"
+# Moved to warden/config/ with triage.py, which owns and now auto-commits it. Still
+# one file with two readers, as it always was — this script reads only the
+# `repos.<name>` merge/deploy half.
+TRIAGE_POLICY_JSON="${HERMES_CC_TRIAGE_POLICY_JSON:-$HOME/SourceRoot/warden/config/triage-policy.json}"
 
 SECRETS_RUN="$HOME/.local/bin/secrets-run"
 BACKEND_FILE="${SECRETS_BACKEND_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/secrets/backend}"
