@@ -162,7 +162,7 @@
       "autoMergePaths": ["observability/**"],
       "noCiRequired": true,
       "deploy": "hyperdx-apply",
-      "autoDeploy": false,
+      "autoDeploy": true,
       "liveness": "hyperdx-alert-state"
     }
   },
