@@ -113,7 +113,7 @@ DB_PATH="${HERMES_CC_DB:-$HOME/.warden/warden.db}"
 # SCHEMA_VERSION and checked on every DB open — a mismatch is a loud refusal, not
 # a best-effort write, because the alternative is this script silently running an
 # older shape's assumptions against a newer ledger.
-WARDEN_SCHEMA_VERSION="${WARDEN_SCHEMA_VERSION:-3}"
+WARDEN_SCHEMA_VERSION="${WARDEN_SCHEMA_VERSION:-4}"
 AUDIT_LOG="${HERMES_CC_LOG:-$HOME/Library/Logs/hermes-cc.log}"
 # scripts/triage.py's own policy file — shared here for exactly one thing: the
 # `merge` verb's per-repo `autoMergePaths`/`noCiRequired`/`deploy`/`autoDeploy`
