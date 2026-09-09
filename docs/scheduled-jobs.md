@@ -14,11 +14,14 @@ the same commit that registers it.
 |-|-|-|-|-|-|-|
 | `cc7900c424a9` | Morning briefing | `0 7 * * 1-5` | agent | `briefing-context.py` pre-run · `cron/morning-briefing.prompt.txt` | `argo-api`, `work` | `slack:C0AT6TH404R` #briefings |
 | `2d38c80e685c` | Evening report | `0 22 * * 1-4` | agent | `briefing-context.py` pre-run · `cron/evening-report.prompt.txt` | `argo-api`, `work` | `slack:C0AT6TH404R` #briefings |
-| `4b1faabda97d` | Watchdog | `*/30 * * * *` | no-agent | `watchdog-slack.py` → `watchdog-poll.py --slack-body` | — | `slack:C0ASRULFTSS` #watchdog |
-| `4dd759917dd1` | Dispatch sweep | `*/5 * * * *` | no-agent | `dispatch-sweep-cron.py` → `dispatch-sweep.py` | — | `slack:C0ASRULFTSS` #watchdog (per-dispatch origin thread via `hermes send`) |
 | `8fe7be4985d9` | Brain drift audit | `0 9 * * 6` | agent | `cron/brain-drift-audit.prompt.txt` | `claude-dispatch`, `obsidian` | `slack:C0ASRULFTSS` #watchdog |
 | `72aa2fb36307` | Agents overview | `*/30 * * * *` | no-agent | `agents-cron.py` → `agents-overview.py --slack-body` | — | `slack:C0BVDE5R562` #agents (Block Kit via `chat.postMessage`) |
 | `9909f808fe17` | Project narratives | `30 6 * * *` | no-agent | `narratives-cron.py` → `project-narratives.py --run` | — | `slack:C0BVDE5R562` #agents |
+
+**Watchdog (`*/30 * * * *`) and Dispatch sweep (`*/5 * * * *`) left this registry 2026-09-09** —
+they're LaunchAgents in `~/SourceRoot/warden` now (`com.jkrumm.warden-poll`,
+`com.jkrumm.warden-sweep`), for the same reason the alert-triage loop did: see
+`~/SourceRoot/warden/CLAUDE.md`.
 
 Job ids are minted at `hermes cron create` and are stable for the life of the job — edit with
 `hermes cron edit <id>`, never delete + re-create (that changes the id and breaks this table,
@@ -49,11 +52,12 @@ the check is quiet and the target is only needed if a legacy line ever reappears
 > (`if depth >= _MAX_REFERENCED_SCRIPT_DEPTH: return True`), so a long file — or even a short
 > one whose comments quote filenames and command lines — is rejected as *"contains a gateway
 > lifecycle command"* regardless of content. Measured against the live guard 2026-08-02:
-> `watchdog-poll.py` (now 1349 lines), `watchdog-summary.py` and `briefing-coverage.py` are **all**
-> rejected today; `watchdog-slack.py` (48 lines) passes. The already-registered jobs survive
-> only because they predate the guard. That is why every registered entry point here is a thin
-> loader and the logic lives in a module it imports — `dispatch-sweep-cron.py` (registered,
-> terse, quotes nothing) loads `dispatch-sweep.py` (the real thing). If a future entry point
+> `briefing-coverage.py` is rejected today (and so were `watchdog-poll.py`/`watchdog-summary.py`,
+> before they moved to `~/SourceRoot/warden`). The already-registered jobs survive only because
+> they predate the guard. That is why every registered entry point here is a thin loader and the
+> logic lives in a module it imports — `agents-cron.py` (registered, terse, quotes nothing) loads
+> `agents-overview.py`, and `narratives-cron.py` loads `project-narratives.py` the same way. If a
+> future entry point
 > is rejected with that message, the cause is almost certainly length or a quoted command in a
 > comment, not an actual lifecycle call — verify with
 > `contains_gateway_lifecycle_command_or_referenced_script` before rewriting anything.

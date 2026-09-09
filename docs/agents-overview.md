@@ -105,7 +105,7 @@ The steps, kept for a re-install:
    `Mode: no-agent (script stdout delivered directly)`.
 
 `scripts/agents-cron.py` is deliberately a thin loader (mirrors
-`scripts/dispatch-sweep-cron.py`'s shape) that imports `agents-overview.py` and
+`scripts/narratives-cron.py`'s shape) that imports `agents-overview.py` and
 calls `main(["--slack-body"])` — `hermes cron create --script` runs the referenced
 file through `cron/lifecycle_guard.py`, which fails closed on a long file or one
 whose comments quote command lines (see CLAUDE.md § "Dispatch Bridge"). Keep the
@@ -151,7 +151,7 @@ the runner's own no_agent path.
 subprocess the gateway spawns (`tools/environments/local.py`'s
 `_ALWAYS_STRIP_KEYS` — the same treatment as `GITHUB_TOKEN`), so a
 cron-run `--slack-body`/`--post-full` never sees it via `os.environ`.
-`resolve_slack_token()` mirrors `watchdog-poll.py`'s `resolve_secret()`
+`resolve_slack_token()` mirrors warden's `watchdog-poll.py` `resolve_secret()`
 pattern: inherited env first, else `secrets-run read op://hermes/slack/bot-token`
 against the encrypted cache.
 

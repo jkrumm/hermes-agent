@@ -41,8 +41,9 @@ Surface as: "GitHub API rate-limited — using script context:
 entirely — the script-context count is sufficient.
 
 ## Watchdog open-items summary
-`watchdog-summary.py` feeds the briefing's Infrastructure section from
-`watchdog.db`. Grouped, append-only sources (`slack_alert`, `slack_update`,
+`~/SourceRoot/warden`'s `watchdog-summary.py` (reached via `briefing-context.py`)
+feeds the briefing's Infrastructure section from `~/.warden/warden.db`. Grouped,
+append-only sources (`slack_alert`, `slack_update`,
 `hermes_log`) auto-resolve after 7 days idle (`sweep_stale_grouped()`), so
 raw counts are bounded — but a busy recent window can still surface more
 distinct signatures than are worth a bullet each. Group by theme and cap

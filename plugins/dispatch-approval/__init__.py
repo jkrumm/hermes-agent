@@ -5,7 +5,7 @@ WHY THIS EXISTS, AND WHY A SIGNATURE RATHER THAN A FLAG.
 `hermes-cc.sh`'s `--confirm` is a flag on the same invocation, supplied by the same
 agent it constrains — the script's own header says so. Moving the gate to a Slack
 button does not by itself fix that: the gateway, the script and the agent's terminal
-tool all run as the same uid against the same `watchdog.db`, so an agent that wanted
+tool all run as the same uid against the same `warden.db`, so an agent that wanted
 to approve its own dispatch could simply UPDATE the row. A button with no signature
 buys UX and nothing else.
 

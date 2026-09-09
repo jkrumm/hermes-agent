@@ -408,7 +408,7 @@ skills:
   # Because this path is also in external_dirs, the background curator refuses
   # every autonomous mutation on it (is_external_skill_path), so a new skill is
   # durable and reviewable by construction instead of being detected after the
-  # fact by watchdog-poll.py's stray_skill source.
+  # fact by warden's watchdog-poll.py stray_skill source.
   create_dir: ~/SourceRoot/hermes-agent/skills
   external_dirs:
     - ~/SourceRoot/hermes-agent/skills
@@ -440,8 +440,8 @@ slack:
   # override, all for the same underlying reason: a per-message LLM turn is the wrong
   # tool for a firehose Hermes doesn't need to read live.
   #   C0AS5GUH5U4 = #media    (podcast/image completions — Hermes is the producer)
-  #   C0ARZJD824W = #updates  (also polled out-of-band by watchdog-poll.py as slack_update)
-  #   C0AS1LAUQ3C = #alerts   (see below — replaced by scripts/triage.py)
+  #   C0ARZJD824W = #updates  (also polled out-of-band by warden's watchdog-poll.py as slack_update)
+  #   C0AS1LAUQ3C = #alerts   (see below — replaced by warden's triage.py)
   # Silencing is inbound-only: `hermes send`, cron delivery and dispatch verdicts still
   # post here, and the dispatch nudge targets origin_channel, never these three.
   #
@@ -450,13 +450,14 @@ slack:
   # new. Because reply_in_thread makes every alert its own session, that turn had zero
   # memory of the last time the same alert fired — the same signature could be
   # (and was) re-triaged dozens of times in a day, reaching the same conclusion every
-  # time, without ever noticing a fix already existed. `scripts/watchdog-poll.py`
-  # already ingests this channel out-of-band (source `slack_alert`, deduplicated by
-  # `normalize_title()` into a stable signature); `scripts/triage.py` (no_agent cron,
-  # every 10 min) now turns that dedup into one durable, updated-in-place Slack card
+  # time, without ever noticing a fix already existed. `~/SourceRoot/warden`'s
+  # `scripts/watchdog-poll.py` already ingests this channel out-of-band (source
+  # `slack_alert`, deduplicated by `normalize_title()` into a stable signature);
+  # its `scripts/triage.py` (own LaunchAgent, `com.jkrumm.warden-loop`, every
+  # 10 min) now turns that dedup into one durable, updated-in-place Slack card
   # per problem, with a real sideclaw investigation attached once a signature repeats
   # or stays open — no LLM call anywhere in that loop. Mentioning Hermes directly in
-  # #alerts still works for an ad-hoc question; see docs/triage.md.
+  # #alerts still works for an ad-hoc question; see ~/SourceRoot/warden/docs/triage.md.
   require_mention: false
   require_mention_channels: C0AS5GUH5U4,C0ARZJD824W,C0AS1LAUQ3C
   free_response_channels: ''

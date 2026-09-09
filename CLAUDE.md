@@ -38,15 +38,13 @@ the first pass.
 **A skill is durable only if symlinked from this repo.** `skills.external_dirs` satisfies the
 v0.16.0+ skill-trust check **and** protects a skill from the background self-improvement
 curator — a skill created ad hoc under `~/.hermes/skills/` has neither and gets silently
-rewritten by accretion. Detection: `watchdog-poll.py`'s `stray_skill` source (30 min). Full
+rewritten by accretion. Detection: warden's `watchdog-poll.py` `stray_skill` source (30 min). Full
 mechanism + adoption path: **`docs/symlinks-and-agents.md`**.
 
 **Host-level scripts** (user LaunchAgents, not symlinked): `hermes-liveness.sh` (300s — gateway
 state + Slack connected + the live pid belongs to launchd's job), `hermes-backup.sh` (daily
-03:00 — rsync to homelab, `mkdir`-lock against overlap), and `triage.py` (600s — the alert
-triage act-loop, see **Alert triage** below). Triage moved off `hermes cron` onto its own
-LaunchAgent (2026-09-08) precisely so it does not depend on the gateway process being up to
-run — the loop that notices Hermes is broken cannot itself live inside Hermes.
+03:00 — rsync to homelab, `mkdir`-lock against overlap). The alert-triage act-loop is a
+LaunchAgent too, but it's `~/SourceRoot/warden`'s own — see **Alert triage** below.
 `HERMES_PLISTS_RETIRED` unloads +
 removes labels this repo no longer installs — the four `hermes-{webui,serve}{,-liveness}` labels
 sit there since the 2026-09-07 teardown (Collie + Slack are the surfaces; the third-party WebUI
@@ -55,7 +53,9 @@ dotfiles' doctor. Logs declared, never globbed, in `dotfiles/scripts/log-rotate.
 
 **Scheduled jobs are LaunchAgents, never macOS crontab** — a `crontab -` *write* needs Full
 Disk Access and hangs forever on the headless mini. Done 2026-08-02 — no hermes entries in
-`crontab -l`. All 7 live cron jobs (ids, schedules, delivery) + reasoning: **`docs/scheduled-jobs.md`**.
+`crontab -l`. All 5 live `hermes cron` jobs (ids, schedules, delivery) + reasoning:
+**`docs/scheduled-jobs.md`**. The watchdog poll and dispatch sweep are LaunchAgents in
+`~/SourceRoot/warden` now, not `hermes cron` jobs — see *Alert triage* below.
 
 **Claude Code per-repo skills** (`.claude/skills/`, committed, no symlink): `/hermes-validate`
 (test routing, fix SOUL.md / SKILL.md) · `/hermes-update` (pull upstream, re-apply patches,
@@ -79,7 +79,7 @@ and the help text says so).
 | Brief is data, never argv | stdin (`<<'BRIEF'` quoted heredoc) or `--brief-file`. **No `--brief`** — as argv it would be shell-expanded before the script ran. |
 | Tiers | `investigate` (read-only → verdict) · `author` (+ one GitHub issue) · `implement` (`dispatch/…` branch + **draft** PR). **Every tier runs in its own throwaway worktree**, read tiers included — `readOnly` removes Edit/Write, not Bash. |
 | Ceilings | `defaultTier: implement`, `investigate` floor for `dotfiles`/`brain`/`hermes-agent` (`vps` and `homelab` came off it 2026-09-08 — deployment surfaces, not the rules that bound the agents) — the last is this repo's own control plane (`config.yaml`, `scripts/`, `hooks/`, `skills/` are symlinked live into `~/.hermes/`), a different reason than `dotfiles`' — see `config/dispatch-repos.json`'s comment block. Above-ceiling/denied/outside-root refuses exit 4; a misspelled name is exit 64. No `implement` allowlist, deliberately. |
-| `implement` gate | `--why` **and** `--confirm`. Without `--confirm` it prints the plan + `wouldNeverDo` and exits **0**. `--auto-from-item <event_id>` is a second, narrower door for `scripts/triage.py` only — every precondition re-checked from `watchdog.db`, no Slack click needed once it passes; see *Alert triage*'s auto-implement chain row below. |
+| `implement` gate | `--why` **and** `--confirm`. Without `--confirm` it prints the plan + `wouldNeverDo` and exits **0**. `--auto-from-item <event_id>` is a second, narrower door for warden's `triage.py` only — every precondition re-checked from `~/.warden/warden.db`, no Slack click needed once it passes; see *Alert triage* below. |
 | Secret scan | refuses (never redacts) a brief carrying credentials, scans the diff's **added lines** too — handler-side. |
 | Budgets | 20 dispatches/UTC day, ≤5 `implement`, ≤3 `merge`, 170s `--wait` cap. `HERMES_CC_{DAILY,IMPLEMENT,MERGE}_BUDGET` to raise. |
 
@@ -95,7 +95,7 @@ non-gateway process overwrote the public key. Full evolution: **`docs/dispatch-b
 **`merge <job-id>` lands the draft PR with no human on GitHub** (owner decision) — a job id never
 a PR number, eligibility derived from `dotfiles/config/pr-required-repos.json`, every bound
 re-checked against the **current** head with the head SHA pinned. **Primary gate re-keyed
-2026-09-08**: `config/triage-policy.json`'s per-repo `autoMergePaths` (every changed path must
+2026-09-08**: `~/SourceRoot/warden/config/triage-policy.json`'s per-repo `autoMergePaths` (every changed path must
 match, or refuse) and `noCiRequired` (a repo with zero CI check-runs on the head commit and no
 acknowledgement now FAILS — `mergeable_state: clean` used to read as "CI passed" even with
 nothing run), plus the step-7 validation (`dispatches.validation_status == 'confirmed'`); the old
@@ -118,58 +118,29 @@ the secret scan, the nonce fence around the brief).
 
 **Hermes cron pre-run scripts** (run by `hermes-agent` before each run, not launchd):
 `briefing-context.py`/`briefing-coverage.py` feed the morning briefing (TickTick + GitHub
-coverage); `watchdog-poll.py`/`watchdog-slack.py` (`no_agent`, 30 min) poll UptimeKuma/Docker/
-GitHub/Slack/1Password-ref-health into `watchdog.db` and post the digest; `watchdog-summary.py`
-is a read-only briefing snapshot; `dispatch-sweep.py` (`no_agent`, 5 min, registered via
-`hermes cron` not `make setup`) polls sideclaw and delivers verdicts via `hermes send`.
-`triage.py` used to be planned as a `hermes cron` `no_agent` job here too, but it moved to its
-own LaunchAgent instead (`com.jkrumm.hermes-triage`, 10 min, installed by `make setup`) — see
-**Alert triage** below for why.
+coverage) — the former also reaches across to warden's `watchdog-summary.py`
+(`WARDEN_WATCHDOG_SUMMARY`-overridable) for the briefing's Infrastructure section.
+`agents-cron.py`/`narratives-cron.py` are the same thin-loader shape for
+`agents-overview.py`/`project-narratives.py`.
 
-**Quiet hours (00:00–07:00) and vacation defer a notification, they do not burn it** — rows
-still insert/refresh/resolve under suppression, only the notification is withheld. A failed
-Slack poll is now loud (`SLACK_FAIL_STREAK_ALERT`, withholds the Kuma ping after 3 consecutive
-misses) rather than silently reading as "nothing new". **`hermes cron create --script` rejects
-any substantial script** (`cron/lifecycle_guard.py` fails closed on an exhausted recursion
-budget) — keep entry points thin, logic in an imported module. Detail:
-**`docs/watchdog.md`** · **`docs/scheduled-jobs.md`**.
+**`hermes cron create --script` rejects any substantial script** (`cron/lifecycle_guard.py`
+fails closed on an exhausted recursion budget) — keep entry points thin, logic in an imported
+module. Detail: **`docs/scheduled-jobs.md`**.
 
 ## Alert triage
 
-`scripts/triage.py` (LaunchAgent `com.jkrumm.hermes-triage`, every 10 min — **not** a
-`hermes cron` job, see `docs/triage.md`) is the act-loop `watchdog-poll.py`'s dedup always
-needed: it turns deduplicated `events` rows into one durable, updated-in-place
-Slack card per problem and, once eligible, a real sideclaw `investigate`
-episode — **the act path itself makes no LLM call**. It replaced a full
-`reasoning_effort: high` turn on every `#alerts` message, which had zero
-memory across messages (`reply_in_thread`) and re-triaged the same signature
-dozens of times a day. The one exception is `propose_mappings()`: a bounded,
-once-a-day batch call over signatures unmapped for over a week, proposing
-`config/triage-policy.json` entries (stamped `proposedBy: "triage-auto"`),
-committed — never pushed — so the map grows without depending on a human
-reading the daily digest. See `docs/triage.md` §*Propose mappings*.
-
-| Fact | Detail |
-|-|-|
-| Sources acted on | `slack_alert`, `uk`, `docker_homelab`, `docker_vps`, `hermes_log` |
-| Signature | `source:external_id` — `triage_items.signature`, also the CLI verbs' argument |
-| Repo mapping | `config/triage-policy.json`'s `rules`/`ignore`, fnmatch against TWO targets (`source:external_id` and `source:normalize_title(title)` — the latter is what makes `uk`'s opaque monitor ids mappable at all), first match wins; plus a structural `ignoreUnstructuredSlackProse` flag for Hermes's own pre-silencing #alerts replies |
-| Clustering | Eligible items are grouped BY REPO, at most one dispatch per repo per run (cap 5 signatures/brief) — two signatures with one root cause get one episode and one card, not two |
-| States | `new → investigating → {verdict, needs_human, pr_open}`, plus `resolved`/`snoozed`/`ignored`; a cluster whose verdict says `UNRELATED SIGNATURES` dissolves back to individual `new` items. `verdict` at `nextAction: implement`/`confidence: high` continues into the auto-implement chain below |
-| Carded states | `investigating`/`verdict`/`needs_human`/`pr_open`/`resolved` plus the auto-implement chain's own five — an unescalated `new` item, mapped or not, is silent; **a `resolved` item with no prior `card_ts` is silent too** (2026-09-08 correction — `sync_card()` refuses outright rather than announcing the resolution of a problem the human was never told about) |
-| The two edges this fixes | `events.dispatch_id` (written for EVERY cluster member, never just the first) and `dispatches.origin_event_id` (accepted by `hermes-cc.sh --origin-event`, never passed — takes the cluster's primary member) |
-| Card channel | `C0BVDE5R562` (`#agents`) — shared with the agents-overview/project-narratives digests |
-| No-firehose guard | `card_hash` (sha256 of rendered Block Kit) — a sync is skipped entirely when nothing changed |
-| CLI | `--run` (default) · `--dry-run` · `--db <path>` · `--snooze <sig> --hours N` · `--ignore <sig>` · `--reopen <sig>` · `--list` |
-| Auto-implement chain (steps 6-10) | `verdict → implementing → validating → {merged, liveness_pending} → resolved`, or `merge_blocked`/reopen-to-`new` on any failure. `hermes-cc.sh dispatch --auto-from-item` (a second, narrower door into `implement`, re-checked from `watchdog.db` — no Slack click) → a SECOND, different-model (`claude-opus-5[1m]`, live-probed) validation episode reviewing the actual diff → `merge`, re-keyed off `config/triage-policy.json`'s per-repo `autoMergePaths`/`noCiRequired` (the old `mergeable_state: clean` CI check was vacuously true with zero checks run) → deploy (`autoDeploy`, ships **off**) → liveness (`hyperdx-alert-state`, re-reads HyperDX's own `/api/api/v2/alerts`). Full state machine, the policy contract, and the model probe result: `docs/triage.md` §*Closing the loop*, `docs/dispatch-bridge.md` §*--auto-from-item* |
-
-`scripts/dispatch-sweep.py` folds a triage-opened dispatch's terminal verdict
-onto its card immediately (`fold_dispatch_verdict()`) rather than waiting for
-triage.py's own next pass; its `#watchdog` delivery path for every
-non-triage dispatch is unchanged. `config.yaml`'s `slack.require_mention_channels`
-now includes `#alerts` (`C0AS1LAUQ3C`) — mentioning Hermes there directly
-still works. Full state machine, the brief contract, the bounds table, and
-the policy file contract: **`docs/triage.md`**.
+**Moved to `~/SourceRoot/warden` 2026-09-09.** `triage.py` (LaunchAgent
+`com.jkrumm.warden-loop`, 10 min) is the deterministic act-loop over
+`~/.warden/warden.db` that turns deduplicated watchdog events into Slack cards
+and, once eligible, `implement` dispatches. It reaches back into this repo
+through `scripts/hermes-cc.sh dispatch --auto-from-item` (every precondition
+re-checked from `~/.warden/warden.db`, no Slack click needed) and the
+`dispatches`/`dispatch_approvals` tables `hermes-cc.sh` and
+`plugins/dispatch-approval/` still own at that same ledger path — see
+*Dispatch Bridge* above. Full state machine, the policy contract
+(`config/triage-policy.json`, now at `~/SourceRoot/warden/config/`), and why
+the loop is a LaunchAgent rather than a `hermes cron` job:
+`~/SourceRoot/warden/CLAUDE.md`, `DESIGN.md`, `STATE.md`.
 
 ## Secrets — native `secrets.command` over the headless cache (v0.19.0+)
 

@@ -39,7 +39,7 @@ observation  →  dispatch  →  episode  →  verdict  →  artifact
 ```
 
 **One state machine, four projections.** There is exactly one `dispatches` row
-per unit of delegated work. Slack, `watchdog.db`, GitHub and the briefings are
+per unit of delegated work. Slack, `warden.db`, GitHub and the briefings are
 *views* of that row — none of them is an independent mechanism, and none of them
 writes state. This is the property that keeps "integrate in all directions" from
 becoming four half-synchronised notification paths.
@@ -47,7 +47,7 @@ becoming four half-synchronised notification paths.
 | Projection | Reads | Shows |
 |-|-|-|
 | Slack thread | `origin_channel` + `origin_thread_ts` | progress and verdict, where it was asked |
-| `watchdog.db` events | `origin_event_id` | incident carries its dispatch; digest stops re-reminding |
+| `warden.db` events | `origin_event_id` | incident carries its dispatch; digest stops re-reminding |
 | GitHub | `artifact_url` | the issue or PR the episode produced |
 | Morning briefing | open dispatches | what's still running, what landed overnight |
 
@@ -92,11 +92,12 @@ the separate `merge` verb.
 ### `--auto-from-item` — the triage loop's own door into `implement`
 
 `GATED_TIERS=(implement)` still means a Slack-signed `--confirm` for Hermes's
-conversational path. `scripts/triage.py` has no Slack round-trip to click one
-into, so `dispatch <repo> --tier implement --auto-from-item <event_id>` is a
-second, narrower door — see `docs/triage.md`'s *Closing the loop* for the full
+conversational path. `~/SourceRoot/warden`'s `scripts/triage.py` has no Slack
+round-trip to click one into, so `dispatch <repo> --tier implement
+--auto-from-item <event_id>` is a second, narrower door — see
+`~/SourceRoot/warden/docs/triage.md`'s *Closing the loop* for the full
 chain this feeds (steps 6-10: verdict → implement → validate → merge →
-deploy → verify). Every precondition is re-checked against `watchdog.db` at
+deploy → verify). Every precondition is re-checked against `~/.warden/warden.db` at
 call time, never trusted from argv: a `verdict`-state `triage_items` row for
 that `event_id`, its linked investigate dispatch `done` with a parsed verdict
 reading `nextAction: implement` and `confidence: high`, the repo on the
@@ -119,8 +120,8 @@ both treat a validated `--auto-from-item` as equivalent to a click.
 validation/routing) — not a closed allowlist, since a model id is not a
 path, a command or a URL. Used by triage.py's step-7 validation episode,
 which deliberately runs on a DIFFERENT model (`claude-opus-5[1m]`, probed
-live — see `docs/triage.md`) than the `claude-sonnet-5` default that wrote
-the implement episode it reviews.
+live — see `~/SourceRoot/warden/docs/triage.md`) than the `claude-sonnet-5`
+default that wrote the implement episode it reviews.
 
 ## Three deviations from the original design, all deliberate
 
@@ -185,9 +186,10 @@ introduced.
 
 ## The dispatch record
 
-Lives in `~/.hermes/watchdog.db` — the mini's one durable Hermes store, which
-already holds the incident events a dispatch links back to. New table, no
-migration of `events`:
+Lives in `~/.warden/warden.db` (formerly `~/.hermes/watchdog.db`, moved with the
+alert-triage act-loop to `~/SourceRoot/warden` on 2026-09-09) — the mini's one
+durable ledger, which already holds the incident events a dispatch links back
+to. New table, no migration of `events`:
 
 ```sql
 CREATE TABLE dispatches (
@@ -216,7 +218,9 @@ the verdict to a live turn *is* the delivery; `status` deliberately does not,
 since a poll tells nobody. `artifact_url`/`merged_at` are denormalized out of the
 verdict into their own columns by **both** settlers (`hermes-cc.sh`'s
 `sync_record`, `dispatch-sweep.py`) — `CREATE TABLE IF NOT EXISTS` no-ops on an
-existing table, so the `ALTER TABLE`s run on every connect. sideclaw prunes jobs
+existing table, so the `ALTER TABLE`s run on every connect (`dispatch-sweep.py`
+now runs from `~/SourceRoot/warden`, against the same `~/.warden/warden.db`).
+sideclaw prunes jobs
 after 24h: `status` falls back to the row's `verdict_json` on a 404, and the
 sweeper counts consecutive 404s per row (`poll_misses`) — three in a row →
 status `lost`, one notice, never retried again.
@@ -272,10 +276,11 @@ Mirrors `hermes-ops.sh` exactly, because that pattern is already proven here:
   rotted.
 - **`skills/claude-dispatch/SKILL.md`** — when to reach for which tier, and the
   hard rule that infra mutation is `homelab-ops`, never this.
-- **`scripts/dispatch-sweep.py`** — `no_agent` cron, every 5 min. Reads open
-  dispatches, polls `GET localhost:7705/api/jobs/:id`, posts finished ones into
-  their origin thread, stamps `reported_at`. **No LLM in the return path** — the
-  verdict is schema-shaped, so formatting is deterministic and free.
+- **`~/SourceRoot/warden`'s `scripts/dispatch-sweep.py`** — LaunchAgent
+  `com.jkrumm.warden-sweep`, every 5 min (a `hermes cron` job until 2026-09-09).
+  Reads open dispatches, polls `GET localhost:7705/api/jobs/:id`, posts finished
+  ones into their origin thread, stamps `reported_at`. **No LLM in the return
+  path** — the verdict is schema-shaped, so formatting is deterministic and free.
 
 ## The merge verb — where the human stopped being on GitHub
 
@@ -304,7 +309,7 @@ Four things do, and the fourth is the one that generalizes:
    this same repo (never a fork), no `.github/workflows|actions` path,
    sideclaw's own 40-file/2000-line episode ceilings still hold as a
    **backstop**, and `mergeable` is `true` (a real conflict signal). The
-   **primary** gate is now `config/triage-policy.json`'s `repos.<repo>` entry:
+   **primary** gate is now `~/SourceRoot/warden/config/triage-policy.json`'s `repos.<repo>` entry:
    EVERY changed path must match its `autoMergePaths` glob list (a repo absent
    from `repos`, or with none declared, refuses outright — no implicit allow),
    and the head commit's CI check-runs must either all conclude
@@ -315,7 +320,7 @@ Four things do, and the fourth is the one that generalizes:
    `.github/workflows` at all), so that condition was passing with nothing
    having run. A repo with zero check-runs and no `noCiRequired` acknowledgement
    now FAILS this gate, which is the whole point of the inversion. The step-7
-   validation (see `docs/triage.md`) must also read `dispatches.validation_status
+   validation (see `~/SourceRoot/warden/docs/triage.md`) must also read `dispatches.validation_status
    == 'confirmed'` — a missing, disagreeing, or errored review blocks the merge,
    never read as a pass. The merge call **pins the head SHA**, so a push landing
    between inspection and merge fails the merge rather than riding it.
@@ -340,9 +345,10 @@ the repo argument itself). Seeded with exactly one: `hyperdx-apply` → `ssh
 vps "cd ~/vps && make hyperdx-apply ENV=prod"`. The outcome (`attempted`,
 `ok`, and — for `observability/alerts/*.json` paths — the expected
 `name`/`threshold`/`thresholdType` fetched at the merge SHA) rides in the
-merge response's `deploy` field, which `scripts/triage.py`'s step-10
-liveness check later reads back against. See `docs/triage.md`'s *Closing the
-loop* for the full chain and how to turn `autoDeploy` on.
+merge response's `deploy` field, which `~/SourceRoot/warden`'s `scripts/triage.py`
+step-10 liveness check later reads back against. See
+`~/SourceRoot/warden/docs/triage.md`'s *Closing the loop* for the full chain
+and how to turn `autoDeploy` on.
 
 **What this does not solve.** `--confirm` is still instruction-level, and now it
 gates the most consequential verb in the script. The bounds above are structural
@@ -567,9 +573,9 @@ gating them would break the self-healing premise the bridge exists to serve.
 UptimeKuma alert in `#alerts` and answering it — which the watchdog's own
 argo-API read of `#alerts` does not depend on at all. **The trust boundary is
 the workspace, not the human/bot distinction**; the real exposure is hostile
-*content* relayed by a trusted sender, which is why `watchdog-poll.py` and
-`briefing-coverage.py` mark non-`jkrumm` GitHub items as third-party instead of
-authenticating the messenger.
+*content* relayed by a trusted sender, which is why warden's `watchdog-poll.py`
+and this repo's `briefing-coverage.py` mark non-`jkrumm` GitHub items as
+third-party instead of authenticating the messenger.
 
 **Tests.** `tests/test_hermes_cc.py` (134 cases, stubbed job server and stubbed
 GitHub — never a real one of either), `tests/test_dispatch_approval.py` (21

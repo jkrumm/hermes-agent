@@ -47,13 +47,13 @@
 #
 # --AUTO-FROM-ITEM IS A SECOND, NARROWER DOOR, NOT A REPLACEMENT. --confirm stays
 # the gate for Hermes's conversational path — a signed Slack click. The alert
-# triage loop (scripts/triage.py) has no Slack round-trip to click one into, so
+# triage loop (warden's scripts/triage.py) has no Slack round-trip to click one into, so
 # `dispatch <repo> --tier implement --auto-from-item <event_id>` lets it in a
 # different way: every precondition (a `verdict`-state triage_items row for that
 # event, its linked investigate dispatch done with nextAction=implement AND
 # confidence=high, the repo matching what that verdict was actually about, the
 # repo's own policy ceiling, the implement budget) is RE-CHECKED against
-# watchdog.db at call time, never trusted from the caller's argv. BE HONEST ABOUT
+# ~/.warden/warden.db at call time, never trusted from the caller's argv. BE HONEST ABOUT
 # WHAT THIS IS NOT: it is not a signature the way --confirm's approval artifact
 # is — nothing here is cryptographically bound the way a Slack click is. It is a
 # precondition the caller cannot fabricate CHEAPLY: every fact it checks is a row
@@ -623,7 +623,7 @@ tier_rank() {
 # --- --auto-from-item: the triage loop's own implement gate ------------------
 #
 # See the header comment for what this is and is not. Every fact below is read
-# fresh from $DB_PATH — the same watchdog.db triage.py itself writes into — never
+# fresh from $DB_PATH — the same warden.db triage.py itself writes into — never
 # trusted from an argument, because the whole point is that the caller cannot
 # fabricate any of it cheaply.
 require_auto_from_item() {
@@ -1380,7 +1380,7 @@ cmd_dispatch() {
   resolve_repo "$name"
   TIER="${TIER:-investigate}"
   resolve_tier "$TIER" "$name"
-  # Re-checked from watchdog.db at call time, before anything else — see
+  # Re-checked from warden.db at call time, before anything else — see
   # require_auto_from_item()'s own header. Only ever set by --auto-from-item.
   if [ -n "$AUTO_FROM_ITEM" ]; then
     require_auto_from_item "$AUTO_FROM_ITEM" "$name"
@@ -1746,7 +1746,8 @@ check_merge_budget() {
 # earlier in cmd_merge, unchanged) — a one-line `restart: no` in a production
 # compose file passes any line count and must still be refused by path scope.
 #
-# The new primary key is `config/triage-policy.json`'s `repos.<repo>` entry:
+# The new primary key is $TRIAGE_POLICY_JSON's (warden/config/triage-policy.json)
+# `repos.<repo>` entry:
 #   autoMergePaths  a glob list. EVERY changed path must match one, or refuse —
 #                   no repo gets an implicit allow by omission.
 #   noCiRequired    an explicit per-repo acknowledgement that this repo has no
@@ -1803,10 +1804,11 @@ print("OK")
 # change only takes effect once someone runs the deploy command — which is
 # exactly why a false threshold sat correct-and-unapplied. Same closed-
 # allowlist shape as `verb`/`evidence` in triage.py's own VERB_ALLOWLIST/
-# EVIDENCE_ALLOWLIST: config/triage-policy.json names a KEY, this script owns
-# the argv — a policy file must never be able to name an arbitrary command.
-# Seeded with exactly one. Ships with every repo's `autoDeploy` unset/false —
-# see docs/triage.md for how to turn it on.
+# EVIDENCE_ALLOWLIST: $TRIAGE_POLICY_JSON (warden/config/triage-policy.json)
+# names a KEY, this script owns the argv — a policy file must never be able
+# to name an arbitrary command. Seeded with exactly one. Ships with every
+# repo's `autoDeploy` unset/false — see ~/SourceRoot/warden/docs/triage.md
+# for how to turn it on.
 deploy_argv() {
   case "$1" in
     hyperdx-apply) DEPLOY_ARGV=(ssh vps "cd ~/vps && make hyperdx-apply ENV=prod") ;;
@@ -2538,12 +2540,12 @@ VERBS
   dispatch <repo>      Open an episode inside <repo>. Brief on stdin (quoted
                        heredoc) or --brief-file. --wait polls in-turn.
                        --auto-from-item <event_id> is a second, narrower door
-                       into `implement`, for scripts/triage.py only — every
-                       precondition (a `verdict`-state triage item for that
-                       event, its investigate dispatch done with
+                       into `implement`, for warden's scripts/triage.py only —
+                       every precondition (a `verdict`-state triage item for
+                       that event, its investigate dispatch done with
                        nextAction=implement + confidence=high, the repo
-                       matching, budget) is re-checked from watchdog.db at
-                       call time; no --confirm needed once it passes. --model
+                       matching, budget) is re-checked from ~/.warden/warden.db
+                       at call time; no --confirm needed once it passes. --model
                        overrides the worker model for this one job (sideclaw
                        validates/routes it) — used by triage.py's step-7
                        validation episode, deliberately a different model.
@@ -2588,9 +2590,10 @@ MERGE     `merge <job-id>` lands the draft PR an `implement` episode opened, wit
           the default branch, head is a dispatch/… branch in this repo (never a
           fork), no .github/workflows change, size ceilings intact (a BACKSTOP,
           not primary — see below), no merge conflict. The PRIMARY gate is
-          config/triage-policy.json's `repos.<repo>` entry: EVERY changed path
-          must match `autoMergePaths`, and the head commit's CI check-runs must
-          either all pass or the repo must explicitly declare `noCiRequired` —
+          ~/SourceRoot/warden/config/triage-policy.json's `repos.<repo>` entry:
+          EVERY changed path must match `autoMergePaths`, and the head commit's
+          CI check-runs must either all pass or the repo must explicitly
+          declare `noCiRequired` —
           a repo with zero checks and no such entry FAILS this gate rather than
           reading `mergeable_state: clean` (vacuously true with nothing run) as
           a pass. The step-7 validation (dispatches.validation_status) must

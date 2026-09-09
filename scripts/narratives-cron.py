@@ -19,7 +19,7 @@ from pathlib import Path
 _HERE = Path(__file__).resolve().parent
 
 # Loaded by path because the filename is not importable — same mechanism as
-# the agents-overview and dispatch-sweep cron entry points.
+# agents-cron.py's own load of agents-overview.py.
 _TARGET = _HERE / ("project" + "-narratives.py")
 _spec = importlib.util.spec_from_file_location("project_narratives", _TARGET)
 assert _spec and _spec.loader, "Failed to load the project-narratives module"

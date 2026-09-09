@@ -98,7 +98,7 @@ hermes cron create "30 6 * * *" --name "Project narratives" \
 
 Verify with `hermes cron list` — `Script: narratives-cron.py`, `Mode:
 no-agent`. `scripts/narratives-cron.py` is the thin loader (same shape as
-`agents-cron.py`/`dispatch-sweep-cron.py`) the cron-creation guard needs —
+`agents-cron.py`) the cron-creation guard needs —
 see `docs/scheduled-jobs.md` for why a substantial entry point gets rejected
 regardless of content.
 

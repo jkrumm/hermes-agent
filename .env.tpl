@@ -88,8 +88,8 @@ RESEARCH_API_KEY=op://vps/research-gateway/API_SECRET
 HYPERDX_AGENT_ACCESS_KEY=op://vps/clickstack/AGENT_ACCESS_KEY
 
 # UptimeKuma push URLs — pinged on success by hermes-liveness.sh, hermes-backup.sh,
-# and watchdog-slack.py. Push monitors created manually in UK UI; URLs stored in
-# 1Password after creation. Watchdog monitor interval ~2700s (45 min) — 30 min cron
+# and warden's watchdog-poll.py. Push monitors created manually in UK UI; URLs stored in
+# 1Password after creation. Watchdog monitor interval ~2700s (45 min) — 30 min poll
 # + grace, so one missed run alerts without flapping.
 UPTIME_PUSH_HERMES=op://hermes/uptime-kuma/agent-push-url
 UPTIME_PUSH_BACKUP=op://hermes/uptime-kuma/backup-push-url
