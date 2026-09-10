@@ -54,8 +54,10 @@ was the TOCTOU. Nothing is bypassed: that subprocess performs the very
 same signature verification a hand-typed --confirm does (require_signed_approval —
 the row this handler just signed is what it verifies), the recursion guard, the
 budget, the audit line. The outcome (job opened / merged / refused) is posted into
-the origin thread with `hermes send` — the sweeper's own delivery — and the running
-episode's verdict still arrives through the sweeper as before.
+the origin thread over the plain Slack Web API (`chat.postMessage`, mirroring
+`warden/scripts/slack_client.py` — see `_send_to_origin()`'s own docstring for why
+this is a hand copy rather than an import), and the running episode's verdict still
+arrives through the sweeper as before.
 """
 
 from __future__ import annotations
@@ -70,6 +72,8 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any, Optional
 
@@ -89,20 +93,29 @@ DENY_ACTION = "hermes_cc_deny"
 
 _PUBKEY_FILENAME = "dispatch-approval.pub"
 
-# The dispatcher the Approve click re-runs, and the sender that reports its outcome.
-# Both overridable so the test suite can stand in a stub without a gateway.
+# The dispatcher the Approve click re-runs. Overridable so the test suite can
+# stand in a stub without a gateway.
 # hermes-cc.sh moved wholesale into warden (2026-09-10); ~/.hermes/scripts/hermes-cc.sh
 # still resolves (whole-dir symlink into hermes-agent/scripts/, now an exec shim), but
 # the plugin calls the real script directly rather than bouncing through the shim.
 _DEFAULT_CC_SCRIPT = Path.home() / "SourceRoot" / "warden" / "scripts" / "hermes-cc.sh"
-_DEFAULT_HERMES_BIN = Path.home() / ".local" / "bin" / "hermes"
 # warden's intent queue — the door this plugin requests a ledger change through,
 # because it no longer performs one. See `_record_decision`.
 _DEFAULT_INTENTS_CLI = Path.home() / "SourceRoot" / "warden" / "scripts" / "intents.py"
+
+# --- Slack delivery of the re-run outcome (mirrors warden/scripts/slack_client.py) --
+#
+# A hand copy, not an import: this runs inside the gateway process, in this repo,
+# and warden's modules are reached by local path within warden only — a plugin
+# depending on another repo's file layout is the wrong kind of coupling. Keep this
+# in sync with slack_client.py by hand if either changes shape.
+_SLACK_POST_URL = "https://slack.com/api/chat.postMessage"
+_SECRETS_RUN = Path.home() / ".local" / "bin" / "secrets-run"
+_SLACK_TOKEN_REF = "op://hermes/slack/bot-token"
+_SLACK_POST_TIMEOUT_S = 15
 # An implement episode is submitted in seconds (the wait is the sweeper's); a merge
 # talks to GitHub a handful of times. Anything past this is wedged, not slow.
 _RUN_TIMEOUT_S = 120
-_SEND_TIMEOUT_S = 30
 # Spooling one file and draining a handful of them is milliseconds of work against a
 # local SQLite file. Anything past this is a locked ledger, not a slow one.
 _INTENTS_TIMEOUT_S = 30
@@ -432,8 +445,50 @@ def _cc_script() -> Path:
     return Path(os.environ.get("HERMES_CC_SCRIPT", str(_DEFAULT_CC_SCRIPT)))
 
 
-def _hermes_bin() -> Path:
-    return Path(os.environ.get("HERMES_CC_HERMES_BIN", str(_DEFAULT_HERMES_BIN)))
+def _resolve_slack_token() -> str:
+    """`SLACK_BOT_TOKEN` env first, else `secrets-run read op://hermes/slack/
+    bot-token` with a 15s timeout — mirrors warden/scripts/slack_client.py's
+    resolve_slack_token() by hand (see the module-level comment above). ""
+    on any failure; a missing token is a best-effort delivery failure here,
+    never a hard error."""
+    val = os.environ.get("SLACK_BOT_TOKEN", "")
+    if val:
+        return val
+    env = os.environ.copy()
+    env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + env.get("PATH", "/usr/bin:/bin")
+    try:
+        r = subprocess.run(
+            [str(_SECRETS_RUN), "read", _SLACK_TOKEN_REF],
+            capture_output=True, text=True, timeout=15, env=env,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def _slack_post_message(token: str, channel: str, text: str,
+                         thread_ts: Optional[str] = None) -> dict:
+    """Blocking `chat.postMessage` — run this under `asyncio.to_thread()`,
+    never called directly from an async context (see `_send_to_origin()`).
+    Mirrors warden/scripts/slack_client.py's slack_post_message() by hand.
+    Returns Slack's own parsed JSON on any completed round-trip (including
+    its own `{"ok": false, "error": ...}`), or a synthetic `{"ok": False,
+    "error": ...}` on a transport/parse failure — never raises."""
+    payload: dict = {"channel": channel, "text": text}
+    if thread_ts:
+        payload["thread_ts"] = thread_ts
+    body = json.dumps(payload).encode()
+    req = urllib.request.Request(
+        _SLACK_POST_URL, data=body,
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json; charset=utf-8"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=_SLACK_POST_TIMEOUT_S) as resp:
+            return json.loads(resp.read().decode())
+    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError,
+            TimeoutError, OSError) as e:
+        return {"ok": False, "error": str(e)}
 
 
 def _intents_cli() -> Path:
@@ -525,33 +580,28 @@ def outcome_text(verb: str, repo: str, tier: str, rc: int, stdout: str, stderr: 
 
 
 async def _send_to_origin(channel: Optional[str], thread_ts: Optional[str], text: str) -> None:
-    """Same delivery as dispatch-sweep.py: `hermes send --to slack:<chan>[:<ts>]
-    --file`, the body on disk, never argv. Best effort."""
+    """Same delivery target as dispatch-sweep.py: `slack:<chan>[:<ts>]`, now over
+    the plain Slack Web API (`chat.postMessage`) instead of shelling out to
+    `hermes send` — that used the gateway's own Slack Socket Mode connection,
+    the one piece of infrastructure a signed-approval handler running INSIDE
+    the gateway cannot depend on staying up. `_slack_post_message()` is a
+    blocking `urllib` call, so it runs under `asyncio.to_thread()` rather than
+    on this coroutine's own event loop. Best effort, same as before: a failure
+    here is logged and never raised — the click was already spent and the
+    verb already ran; only the outcome notice is at stake."""
     if not channel:
         logger.warning("[dispatch-approval] no origin channel on the approval row — outcome not posted")
         return
-    target = f"slack:{channel}:{thread_ts}" if thread_ts else f"slack:{channel}"
-    tmp_path = ""
+    token = _resolve_slack_token()
+    if not token:
+        logger.warning("[dispatch-approval] no Slack token available — outcome not posted")
+        return
     try:
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
-            f.write(text)
-            tmp_path = f.name
-        proc = await asyncio.create_subprocess_exec(
-            str(_hermes_bin()), "send", "--to", target, "--file", tmp_path, "--json", "--quiet",
-            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
-            env=_subprocess_env(),
-        )
-        _, err = await asyncio.wait_for(proc.communicate(), timeout=_SEND_TIMEOUT_S)
-        if proc.returncode != 0:
-            logger.warning("[dispatch-approval] hermes send exited %s: %s", proc.returncode, err.decode("utf-8", "replace")[:300])
+        result = await asyncio.to_thread(_slack_post_message, token, channel, text, thread_ts)
+        if not result.get("ok"):
+            logger.warning("[dispatch-approval] slack post failed: %s", result.get("error"))
     except Exception as exc:  # pragma: no cover - best effort
         logger.warning("[dispatch-approval] could not post the outcome: %s", exc)
-    finally:
-        if tmp_path:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
 
 
 async def execute_approved(nonce: str, verb: str, repo: str, tier: str, user_id: str) -> Optional[str]:
