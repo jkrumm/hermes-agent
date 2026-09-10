@@ -82,8 +82,14 @@ def http_get_json(url: str, headers: dict[str, str]) -> Any | None:
         return None
 
 
+GH_FAILED = False  # set by gh_search on any failure; printed as GITHUB_AVAILABLE=false
+
+
 def gh_search(kind: str) -> list[dict[str, Any]]:
-    """kind: 'prs' or 'issues'"""
+    """kind: 'prs' or 'issues'. A failure (rate limit, timeout, auth, missing gh)
+    returns [] AND flips GH_FAILED so the briefing can say "unknown" instead of
+    reading an empty list as a clean slate."""
+    global GH_FAILED
     fields = "title,repository,url,number,createdAt,updatedAt,author"
     if kind == "prs":
         fields += ",isDraft"
@@ -94,9 +100,11 @@ def gh_search(kind: str) -> list[dict[str, Any]]:
             capture_output=True, text=True, timeout=GH_TIMEOUT,
         )
         if res.returncode != 0:
+            GH_FAILED = True
             return []
         return json.loads(res.stdout or "[]")
     except (subprocess.TimeoutExpired, json.JSONDecodeError, FileNotFoundError):
+        GH_FAILED = True
         return []
 
 
@@ -231,6 +239,8 @@ def main() -> None:
             print(f"  - {repo_short}: {', '.join(parts)}")
         print("]")
     print(f"GITHUB_TOTAL={len(prs)} PR{'s' if len(prs) != 1 else ''}, {len(issues)} issue{'s' if len(issues) != 1 else ''}")
+    if GH_FAILED:
+        print("GITHUB_AVAILABLE=false")
 
     if fresh:
         print(f"GITHUB_FRESH_{FRESH_HOURS}H=[")

@@ -1,7 +1,7 @@
 ---
 name: claude-dispatch
 description: Hand repo work to a bounded Claude Code episode via the `hermes-cc.sh` verb dispatcher, then answer with its verdict. Use when triage needs the actual source — "why is X failing, look in the repo", "what changed in Y", "warum ist Z rot, schau ins repo", "read the code and tell me", "check the repo for", a red monitor whose cause is code-shaped, a stale GitHub issue, or any question you can only answer by guessing otherwise. Also the path for "file an issue about what you find" (author tier) and, only with Johannes's explicit confirmation, "make that change" (implement tier — isolated worktree, draft PR), then "merge it" to land that PR.
-version: 2.1.0
+version: 3.0.0
 metadata:
   hermes:
     tags: [dispatch, merge, pr, pull-request, claude, claude-code, repo, repository, code, source, investigate, triage, root-cause, rootcause, why, verdict, episode, codebase, diagnose, debug, sideclaw]
@@ -19,9 +19,17 @@ One bounded dispatcher for handing repo work to Claude Code:
 Run `~/.hermes/scripts/hermes-cc.sh help` for the authoritative verb list — this
 file explains *when* to reach for it, the script itself is the contract.
 
-`~/.hermes/scripts/hermes-cc.sh` is an exec shim; the script itself has been at
-`~/SourceRoot/warden/scripts/hermes-cc.sh` since 2026-09-10. Keep calling it at
-the `~/.hermes/scripts/` path above — the guards key on that exact string.
+`~/.hermes/scripts/hermes-cc.sh` is a 6-line exec shim into
+`~/SourceRoot/warden/scripts/warden` (the real CLI, a Python program) since
+2026-09-10. Keep calling it at the `~/.hermes/scripts/` path above — the guards
+key on that exact string.
+
+**`run <repo>` is the verb to reach for.** It opens a triage item that then
+rides Warden's own lifecycle — the same state machine the alert-triage loop
+uses — rather than a bare episode with no record of its own. Prefer it over
+`dispatch` for anything that should be tracked, retried and (for `implement`)
+carried through to a merged, deployed, verified PR without you babysitting
+each step. `dispatch` still exists for a one-off episode with no item.
 
 ---
 
@@ -41,13 +49,14 @@ If no, just answer.
 | Situation | What to do |
 |-|-|
 | "why is the X container red" | `homelab-ops` first — it may be an ops fact, not a code fact |
-| ...and ops says the service is crash-looping on its own code | **dispatch** into that repo |
+| ...and ops says the service is crash-looping on its own code | **run** into that repo |
 | "what does this repo do" / "which repo owns X" | answer from your own knowledge or `argo-api` |
-| "why did the check job start failing after Tuesday" | **dispatch** — needs `git log` and the source |
+| "why did the check job start failing after Tuesday" | **run** — needs `git log` and the source |
 | "remind me to look at X" | `capture` → TickTick |
 | "open an issue for X", where you already know what it says | `capture` → GitHub. Instant and free — do not dispatch |
-| "find out what is wrong and file an issue about it" | **dispatch** `--tier author` — the issue text has to be discovered |
+| "find out what is wrong and file an issue about it" | **dispatch** `--tier author` — the issue text has to be discovered; `run` has no `author` tier |
 | "fix it" / "make that change" | **dispatch** `--tier implement`, but only after Johannes confirms the plan |
+| "what's happening with the thing I asked about earlier" / "is item N done yet" | read `GET /items/<eventId>` (see *warden* skill) — don't guess, and don't re-dispatch |
 | "restart / redeploy / fix the container" | `homelab-ops`. **Never** dispatch |
 | a book, a library version, a fact about the world | `research-gateway` |
 
@@ -81,7 +90,7 @@ The brief is read from **stdin**, never as an argument. Always use a **quoted**
 heredoc — `<<'BRIEF'`, with the quotes:
 
 ```bash
-~/.hermes/scripts/hermes-cc.sh dispatch sideclaw --wait --json \
+~/.hermes/scripts/hermes-cc.sh run sideclaw --wait --json \
   --origin-channel "$SLACK_CHANNEL" --origin-thread "$SLACK_THREAD_TS" <<'BRIEF'
 The check job for the argo repo has failed three times since 14:00 with a
 typecheck error. What changed, and is it a real break or a flaky runner?
@@ -117,7 +126,8 @@ its whole budget deciding what you meant.
 
 | Verb | Use |
 |-|-|
-| `dispatch <repo>` | open an episode. Brief on stdin. `--wait` to answer in-turn |
+| `run <repo>` | open a triage **item** that rides Warden's lifecycle end to end. Brief on stdin. `--tier investigate\|implement` (default `investigate`). `--wait` to answer in-turn |
+| `dispatch <repo>` | open a bare episode with no item — `author` tier, or an `implement` needing the Slack-approval click. Brief on stdin. `--wait` to answer in-turn |
 | `status <job-id>` | poll one episode you opened earlier |
 | `list [open\|today\|all]` | what is running, what landed today |
 | `merge <job-id>` | land the draft PR that `implement` job opened. Needs `--why --confirm` |
@@ -125,10 +135,53 @@ its whole budget deciding what you meant.
 | `revert <event-id>` | record that a merged item's PR was reverted. Needs `--pr <number> --why` |
 
 There is no `cancel` verb any more — sideclaw grew a real cancel endpoint, and
-`abort` calls it and closes the triage item as a side effect. `abort` and
-`revert` both take a **triage item's event id**, never a job id, a PR number
-(except `--pr` on `revert`, which is exactly that), or a URL — they only make
-sense for work the alert-triage loop opened, not an interactive dispatch.
+`abort` calls it and closes the triage item as a side effect. There is also
+**no replay path**: an Approve click is drained and spent once inside Warden —
+nothing re-runs a command, ever, for any verb here. `abort` and `revert` both
+take a **triage item's event id**, never a job id, a PR number (except `--pr`
+on `revert`, which is exactly that), or a URL — they only make sense for work
+`run`, or the alert-triage loop, opened as an item, not a bare `dispatch`.
+
+`run`'s JSON always carries `eventId` (the item) and, once an episode is open,
+`jobId`; `queued: true` means budget/concurrency deferred it — Warden's loop
+will open it, don't retry, just say it's queued.
+
+---
+
+## What Warden does with it after
+
+`run` hands the item to Warden and steps back — you are not driving the rest
+of this, and you should narrate it that way rather than implying you are:
+
+```
+new → investigating → verdict → implementing → validating → merged
+    → liveness_pending → fixed
+```
+
+with `needs_human`, `merge_blocked`, `closed` and `dismissed` as the off-ramps
+a chain can land on instead of completing. In words: an investigate episode
+runs and reaches a verdict; if the tier is `implement` and the verdict is
+confident enough and the repo's policy allows it, a second episode writes the
+change and opens a draft PR; a **different model** validates that diff; a pass
+merges it inside the repo's `autoMergePaths`; a repo with deploy configured
+rides through `liveness_pending` to a confirmed `fixed`. Anything that can't
+clear one of those gates goes to `needs_human` (a person has to decide) or
+`merge_blocked` (something structural refused the merge itself) instead of
+silently stalling — Warden never leaves an item in a state with no next
+action and no record of why.
+
+**When someone asks about progress — "what happened to that", "is it done",
+"where did that PR end up" — read the item, don't guess or re-dispatch:**
+
+```bash
+curl -s "http://127.0.0.1:7734/items/<eventId>"
+```
+
+See the `warden` skill for the shape of that response and the board endpoint
+it sits alongside. `status <job-id>` still works for a single episode, but an
+item's `eventId` is the durable handle across its whole chain — a `run` can
+span several jobs (investigate, implement, validate) as it moves through the
+lifecycle above, and only `/items/<eventId>` shows all of them together.
 
 ---
 
@@ -137,16 +190,20 @@ sense for work the alert-triage loop opened, not an interactive dispatch.
 | Tier | What it may do | Gate |
 |-|-|-|
 | `investigate` | read-only. Returns a verdict | none — this is the default |
-| `author` | + files one GitHub issue | none |
-| `implement` | writes code in an isolated worktree, pushes a branch, opens a **draft** PR | `--why` **and** a Slack-signed approval |
+| `author` | + files one GitHub issue. `dispatch` only — `run` has no `author` tier | none |
+| `implement` | writes code in an isolated worktree, pushes a branch, opens a **draft** PR | on `dispatch`: `--why` **and** a Slack-signed approval. On `run`: `--why`, and Warden's own lifecycle only proceeds past the verdict into `implementing` when the verdict itself says implement with high confidence **and** the repo's policy allows it — no Slack click in that path |
 
 **Pick the least powerful tier that produces what is actually wanted.** Most
 questions are `investigate`. Reach past it only when the artifact is the point.
 
 Every repo also carries a ceiling, and the ceiling always wins over the request.
-`config/dispatch-repos.json` sets them, and there are only two kinds of exception:
-`dotfiles`, `vps`, `homelab` and `brain` are capped at `investigate` (the machine's
-own control plane, and the vault — read-only there is deliberate), and two repos
+Warden's own copy, `~/SourceRoot/warden/config/dispatch-repos.json`, sets them
+(this repo's `config/` is empty — the policy file moved there 2026-09-10), and
+there are only two kinds of exception:
+`dotfiles`, `brain`, `hermes-agent`, `sideclaw` and `warden` are capped at
+`investigate` (the machine's control plane, the vault, and Warden's own executor and
+ledger — a loop that could merge into its own executor has no outside; `vps` and
+`homelab` came off the floor 2026-09-08), and two repos
 (`dotfiles-private`, `homelab-private`) are **denied outright** and cannot be
 dispatched to at any tier. Everything else permits every
 tier, up to `implement`. A denial is deliberate, not an oversight — do not offer

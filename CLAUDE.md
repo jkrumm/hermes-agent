@@ -8,6 +8,13 @@ history and per-file detail live in `docs/*.md`; each section here points at its
 VCS source of truth for Johannes's Hermes Agent setup, Mac Mini-only. Everything here is
 symlinked into `~/.hermes/` — edit at either end, git sees it here.
 
+**Warden (`~/SourceRoot/warden`) is the control plane this repo hands work to and reads
+from.** It ingests signals, decides, dispatches Claude Code episodes through sideclaw, and
+owns the only ledger (`~/.warden/warden.db`) — five LaunchAgents, no LLM call anywhere in its
+loop. Hermes narrates and answers; it never dispatches or decides on its own. See *Dispatch
+Bridge* below for how Hermes hands it work, and the read-only `warden` skill for how Hermes
+reads it back.
+
 Audio (TTS + STT) is the **`audio-gateway`** service (`~/SourceRoot/audio-gateway`), an
 OpenAI-compatible VPS container at `https://audio-gateway.jkrumm.com/v1` over the tailnet.
 Hermes only points its native `openai` TTS/STT providers at it in `config.yaml` — this repo
@@ -31,8 +38,8 @@ the first pass.
 | `config.yaml`, `.env.tpl`, `SOUL.md` | `~/.hermes/…` | edit here, live immediately; `.env.tpl` is the one list of `KEY=op://…` refs |
 | `cron/`, `scripts/`, `hooks/` | `~/.hermes/…` | Hermes-driven cron + pre-run scripts (must live under `HERMES_HOME/scripts/`) + host-level shell scripts |
 | `plugins/{name}/` | `~/.hermes/plugins/{name}/` | **`HERMES_PLUGINS`** is the source of truth. Today `dispatch-approval` (the Ed25519 signer). Must **also** be enabled once — `hermes plugins enable <name>`; the symlink alone is inert. |
-| `config/` | `~/.hermes/config/` | `dispatch-repos.json`: root, `deny`, `defaultTier`, per-repo ceilings |
-| `skills/{name}/` | `~/.hermes/skills/{name}/` | **`HERMES_SKILLS` in the Makefile is the source of truth** — 18 dirs (roster + `homelab` category-dir note: docs). |
+| `config/` | `~/.hermes/config/` | **empty** since 2026-09-10 — `dispatch-repos.json` (root, `deny`, `defaultTier`, per-repo ceilings) moved to `~/SourceRoot/warden/config/`, warden's own defence-in-depth copy |
+| `skills/{name}/` | `~/.hermes/skills/{name}/` | **`HERMES_SKILLS` in the Makefile is the source of truth** — 20 dirs (roster + `homelab` category-dir note: docs). |
 | `USER.md` | `~/.hermes/memories/USER.md` | **copied** — Hermes writes to it |
 
 **A skill is durable only if symlinked from this repo.** `skills.external_dirs` satisfies the
@@ -71,17 +78,22 @@ lives at `warden/scripts/warden` (a Python CLI; the original bash `hermes-cc.sh`
 shim into it — the path stays because the Hermes-side guards key on it. Design +
 why each bound is shaped this way: **`docs/dispatch-bridge.md`**.
 
-**Verbs:** `dispatch <repo>` · `status <job-id>` · `list [open|today|all]` · `merge <job-id>` ·
-`abort <event-id>` · `revert <event-id>` — there is no `cancel` any more (sideclaw grew a real
-cancel endpoint; `abort` calls it and closes the triage item).
+**Verbs:** `run <repo>` · `dispatch <repo>` · `status <job-id>` · `list [open|today|all]` ·
+`merge <job-id>` · `abort <event-id>` · `revert <event-id>` — there is no `cancel` any more
+(sideclaw grew a real cancel endpoint; `abort` calls it and closes the triage item). `run`
+opens a triage **item** that rides warden's own lifecycle (investigate → verdict →
+conditionally implement → validate → merge → deploy); `dispatch` opens a bare episode with no
+item, still the only door for `author` tier or a Slack-approved `implement`. Prefer `run`.
+Reading an item's state back (`/board`, `/items/:id` on warden's loopback API) is the
+read-only **`warden`** skill, not this one — never guess an item's progress.
 
 | Invariant | Detail |
 |-|-|
-| No verb takes a path, command or URL | a dispatch names a **repo**, resolved under the single `root` in `config/dispatch-repos.json`. `.`/`..`/dotted names refused; the resolved checkout's parent must **be** the resolved root. |
+| No verb takes a path, command or URL | a dispatch names a **repo**, resolved under the single `root` in warden's `config/dispatch-repos.json` (`~/SourceRoot/warden/config/`). `.`/`..`/dotted names refused; the resolved checkout's parent must **be** the resolved root. |
 | `deny` list | `dotfiles-private`, `homelab-private`. Both also carry `sensitive: true` — the one carve-out of `deny`, opening `investigate` only, `"sensitive": true` on the submitted body, sideclaw's own scan withholding a matched verdict rather than leaking it. `author`/`implement` stay refused. `brain` is **not** denied: `tiers.investigate` (read-only, worktree-isolated) since 2026-08-15. |
 | Brief is data, never argv | stdin (`<<'BRIEF'` quoted heredoc) or `--brief-file`. **No `--brief`** — as argv it would be shell-expanded before the script ran. |
 | Tiers | `investigate` (read-only → verdict) · `author` (+ one GitHub issue) · `implement` (`dispatch/…` branch + **draft** PR). **Every tier runs in its own throwaway worktree**, read tiers included — `readOnly` removes Edit/Write, not Bash. |
-| Ceilings | `defaultTier: implement`, `investigate` floor for `dotfiles`/`brain`/`hermes-agent` (`vps` and `homelab` came off it 2026-09-08 — deployment surfaces, not the rules that bound the agents) — the last is this repo's own control plane (`config.yaml`, `scripts/`, `hooks/`, `skills/` are symlinked live into `~/.hermes/`), a different reason than `dotfiles`' — see `config/dispatch-repos.json`'s comment block. Above-ceiling/denied/outside-root refuses exit 4; a misspelled name is exit 64. No `implement` allowlist, deliberately. |
+| Ceilings | `defaultTier: implement`, `investigate` floor for `dotfiles`/`brain`/`hermes-agent` (`vps` and `homelab` came off it 2026-09-08 — deployment surfaces, not the rules that bound the agents) — the last is this repo's own control plane (`config.yaml`, `scripts/`, `hooks/`, `skills/` are symlinked live into `~/.hermes/`), a different reason than `dotfiles`' — see warden's `config/dispatch-repos.json`'s comment block. Above-ceiling/denied/outside-root refuses exit 4; a misspelled name is exit 64. No `implement` allowlist, deliberately. |
 | `implement` gate | `--why` **required**; there is no `--confirm` on `dispatch` any more (`warden` refuses it by name: "the Approve button in Slack runs an approved implement"). Without a signed approval it mints one, posts Approve/Deny buttons, and prints the plan + `wouldNeverDo` — exits **0**, nothing runs. `--auto-from-item <event_id>` is a second, narrower door for warden's `triage.py` only — every precondition re-checked from `~/.warden/warden.db`, no Slack click needed once it passes; see *Alert triage* below. |
 | Secret scan | refuses (never redacts) a brief carrying credentials, scans the diff's **added lines** too — handler-side. |
 | Budgets | 20 dispatches/UTC day, ≤5 `implement`, ≤3 `merge`, 170s `--wait` cap. `WARDEN_{DAILY,IMPLEMENT,MERGE}_BUDGET` to raise — never raise a ceiling casually. |

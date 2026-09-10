@@ -1,6 +1,6 @@
 # Hermes Agent — Mac Mini M2 Pro
 
-Personal AI assistant running 24/7 on Mac Mini. Slack as interface, gpt-5.6-luna as brain (EU; `claude-sonnet-4-6-eu` failover), eighteen skill domains (`HERMES_SKILLS` in the Makefile is the count).
+Personal AI assistant running 24/7 on Mac Mini. Slack as interface, gpt-5.6-luna as brain (EU; `claude-sonnet-4-6-eu` failover), twenty skill domains (`HERMES_SKILLS` in the Makefile is the count).
 
 For repo-operating detail (dispatch bridge, secrets, patches, model routing), see `CLAUDE.md`.
 

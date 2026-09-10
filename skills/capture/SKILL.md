@@ -188,7 +188,12 @@ EOF
 ```
 
 **Rules:**
-- Assignee: always `jkrumm`. No labels at v1.
+- Assignee: always `jkrumm`. No labels by default. Add `--label warden:go` **only** when
+  Johannes explicitly says to hand the issue to Warden ("warden soll das machen", "hand it
+  to warden", "warden:go") — the label is his decision that the work is ready, never yours
+  to infer. The label must already exist in the repo (`gh label list -R jkrumm/<repo>`);
+  if `gh` refuses it, create the issue without the label and say so. See the
+  `claude-dispatch` skill for what Warden does with a labelled issue.
 - Title: short, imperative. Strip filler ("can you...", "I think we should...").
 - Body: one inferred context line + `Original capture: <verbatim>`. **Never** invent reproduction steps, acceptance criteria, or facts not present in the user's message.
 - The `gh` CLI returns the issue URL on stdout — capture and surface it in the confirmation.

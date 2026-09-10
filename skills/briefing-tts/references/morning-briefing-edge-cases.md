@@ -30,15 +30,23 @@ attendees — placeholder blocks, not meetings.
   timed meetings
 
 ## GitHub API rate-limiting during cron
-`gh search prs` / `gh search issues` hit GraphQL and can rate-limit on
-back-to-back cron runs. Exit code 1, "GraphQL: API rate limit already
-exceeded for user ID …"
+The agent no longer runs `gh search` live (removed 2026-09-11 — it duplicated
+the pre-run script's own call). `scripts/briefing-coverage.py` is now the
+only thing that calls `gh search prs`/`gh search issues`, on back-to-back cron
+runs it can still hit GraphQL's rate limit. A failed search prints
+`GITHUB_AVAILABLE=false` after `GITHUB_TOTAL` — then the totals are unknown,
+not zero: say "GitHub-Daten nicht verfügbar", never "alles sauber". Without
+that line, use `GITHUB_TOTAL`/`GITHUB_OPEN_BY_REPO`/`GITHUB_FRESH_48H` as
+given; don't re-query GitHub to double-check them.
 
-**Fallback:** use `GITHUB_TOTAL` from the cron pre-run script context
-(`scripts/briefing-coverage.py`, pre-fetched via REST on a separate quota).
-Surface as: "GitHub API rate-limited — using script context:
-`GITHUB_TOTAL=0 PRs, 0 issues` — all clean." Don't skip the GitHub section
-entirely — the script-context count is sufficient.
+## Warden API unreachable
+`curl -s http://127.0.0.1:7734/board` (Step 1, call 10) can fail if
+`warden-api` isn't running, the ledger is mid-migration (503), or the running
+`warden-api` predates the endpoint (404 — it needs a `launchctl kickstart -k`
+after a warden upgrade). Surface the
+Warden bullet in Infrastruktur as "Board nicht erreichbar" and move on — do
+**not** invent counts or fall back to guessing from the Watchdog block, which
+covers a different, earlier stage (raw signals, not triaged items).
 
 ## Watchdog open-items summary
 `~/SourceRoot/warden`'s `watchdog-summary.py` (reached via `briefing-context.py`)

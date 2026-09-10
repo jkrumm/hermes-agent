@@ -25,6 +25,7 @@ The script also appends a coverage block — full backlog snapshot beyond what `
 - `GITHUB_OPEN_BY_REPO=[…]` — every repo with open issues/PRs, regardless of staleness. Pairs with `WATCHDOG_OPEN` (watchdog flags only stale ≥3d).
 - `GITHUB_FRESH_48H=[…]` — items created/updated in the last 48h. Worth surfacing in the GitHub section so freshly-captured items don't disappear.
 - `GITHUB_TOTAL=<N> PRs, <M> issues` — rolled-up count.
+- `GITHUB_AVAILABLE=false` — present only when `gh search` failed (rate limit, timeout, auth); then every GitHub number above is unknown, not zero.
 
 If `COVERAGE_AVAILABLE=false` or the blocks are absent, fall back to /summary + watchdog data only.
 
@@ -45,11 +46,11 @@ quiet day; that's normal, not an error.
 
 If the script block is missing or malformed, fall back to `Munich` and proceed. Use the city value verbatim in the weather call (`?city=<value>`) and in the section header ("Weather — <city>"). The audio narrative also references this city.
 
-## Step 1 — Gather data (use the `terminal` tool directly, all fourteen in parallel)
+## Step 1 — Gather data (use the `terminal` tool directly, all thirteen in parallel)
 
 **Important:** call the `terminal` tool directly with each shell command. Do NOT wrap calls in `execute_code` — that path is slower and prevents proper parallelization.
 
-Two skills are loaded. `argo-api` is the hub for every personal domain below (tasks, schedule, weather, infrastructure, slack, garmin-health, strength) — it documents the argo base URL and auth pattern, and its `references/*.md` carry the per-domain endpoint detail. `work` covers IU calendar + Teams + Jira + Confluence + GitLab. Follow what they specify; every path you need is also named inline below, so do **not** spend turns opening reference files unless a call fails. Issue all fourteen calls as fourteen `terminal` tool invocations in a single parallel batch:
+Two skills are loaded. `argo-api` is the hub for every personal domain below (tasks, schedule, weather, infrastructure, slack, garmin-health, strength) — it documents the argo base URL and auth pattern, and its `references/*.md` carry the per-domain endpoint detail. `work` covers IU calendar + Teams + Jira + Confluence + GitLab. Follow what they specify; every path you need is also named inline below, so do **not** spend turns opening reference files unless a call fails. Issue all thirteen calls as thirteen `terminal` tool invocations in a single parallel batch:
 
 1. Argo `/summary` — combined tasks + uptime overview (see `argo-api` → `references/tasks.md` + `references/infrastructure.md`)
 2. Argo `/docker/homelab/summary` — Mac Mini Docker stack (see `argo-api` → `references/infrastructure.md`)
@@ -60,11 +61,10 @@ Two skills are loaded. `argo-api` is the hub for every personal domain below (ta
 7. Argo `/slack/channels/C0AS1LAUQ3C/messages?limit=20` — last 20 messages from #alerts (see `argo-api` → `references/slack.md`)
 8. Argo `/daily-metrics?order=desc&limit=14` — last ~14 days of Garmin daily metrics: HRV, body battery, resting HR, sleep, stress (see `argo-api` → `references/garmin-health.md`). Response is `{data: [...], total: N}` — read `response.data` for the row array. Use the most-recent record where the relevant field is non-null — Garmin sync timing means today's row may be partial at 07:00.
 9. Argo `/workouts?sort=date&order=desc&limit=10` — last 10 strength workouts with sets, total volume, est. 1RM (see `argo-api` → `references/strength.md`). Response is `{data: [...], total: N}` — read `response.data`.
-10. `gh search prs --owner jkrumm --state open --json title,repository,url --limit 20` — open PRs across personal repos
-11. `gh search issues --owner jkrumm --state open --json title,repository,url --limit 20` — open issues across personal repos
-12. Argo `/atlassian/jira/current-sprint?onlyMine=true` — IU sprint commitments assigned to Johannes (see `work` skill). On `503`, surface "Jira Sprint nicht verfügbar (Token abgelaufen)" and continue.
-13. Argo `/gitlab/merge-requests?scope=reviews_for_me&state=opened` — IU GitLab MRs awaiting Johannes's review (see `work` skill). On `503`, surface "GitLab MRs nicht verfügbar (PAT abgelaufen)" and continue.
-14. Argo `/gitlab/merge-requests?scope=created_by_me&state=opened` — Johannes's own open MRs at IU (see `work` skill). Used to compute the **"ready to merge"** subset: MRs where `mergeStatus == "can_be_merged" && hasConflicts == false && draft == false`. This is the briefing's 3-field heuristic (does not call `/approvals` per MR for cost reasons) — see `work` skill's "Is MR !nnn blocked? — two levels of check" for the distinction from the full 5-field check.
+10. `curl -s --max-time 5 http://127.0.0.1:7734/board` — Warden's open items: what is being worked, what is blocked, what needs Johannes
+11. Argo `/atlassian/jira/current-sprint?onlyMine=true` — IU sprint commitments assigned to Johannes (see `work` skill). On `503`, surface "Jira Sprint nicht verfügbar (Token abgelaufen)" and continue.
+12. Argo `/gitlab/merge-requests?scope=reviews_for_me&state=opened` — IU GitLab MRs awaiting Johannes's review (see `work` skill). On `503`, surface "GitLab MRs nicht verfügbar (PAT abgelaufen)" and continue.
+13. Argo `/gitlab/merge-requests?scope=created_by_me&state=opened` — Johannes's own open MRs at IU (see `work` skill). Used to compute the **"ready to merge"** subset: MRs where `mergeStatus == "can_be_merged" && hasConflicts == false && draft == false`. This is the briefing's 3-field heuristic (does not call `/approvals` per MR for cost reasons) — see `work` skill's "Is MR !nnn blocked? — two levels of check" for the distinction from the full 5-field check.
 
 **Response shapes** — full field reference lives in `work` skill's "Response shapes (key fields by endpoint)" section. Key fields for this prompt: `/atlassian/jira/current-sprint` returns `{board, sprint: null | {name, endDate, ...}, issues: Issue[]}` where each Issue has `key`, `summary`, `statusCategory` ("todo"|"in-progress"|"done"|"unknown"), `priority`. Both GitLab MR calls return `{mergeRequests: MR[]}` where each MR has `iid`, `title`, `projectPath`, `mergeStatus`, `hasConflicts`, `draft`, `author.username`, `jiraKeys`. **Never** `jq 'length'` on the wrapper objects — use `jq '.mergeRequests | length'` and `jq '.issues | length'`.
 
@@ -88,6 +88,7 @@ Use this exact structure, in this order. Each section starts with an emoji short
 - Homelab Docker: <running>/<total> Container, <unhealthy summary or "alle gesund">
 - VPS Docker: <running>/<total> Container, <unhealthy summary or "alle gesund">
 - Watchdog: <if WATCHDOG_OPEN=[…] non-empty: "<N> offen — <top 3 titles, comma-separated, truncate each at 60 chars>"; if empty: "alles ruhig"; omit bullet entirely if WATCHDOG_AVAILABLE=false>
+- Warden: <counts by state from call 10's `/board` response, comma-separated, e.g. "2 investigating, 1 implementing"; "nichts offen" if `items` is empty>. If any item has `state` `needs_human` or `merge_blocked`, add one sub-bullet per item: `  - <repo>: <note>`. On a failed/unreachable call: "Board nicht erreichbar" — never invent counts.
 
 :rotating_light: Aktuelle Warnungen (letzte 24h)
 - <distinct alert text from #alerts messages, deduplicated, max 5>
@@ -101,8 +102,8 @@ Use this exact structure, in this order. Each section starts with an emoji short
 
 :briefcase: Arbeit — Sprint & Reviews
 - **Sprint:** <sprint.name>, <N Tage verbleibend (sprint.endDate − today)>. Meine Commitments: <count of issues with statusCategory != "done">. Top 3 by status (in-progress first, then todo by priority): one bullet each as `<icon> [<key>] <summary> (<statusCategory>, <priority if non-null>)`. Use `:fire:` for in-progress, `:clipboard:` for todo, `:white_check_mark:` for done.
-- **Bereit zum Mergen:** <count of my MRs matching the heuristic from call 14>. If >0, list each as `[<!iid>] <title> — <projectAlias from URL path>`. If 0: omit the bullet.
-- **Braucht mein Review:** <count from call 13>. If >0, list each as `[<!iid>] <title> — <author.username>`. Cap at 5; if more, append "- … und N weitere".
+- **Bereit zum Mergen:** <count of my MRs matching the heuristic from call 13>. If >0, list each as `[<!iid>] <title> — <projectAlias from URL path>`. If 0: omit the bullet.
+- **Braucht mein Review:** <count from call 12>. If >0, list each as `[<!iid>] <title> — <author.username>`. Cap at 5; if more, append "- … und N weitere".
 (If sprint has no commitments AND ready-to-merge=0 AND needs-review=0: single line "- Sprint sauber, keine MRs offen.")
 (If all three work calls 503'd: single line "- Arbeitsdaten nicht verfügbar (Tokens abgelaufen).")
 
@@ -110,7 +111,7 @@ Use this exact structure, in this order. Each section starts with an emoji short
 - <N> offene PRs <(if N > 0, list each as "repo: title", grouped by repo)>
 - <N> offene Issues <(if N > 0, list each as "repo: title", grouped by repo)>
 - <if GITHUB_FRESH_48H non-empty: "Neu (letzte 48h): <list of repo#N: title>" — flag freshly-captured items so they don't get lost>
-(If `GITHUB_TOTAL=0 PRs, 0 issues`: a single line "- Alles sauber über alle Repos.")
+(If `GITHUB_AVAILABLE=false`: a single line "- GitHub-Daten nicht verfügbar." — never "alles sauber". Else if `GITHUB_TOTAL=0 PRs, 0 issues`: a single line "- Alles sauber über alle Repos.")
 
 :robot_face: Agenten & Projekte
 - <N> Agenten: <needsYou> brauchen dich, <working> arbeiten, <stale> hängen fest
