@@ -13,4 +13,5 @@ What's left here is the briefing side, which still runs inside `hermes-agent`:
 For the watchdog poll's sources/reminder cadence, the SQLite ledger (`~/.warden/warden.db`),
 the dispatch sweeper's verdict/nudge delivery, and the alert-triage act-loop: `~/SourceRoot/warden/CLAUDE.md`,
 `DESIGN.md`, `STATE.md`. `docs/dispatch-bridge.md` in this repo covers the `dispatches`/`dispatch_approvals`
-half of the ledger, which `scripts/hermes-cc.sh` and `plugins/dispatch-approval/` still own here.
+half of the ledger, which `hermes-cc.sh` (moved to `warden/scripts/` on 2026-09-10) and this
+repo's `plugins/dispatch-approval/` still own between them.

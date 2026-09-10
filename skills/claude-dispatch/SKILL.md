@@ -19,6 +19,10 @@ One bounded dispatcher for handing repo work to Claude Code:
 Run `~/.hermes/scripts/hermes-cc.sh help` for the authoritative verb list — this
 file explains *when* to reach for it, the script itself is the contract.
 
+`~/.hermes/scripts/hermes-cc.sh` is an exec shim; the script itself has been at
+`~/SourceRoot/warden/scripts/hermes-cc.sh` since 2026-09-10. Keep calling it at
+the `~/.hermes/scripts/` path above — the guards key on that exact string.
+
 ---
 
 ## Mental model

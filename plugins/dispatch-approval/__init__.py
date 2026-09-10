@@ -91,7 +91,10 @@ _PUBKEY_FILENAME = "dispatch-approval.pub"
 
 # The dispatcher the Approve click re-runs, and the sender that reports its outcome.
 # Both overridable so the test suite can stand in a stub without a gateway.
-_DEFAULT_CC_SCRIPT = Path.home() / ".hermes" / "scripts" / "hermes-cc.sh"
+# hermes-cc.sh moved wholesale into warden (2026-09-10); ~/.hermes/scripts/hermes-cc.sh
+# still resolves (whole-dir symlink into hermes-agent/scripts/, now an exec shim), but
+# the plugin calls the real script directly rather than bouncing through the shim.
+_DEFAULT_CC_SCRIPT = Path.home() / "SourceRoot" / "warden" / "scripts" / "hermes-cc.sh"
 _DEFAULT_HERMES_BIN = Path.home() / ".local" / "bin" / "hermes"
 # warden's intent queue — the door this plugin requests a ledger change through,
 # because it no longer performs one. See `_record_decision`.
@@ -726,8 +729,9 @@ def payload_hash(verb: str, repo: str, tier: str, body: str, why: str = "",
     file was a swap-after-approve hole for whoever could write it — the agent included.
 
     Kept here next to `canonical_message` so the two halves of the contract live in
-    one file; `hermes-cc.sh` reimplements it in five lines of Python and
-    `tests/test_dispatch_approval.py` asserts the two agree.
+    one file; `hermes-cc.sh` (warden/scripts/, since 2026-09-10) reimplements it in
+    five lines of Python and `warden/tests/test_dispatch_approval.py` asserts the
+    two agree.
     """
     h = hashlib.sha256()
     for part in (verb, repo, tier, body, why, context):

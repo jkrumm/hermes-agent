@@ -248,21 +248,17 @@ status:
 	@for skill in $(HERMES_SKILLS); do \
 		$(MAKE) --no-print-directory _check DST="$(HERMES_DIR)/skills/$$skill"; \
 	done
-	@# Dispatch bridge. dispatch-repos.json is the whole bounding mechanism for
-	@# hermes-cc.sh — the root it resolves names under, the deny list, and the tier
-	@# ceilings — so an unreadable or contradictory one must be loud here. The validator
-	@# re-runs the checks hermes-cc.sh makes at dispatch time: hermes-cc.sh fails CLOSED
-	@# on a malformed policy, which is correct but surfaces mid-incident on the first
-	@# dispatch. Catch it at setup instead, while nobody is waiting on an answer.
-	@if [ -x "$(HERMES_REPO)/scripts/hermes-cc.sh" ]; then \
-		out=$$(python3 "$(HERMES_REPO)/scripts/validate-dispatch-policy.py" "$(HERMES_DIR)/config/dispatch-repos.json" 2>&1); \
-		if [ $$? -eq 0 ]; then \
-			echo "    ✓ hermes-cc.sh ($$out)"; \
-		else \
-			echo "    ✗ hermes-cc.sh [dispatch-repos.json unusable: $$out]"; \
-		fi; \
+	@# Dispatch bridge. hermes-cc.sh itself, and the dispatch-repos.json policy it
+	@# reads, moved wholesale to warden/scripts and warden/config (2026-09-10) —
+	@# this repo's copy is now an exec shim (see the file itself), and the
+	@# dispatch-repos.json validation against it moved with the policy file to
+	@# warden's own `make check-policy`. This check only confirms the shim is
+	@# intact and its exec target exists and is executable.
+	@target="$${HERMES_CC_BIN:-$(HOME)/SourceRoot/warden/scripts/hermes-cc.sh}"; \
+	if [ -x "$(HERMES_REPO)/scripts/hermes-cc.sh" ] && [ -x "$$target" ]; then \
+		echo "    ✓ hermes-cc.sh → warden"; \
 	else \
-		echo "    ✗ hermes-cc.sh [missing or not executable]"; \
+		echo "    ✗ hermes-cc.sh → warden [shim at $(HERMES_REPO)/scripts/hermes-cc.sh or exec target $$target missing/not executable]"; \
 	fi
 	@curl -fsS --max-time 5 http://localhost:7705/health >/dev/null 2>&1 \
 		&& echo "    ✓ sideclaw job server (:7705, dispatch backend)" \

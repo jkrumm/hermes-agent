@@ -264,16 +264,20 @@ no artifact, not a failure.
 
 ### hermes-agent — the bounded client
 
-Mirrors `hermes-ops.sh` exactly, because that pattern is already proven here:
+Mirrors `hermes-ops.sh` exactly, because that pattern is already proven here. The
+script itself moved wholesale to `warden/scripts/hermes-cc.sh` on 2026-09-10 (the
+control plane it writes into already lived there); `scripts/hermes-cc.sh` in this
+repo (= `~/.hermes/scripts/hermes-cc.sh`) is now an exec shim into it, kept because
+the Hermes-side guards key on that exact path:
 
-- **`scripts/hermes-cc.sh`** — closed verb set (`dispatch`, `status`, `list`,
+- **`hermes-cc.sh`** — closed verb set (`dispatch`, `status`, `list`,
   `merge`, `cancel`), no free-form paths, `--why`+`--confirm` on `implement` and
   `merge`, `--json` contract, audit log to `~/Library/Logs/hermes-cc.log`, tests
-  under `tests/`.
-- **`config/dispatch-repos.json`** — tracked policy: one root, a `deny` list, a
-  `defaultTier`, and per-repo tier overrides. Repos are discovered under the root
-  rather than enumerated — see *Decisions* below for why the old enumeration
-  rotted.
+  under `warden/tests/`.
+- **`config/dispatch-repos.json`** (also moved, to `warden/config/`) — tracked
+  policy: one root, a `deny` list, a `defaultTier`, and per-repo tier overrides.
+  Repos are discovered under the root rather than enumerated — see *Decisions*
+  below for why the old enumeration rotted.
 - **`skills/claude-dispatch/SKILL.md`** — when to reach for which tier, and the
   hard rule that infra mutation is `homelab-ops`, never this.
 - **`~/SourceRoot/warden`'s `scripts/dispatch-sweep.py`** — LaunchAgent

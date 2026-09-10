@@ -229,7 +229,9 @@ agents overview, project narratives) is listed with its id in the registry table
 
 Hermes triages well but reads a repo badly — it has no access to a repo's `CLAUDE.md`,
 `.claude/rules/` or `.claude/skills/`. For anything that needs real repo context (a bug fix,
-an investigation, a PR), Hermes hands the episode to Claude Code via `scripts/hermes-cc.sh`
+an investigation, a PR), Hermes hands the episode to Claude Code via `hermes-cc.sh`
 (sideclaw's `dispatch` job tool) instead of attempting it itself — three tiers from a read-only
 verdict up to a branch + draft PR, gated by a Slack-signed approval for anything that writes.
+The script itself lives at `warden/scripts/hermes-cc.sh` since 2026-09-10; this repo's own
+`scripts/hermes-cc.sh` (= `~/.hermes/scripts/hermes-cc.sh`) is an exec shim into it.
 Full design and every bound: `docs/dispatch-bridge.md`.

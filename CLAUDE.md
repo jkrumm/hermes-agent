@@ -64,8 +64,10 @@ restart gateway).
 ## Dispatch Bridge — handing repo work to Claude Code
 
 Hermes observes well and reads repos badly — `gpt-5.6-luna` with a `terminal` tool cannot use a
-repo's `CLAUDE.md`, `.claude/rules/` or `.claude/skills/`. `scripts/hermes-cc.sh` is the bounded
-client that hands the episode to Claude Code (sideclaw's `dispatch` job tool) instead. Design +
+repo's `CLAUDE.md`, `.claude/rules/` or `.claude/skills/`. `hermes-cc.sh` is the bounded
+client that hands the episode to Claude Code (sideclaw's `dispatch` job tool) instead — the
+script itself lives at `warden/scripts/hermes-cc.sh` since 2026-09-10; `scripts/hermes-cc.sh`
+here (= `~/.hermes/scripts/hermes-cc.sh`) is an exec shim into it. Design +
 why each bound is shaped this way: **`docs/dispatch-bridge.md`**.
 
 **Verbs:** `dispatch <repo>` · `status <job-id>` · `list [open|today|all]` · `merge <job-id>` ·
@@ -110,11 +112,12 @@ workspace, not human-vs-bot: HomeLab/VPS/Argo post from inside the tailnet and l
 auto-triage depends on it. `require_mention_channels` silences `#media`/`#updates` (pure-echo
 channels) — inbound-only, `hermes send`/cron/dispatch verdicts still post there.
 
-**Tests** (`~/.hermes/hermes-agent/venv/bin/python3`): `test_hermes_cc.py` (134, stubbed job
-server + GitHub), `test_dispatch_approval.py`, `test_raw_agent_guard.py`,
-`test_repo_write_guard.py`, `test_dispatch_sweep.py`, `test_cron_allowlist.py`; the other half is
-`sideclaw/tests/` (`bun test`, mutation-verified — worktree isolation, the diff-refusal ladder,
-the secret scan, the nonce fence around the brief).
+**Tests** (`~/.hermes/hermes-agent/venv/bin/python3`): `test_raw_agent_guard.py`,
+`test_repo_write_guard.py`, `test_cron_allowlist.py`. `test_hermes_cc.py` (165, stubbed job
+server + GitHub) and `test_dispatch_approval.py` moved to `warden/tests/` with hermes-cc.sh
+itself (2026-09-10) — run them with warden's own venv (`make test` from `warden/`). The other
+half is `sideclaw/tests/` (`bun test`, mutation-verified — worktree isolation, the
+diff-refusal ladder, the secret scan, the nonce fence around the brief).
 
 **Hermes cron pre-run scripts** (run by `hermes-agent` before each run, not launchd):
 `briefing-context.py`/`briefing-coverage.py` feed the morning briefing (TickTick + GitHub
