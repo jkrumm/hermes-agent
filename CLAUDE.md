@@ -64,15 +64,16 @@ restart gateway).
 ## Dispatch Bridge — handing repo work to Claude Code
 
 Hermes observes well and reads repos badly — `gpt-5.6-luna` with a `terminal` tool cannot use a
-repo's `CLAUDE.md`, `.claude/rules/` or `.claude/skills/`. `hermes-cc.sh` is the bounded
-client that hands the episode to Claude Code (sideclaw's `dispatch` job tool) instead — the
-script itself lives at `warden/scripts/hermes-cc.sh` since 2026-09-10; `scripts/hermes-cc.sh`
-here (= `~/.hermes/scripts/hermes-cc.sh`) is an exec shim into it. Design +
+repo's `CLAUDE.md`, `.claude/rules/` or `.claude/skills/`. `warden` (the CLI) is the bounded
+client that hands the episode to Claude Code (sideclaw's `dispatch` job tool) instead — it
+lives at `warden/scripts/warden` (a Python CLI; the original bash `hermes-cc.sh` was retired
+2026-09-10); `scripts/hermes-cc.sh` here (= `~/.hermes/scripts/hermes-cc.sh`) is a 6-line exec
+shim into it — the path stays because the Hermes-side guards key on it. Design +
 why each bound is shaped this way: **`docs/dispatch-bridge.md`**.
 
 **Verbs:** `dispatch <repo>` · `status <job-id>` · `list [open|today|all]` · `merge <job-id>` ·
-`cancel <job-id>` — `cancel` abandons the LOCAL record only (sideclaw has no cancel endpoint,
-and the help text says so).
+`abort <event-id>` · `revert <event-id>` — there is no `cancel` any more (sideclaw grew a real
+cancel endpoint; `abort` calls it and closes the triage item).
 
 | Invariant | Detail |
 |-|-|
@@ -81,18 +82,21 @@ and the help text says so).
 | Brief is data, never argv | stdin (`<<'BRIEF'` quoted heredoc) or `--brief-file`. **No `--brief`** — as argv it would be shell-expanded before the script ran. |
 | Tiers | `investigate` (read-only → verdict) · `author` (+ one GitHub issue) · `implement` (`dispatch/…` branch + **draft** PR). **Every tier runs in its own throwaway worktree**, read tiers included — `readOnly` removes Edit/Write, not Bash. |
 | Ceilings | `defaultTier: implement`, `investigate` floor for `dotfiles`/`brain`/`hermes-agent` (`vps` and `homelab` came off it 2026-09-08 — deployment surfaces, not the rules that bound the agents) — the last is this repo's own control plane (`config.yaml`, `scripts/`, `hooks/`, `skills/` are symlinked live into `~/.hermes/`), a different reason than `dotfiles`' — see `config/dispatch-repos.json`'s comment block. Above-ceiling/denied/outside-root refuses exit 4; a misspelled name is exit 64. No `implement` allowlist, deliberately. |
-| `implement` gate | `--why` **and** `--confirm`. Without `--confirm` it prints the plan + `wouldNeverDo` and exits **0**. `--auto-from-item <event_id>` is a second, narrower door for warden's `triage.py` only — every precondition re-checked from `~/.warden/warden.db`, no Slack click needed once it passes; see *Alert triage* below. |
+| `implement` gate | `--why` **required**; there is no `--confirm` on `dispatch` any more (`warden` refuses it by name: "the Approve button in Slack runs an approved implement"). Without a signed approval it mints one, posts Approve/Deny buttons, and prints the plan + `wouldNeverDo` — exits **0**, nothing runs. `--auto-from-item <event_id>` is a second, narrower door for warden's `triage.py` only — every precondition re-checked from `~/.warden/warden.db`, no Slack click needed once it passes; see *Alert triage* below. |
 | Secret scan | refuses (never redacts) a brief carrying credentials, scans the diff's **added lines** too — handler-side. |
-| Budgets | 20 dispatches/UTC day, ≤5 `implement`, ≤3 `merge`, 170s `--wait` cap. `HERMES_CC_{DAILY,IMPLEMENT,MERGE}_BUDGET` to raise. |
+| Budgets | 20 dispatches/UTC day, ≤5 `implement`, ≤3 `merge`, 170s `--wait` cap. `WARDEN_{DAILY,IMPLEMENT,MERGE}_BUDGET` to raise — never raise a ceiling casually. |
 
-**`--confirm` is a signed approval artifact, not an instruction.** Approve/Deny buttons post
+**A Slack click is a signed approval artifact, not an instruction.** Approve/Deny buttons post
 into the origin channel; the click is signed by an **Ed25519 key minted at gateway startup, RAM
-only** (`plugins/dispatch-approval/`), then **runs the approved verb itself** — bound to
-`verb|repo|tier|brief|why|context`, single-use, 30-min TTL, fails closed. Enable once:
-`hermes plugins enable dispatch-approval`. *Tell for the one bug this has had:* a refusal saying
-**"has not been clicked yet"** despite a visible Approve → `grep 'published public key'` vs
-`Wired 2 plugin action handler` in `~/.hermes/logs/agent.log`; no matching wire line means a
-non-gateway process overwrote the public key. Full evolution: **`docs/dispatch-bridge.md`**.
+only** (`plugins/dispatch-approval/`), spooled as an `approval_decision` intent, and drained
+**synchronously** through `warden/scripts/intents.py` — the drain itself calls
+`lifecycle/approvals.py`'s `execute_approved()`, which verifies the signature and opens the
+episode, all before the click handler returns. Bound to `verb|repo|tier|brief|why|context`,
+single-use, 30-min TTL, fails closed. Enable once: `hermes plugins enable dispatch-approval`.
+*Tell for the one bug this has had:* a refusal saying **"has not been clicked yet"** despite a
+visible Approve → `grep 'published public key'` vs `Wired 2 plugin action handler` in
+`~/.hermes/logs/agent.log`; no matching wire line means a non-gateway process overwrote the
+public key. Full evolution: **`docs/dispatch-bridge.md`**.
 
 **`merge <job-id>` lands the draft PR with no human on GitHub** (owner decision) — a job id never
 a PR number, eligibility derived from `dotfiles/config/pr-required-repos.json`, every bound
@@ -113,9 +117,11 @@ auto-triage depends on it. `require_mention_channels` silences `#media`/`#update
 channels) — inbound-only, `hermes send`/cron/dispatch verdicts still post there.
 
 **Tests** (`~/.hermes/hermes-agent/venv/bin/python3`): `test_raw_agent_guard.py`,
-`test_repo_write_guard.py`, `test_cron_allowlist.py`. `test_hermes_cc.py` (165, stubbed job
-server + GitHub) and `test_dispatch_approval.py` moved to `warden/tests/` with hermes-cc.sh
-itself (2026-09-10) — run them with warden's own venv (`make test` from `warden/`). The other
+`test_repo_write_guard.py`, `test_cron_allowlist.py`. `test_hermes_cc.py` moved to
+`warden/tests/test_warden_cli.py` (black-box against the real `warden` CLI, stubbed sideclaw +
+GitHub + Slack) with `hermes-cc.sh` itself (2026-09-10); `test_dispatch_approval.py` moved with
+it and still loads this plugin by path. Run both with warden's own venv (`make test` from
+`warden/`). The other
 half is `sideclaw/tests/` (`bun test`, mutation-verified — worktree isolation, the
 diff-refusal ladder, the secret scan, the nonce fence around the brief).
 
@@ -136,9 +142,10 @@ module. Detail: **`docs/scheduled-jobs.md`**.
 `com.jkrumm.warden-loop`, 10 min) is the deterministic act-loop over
 `~/.warden/warden.db` that turns deduplicated watchdog events into Slack cards
 and, once eligible, `implement` dispatches. It reaches back into this repo
-through `scripts/hermes-cc.sh dispatch --auto-from-item` (every precondition
-re-checked from `~/.warden/warden.db`, no Slack click needed) and the
-`dispatches`/`dispatch_approvals` tables `hermes-cc.sh` and
+through `scripts/hermes-cc.sh dispatch --auto-from-item` (an exec shim into
+`warden dispatch --auto-from-item`; every precondition re-checked from
+`~/.warden/warden.db`, no Slack click needed) and the
+`dispatches`/`dispatch_approvals` tables `warden` and
 `plugins/dispatch-approval/` still own at that same ledger path — see
 *Dispatch Bridge* above. Full state machine, the policy contract
 (`config/triage-policy.json`, now at `~/SourceRoot/warden/config/`), and why

@@ -248,13 +248,14 @@ status:
 	@for skill in $(HERMES_SKILLS); do \
 		$(MAKE) --no-print-directory _check DST="$(HERMES_DIR)/skills/$$skill"; \
 	done
-	@# Dispatch bridge. hermes-cc.sh itself, and the dispatch-repos.json policy it
-	@# reads, moved wholesale to warden/scripts and warden/config (2026-09-10) —
-	@# this repo's copy is now an exec shim (see the file itself), and the
-	@# dispatch-repos.json validation against it moved with the policy file to
-	@# warden's own `make check-policy`. This check only confirms the shim is
-	@# intact and its exec target exists and is executable.
-	@target="$${HERMES_CC_BIN:-$(HOME)/SourceRoot/warden/scripts/hermes-cc.sh}"; \
+	@# Dispatch bridge. hermes-cc.sh itself (now warden/scripts/warden, a Python
+	@# CLI), and the dispatch-repos.json policy it reads, moved wholesale to
+	@# warden/scripts and warden/config (2026-09-10) — this repo's copy is now an
+	@# exec shim (see the file itself), and the dispatch-repos.json validation
+	@# against it moved with the policy file to warden's own `make check-policy`.
+	@# This check only confirms the shim is intact and its exec target exists
+	@# and is executable.
+	@target="$${WARDEN_CLI:-$(HOME)/SourceRoot/warden/scripts/warden}"; \
 	if [ -x "$(HERMES_REPO)/scripts/hermes-cc.sh" ] && [ -x "$$target" ]; then \
 		echo "    ✓ hermes-cc.sh → warden"; \
 	else \

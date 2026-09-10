@@ -2,18 +2,20 @@
 
 WHY THIS EXISTS, AND WHY A SIGNATURE RATHER THAN A FLAG.
 
-`hermes-cc.sh`'s `--confirm` is a flag on the same invocation, supplied by the same
-agent it constrains — the script's own header says so. Moving the gate to a Slack
-button does not by itself fix that: the gateway, the script and the agent's terminal
-tool all run as the same uid against the same `warden.db`, so an agent that wanted
-to approve its own dispatch could simply UPDATE the row. A button with no signature
+warden's dispatch CLI has no `--confirm` flag left on `dispatch` at all (see
+`warden/scripts/warden.py`) precisely because a flag on the same invocation is
+supplied by the same agent it would constrain. Moving the gate to a Slack button
+does not by itself fix that: the gateway, warden and the agent's terminal tool all
+run as the same uid against the same `warden.db`, so an agent that wanted to
+approve its own dispatch could simply UPDATE the row. A button with no signature
 buys UX and nothing else.
 
 What the agent cannot do is produce an Ed25519 signature over a key it never sees.
 This plugin generates a keypair at gateway startup, keeps the private half in this
 process's memory and never writes it anywhere, and publishes only the public half to
-``$HERMES_HOME/dispatch-approval.pub``. `hermes-cc.sh` verifies against that file. The
-private key is reachable only by attaching a debugger to the gateway process, which is
+``$HERMES_HOME/dispatch-approval.pub``. warden verifies against that file, in
+`lifecycle/approvals.py execute_approved()`. The private key is reachable only by
+attaching a debugger to the gateway process, which is
 a different threat entirely from the one this defends against — prompt injection
 reaching a brief, which produces *words*, and words cannot mint a signature.
 
@@ -22,8 +24,8 @@ Nothing in the ingestion path — an issue body, a relayed alert, a poisoned REA
 can cause one to exist.
 
 RESTART SEMANTICS. A new keypair is minted on every gateway start, so pending
-approvals do not survive a restart: their signatures no longer verify and
-`hermes-cc.sh` refuses. That is deliberate and fails closed. Approvals are meant to be
+approvals do not survive a restart: their signatures no longer verify and warden
+refuses to spend them. That is deliberate and fails closed. Approvals are meant to be
 spent within minutes; an approval that outlived the process that witnessed the click
 would be a worse thing to trust than one that expired.
 
@@ -36,28 +38,35 @@ holding a writable handle on the ledger is exactly the "control plane inside the
 thing it supervises" coupling the extraction removed. The authority model is
 untouched by that move: the private key still exists only in this process's RAM,
 still gets minted at startup, still signs a real Slack interaction payload, and
-`require_signed_approval()` in `hermes-cc.sh` remains the one and only verifier.
+`execute_approved()` in warden's `lifecycle/approvals.py` remains the one and only verifier.
 Only the writer moved. The queue deliberately verifies nothing — a forged spool file
 cannot mint a signature, so the worst it can do is deny an approval nobody then acts
 on, and that is a human noticing nothing happened rather than a merge nobody sanctioned.
 
-APPROVE RUNS THE VERB (2026-09-07). Before, a click only signed the row and then
-waited for Hermes to notice and re-run `--confirm` — which it never reliably did, so
-approved dispatches sat unspent until they expired. Now the plan branch stores the
-exact invocation on the row (`argv_json`, minus --confirm/--wait and minus the
---brief-file/--context-file paths; the brief as `stdin_text`, never argv; the context
-as `context_text`, handed back through a private temp file), and the Approve handler
-re-runs `hermes-cc.sh <argv> --confirm` in a subprocess. The stored bytes are what the
-payload hash binds, so a row edited after the click refuses like any other mismatch,
-and a file the agent deleted or rewrote after planning is never consulted — the path
-was the TOCTOU. Nothing is bypassed: that subprocess performs the very
-same signature verification a hand-typed --confirm does (require_signed_approval —
-the row this handler just signed is what it verifies), the recursion guard, the
-budget, the audit line. The outcome (job opened / merged / refused) is posted into
-the origin thread over the plain Slack Web API (`chat.postMessage`, mirroring
-`warden/scripts/slack_client.py` — see `_send_to_origin()`'s own docstring for why
-this is a hand copy rather than an import), and the running episode's verdict still
-arrives through the sweeper as before.
+APPROVE RUNS THE VERB (2026-09-07, reshaped 2026-09-10 — STATE.md §46's Shape
+note). Originally a click only signed the row and then waited for Hermes to notice
+and re-run `--confirm` — which it never reliably did, so approved dispatches sat
+unspent until they expired. The fix at the time was a subprocess: the plan branch
+stored the exact `hermes-cc.sh` invocation on the row and the Approve handler
+re-ran it with `--confirm`. That subprocess is gone. `--confirm` on `dispatch` no
+longer exists (warden/scripts/warden.py refuses it by name), and the spend moved
+in-process: `_record_decision()` spools the signed decision as an `approval_decision`
+intent and drains it SYNCHRONOUSLY through `warden/scripts/intents.py`, which now
+calls `lifecycle.approvals.execute_approved()` itself the moment the decision lands
+— see that module's own docstring. By the time `_record_decision()` returns, the
+row already carries `spent_job_id` (opened) or `spend_error` (refused/failed) or
+neither (a budget/lock refusal left it retryable — warden's own loop spends it on
+a later pass). This module's `execute_approved()` below does not run anything
+anymore; it re-reads that same row and turns whichever of the three it finds into
+one Slack message, posted into the origin thread over the plain Slack Web API
+(`chat.postMessage`, mirroring `warden/scripts/slack_client.py` — see
+`_send_to_origin()`'s own docstring for why this is a hand copy rather than an
+import). The running episode's verdict still arrives through the sweeper as before.
+Nothing about the authority model changed: the signature is still minted here, from
+a real Slack interaction payload, and `lifecycle/approvals.py execute_approved()` in
+warden is still the one and only verifier — only the thing that runs after
+verification moved from a subprocess this plugin spawned to a function warden's own
+queue calls.
 """
 
 from __future__ import annotations
@@ -71,7 +80,6 @@ import os
 import sqlite3
 import subprocess
 import sys
-import tempfile
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -93,12 +101,6 @@ DENY_ACTION = "hermes_cc_deny"
 
 _PUBKEY_FILENAME = "dispatch-approval.pub"
 
-# The dispatcher the Approve click re-runs. Overridable so the test suite can
-# stand in a stub without a gateway.
-# hermes-cc.sh moved wholesale into warden (2026-09-10); ~/.hermes/scripts/hermes-cc.sh
-# still resolves (whole-dir symlink into hermes-agent/scripts/, now an exec shim), but
-# the plugin calls the real script directly rather than bouncing through the shim.
-_DEFAULT_CC_SCRIPT = Path.home() / "SourceRoot" / "warden" / "scripts" / "hermes-cc.sh"
 # warden's intent queue — the door this plugin requests a ledger change through,
 # because it no longer performs one. See `_record_decision`.
 _DEFAULT_INTENTS_CLI = Path.home() / "SourceRoot" / "warden" / "scripts" / "intents.py"
@@ -113,11 +115,10 @@ _SLACK_POST_URL = "https://slack.com/api/chat.postMessage"
 _SECRETS_RUN = Path.home() / ".local" / "bin" / "secrets-run"
 _SLACK_TOKEN_REF = "op://hermes/slack/bot-token"
 _SLACK_POST_TIMEOUT_S = 15
-# An implement episode is submitted in seconds (the wait is the sweeper's); a merge
-# talks to GitHub a handful of times. Anything past this is wedged, not slow.
-_RUN_TIMEOUT_S = 120
 # Spooling one file and draining a handful of them is milliseconds of work against a
-# local SQLite file. Anything past this is a locked ledger, not a slow one.
+# local SQLite file — but the drain now also SPENDS the decision in-process (see the
+# module docstring), and a spend can submit to sideclaw over HTTP, so this ceiling
+# covers that too. Anything past this is wedged, not slow.
 _INTENTS_TIMEOUT_S = 30
 
 
@@ -131,16 +132,15 @@ def _hermes_home() -> Path:
 
 
 def _db_path() -> Path:
-    """The dispatch bridge's store. `hermes-cc.sh` owns the tables; warden owns the
-    schema and, since Slice 2b, the write — this plugin only ever READS this file,
-    read-only, and hands the write to `warden/scripts/intents.py`."""
-    override = os.environ.get("HERMES_CC_DB")
+    """The dispatch bridge's store. warden owns both the schema and the write
+    (`warden/scripts/intents.py`) — this plugin only ever READS this file,
+    read-only. `WARDEN_DB` is the same override `warden/scripts/ledger.py`
+    itself reads; a plugin and a CLI disagreeing about which file is the
+    ledger would mean a click that spooled against a database nothing else
+    reads, which looks exactly like a click that worked."""
+    override = os.environ.get("WARDEN_DB")
     if override:
         return Path(override)
-    # Moved to warden with the control plane (2026-09-09). The path still has to
-    # follow the ledger even though nothing here writes it: the drain is passed this
-    # same path, and a click that spooled against a database nothing reads would look
-    # exactly like a click that worked.
     return Path.home() / ".warden" / "warden.db"
 
 
@@ -179,13 +179,25 @@ def _is_gateway_process() -> bool:
     return "gateway" in argv and ("run" in sys.argv or "start" in sys.argv)
 
 
-def _publish_public_key() -> None:
-    """Write the public half where hermes-cc.sh looks for it.
+def _pubkey_path() -> Path:
+    """Where warden actually looks: `WARDEN_APPROVAL_PUBKEY` when set — the
+    same override `lifecycle/approvals.py pubkey_path()` reads — else
+    `$HERMES_HOME/dispatch-approval.pub`. Publishing anywhere else would sign
+    with a key warden never reads, which fails exactly like "not clicked
+    yet" and is exactly as hard to notice."""
+    override = os.environ.get("WARDEN_APPROVAL_PUBKEY")
+    if override:
+        return Path(override).expanduser()
+    return _hermes_home() / _PUBKEY_FILENAME
 
-    Atomic: hermes-cc.sh may read at any moment, and a half-written key fails
+
+def _publish_public_key() -> None:
+    """Write the public half where warden looks for it (see `_pubkey_path()`).
+
+    Atomic: warden may read at any moment, and a half-written key fails
     verification in a way that looks like tampering rather than like a race.
     """
-    path = _hermes_home() / _PUBKEY_FILENAME
+    path = _pubkey_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".pub.tmp")
     tmp.write_text(_PUBLIC_KEY_HEX + "\n", encoding="utf-8")
@@ -206,7 +218,7 @@ def _ensure_published() -> None:
     """
     if not _PUBLIC_KEY_HEX:
         return
-    path = _hermes_home() / _PUBKEY_FILENAME
+    path = _pubkey_path()
     try:
         if path.read_text(encoding="utf-8").strip() == _PUBLIC_KEY_HEX:
             return
@@ -236,7 +248,7 @@ def _ensure_key() -> None:
     _PUBLIC_KEY_HEX = raw.hex()
     logger.info("[dispatch-approval] signing key minted")
 
-    # Publish only from the gateway. Any other process would be handing hermes-cc.sh a
+    # Publish only from the gateway. Any other process would be handing warden a
     # key that nothing can ever sign with.
     if _is_gateway_process():
         _publish_public_key()
@@ -250,10 +262,10 @@ def _approver_ids() -> Optional[set]:
     Unset by default, and that is the right default for this workspace: it is a
     single-user Slack, so the property the gate needs is "a human clicked", not "a
     particular human clicked" — and a bot cannot click at all. Set
-    HERMES_CC_APPROVER_IDS (comma-separated) to tighten it if the workspace ever
+    WARDEN_APPROVER_IDS (comma-separated) to tighten it if the workspace ever
     gains a second member.
     """
-    raw = os.environ.get("HERMES_CC_APPROVER_IDS", "").strip()
+    raw = os.environ.get("WARDEN_APPROVER_IDS", "").strip()
     if not raw:
         return None
     return {x.strip() for x in raw.split(",") if x.strip()}
@@ -274,14 +286,18 @@ def _read_approval(db: Path, nonce: str) -> Optional[sqlite3.Row]:
 
     `signature` is selected alongside the fields the caller returns because the
     post-drain read has to tell OUR write from somebody else's; see
-    `_record_decision`.
+    `_record_decision`. `spent_job_id`/`spend_error`/`spent_at` (schema 7) are
+    what `execute_approved()` below reads to report what the drain's own spend
+    (inside `warden/scripts/intents.py`) actually did — this plugin runs
+    nothing itself any more, it only reads the outcome back.
     """
     conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     try:
         return conn.execute(
             "SELECT nonce, repo, tier, verb, payload_hash, expires_at, decision, channel, "
-            "signature FROM dispatch_approvals WHERE nonce = ?",
+            "signature, spent_job_id, spend_error, spent_at, params_json FROM dispatch_approvals "
+            "WHERE nonce = ?",
             (nonce,),
         ).fetchone()
     finally:
@@ -295,9 +311,11 @@ def _run_intents(args: list[str], stdin_text: Optional[str] = None) -> subproces
     sync: `intents.py` and the `ledger.py` it loads are pure stdlib, and warden's venv
     is pinned to the same Python version as the gateway's.
 
-    Never raises. A spawn or timeout failure folds into rc=-1 with the reason in
-    stderr — exactly like `_run_cc()` — because the caller decides from the ROW and
-    not from an exit code.
+    Never raises: a spawn or timeout failure folds into a synthetic
+    `CompletedProcess(returncode=-1)` with the reason in `stderr`, because the
+    caller (`_record_decision()`) decides what happened from the ROW
+    afterwards, not from this call's exit code — a `--drain` that timed out
+    after already committing the UPDATE must still be read as decided.
     """
     cmd = [sys.executable, str(_intents_cli()), *args]
     try:
@@ -322,10 +340,12 @@ def _record_decision(nonce: str, decision: str, decided_by: str) -> Optional[dic
     or a click racing another — still changes nothing).
 
     THE DRAIN IS SYNCHRONOUS, AND THAT CONSTRAINT DECIDED THE WHOLE DESIGN.
-    `execute_approved()` re-runs `hermes-cc.sh <argv> --confirm` in a subprocess
-    immediately after this click, and `require_signed_approval()` reads the row. If
-    the drain were left to warden's 600s loop, the click would appear to do nothing
-    for up to ten minutes.
+    `intents.py`'s own `drain()` calls `lifecycle.approvals.execute_approved()` the
+    moment this decision lands, so the episode is already opening (or already
+    refused) by the time this function returns — `execute_approved()` (this
+    module's own, below) then only ever reads that outcome back. If the drain were
+    left to warden's 600s loop instead, the click would appear to do nothing for up
+    to ten minutes.
 
     Nothing about the authority model moved: the key is still RAM-only, the signature
     is still minted here from a real Slack interaction payload, and
@@ -402,47 +422,21 @@ def _record_decision(nonce: str, decision: str, decided_by: str) -> Optional[dic
             "channel": row["channel"]}
 
 
-def _load_invocation(nonce: str) -> Optional[dict]:
-    """The stored argv + stdin for a row, or None when the plan predates the
-    columns (an approval minted by an older hermes-cc.sh — the click still signs,
-    and Hermes runs --confirm the old way)."""
-    conn = sqlite3.connect(f"file:{_db_path()}?mode=ro", uri=True)
-    conn.row_factory = sqlite3.Row
-    try:
-        cols = {r[1] for r in conn.execute("PRAGMA table_info(dispatch_approvals)")}
-        if "argv_json" not in cols:
-            return None
-        context_col = "context_text" if "context_text" in cols else "NULL AS context_text"
-        row = conn.execute(
-            f"SELECT argv_json, stdin_text, {context_col}, channel FROM dispatch_approvals WHERE nonce = ?",
-            (nonce,),
-        ).fetchone()
-    finally:
-        conn.close()
-    if row is None or not row["argv_json"]:
+def _origin_thread(params_json: Optional[str]) -> Optional[str]:
+    """`origin_thread_ts` out of the row's `params_json` (schema 7) — the
+    closed parameter dict `lifecycle/approvals.py`'s spend replays. Argv is
+    gone (see the module docstring); this is its replacement, read from the
+    same column the spend itself reads."""
+    if not params_json:
         return None
     try:
-        argv = json.loads(row["argv_json"])
+        params = json.loads(params_json)
     except (TypeError, ValueError):
         return None
-    if not isinstance(argv, list) or not all(isinstance(a, str) for a in argv):
+    if not isinstance(params, dict):
         return None
-    return {"argv": argv, "stdin": row["stdin_text"], "context": row["context_text"],
-            "channel": row["channel"]}
-
-
-def _origin_thread(argv: list[str]) -> Optional[str]:
-    """--origin-thread <ts> / --origin-thread=<ts> out of the stored argv."""
-    for i, a in enumerate(argv):
-        if a == "--origin-thread" and i + 1 < len(argv):
-            return argv[i + 1]
-        if a.startswith("--origin-thread="):
-            return a.split("=", 1)[1]
-    return None
-
-
-def _cc_script() -> Path:
-    return Path(os.environ.get("HERMES_CC_SCRIPT", str(_DEFAULT_CC_SCRIPT)))
+    ts = params.get("origin_thread_ts")
+    return ts if isinstance(ts, str) else None
 
 
 def _resolve_slack_token() -> str:
@@ -493,14 +487,14 @@ def _slack_post_message(token: str, channel: str, text: str,
 
 def _intents_cli() -> Path:
     """warden's intent queue CLI. Env-var-first, documented-default-second — the same
-    shape `hermes-cc.sh` already uses to reach across into warden (`HERMES_CC_DB`,
-    `HERMES_CC_TRIAGE_POLICY_JSON`), so an operator or a test overrides one variable
-    and there is no second copy of the path to keep in sync."""
+    shape `_db_path()` above already uses to reach across into warden (`WARDEN_DB`),
+    so an operator or a test overrides one variable and there is no second copy of
+    the path to keep in sync."""
     return Path(os.environ.get("WARDEN_INTENTS_CLI", str(_DEFAULT_INTENTS_CLI)))
 
 
 def _subprocess_env() -> dict:
-    """The gateway's env minus the Claude Code markers hermes-cc.sh's recursion
+    """The gateway's env minus the Claude Code markers warden's own recursion
     guard keys on. The gateway is not a Claude Code session, but a gateway started
     from inside one inherits its markers — and then every click would refuse
     with 'a dispatched episode may never dispatch'."""
@@ -511,72 +505,26 @@ def _subprocess_env() -> dict:
     return env
 
 
-async def _run_cc(argv: list[str], stdin_text: Optional[str],
-                  context_text: Optional[str] = None) -> tuple[int, str, str]:
-    """`hermes-cc.sh <argv> --confirm`, brief on stdin, the stored context (if any)
-    through a 0600 temp file this process owns for the length of the call — the
-    script's only context input is a path, and the agent's path is the thing we
-    stopped trusting. Never raises: a spawn or timeout failure folds into rc=-1
-    with the reason in stderr."""
-    cmd = ["bash", str(_cc_script()), *argv]
-    context_path: Optional[str] = None
-    if context_text is not None:
-        fd, context_path = tempfile.mkstemp(prefix="dispatch-approval-ctx-", suffix=".txt")
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(context_text)
-        cmd += ["--context-file", context_path]
-    cmd.append("--confirm")
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=_subprocess_env(),
-        )
-        out, err = await asyncio.wait_for(
-            proc.communicate((stdin_text or "").encode("utf-8")), timeout=_RUN_TIMEOUT_S
-        )
-        return proc.returncode if proc.returncode is not None else -1, out.decode("utf-8", "replace"), err.decode("utf-8", "replace")
-    except asyncio.TimeoutError:
-        try:
-            proc.kill()
-        except Exception:
-            pass
-        return -1, "", f"hermes-cc.sh did not finish within {_RUN_TIMEOUT_S}s"
-    except (OSError, ValueError) as exc:
-        return -1, "", f"could not run hermes-cc.sh: {exc}"
-    finally:
-        if context_path is not None:
-            try:
-                os.unlink(context_path)
-            except OSError:
-                pass
-
-
-def outcome_text(verb: str, repo: str, tier: str, rc: int, stdout: str, stderr: str, user_id: str) -> str:
-    """Deterministic one-message summary of the re-run for the origin thread.
-    Reads the --json object hermes-cc.sh printed; falls back to stderr."""
-    payload: dict = {}
-    try:
-        payload = json.loads(stdout) if stdout.strip() else {}
-    except ValueError:
-        payload = {}
-    if not isinstance(payload, dict):
-        payload = {}
-    head = f"`{verb}` {tier} on `{repo}` — approved by <@{user_id}>"
-    if rc == 0 and payload.get("ok"):
-        if verb == "merge":
-            url = payload.get("prUrl") or payload.get("artifactUrl") or ""
-            return f":white_check_mark: {head}\nMerged. {url}".rstrip()
-        job_id = payload.get("jobId") or "?"
+def outcome_text(repo: str, tier: str, user_id: str, *, spent_job_id: Optional[str],
+                  spend_error: Optional[str]) -> str:
+    """Deterministic one-message summary for the origin thread, built from
+    the row `_record_decision()` (via warden's own synchronous drain) already
+    wrote — nothing here runs anything any more. Exactly one of
+    `spent_job_id` / `spend_error` is set once the spend has actually
+    settled; neither is set for a refusal warden's own loop will retry
+    (a budget hit, an in-flight lock) on its next pass."""
+    head = f"`dispatch` {tier} on `{repo}` — approved by <@{user_id}>"
+    if spent_job_id:
         return (
-            f":rocket: {head}\nEpisode opened: job `{job_id}`. It is NOT finished — the "
+            f":rocket: {head}\nEpisode opened: job `{spent_job_id}`. It is NOT finished — the "
             f"5-minute sweeper delivers the verdict into this thread."
         )
-    reason = (payload.get("error") or stderr.strip() or stdout.strip() or "no detail")[:600]
-    code = payload.get("exitCode", rc)
-    return f":x: {head}\nDid not run (exit {code}): {reason}"
+    if spend_error:
+        return f":x: {head}\nDid not run: {spend_error[:600]}"
+    return (
+        f":hourglass: {head}\nApproval recorded — warden opens the episode on its next pass "
+        f"(≤10 min)."
+    )
 
 
 async def _send_to_origin(channel: Optional[str], thread_ts: Optional[str], text: str) -> None:
@@ -605,16 +553,34 @@ async def _send_to_origin(channel: Optional[str], thread_ts: Optional[str], text
 
 
 async def execute_approved(nonce: str, verb: str, repo: str, tier: str, user_id: str) -> Optional[str]:
-    """Run the approved invocation and post its outcome. Returns the posted text
-    (None when the row carried no invocation — the pre-2026-09-07 shape)."""
-    inv = _load_invocation(nonce)
-    if inv is None:
-        logger.info("[dispatch-approval] nonce %s has no stored invocation — signed only", nonce)
+    """Report the outcome of a decision `_record_decision()` already spent —
+    it drains synchronously, and the drain spends in-process (see the module
+    docstring), so by the time this runs the row already says what happened.
+    Nothing here runs anything. Returns the posted text (None when the row
+    is no longer on file)."""
+    row = _read_approval(_db_path(), nonce)
+    if row is None:
+        logger.info("[dispatch-approval] nonce %s is no longer on file — nothing to report", nonce)
         return None
-    rc, out, err = await _run_cc(inv["argv"], inv["stdin"], inv["context"])
-    text = outcome_text(verb, repo, tier, rc, out, err, user_id)
-    logger.info("[dispatch-approval] re-ran %s %s on %s: rc=%s", verb, tier, repo, rc)
-    await _send_to_origin(inv["channel"], _origin_thread(inv["argv"]), text)
+    if verb != "dispatch":
+        # Dead path today, closed honestly rather than left to fall through
+        # `outcome_text()`'s dispatch-shaped message: no verb but `dispatch`
+        # ever gets a Slack-signed approval minted for it — `merge` is
+        # `--confirm`-gated in the warden CLI (an owner decision; the retired
+        # bash CLI never hashed a merge approval either), so a `merge` row
+        # here would mean the mint side started doing something this plugin
+        # was never updated to spend.
+        text = f":grey_question: `{verb}` approvals are not minted — merge is confirm-gated in the warden CLI."
+        await _send_to_origin(row["channel"], _origin_thread(row["params_json"]), text)
+        return text
+    text = outcome_text(
+        repo, tier, user_id, spent_job_id=row["spent_job_id"], spend_error=row["spend_error"],
+    )
+    logger.info(
+        "[dispatch-approval] %s %s on %s: spent_job_id=%s spend_error=%s",
+        verb, tier, repo, row["spent_job_id"], row["spend_error"],
+    )
+    await _send_to_origin(row["channel"], _origin_thread(row["params_json"]), text)
     return text
 
 
@@ -700,7 +666,13 @@ def _make_handler(decision: str):
         _ensure_published()
 
         try:
-            result = _record_decision(nonce, decision, user_id)
+            # `_record_decision()` shells out to `intents.py --record`/`--drain`
+            # via blocking `subprocess.run(..., timeout=30)` calls, and the
+            # drain now spends synchronously (opens the episode in-process) —
+            # up to two 30s blocks on the gateway's single event loop if run
+            # directly. `asyncio.to_thread()` is the same pattern
+            # `_send_to_origin()` already uses to keep a blocking call off it.
+            result = await asyncio.to_thread(_record_decision, nonce, decision, user_id)
         except Exception as exc:
             logger.error("[dispatch-approval] could not record decision: %s", exc, exc_info=True)
             await _replace_message(response_url, ":warning: Could not record the decision.")
@@ -753,7 +725,7 @@ def register(ctx) -> None:
     try:
         _ensure_key()
     except Exception as exc:
-        # Fail loudly but do not take the gateway down. hermes-cc.sh refuses every
+        # Fail loudly but do not take the gateway down. warden refuses every
         # gated verb while the public key is absent, so the consequence of landing
         # here is "no writing dispatches", never "unguarded writing dispatches".
         logger.error(
@@ -779,9 +751,10 @@ def payload_hash(verb: str, repo: str, tier: str, body: str, why: str = "",
     file was a swap-after-approve hole for whoever could write it — the agent included.
 
     Kept here next to `canonical_message` so the two halves of the contract live in
-    one file; `hermes-cc.sh` (warden/scripts/, since 2026-09-10) reimplements it in
-    five lines of Python and `warden/tests/test_dispatch_approval.py` asserts the
-    two agree.
+    one file; `warden/scripts/clients/signer.py`'s own `payload_hash()` reimplements
+    it in five lines of Python — the cross-repo contract is versioned in
+    `warden/config/approval-spec.json`, and `warden/tests/test_dispatch_approval.py`
+    asserts this function, that one, and the spec's own fixture vectors all agree.
     """
     h = hashlib.sha256()
     for part in (verb, repo, tier, body, why, context):

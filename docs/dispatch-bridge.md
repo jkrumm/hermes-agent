@@ -64,7 +64,7 @@ Integration "in all directions" must not mean a cycle. It doesn't:
 
 A dispatched episode must **never** dispatch. That is the one recursion rule, and
 it is enforced structurally: the episode's brief never carries the dispatch
-bearer, and `hermes-cc.sh` refuses to run when `CLAUDE_CODE_SESSION` is set.
+bearer, and `warden` refuses to run when `CLAUDE_CODE_SESSION` is set.
 
 ## Tiers
 
@@ -74,7 +74,7 @@ Same pipeline, same record, three permission profiles. Not three features.
 |-|-|-|-|-|
 | `investigate` | `readOnly`, `--json-schema` verdict | a verdict object | none | 30s–3min |
 | `author` | `readOnly`; the HANDLER files the issue | GitHub issue | none | 1–4min |
-| `implement` | write | branch + **draft PR** | `--why` **and** `--confirm` | 10–40min |
+| `implement` | write | branch + **draft PR** | `--why` **and** a Slack-signed approval | 10–40min |
 
 Every tier runs in a handler-managed worktree, torn down when the episode ends —
 see the deviations below for why the read tiers need one too.
@@ -91,29 +91,33 @@ the separate `merge` verb.
 
 ### `--auto-from-item` — the triage loop's own door into `implement`
 
-`GATED_TIERS=(implement)` still means a Slack-signed `--confirm` for Hermes's
-conversational path. `~/SourceRoot/warden`'s `scripts/triage.py` has no Slack
-round-trip to click one into, so `dispatch <repo> --tier implement
---auto-from-item <event_id>` is a second, narrower door — see
-`~/SourceRoot/warden/docs/triage.md`'s *Closing the loop* for the full
-chain this feeds (steps 6-10: verdict → implement → validate → merge →
-deploy → verify). Every precondition is re-checked against `~/.warden/warden.db` at
-call time, never trusted from argv: a `verdict`-state `triage_items` row for
-that `event_id`, its linked investigate dispatch `done` with a parsed verdict
-reading `nextAction: implement` and `confidence: high`, the repo on the
-command line matching the verdict's own recorded repo, the repo resolving
-normally through policy (not denied, not sensitive, within its tier
-ceiling), and the implement budget having room. **Be honest about what this
-is and is not**: unlike `--confirm`'s signed approval artifact, nothing here
-is cryptographically bound — it is a precondition the caller cannot
-fabricate CHEAPLY (every fact it checks is a row a real, already-completed
-read-only episode wrote earlier), not a proof of origin. The threat it
-closes is the loop being WRONG (a stale item, a low-confidence verdict, a
-repo mismatch) — not the loop being HOSTILE, the same threat model
-`--confirm`'s own paragraph above already disclaims for a compromised
-Hermes. Once validated, it stands in for `--confirm` on that one
-invocation — `awaiting_confirm()` and the `require_signed_approval` call
-both treat a validated `--auto-from-item` as equivalent to a click.
+`implement` being gated still means a Slack-signed approval for Hermes's
+conversational path — `warden dispatch --tier implement` with no
+`--auto-from-item` mints an approval request and posts Approve/Deny buttons
+rather than running anything; there is no `--confirm` flag left to pass on
+`dispatch` at all (`warden` refuses it by name). `~/SourceRoot/warden`'s
+`scripts/triage.py` has no Slack round-trip to click one into, so
+`dispatch <repo> --tier implement --auto-from-item <event_id>` is a second,
+narrower door — see `~/SourceRoot/warden/docs/triage.md`'s *Closing the
+loop* for the full chain this feeds (steps 6-10: verdict → implement →
+validate → merge → deploy → verify). Every precondition is re-checked
+against `~/.warden/warden.db` at call time, never trusted from argv: a
+`verdict`-state `triage_items` row for that `event_id`, its linked
+investigate dispatch `done` with a parsed verdict reading
+`nextAction: implement` and `confidence: high`, the repo on the command line
+matching the verdict's own recorded repo, the repo resolving normally
+through policy (not denied, not sensitive, within its tier ceiling), and
+the implement budget having room. **Be honest about what this is and is
+not**: unlike a Slack-signed approval, nothing here is cryptographically
+bound — it is a precondition the caller cannot fabricate CHEAPLY (every
+fact it checks is a row a real, already-completed read-only episode wrote
+earlier), not a proof of origin. The threat it closes is the loop being
+WRONG (a stale item, a low-confidence verdict, a repo mismatch) — not the
+loop being HOSTILE, the same threat model the signed-approval paragraph
+above already disclaims for a compromised Hermes. Once validated, it
+stands in for a click on that one invocation — `warden`'s own
+`require_auto_from_item()` and `open_episode()` treat a validated
+`--auto-from-item` as equivalent to a spent approval.
 
 `dispatch` also takes `--model <id>`, a plain passthrough into sideclaw's own
 `dispatch` job body (`server/lib/routing.ts`'s `withModel()` handles
@@ -153,8 +157,8 @@ reaches the watchdog digest, and a dispatched episode then reads the attacker's
 full body via `gh`. One injected `sed -i` and the edit lands in a repo other
 agents are working in and that deploys to the VPS on push. The third-party
 marking in the digest is instruction-level: it labels the content, it does not
-stop an episode acting on it, and neither does `--confirm`, which these two
-tiers do not have.
+stop an episode acting on it, and neither does the Slack-signed approval gate,
+which these two tiers do not have.
 
 They now get `createReadWorktree` — a copy of **HEAD**, deleted in the same
 `finally`. Cut from HEAD rather than the default branch because a read tier is
@@ -216,8 +220,9 @@ CREATE TABLE dispatches (
 a message. A `--wait` that returns a terminal verdict stamps it, because handing
 the verdict to a live turn *is* the delivery; `status` deliberately does not,
 since a poll tells nobody. `artifact_url`/`merged_at` are denormalized out of the
-verdict into their own columns by **both** settlers (`hermes-cc.sh`'s
-`sync_record`, `dispatch-sweep.py`) — `CREATE TABLE IF NOT EXISTS` no-ops on an
+verdict into their own columns by **both** settlers (warden's own
+`sync_record` in `scripts/lifecycle/dispatch.py`, and `dispatch-sweep.py`) —
+`CREATE TABLE IF NOT EXISTS` no-ops on an
 existing table, so the `ALTER TABLE`s run on every connect (`dispatch-sweep.py`
 now runs from `~/SourceRoot/warden`, against the same `~/.warden/warden.db`).
 sideclaw prunes jobs
@@ -265,15 +270,19 @@ no artifact, not a failure.
 ### hermes-agent — the bounded client
 
 Mirrors `hermes-ops.sh` exactly, because that pattern is already proven here. The
-script itself moved wholesale to `warden/scripts/hermes-cc.sh` on 2026-09-10 (the
-control plane it writes into already lived there); `scripts/hermes-cc.sh` in this
-repo (= `~/.hermes/scripts/hermes-cc.sh`) is now an exec shim into it, kept because
-the Hermes-side guards key on that exact path:
+bridge itself moved wholesale to `warden/scripts/` on 2026-09-10 (the control
+plane it writes into already lived there) and was rewritten from bash into a
+Python CLI, `warden/scripts/warden`, over the same lifecycle modules the loop
+calls as functions; `scripts/hermes-cc.sh` in this repo (=
+`~/.hermes/scripts/hermes-cc.sh`) is now a 6-line exec shim into it, kept
+because the Hermes-side guards key on that exact path:
 
-- **`hermes-cc.sh`** — closed verb set (`dispatch`, `status`, `list`,
-  `merge`, `cancel`), no free-form paths, `--why`+`--confirm` on `implement` and
-  `merge`, `--json` contract, audit log to `~/Library/Logs/hermes-cc.log`, tests
-  under `warden/tests/`.
+- **`warden`** — closed verb set (`dispatch`, `status`, `list`, `merge`,
+  `abort`, `revert` — no `cancel` any more, sideclaw grew a real cancel
+  endpoint and `abort` calls it), no free-form paths, `--why` on `implement`
+  and `merge` (`merge` alone still takes `--confirm`; `dispatch` refuses it
+  by name — see *Tiers* above), `--json` contract, audit log to
+  `~/Library/Logs/warden-cli.log`, tests under `warden/tests/`.
 - **`config/dispatch-repos.json`** (also moved, to `warden/config/`) — tracked
   policy: one root, a `deny` list, a `defaultTier`, and per-repo tier overrides.
   Repos are discovered under the root rather than enumerated — see *Decisions*
@@ -333,7 +342,7 @@ Four things do, and the fourth is the one that generalizes:
    of being refused — and `--confirm`'s absence stops it before that point, which
    is why the plan output can honestly say nothing changed on GitHub.
 
-Its ceiling is 3/day (`HERMES_CC_MERGE_BUDGET`), tighter than the 5 `implement`
+Its ceiling is 3/day (`WARDEN_MERGE_BUDGET`), tighter than the 5 `implement`
 episodes that can produce candidates: not everything that gets written should
 land. Its audit mode is `merged` and not `opened` — grepping the log for what
 actually reached a default branch is the reason the log exists. The GitHub
@@ -383,7 +392,7 @@ Two delivery mechanisms, one message body:
 prevent echo loops, keyed on the sender's user id — which a `chat.postMessage`
 with the Hermes bot token carries. So a sweeper-delivered verdict is visible to a
 human but invisible to the session. The compensation is in the skill: when a
-thread references a dispatch, Hermes re-reads it with `hermes-cc.sh status
+thread references a dispatch, Hermes re-reads it with `warden status
 <job-id>`. The dispatch record is the durable copy; the Slack message is only a
 notification.
 
@@ -412,16 +421,19 @@ arbitrary code execution.
    free-form paths, ever.
 2. **The brief is data, never command.** Passed as a file, never interpolated
    into a shell string — the `rd bg` base64 lesson, one level up.
-3. **`implement` needs `--why` and `--confirm`.** `--confirm` means Johannes
-   confirmed, which in Slack means Hermes had to ask first — see *the signed
-   approval artifact* below for what actually backs that now.
+3. **`implement` needs `--why` and a Slack-signed approval.** There is no
+   `--confirm` flag on `dispatch` any more — `warden` refuses it by name.
+   Without an already-spent approval (or `--auto-from-item`, see *Tiers*
+   above), the plan branch mints one and posts Approve/Deny buttons; nothing
+   runs until Johannes clicks — see *the signed approval artifact* below for
+   what actually backs that.
 4. **Worktree isolation** on every tier (see *deviations* above), so a bad
    episode never touches the live checkout other agents on the mini are using.
 5. **The episode never merges and never pushes to a default branch.** Branch +
    draft PR only. Landing it is the separate `merge` verb, which the episode
    cannot call.
 6. **No secrets in a brief.** The episode resolves its own via `secrets-run`.
-7. **A daily dispatch budget** in `hermes-cc.sh`. `--max-budget-usd` is API-only
+7. **A daily dispatch budget** in `warden`. `--max-budget-usd` is API-only
    and does **not** cap a Max session, so the ceiling has to be structural:
    `maxTurns`, timeout, sideclaw's concurrency cap, and a per-day count (20/day,
    ≤5 `implement`, ≤3 `merge`, 170s `--wait` cap — under the `terminal` tool's
@@ -434,10 +446,11 @@ arbitrary code execution.
    refusal path, so a bound nobody can see approaching read as the tool
    breaking, not as a budget. Counts are re-read after the row is inserted so a
    caller's number includes its own dispatch. Raising a ceiling stays Johannes's
-   call — `HERMES_CC_{DAILY,IMPLEMENT,MERGE}_BUDGET`, and `claude-dispatch`
+   call — `WARDEN_{DAILY,IMPLEMENT,MERGE}_BUDGET`, and `claude-dispatch`
    forbids the agent composing an invocation that sets any of them.
-8. **Audit log on every invocation**, including refusals and dry runs — five
-   modes: `opened`, `planned`, `dry-run`, `refused`, `merged`.
+8. **Audit log on every invocation**, including refusals and dry runs —
+   `opened`, `planned`, `dry-run`, `refused`, `merged`, `aborted`, `reverted`,
+   `read`.
 
 ## Cost
 
@@ -489,7 +502,7 @@ Sensitive dispatch on that side): a repo opted in gets `investigate` and only
 `scanForSecrets`/`SECRET_PATTERNS` that already guard issue and PR bodies —
 a match withholds the verdict behind a notice and keeps the full text in an
 owner-only `0600` file on the mini rather than leaking it. Until this change
-`hermes-cc.sh` never sent `sensitive` and `dispatch-repos.json`'s `deny` check
+the dispatch bridge never sent `sensitive` and `dispatch-repos.json`'s `deny` check
 ran before any tier logic and was absolute, so the capability was unreachable
 from Hermes — the one mechanically-fixable gap two independent adversarial
 reviews both found: an `homelab-private/uptime-kuma` alert flapping on its own
@@ -507,7 +520,7 @@ artifact path in a secret-bearing repo"), not by falling through to the
 generic ceiling message. A name in `sensitive` that is **not** also in `deny`
 is refused as a malformed policy (exit 2) — the same contradiction class as a
 name in both `deny` and `tiers`, and checked the same way, before discovery
-ever runs. `hermes-cc.sh` submits `"sensitive": true` on the job body only for
+ever runs. `warden` submits `"sensitive": true` on the job body only for
 those two repos; sideclaw re-checks the same investigate-only restriction
 independently (`assertSensitiveTierAllowed`) rather than trusting the flag on
 its own — defence in depth on both sides of the bridge, not a single point of
@@ -520,27 +533,36 @@ do its job is a list that will be stale exactly when it is needed. So an
 unattended episode can file a world-readable issue, or open a draft PR, on a
 public repo with no human gate — also an owner decision. What bounds `implement`
 is the shape of the tier (isolated worktree, `dispatch/…` branch, draft PR,
-`--why` **and** `--confirm`) rather than a roster of names, and nothing reaches a
+`--why` **and** a Slack-signed approval) rather than a roster of names, and nothing reaches a
 default branch without the separate `merge` verb. Worst unattended outcome is a
 draft PR nobody wanted, which costs one click.
 
-**`--confirm` became a signed artifact instead of an instruction (2026-08-03).**
-It started as a flag on the same invocation, set by the same agent it
-constrains — plainly not a bound. Now the plan branch posts **Approve/Deny
-buttons** into the origin channel; the click lands in the gateway, which signs it
-with an **Ed25519 key minted at startup, held in RAM only**
-(`plugins/dispatch-approval/`, public half at `~/.hermes/dispatch-approval.pub`)
-and **runs the approved verb itself** — the plan row stores the argv (minus the
-`--confirm`/`--wait` flags and minus the `--brief-file`/`--context-file`
-*paths*) plus the brief and context **bytes**; Approve re-runs `hermes-cc.sh …
---confirm` in a subprocess (the same signature check as a hand-typed
-`--confirm`) and posts the outcome via `hermes send`. The point is not "who
-clicked" — it is that a click is not text. All Slack senders here are trusted
-(see `allow_bots`, below); the residual risk is hostile *content* relayed by a
-trusted one, and injected prose cannot mint a signature or cause a Slack
-interaction payload to exist. Every column of `dispatch_approvals` is writable
-by this uid, the agent's included, so only the signature is consulted — the
-forged-row case is the centre of `tests/test_dispatch_approval.py`.
+**A signed artifact instead of an instruction (2026-08-03, reshaped
+2026-09-10).** A flag on the same invocation, set by the same agent it
+constrains, is plainly not a bound — that is why `dispatch` has none left at
+all. The plan branch posts **Approve/Deny buttons** into the origin channel;
+the click lands in the gateway, which signs it with an **Ed25519 key minted
+at startup, held in RAM only** (`plugins/dispatch-approval/`, public half at
+`~/.hermes/dispatch-approval.pub`). Originally the click then re-ran a
+subprocess (`hermes-cc.sh … --confirm`); now `_record_decision()` spools the
+signed decision as an `approval_decision` intent and drains it **synchronously**
+through `warden/scripts/intents.py`, whose `drain()` calls
+`lifecycle/approvals.py`'s `execute_approved()` — the same verifier, the same
+budget/policy re-check, the same in-flight lock — the moment the decision
+lands, so the episode is already opening (or already refused) by the time
+the click handler's own call returns. The plan row stores the brief and
+context **bytes** (`stdin_text`/`context_text`) and the closed parameter
+dict (`params_json`: why, model, origin channel/thread/event) that spend
+replays; there is no argv to replay any more. This plugin's own
+`execute_approved()` then only reads the row back (`spent_job_id` /
+`spend_error`) and posts the outcome — it runs nothing. The point is not
+"who clicked" — it is that a click is not text. All Slack senders here are
+trusted (see `allow_bots`, below); the residual risk is hostile *content*
+relayed by a trusted one, and injected prose cannot mint a signature or
+cause a Slack interaction payload to exist. Every column of
+`dispatch_approvals` is writable by this uid, the agent's included, so only
+the signature is consulted — the forged-row case is the centre of
+`tests/test_dispatch_approval.py`.
 
 Bound to `verb|repo|tier|brief|why|context`, single-use, 30-min TTL, **fails
 closed** on no plugin / no key / no gateway / expired / spent / hash mismatch; a

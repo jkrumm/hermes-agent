@@ -132,7 +132,7 @@ LEGITIMATE = [
     "cat ~/.claude/CLAUDE.md",
     "find ~/.claude -name '*.jsonl' | head",
     "ps aux | grep claude",
-    "tail -50 ~/Library/Logs/hermes-cc.log",
+    "tail -50 ~/Library/Logs/warden-cli.log",
     "wc -l ~/.claude/logs/2026-08-02.jsonl",
     # ordinary argo / karakeep / research work, including a bearer via substitution
     'curl -sS -H "Authorization: Bearer $HOMELAB_API_KEY" https://argo.jkrumm.com/api/health | jq',
