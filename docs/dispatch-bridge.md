@@ -122,10 +122,10 @@ stands in for a click on that one invocation — `warden`'s own
 `dispatch` also takes `--model <id>`, a plain passthrough into sideclaw's own
 `dispatch` job body (`server/lib/routing.ts`'s `withModel()` handles
 validation/routing) — not a closed allowlist, since a model id is not a
-path, a command or a URL. Used by triage.py's step-7 validation episode,
-which deliberately runs on a DIFFERENT model (`claude-opus-5[1m]`, probed
-live — see `~/SourceRoot/warden/docs/triage.md`) than the `claude-sonnet-5`
-default that wrote the implement episode it reviews.
+path, a command or a URL. Every automatic warden dispatch passes
+`model=None` and runs on sideclaw's JUDGE route; step-7 validation is a
+separate sideclaw `review` job — same route, a different session, a typed
+verdict, not a different model. Rationale: `~/SourceRoot/brain/wiki/engineering/model-routing.md`.
 
 ## Three deviations from the original design, all deliberate
 
@@ -459,8 +459,9 @@ Hermes deciding *whether* an episode is worth opening — it holds the state, so
 is the right place to make that call. Measured floor for a trivial `-p` run on
 the mini: 3.0s wall, ~25k cache-creation tokens (system prompt + `CLAUDE.md`
 discovery). `--bare` would cut that and is **unusable**: it hard-disables OAuth,
-flipping billing to API credits. Default model `sonnet` for every tier; `opus`
-only on explicit request.
+flipping billing to API credits. Default model `sonnet` for every tier
+(sideclaw's JUDGE route); `opus` only on explicit request. Rationale:
+`~/SourceRoot/brain/wiki/engineering/model-routing.md`.
 
 ## Not this bridge
 

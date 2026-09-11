@@ -60,7 +60,7 @@ dotfiles' doctor. Logs declared, never globbed, in `dotfiles/scripts/log-rotate.
 
 **Scheduled jobs are LaunchAgents, never macOS crontab** — a `crontab -` *write* needs Full
 Disk Access and hangs forever on the headless mini. Done 2026-08-02 — no hermes entries in
-`crontab -l`. All 5 live `hermes cron` jobs (ids, schedules, delivery) + reasoning:
+`crontab -l`. All 4 live `hermes cron` jobs (ids, schedules, delivery) + reasoning:
 **`docs/scheduled-jobs.md`**. The watchdog poll and dispatch sweep are LaunchAgents in
 `~/SourceRoot/warden` now, not `hermes cron` jobs — see *Alert triage* below.
 
@@ -141,8 +141,7 @@ diff-refusal ladder, the secret scan, the nonce fence around the brief).
 `briefing-context.py`/`briefing-coverage.py` feed the morning briefing (TickTick + GitHub
 coverage) — the former also reaches across to warden's `watchdog-summary.py`
 (`WARDEN_WATCHDOG_SUMMARY`-overridable) for the briefing's Infrastructure section.
-`agents-cron.py`/`narratives-cron.py` are the same thin-loader shape for
-`agents-overview.py`/`project-narratives.py`.
+`narratives-cron.py` is the same thin-loader shape for `project-narratives.py`.
 
 **`hermes cron create --script` rejects any substantial script** (`cron/lifecycle_guard.py`
 fails closed on an exhausted recursion budget) — keep entry points thin, logic in an imported
@@ -281,9 +280,9 @@ no native tool for this pipeline.
 ## Agents overview (agents)
 
 Read-only cross-project Claude Code/herdr status via sideclaw's `/api/overview` —
-conversational skill (`skills/agents/SKILL.md`), a scheduled Slack digest and a
-morning-briefing feed (`scripts/agents-overview.py`). Never dispatches, never
-steers a pane — that's `claude-dispatch`. **`docs/agents-overview.md`**.
+conversational skill (`skills/agents/SKILL.md`) and a morning-briefing feed
+(`scripts/agents-overview.py`). Never dispatches, never steers a pane — that's
+`claude-dispatch`. **`docs/agents-overview.md`**.
 
 ## Project narratives (project-narratives)
 

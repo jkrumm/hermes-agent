@@ -35,7 +35,7 @@ Mac Mini M2 Pro — Hermes Agent (always-on)
 | `#media` | C0AS5GUH5U4 | read only (`require_mention_channels`) | — | Podcast/image completions — Hermes is the producer, not a conversant |
 | `#watchdog` | C0ASRULFTSS | write only | — | Hermes posts its own proactive monitoring results (`~/SourceRoot/warden`'s `com.jkrumm.warden-poll`/`warden-sweep` LaunchAgents, formerly cron `4b1faabda97d`/`4dd759917dd1`) |
 | `#briefings` | C0AT6TH404R | write only | — | Morning/evening audio reports (cron `cc7900c424a9`, `2d38c80e685c`) |
-| `#agents` | C0BVDE5R562 | write only | — | Agent overview + project-narratives digests (crons `72aa2fb36307`, `9909f808fe17`) plus alert-triage cards (`~/SourceRoot/warden`'s `triage.py`, its own LaunchAgent), only when something moved — `docs/agents-overview.md`, `~/SourceRoot/warden/docs/triage.md` |
+| `#agents` | C0BVDE5R562 | write only | — | Warden's item cards and the project-narratives digest (cron `9909f808fe17`) plus alert-triage cards (`~/SourceRoot/warden`'s `triage.py`, its own LaunchAgent), only when something moved — `docs/agents-overview.md`, `~/SourceRoot/warden/docs/triage.md` |
 
 ### Trigger Matrix
 
@@ -221,9 +221,11 @@ with Full Disk Access); `make status` flags them until it succeeds.
 
 **Restic / B2:** Duplicati already mounts `/mnt:/source/mnt`, so `/mnt/hdd/backups/hermes/` is picked up by the existing B2 backup job.
 
-Every Hermes cron job (seven — briefings, watchdog, dispatch sweep, brain drift audit,
-agents overview, project narratives) is listed with its id in the registry table in
-`docs/scheduled-jobs.md`; `make status` asserts the live set matches it.
+Every Hermes cron job (four — morning briefing, evening report, brain drift audit, project
+narratives) is listed with its id in the registry table in `docs/scheduled-jobs.md`; `make
+status` asserts the live set matches it. Watchdog and dispatch sweep moved to
+`~/SourceRoot/warden` LaunchAgents 2026-09-09; the agents-overview Slack digest retired
+2026-09-11.
 
 ## Handing work to Claude Code
 

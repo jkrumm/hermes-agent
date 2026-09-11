@@ -4,41 +4,38 @@ sideclaw (`http://localhost:7705`, the same daemon `scripts/hermes-cc.sh` uses f
 the dispatch bridge) tracks every Claude Code / herdr agent running across every
 project and summarizes each into a one-word recommendation (`answer`, `continue`,
 `ship`, `review`, `merge`, `close`, `stale`, `watch`). This feature surfaces that
-summary through three read-only surfaces — nothing here ever steers an agent.
+summary through read-only surfaces — nothing here ever steers an agent.
 
-## The three surfaces
+## The surfaces
 
 | Surface | What | Where |
 |-|-|-|
 | Conversational | "what are my agents doing", "wo steht `<project>`" | `skills/agents/SKILL.md` — reads `/api/overview.txt`, refreshes on request |
-| Scheduled Slack digest | a ping only when something changed since the last run — silent otherwise | `scripts/agents-overview.py --slack-body`, run every 30 min by `scripts/agents-cron.py` (job `72aa2fb36307`, registration below) |
 | Morning briefing | an "Agenten & Projekte" section, ≤ 6 lines, German | `scripts/agents-overview.py --briefing`, called from `scripts/briefing-context.py`, rendered per `cron/morning-briefing.prompt.txt` |
 
-**The Slack digest never reposts a persistent, unchanged item — including a
-standing `answer` item.** Silence is gated purely on `delta()` finding a change
-since the last run (new agent, changed recommendation, disappeared agent); an
-agent stuck on `answer` for days speaks once, when it first becomes `answer`,
-and then goes quiet again every 30-min cycle until something actually changes.
-The morning briefing (`render_briefing()`) re-surfaces every non-quiet
-recommendation daily regardless of `delta()`, which is what keeps a forgotten
-standing question from vanishing for good.
+**Retired: the scheduled Slack digest.** `scripts/agents-overview.py
+--slack-body`, run every 30 min by cron job `72aa2fb36307`, was paused
+2026-09-08 18:45 after reposting the same blocked pane ~35 times in two days
+and retired 2026-09-11. Replaced by Warden's card board in `#agents` (one
+deduplicated `chat.update`d card per item), the same sideclaw snapshot in the
+herdr overview pane, this file's morning-briefing surface, and Argo's
+`/agents` page and Warden board. The morning briefing (`render_briefing()`)
+re-surfaces every non-quiet recommendation daily, which is what keeps a
+forgotten standing question from vanishing for good.
 
 ## Needs you (human queue)
 
 `data.humanQueue` (sideclaw, 2026-09-07) is the mini's ask-human queue —
 `[{id, askedAt, question, cmd?}]`, work that needs a PRESENT human (a
 biometric `op`, an ACL push, `make human-queue`). It renders as a "Needs you"
-section at the top of both the digest and the briefing; every entry counts as
-a delta the moment it appears or is drained, and its ids ride the fingerprint
-so a new ask alone wakes the digest. An agent in state `needs_you` is **always**
-listed, whatever its recommendation — `summary.needsYou` counts by state, and a
-digest whose header says "1 need you" must show that one item (a 2026-09-07 bug
-counted one and listed none because the body filtered on recommendation alone;
-`_is_needs_you()` is now checked independently of the actionable-recommendation
-filter). When sideclaw is unreachable end to end, the digest is not silent:
-once per day a warning line goes to `#agents` via stdout (the no_agent runner
-delivers it) so "no digest" and "sideclaw is down" stop looking identical —
-Kuma does not watch this path, this line is the health signal.
+section at the top of the briefing (and, while the now-retired Slack digest
+ran, at the top of that too); every entry counts as a delta the moment it
+appears or is drained. An agent in state `needs_you` is **always** listed,
+whatever its recommendation — `summary.needsYou` counts by state, and a
+render whose header says "1 need you" must show that one item (a 2026-09-07
+bug counted one and listed none because the body filtered on recommendation
+alone; `_is_needs_you()` is now checked independently of the
+actionable-recommendation filter).
 
 ## Refresh is consumer-driven, not clock-driven
 
@@ -51,8 +48,9 @@ the LLM overview pass (`overview` job) is worth its own model call:
   `refresh()` before rendering. If that refresh fails, it renders the cached
   data anyway and appends one line noting how old the verdicts are, rather
   than blocking the briefing on sideclaw.
-- **The digest cron refreshes only when something actually moved.** Before
-  ever touching the model, `--slack-body` fetches the deterministic
+- **The retired digest cron refreshed only when something actually moved**
+  (kept for history — `--slack-body` still exists in the script, unscheduled).
+  Before ever touching the model, `--slack-body` fetches the deterministic
   `GET /api/agents` snapshot (same shape as `/api/overview`, minus the LLM
   fields) and hashes it with `fingerprint()` — sha256 over the sorted
   `(agent.id, agent.state, agent.lastActivityAt, project.name,
@@ -84,42 +82,25 @@ goes quiet again on the following run if nothing changed) and always refreshes
 once to re-establish a baseline fingerprint. Written atomically (temp file +
 rename).
 
-## Registering the Slack digest cron
+## Retired: the Slack digest cron
 
-Registered 2026-09-07 as job `72aa2fb36307` (see the registry in `docs/scheduled-jobs.md`).
-The steps, kept for a re-install:
-
-1. Create the Slack channel `#agents`, invite the Hermes bot, and record its
-   channel ID in this repo's `README.md` Channel Architecture table (the same
-   place every other channel — `#alerts`, `#watchdog`, etc. — is documented).
-2. Register the job (schedule is a **positional** argument, not `--schedule`;
-   `--script` takes a bare filename under `~/.hermes/scripts/`, not a `scripts/`-
-   prefixed path — verified against `hermes cron create --help` on this machine):
-
-   ```bash
-   hermes cron create "*/30 * * * *" --name "Agents overview" \
-     --script agents-cron.py --no-agent --deliver slack:C0BVDE5R562   # registered 2026-09-07 as job 72aa2fb36307
-   ```
-
-3. Verify with `hermes cron list` — it should show `Script: agents-cron.py`,
-   `Mode: no-agent (script stdout delivered directly)`.
-
-`scripts/agents-cron.py` is deliberately a thin loader (mirrors
-`scripts/narratives-cron.py`'s shape) that imports `agents-overview.py` and
-calls `main(["--slack-body"])` — `hermes cron create --script` runs the referenced
-file through `cron/lifecycle_guard.py`, which fails closed on a long file or one
-whose comments quote command lines (see CLAUDE.md § "Dispatch Bridge"). Keep the
-entry point thin; put logic in the imported module.
+Registered 2026-09-07 as job `72aa2fb36307`, its thin loader
+`scripts/agents-cron.py` calling `agents-overview.py`'s `main(["--slack-body"])`.
+Paused 2026-09-08 18:45 after reposting the same blocked pane ~35 times in two
+days, retired 2026-09-11 — `agents-cron.py` deleted, the job removed from
+`hermes cron`. Replaced by Warden's card board in `#agents`, the herdr overview
+pane, the morning briefing, and Argo's `/agents` page and Warden board (see the
+registry entry in `docs/scheduled-jobs.md`).
 
 ## Rendering: Block Kit, escaping, the fallback rule, `--post-full`
 
-The `#agents` digest posts as Slack Block Kit, not plain mrkdwn.
+`#agents` posts render as Slack Block Kit, not plain mrkdwn.
 `render_slack_blocks(cur, changes, *, full=False)` is the pure builder (no
 network) — `header` (counts), one `section` per project (`*name*
 \`branch[*if dirty]\`` then one line per agent: emoji + title + standing,
 plus an indented `↳ _blocker_` line when set), `divider`s between projects,
 and a trailing `context` line with the overview's age, model, change count
-and time. `full=False` (the cron digest) shows only agents whose
+and time. `full=False` (the now-retired digest cron) showed only agents whose
 recommendation is actionable (answer/ship/merge/review) **or** whose id is
 tagged in `changes` (`delta()` appends a trailing `[id:...]` to each entry
 for exactly this) — so a newly-changed but non-actionable agent (e.g. ->

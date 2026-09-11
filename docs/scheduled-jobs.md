@@ -10,18 +10,35 @@ with no live job is a schedule that silently stopped; a live enabled job absent 
 written down. Add a row (and the `cron/<name>.md` + `.prompt.txt` pair for an agent job) in
 the same commit that registers it.
 
-| Job id | Name | Schedule | Mode | Script / prompt | Skills | Delivery |
-|-|-|-|-|-|-|-|
-| `cc7900c424a9` | Morning briefing | `0 7 * * 1-5` | agent | `briefing-context.py` pre-run · `cron/morning-briefing.prompt.txt` | `argo-api`, `work` | `slack:C0AT6TH404R` #briefings |
-| `2d38c80e685c` | Evening report | `0 22 * * 1-4` | agent | `briefing-context.py` pre-run · `cron/evening-report.prompt.txt` | `argo-api`, `work` | `slack:C0AT6TH404R` #briefings |
-| `8fe7be4985d9` | Brain drift audit | `0 9 * * 6` | agent | `cron/brain-drift-audit.prompt.txt` | `claude-dispatch`, `obsidian` | `slack:C0ASRULFTSS` #watchdog |
-| `72aa2fb36307` | Agents overview | `*/30 * * * *` | no-agent | `agents-cron.py` → `agents-overview.py --slack-body` | — | `slack:C0BVDE5R562` #agents (Block Kit via `chat.postMessage`) |
-| `9909f808fe17` | Project narratives | `30 6 * * *` | no-agent | `narratives-cron.py` → `project-narratives.py --run` | — | `slack:C0BVDE5R562` #agents |
+**State vocabulary:** `live` | `paused (<reason>)` | `retired (<date>, <reason>)`. A row's
+state must match the live job's — `make status` asserts it.
+
+| Job id | Name | Schedule | Mode | Script / prompt | Skills | Delivery | State |
+|-|-|-|-|-|-|-|-|
+| `cc7900c424a9` | Morning briefing | `0 7 * * 1-5` | agent | `briefing-context.py` pre-run · `cron/morning-briefing.prompt.txt` | `argo-api`, `work` | `slack:C0AT6TH404R` #briefings | live |
+| `2d38c80e685c` | Evening report | `0 22 * * 1-4` | agent | `briefing-context.py` pre-run · `cron/evening-report.prompt.txt` | `argo-api`, `work` | `slack:C0AT6TH404R` #briefings | live |
+| `8fe7be4985d9` | Brain drift audit | `0 9 * * 6` | agent | `cron/brain-drift-audit.prompt.txt` | `claude-dispatch`, `obsidian` | `slack:C0ASRULFTSS` #watchdog | live |
+| `9909f808fe17` | Project narratives | `30 6 * * *` | no-agent | `narratives-cron.py` → `project-narratives.py --run` | — | `slack:C0BVDE5R562` #agents | live |
 
 **Watchdog (`*/30 * * * *`) and Dispatch sweep (`*/5 * * * *`) left this registry 2026-09-09** —
 they're LaunchAgents in `~/SourceRoot/warden` now (`com.jkrumm.warden-poll`,
 `com.jkrumm.warden-sweep`), for the same reason the alert-triage loop did: see
 `~/SourceRoot/warden/CLAUDE.md`.
+
+## Retired
+
+- **`72aa2fb36307` — Agents overview** — `*/30 * * * *`, no-agent, `agents-cron.py` →
+  `agents-overview.py --slack-body` → `slack:C0BVDE5R562` #agents (Block Kit via
+  `chat.postMessage`). Paused 2026-09-08 18:45 after reposting the same blocked pane ~35
+  times in two days; retired 2026-09-11. Replaced by Warden's card board in `#agents` (one
+  deduplicated `chat.update`d card per item, `config/triage-policy.json`'s `cardChannel`),
+  the same sideclaw snapshot in the herdr overview pane, the morning briefing
+  (`agents-overview.py --briefing`), and Argo's `/agents` page and Warden board. To
+  recreate: restore `scripts/agents-cron.py` from git history (`git show
+  <pre-retirement-sha>:scripts/agents-cron.py`), then `hermes cron create "*/30 * * * *" --name "Agents
+  overview" --script agents-cron.py --no-agent --deliver slack:C0BVDE5R562` (the same form
+  `docs/project-narratives.md` uses: schedule positional, `--script` a bare filename under
+  `~/.hermes/scripts/`).
 
 Job ids are minted at `hermes cron create` and are stable for the life of the job — edit with
 `hermes cron edit <id>`, never delete + re-create (that changes the id and breaks this table,
@@ -55,9 +72,8 @@ the check is quiet and the target is only needed if a legacy line ever reappears
 > `briefing-coverage.py` is rejected today (and so were `watchdog-poll.py`/`watchdog-summary.py`,
 > before they moved to `~/SourceRoot/warden`). The already-registered jobs survive only because
 > they predate the guard. That is why every registered entry point here is a thin loader and the
-> logic lives in a module it imports — `agents-cron.py` (registered, terse, quotes nothing) loads
-> `agents-overview.py`, and `narratives-cron.py` loads `project-narratives.py` the same way. If a
-> future entry point
+> logic lives in a module it imports — `narratives-cron.py` (registered, terse, quotes nothing)
+> loads `project-narratives.py` the same way. If a future entry point
 > is rejected with that message, the cause is almost certainly length or a quoted command in a
 > comment, not an actual lifecycle call — verify with
 > `contains_gateway_lifecycle_command_or_referenced_script` before rewriting anything.

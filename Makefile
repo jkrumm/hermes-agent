@@ -322,21 +322,18 @@ print("    ✓ cron job skills resolve") if not bad else None' 2>/dev/null \
 		|| echo "    ✗ cron job skills [could not read jobs.json]"
 	@# The Hermes cron REGISTRY. jobs.json is gitignored runtime state, so the
 	@# git-tracked list of what should be registered is the table in
-	@# docs/scheduled-jobs.md (one row per job id). Assert the live set against
-	@# it in both directions: a registry row with no live job is a schedule that
-	@# silently stopped, a live enabled job absent from the registry is one that
-	@# was created by hand and never written down (that is how the brain drift
-	@# audit lived for three weeks in jobs.json alone).
-	@python3 -c 'import json,os,re,sys;\
-p=os.path.expanduser("$(HERMES_DIR)/cron/jobs.json");\
-reg=set(re.findall(r"^\| `([0-9a-f]{12})` \|", open("$(HERMES_REPO)/docs/scheduled-jobs.md").read(), re.M));\
-sys.exit(print("    ✗ cron registry [docs/scheduled-jobs.md has no job-id rows]") or 1) if not reg else None;\
-live={j["id"]: j for j in json.load(open(p)).get("jobs",[])} if os.path.exists(p) else {};\
-missing=sorted(reg-set(live)); extra=sorted(i for i,j in live.items() if i not in reg and j.get("enabled",True));\
-[print("    ✗ cron registry: job %s in docs/scheduled-jobs.md is not registered [hermes cron list]" % i) for i in missing];\
-[print("    ✗ cron registry: live job %s (%s) is not in docs/scheduled-jobs.md" % (i, live[i].get("name"))) for i in extra];\
-print("    ✓ cron registry (%d jobs match docs/scheduled-jobs.md)" % len(reg)) if not (missing or extra) else None' 2>/dev/null \
-		|| echo "    ✗ cron registry [could not compare jobs.json against docs/scheduled-jobs.md]"
+	@# docs/scheduled-jobs.md, keyed by its State column (live | paused (<reason>)
+	@# | retired). scripts/check-cron-registry.py owns the comparison logic
+	@# (see tests/test_check_cron_registry.py for the unit coverage) — assert
+	@# the live set against it in both directions: a `live` row with no live
+	@# job (or a disabled/paused one) is a schedule that silently stopped; a
+	@# `paused` row must have enabled:false AND a recorded paused_reason; a
+	@# `retired` id must have NO live job; and any live job absent from the
+	@# registry entirely is one that was created by hand and never written
+	@# down — checked regardless of enabled (that is how the brain drift audit
+	@# lived for three weeks in jobs.json alone).
+	@python3 "$(HERMES_REPO)/scripts/check-cron-registry.py" \
+		"$(HERMES_REPO)/docs/scheduled-jobs.md" "$(HERMES_DIR)/cron/jobs.json" 2>/dev/null || true
 	@$(MAKE) --no-print-directory patch-check
 	@# Hermes writes into this repo through the skill symlinks during ordinary
 	@# foreground use — it has authored whole nested skills under skills/homelab/
