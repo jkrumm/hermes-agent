@@ -18,7 +18,7 @@ state must match the live job's — `make status` asserts it.
 | `cc7900c424a9` | Morning briefing | `0 7 * * 1-5` | agent | `briefing-context.py` pre-run · `cron/morning-briefing.prompt.txt` | `argo-api`, `work` | `slack:C0AT6TH404R` #briefings | live |
 | `2d38c80e685c` | Evening report | `0 22 * * 1-4` | agent | `briefing-context.py` pre-run · `cron/evening-report.prompt.txt` | `argo-api`, `work` | `slack:C0AT6TH404R` #briefings | live |
 | `8fe7be4985d9` | Brain drift audit | `0 9 * * 6` | agent | `cron/brain-drift-audit.prompt.txt` | `claude-dispatch`, `obsidian` | `slack:C0ASRULFTSS` #watchdog | live |
-| `9909f808fe17` | Project narratives | `30 6 * * *` | no-agent | `narratives-cron.py` → `project-narratives.py --run` | — | `slack:C0BVDE5R562` #agents | live |
+| `9909f808fe17` | Project narratives | `30 6 * * *` | no-agent | `narratives-cron.py` → `project-narratives.py --run` | — | `slack:C0ASRUD7K1U` #hermes | live |
 
 **Watchdog (`*/30 * * * *`) and Dispatch sweep (`*/5 * * * *`) left this registry 2026-09-09** —
 they're LaunchAgents in `~/SourceRoot/warden` now (`com.jkrumm.warden-poll`,

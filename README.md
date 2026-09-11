@@ -28,14 +28,14 @@ Mac Mini M2 Pro — Hermes Agent (always-on)
 
 | Channel | ID | Hermes | External bots | Role |
 |-|-|-|-|-|
-| `#hermes` | C0ASRUD7K1U | read + write | HomeLab bot | Main conversation, HomeLab-triggered checks |
+| `#hermes` | C0ASRUD7K1U | read + write | HomeLab bot | Main conversation, HomeLab-triggered checks, the project-narratives digest (cron `9909f808fe17`, moved here 2026-09-11) |
 | `#inbox` | C0AT6TB49HP | read + write | HomeLab bot | Johannes + HomeLab drops (voice memos, links, digests) → Hermes processes |
 | `#alerts` | C0AS1LAUQ3C | read only (`require_mention_channels`) | HomeLab bot, VPS app (A0BV9MG54TD), Argo app (A0BV9MFTM9R), external monitors | Silenced — no per-message LLM turn. `~/SourceRoot/warden`'s `watchdog-poll.py` still ingests it out-of-band; `triage.py` deduplicates and acts, cards land in `#agents` — `~/SourceRoot/warden/docs/triage.md`. Mentioning Hermes here directly still works |
 | `#updates` | C0ARZJD824W | read only (`require_mention_channels`) | HomeLab bot | Silenced — Hermes was echoing its own pipeline's posts; still polled out-of-band by warden's `watchdog-poll.py` |
 | `#media` | C0AS5GUH5U4 | read only (`require_mention_channels`) | — | Podcast/image completions — Hermes is the producer, not a conversant |
 | `#watchdog` | C0ASRULFTSS | write only | — | Hermes posts its own proactive monitoring results (`~/SourceRoot/warden`'s `com.jkrumm.warden-poll`/`warden-sweep` LaunchAgents, formerly cron `4b1faabda97d`/`4dd759917dd1`) |
 | `#briefings` | C0AT6TH404R | write only | — | Morning/evening audio reports (cron `cc7900c424a9`, `2d38c80e685c`) |
-| `#agents` | C0BVDE5R562 | write only | — | Warden's item cards and the project-narratives digest (cron `9909f808fe17`) plus alert-triage cards (`~/SourceRoot/warden`'s `triage.py`, its own LaunchAgent), only when something moved — `docs/agents-overview.md`, `~/SourceRoot/warden/docs/triage.md` |
+| `#agents` | C0BVDE5R562 | write only | — | Warden's item cards only (`~/SourceRoot/warden`'s `triage.py`, its own LaunchAgent), updated when something moved; Hermes posts nothing here since 2026-09-11 — `~/SourceRoot/warden/docs/triage.md` |
 
 ### Trigger Matrix
 
