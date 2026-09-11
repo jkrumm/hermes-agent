@@ -11,7 +11,8 @@ metadata:
 # Agents overview — read-only status across every tracked project
 
 sideclaw (a local daemon on this mini, `http://localhost:7705`, the same
-service `scripts/hermes-cc.sh` uses for the dispatch bridge) keeps a live
+service `warden` reaches through the `scripts/hermes-cc.sh` exec shim for the
+dispatch bridge) keeps a live
 overview of every Claude Code / herdr agent running across every project:
 what it's doing, whether it's blocked, and a one-word recommendation
 (`answer` = blocked on a question, `continue` = idle mid-task, `ship` = done

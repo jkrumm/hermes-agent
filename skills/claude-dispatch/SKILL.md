@@ -1,6 +1,6 @@
 ---
 name: claude-dispatch
-description: Hand repo work to a bounded Claude Code episode via the `hermes-cc.sh` verb dispatcher, then answer with its verdict. Use when triage needs the actual source — "why is X failing, look in the repo", "what changed in Y", "warum ist Z rot, schau ins repo", "read the code and tell me", "check the repo for", a red monitor whose cause is code-shaped, a stale GitHub issue, or any question you can only answer by guessing otherwise. Also the path for "file an issue about what you find" (author tier) and, only with Johannes's explicit confirmation, "make that change" (implement tier — isolated worktree, draft PR), then "merge it" to land that PR.
+description: Hand repo work to a bounded Claude Code episode via the `warden` CLI (reached through the `hermes-cc.sh` exec shim), then answer with its verdict. Use when triage needs the actual source — "why is X failing, look in the repo", "what changed in Y", "warum ist Z rot, schau ins repo", "read the code and tell me", "check the repo for", a red monitor whose cause is code-shaped, a stale GitHub issue, or any question you can only answer by guessing otherwise. Also the path for "file an issue about what you find" (author tier) and, only with Johannes's explicit confirmation, "make that change" (implement tier — isolated worktree, draft PR), then "merge it" to land that PR.
 version: 3.0.0
 metadata:
   hermes:

@@ -1,7 +1,7 @@
 # Agents overview — status across every Claude Code / herdr agent
 
-sideclaw (`http://localhost:7705`, the same daemon `scripts/hermes-cc.sh` uses for
-the dispatch bridge) tracks every Claude Code / herdr agent running across every
+sideclaw (`http://localhost:7705`, the same daemon `warden` reaches through the
+`scripts/hermes-cc.sh` exec shim for the dispatch bridge) tracks every Claude Code / herdr agent running across every
 project and summarizes each into a one-word recommendation (`answer`, `continue`,
 `ship`, `review`, `merge`, `close`, `stale`, `watch`). This feature surfaces that
 summary through read-only surfaces — nothing here ever steers an agent.
@@ -148,7 +148,7 @@ python3 ~/SourceRoot/hermes-agent/scripts/agents-overview.py --post-full
 ## Env override
 
 `HERMES_AGENTS_SIDECLAW_BASE` — override the sideclaw base URL (default
-`http://localhost:7705`), same pattern as `hermes-cc.sh`'s
-`HERMES_CC_SIDECLAW_BASE`. `HERMES_AGENTS_CHANNEL` — override the target
+`http://localhost:7705`), same pattern as `warden`'s
+`WARDEN_SIDECLAW_BASE`. `HERMES_AGENTS_CHANNEL` — override the target
 Slack channel for both `--slack-body` and `--post-full` (default
 `C0BVDE5R562`).

@@ -39,7 +39,8 @@ delivers) so "no digest" and "sideclaw is down" stop looking identical.
 Kuma does not watch this path; this line is the health signal.
 
 This script only reads. It never sends keys to a herdr pane and never
-dispatches — that is scripts/hermes-cc.sh's job.
+dispatches — that is warden's job (scripts/hermes-cc.sh is only the exec shim
+into it).
 
 Source of truth: ~/SourceRoot/hermes-agent/scripts/agents-overview.py
 ~/.hermes/scripts/ is itself a symlink to this directory (see make setup).
