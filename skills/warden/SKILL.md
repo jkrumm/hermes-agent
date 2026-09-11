@@ -21,10 +21,11 @@ merges a PR, or aborts a run — that's `claude-dispatch`.
 
 ## Always `127.0.0.1`, never `localhost`
 
-`http://127.0.0.1:7734` — loopback only, no auth, `GET` only (any other
-method `405`, an unknown path `404`). A second, unrelated process listens on
-`[::1]:7734` on this box, and `localhost` can resolve to either — the wrong
-one looks like a working, empty response, not an error. Always use the
+`http://127.0.0.1:7735` — loopback only, no auth, `GET` only (any other
+method `405`, an unknown path `404`). It moved from 7734 to 7735 on
+2026-09-11: sy-serendipity's dev server owns 7734 and its `kill-port` would
+have killed the API. `localhost` can resolve to `[::1]`, where a stranger
+may listen and look like a working, empty response. Always use the
 literal IP.
 
 ## Endpoints
@@ -32,7 +33,7 @@ literal IP.
 ### `GET /health`
 
 ```bash
-curl -s http://127.0.0.1:7734/health
+curl -s http://127.0.0.1:7735/health
 ```
 
 `{ok, schema_version, schema_version_expected, db_path, db_mtime,
@@ -45,7 +46,7 @@ and its age, don't just say "warden looks fine" because the endpoint answered.
 ### `GET /metrics`
 
 ```bash
-curl -s http://127.0.0.1:7734/metrics
+curl -s http://127.0.0.1:7735/metrics
 ```
 
 The six funnel numbers DESIGN.md defines as what "done" means for this
@@ -58,7 +59,7 @@ measurable yet", never a measured zero.**
 ### `GET /board`
 
 ```bash
-curl -s http://127.0.0.1:7734/board
+curl -s http://127.0.0.1:7735/board
 ```
 
 `{generated_at, schema_version, counts: {<state>: n}, items: [{event_id,
@@ -72,7 +73,7 @@ finished in the last 24h. "What is warden doing" is `counts` by state;
 ### `GET /items/<event_id>`
 
 ```bash
-curl -s http://127.0.0.1:7734/items/<event_id>
+curl -s http://127.0.0.1:7735/items/<event_id>
 ```
 
 `{item: {…every triage_items column…}, event: {source, external_id, title,
@@ -113,4 +114,4 @@ that", not `/board`'s one-line summary.
   `/board` or `/items/:id` this turn, call it — a verdict the sweeper
   delivered earlier in the thread is a snapshot from when it was posted,
   not the item's current state.
-- **`http://127.0.0.1:7734` only, never `localhost`.**
+- **`http://127.0.0.1:7735` only, never `localhost`.**

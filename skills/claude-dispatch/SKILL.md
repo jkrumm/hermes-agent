@@ -174,7 +174,7 @@ action and no record of why.
 "where did that PR end up" — read the item, don't guess or re-dispatch:**
 
 ```bash
-curl -s "http://127.0.0.1:7734/items/<eventId>"
+curl -s "http://127.0.0.1:7735/items/<eventId>"
 ```
 
 See the `warden` skill for the shape of that response and the board endpoint

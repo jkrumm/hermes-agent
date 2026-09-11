@@ -40,7 +40,7 @@ that line, use `GITHUB_TOTAL`/`GITHUB_OPEN_BY_REPO`/`GITHUB_FRESH_48H` as
 given; don't re-query GitHub to double-check them.
 
 ## Warden API unreachable
-`curl -s http://127.0.0.1:7734/board` (Step 1, call 10) can fail if
+`curl -s http://127.0.0.1:7735/board` (Step 1, call 10) can fail if
 `warden-api` isn't running, the ledger is mid-migration (503), or the running
 `warden-api` predates the endpoint (404 — it needs a `launchctl kickstart -k`
 after a warden upgrade). Surface the
