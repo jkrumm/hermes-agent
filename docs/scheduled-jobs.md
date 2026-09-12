@@ -33,10 +33,16 @@ they're LaunchAgents in `~/SourceRoot/warden` now (`com.jkrumm.warden-poll`,
   times in two days; retired 2026-09-11. Replaced by Warden's card board in `#agents` (one
   deduplicated `chat.update`d card per item, `config/triage-policy.json`'s `cardChannel`),
   the same sideclaw snapshot in the herdr overview pane, the morning briefing
-  (`agents-overview.py --briefing`), and Argo's `/agents` page and Warden board. To
-  recreate: restore `scripts/agents-cron.py` from git history (`git show
-  <pre-retirement-sha>:scripts/agents-cron.py`), then `hermes cron create "*/30 * * * *" --name "Agents
-  overview" --script agents-cron.py --no-agent --deliver slack:C0BVDE5R562` (the same form
+  (`agents-overview.py --briefing`), and Argo's `/agents` page and Warden board.
+  Its code (`render_slack()`, `agents-overview.py --slack-body`, the
+  `fetch_agents()`/`fingerprint()`/`delta()` change-detection chain, the
+  once-per-day unreachable warning, the state file) was removed from
+  `agents-overview.py` 2026-09-12 once nothing referenced it any more. To
+  recreate: restore both `scripts/agents-cron.py` and the pre-removal
+  `scripts/agents-overview.py` from git history (`git show
+  <pre-removal-sha>:scripts/agents-cron.py`, same for `agents-overview.py`),
+  then `hermes cron create "*/30 * * * *" --name "Agents overview" --script
+  agents-cron.py --no-agent --deliver slack:C0BVDE5R562` (the same form
   `docs/project-narratives.md` uses: schedule positional, `--script` a bare filename under
   `~/.hermes/scripts/`).
 

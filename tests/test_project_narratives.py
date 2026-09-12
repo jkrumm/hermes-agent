@@ -15,7 +15,7 @@ No network, no real vault, no real git/node process — every case builds its
 fixtures under a temp directory and reassigns the module's path globals
 (SOURCE_ROOT, VAULT_ROOT, PROJECTS_DIR, ENGINEERING_INDEX, VAULT_LINT,
 STATE_PATH, CLAUDE_PROJECTS_DIR) before calling into it, mirroring how
-test_agents_overview.py reassigns ao.fetch_agents/ao.refresh.
+test_agents_overview.py reassigns ao.fetch.
 
 Run against the live tree:
 

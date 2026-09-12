@@ -104,13 +104,14 @@ last-known overview in the meantime; offer to check back.
 
 ## Related automation
 
-`scripts/agents-overview.py` (a scheduled no-agent script, not part of this
-skill's conversational path) posts a Slack digest and feeds the morning
-briefing — see `docs/agents-overview.md`. Both of its refreshes are
-consumer-driven, not clock-driven: the briefing refreshes only when the
-cached overview is older than 2h, and the digest refreshes only when a
-deterministic `/api/agents` snapshot fingerprint changed since its last run.
-That script is the unattended path; this skill is the conversational one.
+`scripts/agents-overview.py` (a no-agent script, not part of this skill's
+conversational path) feeds the morning briefing and posts an on-demand full
+overview to Slack — see `docs/agents-overview.md`. The briefing's refresh is
+consumer-driven, not clock-driven: it only refreshes when the cached
+overview is older than 2h. That script is the unattended/on-demand path;
+this skill is the conversational one. (Its scheduled 30-min Slack digest was
+retired 2026-09-11 and its code removed 2026-09-12 — see
+`docs/agents-overview.md`.)
 
 **"Post the overview to #agents"** (or a request for a screenshot of the
 digest): run the bare command below — no pipe, it posts Block Kit directly

@@ -1,46 +1,40 @@
 #!/usr/bin/env python3
 """Agents overview — read-only summary of every Claude Code / herdr agent
-sideclaw is tracking, for Slack pings and the morning briefing.
+sideclaw is tracking, for the morning briefing and an on-demand Slack post.
 
 Talks to sideclaw's overview endpoints (`http://localhost:7705`, a local
 LaunchAgent — see `skills/agents/SKILL.md`):
 
   GET  /api/overview          -> {ok, data: {generatedAt, summary, projects[], overview, ...}}
-  GET  /api/agents            -> {ok, data: {generatedAt, summary, projects[], ...}}  -- same
-       shape as /api/overview minus `overview`/recommendations: a deterministic
-       snapshot with no LLM involved, used to decide whether a refresh is worth
-       triggering at all.
   POST /api/jobs {"tool":"overview"} -> {ok, job:{id, status, ...}}   -- triggers
        a fresh LLM pass; poll GET /api/jobs/<id> until status is
        done|failed, then re-GET /api/overview for the merged result.
 
 Refresh is consumer-driven, not clock-driven: `--briefing` only refreshes
 when the cached overview is missing or older than
-`HERMES_AGENTS_BRIEFING_MAX_AGE_S` (default 7200s); `--slack-body` only
-refreshes when the deterministic `/api/agents` snapshot's fingerprint()
-differs from the last run's — an idle night produces zero model calls.
+`HERMES_AGENTS_BRIEFING_MAX_AGE_S` (default 7200s) — an idle night produces
+zero model calls.
 
 `data.humanQueue` (sideclaw, 2026-09-07) is the mini's ask-human queue —
 `[{id, askedAt, question, cmd?}]`, work that needs a PRESENT human (a
 biometric `op`, an ACL push). It renders as a "Needs you" section at the
-top of the digest and the briefing, every entry counts as a delta the
-moment it appears (or is drained), and its ids ride the fingerprint so a
-new ask alone wakes the digest.
+top of the briefing and the `--post-full` overview.
 
-An agent in state `needs_you` is ALWAYS listed, whatever its
-recommendation — `summary.needsYou` counts by state, so a digest whose
-header says "1 need you" must show that one item (the 2026-09-07 11:01
-digest counted one and listed none because the body filtered on
-recommendation alone).
-
-When sideclaw is unreachable end to end, the digest is not silent: once per
-day a warning line goes to #agents (via stdout, which the no_agent runner
-delivers) so "no digest" and "sideclaw is down" stop looking identical.
-Kuma does not watch this path; this line is the health signal.
+An agent in state `needs_you` is ALWAYS listed in the briefing, whatever its
+recommendation — `summary.needsYou` counts by state, so a briefing whose
+header says "1 need you" must show that one item.
 
 This script only reads. It never sends keys to a herdr pane and never
 dispatches — that is warden's job (scripts/hermes-cc.sh is only the exec shim
 into it).
+
+Retired 2026-09-11: the scheduled `#agents` Slack digest (`--slack-body`,
+cron job `72aa2fb36307`) that reposted this data every 30 minutes. Its code
+(`render_slack()`, the fingerprint-based change detection, the once-per-day
+unreachable warning) was removed 2026-09-12 once nothing referenced it any
+more — see `docs/scheduled-jobs.md` for the retirement history and how to
+recreate it from git if ever needed. `--post-full` (an on-demand, human-run
+Slack post of the full overview) is unrelated and still live.
 
 Source of truth: ~/SourceRoot/hermes-agent/scripts/agents-overview.py
 ~/.hermes/scripts/ is itself a symlink to this directory (see make setup).
@@ -48,10 +42,8 @@ Source of truth: ~/SourceRoot/hermes-agent/scripts/agents-overview.py
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
-import re
 import subprocess
 import sys
 import time
@@ -59,8 +51,6 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
-
-STATE_PATH = Path.home() / ".hermes" / "agents-overview-state.json"
 
 DEFAULT_BASE = "http://localhost:7705"
 
@@ -72,27 +62,14 @@ SLACK_POST_URL = "https://slack.com/api/chat.postMessage"
 
 # SLACK_BOT_TOKEN is unconditionally Tier-1-stripped from every subprocess the
 # gateway spawns (tools/environments/local.py's _ALWAYS_STRIP_KEYS — same
-# treatment as GITHUB_TOKEN), so a cron-run `--slack-body`/`--post-full` never
-# sees it via os.environ. Mirrors watchdog-poll.py's resolve_secret() fallback:
-# inherited env first (covers a manual run), else the encrypted secrets cache.
+# treatment as GITHUB_TOKEN), so a cron-run `--post-full` never sees it via
+# os.environ. Mirrors watchdog-poll.py's resolve_secret() fallback: inherited
+# env first (covers a manual run), else the encrypted secrets cache.
 SECRETS_RUN = Path.home() / ".local" / "bin" / "secrets-run"
 SLACK_TOKEN_REF = "op://hermes/slack/bot-token"
 
-# Recommendation -> icon, mirrors sideclaw's own /api/overview.txt rendering.
-RECOMMENDATION_ICONS = {
-    "answer": "?!",
-    "continue": "→",  # ->
-    "ship": "⇧",      # up-shift arrow
-    "review": "⚑",    # flag
-    "merge": "⇄",     # merge arrows
-    "close": "✓",     # check
-    "stale": "·",     # middle dot
-    "watch": "●",     # filled circle
-}
-
-# Emoji map for the Block Kit digest — mirrors RECOMMENDATION_ICONS above but
-# using Slack `:emoji:` names instead of unicode glyphs (plain_text/mrkdwn
-# render emoji shortcodes; the unicode glyphs above are for the .txt surface).
+# Emoji map for the Block Kit overview — plain_text/mrkdwn render emoji
+# shortcodes, not unicode glyphs (those are sideclaw's own .txt rendering).
 RECOMMENDATION_EMOJI = {
     "answer": ":rotating_light:",
     "ship": ":package:",
@@ -105,11 +82,9 @@ RECOMMENDATION_EMOJI = {
     "none": ":grey_question:",
 }
 
-# Recommendations worth a Slack ping / a morning-briefing line.
-ACTIONABLE = {"answer", "ship", "merge", "review"}
+# Recommendations worth a morning-briefing line.
 QUIET = {"watch", "close"}
 
-SLACK_MAX_LINES = 25
 BRIEFING_MAX_LINES = 20
 
 # Block Kit hard limits (render_slack_blocks) — see docs/agents-overview.md.
@@ -169,46 +144,6 @@ def fetch(base: str, timeout_s: int = 10) -> dict[str, Any]:
     return payload["data"]
 
 
-def fetch_agents(base: str, timeout_s: int = 10) -> dict[str, Any]:
-    """GET /api/agents and return the `data` object — the deterministic
-    snapshot (no LLM overview, no recommendations) used to decide whether a
-    refresh is worth its model call. Same failure contract as fetch()."""
-    req = urllib.request.Request(f"{base}/api/agents")
-    with urllib.request.urlopen(req, timeout=timeout_s) as resp:
-        payload = json.loads(resp.read().decode())
-    if not payload.get("ok"):
-        raise RuntimeError(f"agents fetch not ok: {payload}")
-    return payload["data"]
-
-
-def fingerprint(data: dict[str, Any]) -> str:
-    """Pure, deterministic fingerprint of a snapshot's agent/project state:
-    sha256 over the canonical JSON of the sorted rows
-    (agent.id, agent.state, agent.lastActivityAt, project.name,
-    project.git.dirty, project.git.ahead) across every agent in every
-    project. Sorting by each row's own canonical JSON (rather than the raw
-    tuples) keeps this stable across dict key order and project/agent
-    iteration order, and sidesteps comparing mixed None/str/int/bool values
-    directly."""
-    rows: list[list[Any]] = []
-    for project in data.get("projects") or []:
-        git = project.get("git") or {}
-        for agent in project.get("agents") or []:
-            rows.append([
-                agent.get("id"),
-                agent.get("state"),
-                agent.get("lastActivityAt"),
-                project.get("name"),
-                git.get("dirty"),
-                git.get("ahead"),
-            ])
-    for entry in _human_queue(data):
-        rows.append(["humanQueue", entry.get("id"), entry.get("askedAt")])
-    rows.sort(key=lambda row: json.dumps(row, sort_keys=True, default=str))
-    canonical = json.dumps(rows, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode()).hexdigest()
-
-
 def _human_queue(data: dict[str, Any] | None) -> list[dict[str, Any]]:
     """`data.humanQueue` as a list of dicts, tolerant of the key being absent
     (an older sideclaw) or malformed — never raises."""
@@ -222,12 +157,6 @@ def _human_queue(data: dict[str, Any] | None) -> list[dict[str, Any]]:
 
 def _is_needs_you(agent: dict[str, Any]) -> bool:
     return agent.get("state") == "needs_you"
-
-
-def _shown_in_digest(agent: dict[str, Any]) -> bool:
-    """Actionable by recommendation, OR blocked by state. The second half is
-    what keeps the body consistent with `summary.needsYou`."""
-    return agent.get("recommendation") in ACTIONABLE or _is_needs_you(agent)
 
 
 def needs_refresh(data: dict[str, Any], max_age_ms: int) -> bool:
@@ -301,97 +230,6 @@ def refresh(base: str, timeout_s: int = 120) -> dict[str, Any] | None:
     return None
 
 
-def _agent_index(overview: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
-    """id -> {recommendation, title, project} for every agent in an overview
-    `data` object. Deliberately ignores `standing`/`state` — those churn
-    every run without being a decision-relevant change."""
-    idx: dict[str, dict[str, Any]] = {}
-    if not overview:
-        return idx
-    for project in overview.get("projects") or []:
-        pname = project.get("name") or "?"
-        for agent in project.get("agents") or []:
-            aid = agent.get("id")
-            if not aid:
-                continue
-            idx[aid] = {
-                "recommendation": agent.get("recommendation"),
-                "title": agent.get("title") or "?",
-                "project": pname,
-            }
-    return idx
-
-
-def delta(prev: dict[str, Any] | None, cur: dict[str, Any]) -> list[str]:
-    """Pure diff of two overview `data` objects, by agent id: new agents,
-    changed recommendations, agents that disappeared. A recommendation that
-    stays the same never produces an entry, no matter what else about the
-    agent (state, standing wording) changed in the meantime — that's what
-    makes watch<->working churn and standing-only edits invisible here.
-
-    Each entry carries a trailing `[id:<agent id>]` tag — machine-readable,
-    parsed by `_changed_ids()` so render_slack_blocks() can show a changed
-    agent in the digest even when its recommendation isn't itself
-    actionable (e.g. a stale agent going `close`). The human-readable prefix
-    is unchanged, so this is additive."""
-    prev_idx = _agent_index(prev)
-    cur_idx = _agent_index(cur)
-    changes: list[str] = []
-
-    for aid, info in cur_idx.items():
-        if aid not in prev_idx:
-            changes.append(
-                f"new: {info['project']} — {info['title']} ({info['recommendation']}) [id:{aid}]"
-            )
-            continue
-        old_rec = prev_idx[aid]["recommendation"]
-        new_rec = info["recommendation"]
-        if old_rec != new_rec:
-            changes.append(
-                f"changed: {info['project']} — {info['title']} "
-                f"({old_rec} → {new_rec}) [id:{aid}]"
-            )
-
-    for aid, info in prev_idx.items():
-        if aid not in cur_idx:
-            changes.append(f"gone: {info['project']} — {info['title']} [id:{aid}]")
-
-    # The human queue: any entry appearing or draining is a delta in its own
-    # right — an ask nobody announced is an ask nobody answers.
-    prev_hq = {e["id"]: e for e in _human_queue(prev)}
-    cur_hq = {e["id"]: e for e in _human_queue(cur)}
-    for hid, entry in cur_hq.items():
-        if hid not in prev_hq:
-            changes.append(f"needs you: {(entry.get('question') or '?').strip()} [id:hq:{hid}]")
-    for hid, entry in prev_hq.items():
-        if hid not in cur_hq:
-            changes.append(f"answered: {(entry.get('question') or '?').strip()} [id:hq:{hid}]")
-
-    return changes
-
-
-_CHANGE_ID_RE = re.compile(r"\[id:([^\]]+)\]$")
-
-
-def _changed_ids(changes: list[str]) -> set[str]:
-    """Extract the `[id:...]` tags delta() appends to each entry."""
-    ids: set[str] = set()
-    for c in changes:
-        m = _CHANGE_ID_RE.search(c)
-        if m:
-            ids.add(m.group(1))
-    return ids
-
-
-def _project_actionable(cur: dict[str, Any]) -> list[tuple[str, list[dict[str, Any]]]]:
-    grouped: list[tuple[str, list[dict[str, Any]]]] = []
-    for project in cur.get("projects") or []:
-        items = [a for a in (project.get("agents") or []) if _shown_in_digest(a)]
-        if items:
-            grouped.append((project.get("name") or "?", items))
-    return grouped
-
-
 def _summary_line(cur: dict[str, Any]) -> str:
     s = cur.get("summary") or {}
     return (
@@ -404,41 +242,10 @@ def _summary_line(cur: dict[str, Any]) -> str:
     )
 
 
-def render_slack(cur: dict[str, Any], changes: list[str]) -> str:
-    """mrkdwn body: header + actionable (answer/ship/merge/review) agents
-    grouped by project. Silence is the normal case — empty string whenever
-    `changes` is empty, full stop. A persistent, unchanged `answer` item is
-    NOT re-announced every cycle (this cron runs every 30 min — reposting an
-    unresolved question that often would be noise, not a nudge); the morning
-    briefing re-surfaces standing answer items daily via render_briefing(),
-    which is enough."""
-    if not changes:
-        return ""
-
-    grouped = _project_actionable(cur)
-
-    lines = [_summary_line(cur)]
-    lines.extend(_needs_you_lines(cur))
-    for pname, items in grouped:
-        lines.append(f"*{pname}*")
-        for a in items:
-            icon = RECOMMENDATION_ICONS.get(a.get("recommendation"), "·")
-            title = a.get("title") or "?"
-            standing = (a.get("standing") or "").strip()
-            suffix = f" — {standing}" if standing else ""
-            lines.append(f"{icon} {title}{suffix}")
-
-    if len(lines) > SLACK_MAX_LINES:
-        overflow = len(lines) - (SLACK_MAX_LINES - 1)
-        lines = lines[: SLACK_MAX_LINES - 1] + [f"… and {overflow} more"]
-
-    return "\n".join(lines)
-
-
 def _needs_you_lines(cur: dict[str, Any]) -> list[str]:
-    """Plain-text 'Needs you' block for the mrkdwn digest and the briefing:
-    one line per human-queue entry, question first, the proposed command
-    (if any) after it. Empty list when the queue is empty."""
+    """Plain-text 'Needs you' block for the briefing: one line per
+    human-queue entry, question first, the proposed command (if any) after
+    it. Empty list when the queue is empty."""
     queue = _human_queue(cur)
     if not queue:
         return []
@@ -526,12 +333,12 @@ def _blocks_header_text(cur: dict[str, Any]) -> str:
     return _truncate(text, HEADER_TEXT_MAX)
 
 
-def _blocks_footer_text(cur: dict[str, Any], changes: list[str]) -> str:
+def _blocks_footer_text(cur: dict[str, Any]) -> str:
     overview = cur.get("overview") or {}
     age = _fmt_age_ms(overview.get("ageMs"))
     model = overview.get("model") or "?"
     hhmm = _fmt_hhmm(overview.get("generatedAt"))
-    return f"overview {age} old · {model} · {len(changes)} changes since last digest · {hhmm}"
+    return f"overview {age} old · {model} · {hhmm}"
 
 
 def _project_section_block(
@@ -555,33 +362,18 @@ def _project_section_block(
     return {"type": "section", "text": {"type": "mrkdwn", "text": text}}
 
 
-def render_slack_blocks(
-    cur: dict[str, Any], changes: list[str], *, full: bool = False,
-) -> list[dict[str, Any]]:
-    """Block Kit body for the #agents digest / on-demand overview. Pure —
-    same `cur`/`changes` shapes as render_slack()/delta().
+def render_slack_blocks(cur: dict[str, Any]) -> list[dict[str, Any]]:
+    """Block Kit body for the on-demand `--post-full` overview. Pure — same
+    `cur` shape as render_briefing().
 
-    Which agents show, per project: `full=True` (--post-full) shows every
-    agent with a recommendation; `full=False` (the cron digest) shows only
-    agents whose recommendation is actionable (answer/ship/merge/review) OR
-    whose id appears in `changes` (delta()'s `[id:...]` tags) — so a
-    newly-changed but non-actionable agent (e.g. -> close) still surfaces,
-    while a persistent unchanged watch/continue agent stays out.
-
-    Projects are sorted with any `answer` agent first, then ship/merge/
-    review, then the rest; agents within a project use the same order.
-    Capped at BLOCKS_MAX total blocks — lowest-priority projects are
-    dropped first, replaced by a trailing `… and N more projects` context
-    block."""
-    changed_ids = _changed_ids(changes)
-
+    Shows every agent with a recommendation, grouped by project. Projects
+    are sorted with any `answer` agent first, then ship/merge/review, then
+    the rest; agents within a project use the same order. Capped at
+    BLOCKS_MAX total blocks — lowest-priority projects are dropped first,
+    replaced by a trailing `… and N more projects` context block."""
     project_chunks: list[tuple[int, dict[str, Any]]] = []
     for project in cur.get("projects") or []:
-        all_agents = project.get("agents") or []
-        if full:
-            shown = [a for a in all_agents if a.get("recommendation")]
-        else:
-            shown = [a for a in all_agents if _shown_in_digest(a) or a.get("id") in changed_ids]
+        shown = [a for a in (project.get("agents") or []) if a.get("recommendation")]
         if not shown:
             continue
         shown.sort(key=lambda a: _agent_priority(a))
@@ -598,7 +390,7 @@ def render_slack_blocks(
         all_blocks.insert(0, hq_block)
 
     header_block = {"type": "header", "text": {"type": "plain_text", "text": _blocks_header_text(cur)}}
-    footer_block = {"type": "context", "elements": [{"type": "mrkdwn", "text": _blocks_footer_text(cur, changes)}]}
+    footer_block = {"type": "context", "elements": [{"type": "mrkdwn", "text": _blocks_footer_text(cur)}]}
 
     def _assemble(kept: list[dict[str, Any]]) -> list[dict[str, Any]]:
         blocks = [header_block]
@@ -686,39 +478,6 @@ def render_briefing(cur: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-UNREACHABLE_WARNED_KEY = "_unreachableWarnedOn"
-
-
-def unreachable_warning(prev: dict[str, Any] | None, today: str, base: str) -> str:
-    """The once-per-day sideclaw-down line for #agents. Pure: '' when the
-    warning already went out today (per `prev[_unreachableWarnedOn]`), else
-    the line. The caller persists the date."""
-    if prev and prev.get(UNREACHABLE_WARNED_KEY) == today:
-        return ""
-    return (
-        f":warning: agents overview: sideclaw at {base} is unreachable — no agent "
-        f"digest until it answers (`launchctl print gui/$(id -u)/com.jkrumm.sideclaw`, "
-        f"`curl {base}/health`). Said once per day."
-    )
-
-
-def _load_state() -> dict[str, Any] | None:
-    try:
-        return json.loads(STATE_PATH.read_text())
-    except (FileNotFoundError, json.JSONDecodeError):
-        return None
-
-
-def _save_state(cur: dict[str, Any]) -> None:
-    try:
-        STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        tmp = STATE_PATH.with_suffix(STATE_PATH.suffix + f".tmp.{os.getpid()}")
-        tmp.write_text(json.dumps(cur))
-        tmp.replace(STATE_PATH)
-    except OSError:
-        pass
-
-
 def main(argv: list[str] | None = None) -> int:
     args = argv if argv is not None else sys.argv[1:]
     base = _base_url()
@@ -750,65 +509,6 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(cur))
         return 0
 
-    if "--slack-body" in args:
-        prev = _load_state()
-        try:
-            snapshot = fetch_agents(base)
-        except Exception:
-            snapshot = None
-
-        fp: str | None = None
-        if snapshot is not None:
-            fp = fingerprint(snapshot)
-            if prev is not None and fp == prev.get("fingerprint"):
-                # Deterministic snapshot unchanged since the last run —
-                # nothing moved, so skip the model call entirely.
-                return 0
-
-        cur = refresh(base)
-        if cur is None:
-            try:
-                cur = fetch(base)
-            except Exception:
-                # Sideclaw unreachable end to end. Never kill the calling
-                # cron, and never stay silent about it either: one warning
-                # line per day to #agents (stdout is the delivered body under
-                # no_agent). The snapshot in state is left untouched so the
-                # next successful run diffs against the last known-good one;
-                # only the warned-on date is stamped.
-                today = time.strftime("%Y-%m-%d")
-                warning = unreachable_warning(prev, today, base)
-                if warning:
-                    print(warning)
-                    stamped = dict(prev or {})
-                    stamped[UNREACHABLE_WARNED_KEY] = today
-                    _save_state(stamped)
-                return 0
-        changes = delta(prev, cur)
-        body = render_slack(cur, changes)
-        if body:
-            # Post Block Kit ourselves when a token resolves — the runner
-            # delivers this script's stdout verbatim under no_agent, so
-            # printing `body` here too would double-post. Only the mrkdwn
-            # fallback (no token, or Slack rejected the post) goes to stdout.
-            token = resolve_slack_token()
-            posted = False
-            blocks: list[dict[str, Any]] = []
-            if token:
-                blocks = render_slack_blocks(cur, changes, full=False)
-                posted = post_blocks(_channel(), blocks, body, token)
-            if posted:
-                print(
-                    f"agents-overview: posted digest via blocks "
-                    f"({len(blocks)} blocks) to {_channel()}",
-                    file=sys.stderr,
-                )
-            else:
-                print(body)
-        cur["fingerprint"] = fp if fp is not None else fingerprint(cur)
-        _save_state(cur)
-        return 0
-
     if "--post-full" in args:
         try:
             cur = fetch(base)
@@ -819,7 +519,7 @@ def main(argv: list[str] | None = None) -> int:
         if not token:
             print("agents-overview: SLACK_BOT_TOKEN unresolved, cannot post --post-full", file=sys.stderr)
             return 1
-        blocks = render_slack_blocks(cur, [], full=True)
+        blocks = render_slack_blocks(cur)
         fallback = render_briefing(cur)
         if not post_blocks(_channel(), blocks, fallback, token):
             print("agents-overview: --post-full slack post failed", file=sys.stderr)
@@ -830,7 +530,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
-    print("usage: agents-overview.py --slack-body | --briefing | --json | --post-full", file=sys.stderr)
+    print("usage: agents-overview.py --briefing | --json | --post-full", file=sys.stderr)
     return 2
 
 

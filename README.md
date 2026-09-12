@@ -238,4 +238,5 @@ The CLI itself lives at `warden/scripts/warden` (a Python CLI; the original bash
 `hermes-cc.sh` was retired 2026-09-10); this repo's own `scripts/hermes-cc.sh`
 (= `~/.hermes/scripts/hermes-cc.sh`) is a 6-line exec shim into it — the path stays
 because the Hermes-side guards key on it.
-Full design and every bound: `docs/dispatch-bridge.md`.
+Full design and every bound: `~/SourceRoot/warden/DESIGN.md`. Hermes's own side —
+the Slack door and the signed-approval artifact: `docs/dispatch-bridge.md`.

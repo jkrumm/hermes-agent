@@ -76,7 +76,8 @@ client that hands the episode to Claude Code (sideclaw's `dispatch` job tool) in
 lives at `warden/scripts/warden` (a Python CLI; the original bash `hermes-cc.sh` was retired
 2026-09-10); `scripts/hermes-cc.sh` here (= `~/.hermes/scripts/hermes-cc.sh`) is a 6-line exec
 shim into it — the path stays because the Hermes-side guards key on it. Design +
-why each bound is shaped this way: **`docs/dispatch-bridge.md`**.
+why each bound is shaped this way: `~/SourceRoot/warden/DESIGN.md`. The door and
+the signed-approval artifact, which stay Hermes-side: **`docs/dispatch-bridge.md`**.
 
 **Verbs:** `run <repo>` · `dispatch <repo>` · `status <job-id>` · `list [open|today|all]` ·
 `merge <job-id>` · `abort <event-id>` · `revert <event-id>` — there is no `cancel` any more

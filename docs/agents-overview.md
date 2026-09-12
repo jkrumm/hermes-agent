@@ -12,134 +12,88 @@ summary through read-only surfaces — nothing here ever steers an agent.
 |-|-|-|
 | Conversational | "what are my agents doing", "wo steht `<project>`" | `skills/agents/SKILL.md` — reads `/api/overview.txt`, refreshes on request |
 | Morning briefing | an "Agenten & Projekte" section, ≤ 6 lines, German | `scripts/agents-overview.py --briefing`, called from `scripts/briefing-context.py`, rendered per `cron/morning-briefing.prompt.txt` |
+| On-demand Slack post | "post the overview to #agents" (or a screenshot request) | `scripts/agents-overview.py --post-full`, posts Block Kit via `chat.postMessage`, no schedule, no state |
 
 **Retired: the scheduled Slack digest.** `scripts/agents-overview.py
 --slack-body`, run every 30 min by cron job `72aa2fb36307`, was paused
 2026-09-08 18:45 after reposting the same blocked pane ~35 times in two days
-and retired 2026-09-11. Replaced by Warden's card board in `#agents` (one
-deduplicated `chat.update`d card per item), the same sideclaw snapshot in the
-herdr overview pane, this file's morning-briefing surface, and Argo's
-`/agents` page and Warden board. The morning briefing (`render_briefing()`)
-re-surfaces every non-quiet recommendation daily, which is what keeps a
-forgotten standing question from vanishing for good.
+and retired 2026-09-11. Its code (`render_slack()`, the `fetch_agents()`/
+`fingerprint()`/`delta()` change-detection chain, the once-per-day
+unreachable warning, the state file) was removed from the script 2026-09-12
+once nothing referenced it any more — see `docs/scheduled-jobs.md` for the
+retirement history and how to recreate it from git if ever needed. Replaced
+by Warden's card board in `#agents` (one deduplicated `chat.update`d card per
+item), the same sideclaw snapshot in the herdr overview pane, this file's
+morning-briefing surface, and Argo's `/agents` page and Warden board. The
+morning briefing (`render_briefing()`) re-surfaces every non-quiet
+recommendation daily, which is what keeps a forgotten standing question from
+vanishing for good.
 
 ## Needs you (human queue)
 
 `data.humanQueue` (sideclaw, 2026-09-07) is the mini's ask-human queue —
 `[{id, askedAt, question, cmd?}]`, work that needs a PRESENT human (a
 biometric `op`, an ACL push, `make human-queue`). It renders as a "Needs you"
-section at the top of the briefing (and, while the now-retired Slack digest
-ran, at the top of that too); every entry counts as a delta the moment it
-appears or is drained. An agent in state `needs_you` is **always** listed,
-whatever its recommendation — `summary.needsYou` counts by state, and a
-render whose header says "1 need you" must show that one item (a 2026-09-07
-bug counted one and listed none because the body filtered on recommendation
-alone; `_is_needs_you()` is now checked independently of the
-actionable-recommendation filter).
+section at the top of the briefing and at the top of the `--post-full`
+overview. An agent in state `needs_you` is **always** listed in the
+briefing, whatever its recommendation — `summary.needsYou` counts by state,
+and a render whose header says "1 need you" must show that one item
+(`_is_needs_you()` is checked independently of the actionable-recommendation
+filter).
 
 ## Refresh is consumer-driven, not clock-driven
 
-Neither surface refreshes on a fixed clock — each decides for itself whether
-the LLM overview pass (`overview` job) is worth its own model call:
-
-- **The morning briefing refreshes when the cached overview is stale.** After
-  `fetch()`, if `data.overview` is null or its `ageMs` is older than
-  `HERMES_AGENTS_BRIEFING_MAX_AGE_S` (default 7200s = 2h), `--briefing` calls
-  `refresh()` before rendering. If that refresh fails, it renders the cached
-  data anyway and appends one line noting how old the verdicts are, rather
-  than blocking the briefing on sideclaw.
-- **The retired digest cron refreshed only when something actually moved**
-  (kept for history — `--slack-body` still exists in the script, unscheduled).
-  Before ever touching the model, `--slack-body` fetches the deterministic
-  `GET /api/agents` snapshot (same shape as `/api/overview`, minus the LLM
-  fields) and hashes it with `fingerprint()` — sha256 over the sorted
-  `(agent.id, agent.state, agent.lastActivityAt, project.name,
-  project.git.dirty, project.git.ahead)` rows. If that fingerprint matches
-  the one saved from the previous run, it exits silently: no refresh, no
-  state write, no output. Only a changed fingerprint triggers the existing
-  `refresh()` → `delta()` → `render_slack()` path. On an idle night this
-  costs zero model calls, every cycle.
+The briefing does not refresh on a fixed clock — it decides for itself
+whether the LLM overview pass (`overview` job) is worth its own model call.
+After `fetch()`, if `data.overview` is null or its `ageMs` is older than
+`HERMES_AGENTS_BRIEFING_MAX_AGE_S` (default 7200s = 2h), `--briefing` calls
+`refresh()` before rendering. If that refresh fails, it renders the cached
+data anyway and appends one line noting how old the verdicts are, rather
+than blocking the briefing on sideclaw. `--post-full` never refreshes — it
+posts whatever the cached overview currently holds.
 
 ## Read-only, by design
 
-This feature never sends keys to a herdr pane and never opens a dispatch — it only
-calls sideclaw's `GET /api/overview[.txt]` and, for the Slack digest, `POST
-/api/jobs {"tool":"overview"}` to trigger a fresh summarization pass. Steering an
-agent (answering it, nudging it, opening a new episode) stays `claude-dispatch`'s
-job. `scripts/agents-overview.py`'s functions are pure given an overview snapshot —
-`fetch`/`refresh` are the only network calls, everything else (`delta`,
-`render_slack`, `render_briefing`) is unit-tested in `tests/test_agents_overview.py`
-with no network at all.
+This feature never sends keys to a herdr pane and never opens a dispatch — it
+only calls sideclaw's `GET /api/overview[.txt]` and, when the cached overview
+is stale, `POST /api/jobs {"tool":"overview"}` to trigger a fresh
+summarization pass. Steering an agent (answering it, nudging it, opening a
+new episode) stays `claude-dispatch`'s job. `scripts/agents-overview.py`'s
+render functions are pure given an overview snapshot — `fetch`/`refresh` are
+the only network calls, everything else (`render_briefing`,
+`render_slack_blocks`) is unit-tested in `tests/test_agents_overview.py` with
+no network at all.
 
-## State file
+## Rendering: Block Kit, escaping, `--post-full`
 
-`~/.hermes/agents-overview-state.json` — the last overview snapshot seen by
-`--slack-body`, plus its `fingerprint` (see above), used by `delta()` and the
-fingerprint comparison to decide whether anything changed since the previous
-run. Gitignored runtime state, like `briefing-state.json`; deleting it just
-means the next run treats every current agent as new (so it speaks once, then
-goes quiet again on the following run if nothing changed) and always refreshes
-once to re-establish a baseline fingerprint. Written atomically (temp file +
-rename).
-
-## Retired: the Slack digest cron
-
-Registered 2026-09-07 as job `72aa2fb36307`, its thin loader
-`scripts/agents-cron.py` calling `agents-overview.py`'s `main(["--slack-body"])`.
-Paused 2026-09-08 18:45 after reposting the same blocked pane ~35 times in two
-days, retired 2026-09-11 — `agents-cron.py` deleted, the job removed from
-`hermes cron`. Replaced by Warden's card board in `#agents`, the herdr overview
-pane, the morning briefing, and Argo's `/agents` page and Warden board (see the
-registry entry in `docs/scheduled-jobs.md`).
-
-## Rendering: Block Kit, escaping, the fallback rule, `--post-full`
-
-`#agents` posts render as Slack Block Kit, not plain mrkdwn.
-`render_slack_blocks(cur, changes, *, full=False)` is the pure builder (no
-network) — `header` (counts), one `section` per project (`*name*
+`render_slack_blocks(cur)` is the pure Block Kit builder (no network) for the
+`--post-full` overview — `header` (counts), one `section` per project (`*name*
 \`branch[*if dirty]\`` then one line per agent: emoji + title + standing,
 plus an indented `↳ _blocker_` line when set), `divider`s between projects,
-and a trailing `context` line with the overview's age, model, change count
-and time. `full=False` (the now-retired digest cron) showed only agents whose
-recommendation is actionable (answer/ship/merge/review) **or** whose id is
-tagged in `changes` (`delta()` appends a trailing `[id:...]` to each entry
-for exactly this) — so a newly-changed but non-actionable agent (e.g. ->
-`close`) still shows up, while a persistent unchanged `watch`/`continue`
-agent doesn't. `full=True` (`--post-full`) shows every agent with any
-recommendation. Projects sort with any `answer` agent first, then
-ship/merge/review, then the rest; capped at `BLOCKS_MAX` (50) total blocks
-— lowest-priority projects are dropped first, replaced by a trailing
-`… and N more projects` context block.
+and a trailing `context` line with the overview's age, model and time. It
+shows every agent that has any recommendation. Projects sort with any
+`answer` agent first, then ship/merge/review, then the rest; capped at
+`BLOCKS_MAX` (50) total blocks — lowest-priority projects are dropped first,
+replaced by a trailing `… and N more projects` context block.
 
 **Escaping.** Titles, standings and blockers come from agent transcripts —
 attacker-influenced — so `&`, `<`, `>` are always escaped before being
 placed in mrkdwn text, closing off both accidental markup and a `<@user>`
 mention forgery.
 
-**Posting and the fallback rule.** `post_blocks(channel, blocks,
-text_fallback, token)` calls `chat.postMessage` directly (bearer token,
-`unfurl_links: false`). `--slack-body` still computes the plain mrkdwn body
-via `render_slack()` first — silence (empty string) is still the normal
-case when nothing changed. When there IS something to post: if
-`resolve_slack_token()` finds a token and `post_blocks()` reports
-`ok: true`, the script prints **nothing** to stdout (the no_agent runner
-would otherwise deliver the mrkdwn body a second time) and logs the outcome
-to stderr only. If the token is missing or the post fails, it prints the
-mrkdwn body to stdout exactly as before, so delivery still happens through
-the runner's own no_agent path.
+**Posting.** `post_blocks(channel, blocks, text_fallback, token)` calls
+`chat.postMessage` directly (bearer token, `unfurl_links: false`). On
+failure it returns `False` and `--post-full` reports the failure and exits
+non-zero — there is no fallback delivery path once posting is the whole
+point of the command.
 
 **Token resolution.** `SLACK_BOT_TOKEN` is Tier-1-stripped from every
 subprocess the gateway spawns (`tools/environments/local.py`'s
 `_ALWAYS_STRIP_KEYS` — the same treatment as `GITHUB_TOKEN`), so a
-cron-run `--slack-body`/`--post-full` never sees it via `os.environ`.
+cron-run `--post-full` never sees it via `os.environ`.
 `resolve_slack_token()` mirrors warden's `watchdog-poll.py` `resolve_secret()`
 pattern: inherited env first, else `secrets-run read op://hermes/slack/bot-token`
 against the encrypted cache.
-
-**`--post-full`** posts the `full=True` overview to `#agents` (or
-`HERMES_AGENTS_CHANNEL`) on demand, regardless of whether anything changed,
-with no state write — used from the skill ("post the overview to #agents")
-and for screenshots:
 
 ```bash
 python3 ~/SourceRoot/hermes-agent/scripts/agents-overview.py --post-full
@@ -150,5 +104,4 @@ python3 ~/SourceRoot/hermes-agent/scripts/agents-overview.py --post-full
 `HERMES_AGENTS_SIDECLAW_BASE` — override the sideclaw base URL (default
 `http://localhost:7705`), same pattern as `warden`'s
 `WARDEN_SIDECLAW_BASE`. `HERMES_AGENTS_CHANNEL` — override the target
-Slack channel for both `--slack-body` and `--post-full` (default
-`C0BVDE5R562`).
+Slack channel for `--post-full` (default `C0BVDE5R562`).
