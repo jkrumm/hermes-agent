@@ -1,5 +1,5 @@
 diff --git a/tools/tirith_security.py b/tools/tirith_security.py
-index 79cee1db48..2a38a0f7d1 100644
+index 79cee1db48..988a06c6ea 100644
 --- a/tools/tirith_security.py
 +++ b/tools/tirith_security.py
 @@ -11,6 +11,8 @@ import json
@@ -11,7 +11,7 @@ index 79cee1db48..2a38a0f7d1 100644
  import shutil
  import stat
  import subprocess
-@@ -455,6 +457,915 @@ def ensure_installed(*, log_failures: bool = True):
+@@ -455,6 +457,861 @@ def ensure_installed(*, log_failures: bool = True):
      return None  # not available yet; commands fail-open until ready
  
  
@@ -123,22 +123,26 @@ index 79cee1db48..2a38a0f7d1 100644
 +    "rd": frozenset({"bg", "work"}),
 +    "remote-dev.sh": frozenset({"bg", "work"}),
 +}
-+# herdr is not an agent, but some of its verbs place one. `herdr agent {start,
-+# prompt, send-keys, attach}` starts or drives a claude/codex/etc. agent in a pane;
-+# `herdr pane {run, send-text, send-keys} <pane> <command…>` types an arbitrary
-+# command line into a live pane — typing is exactly what Collie does, so `run` is
-+# not the only spelling. The typed command is scanned recursively with the whole
-+# guard, not substring-matched against the agent names: `herdr pane run argo 'rd bg
-+# sideclaw x'` is the same session placement one hop up. Everything else herdr does
-+# — `agent list|get|read|wait|explain`, `pane list|read`, `session list`, `status` —
-+# is the `agents` skill's legitimate read path and stays allowed.
-+_HERDR_PROGRAM = "herdr"
-+_HERDR_AGENT_PLACE_VERBS = frozenset({"start", "prompt", "send-keys", "attach"})
-+_HERDR_PANE_TYPE_VERBS = frozenset({"run", "send-text", "send-keys"})
-+# herdr global flags that take a separate operand — skipped so `herdr --remote mini
-+# agent …` still finds `agent` as the verb. Same shape as _WRAPPER_VALUE_FLAGS.
-+_HERDR_VALUE_FLAGS = frozenset({"--remote", "-r", "--session", "-s", "--workspace", "-w",
-+                                "--cwd", "--name", "-n"})
++# herdr is DELIBERATELY UNGUARDED (2026-09-12). It used to be: `herdr agent
++# {start,prompt,send-keys,attach}` and `herdr pane {run,send-text,send-keys}`
++# carrying an agent name were blocked as session placement one hop up. That bound
++# was wrong for this surface, and it produced exactly the failure it was meant to
++# prevent. Asked in Slack to "open a herdr pane in warden with `cf`", the agent was
++# refused by this guard, silently substituted a warden dispatch, and reported
++# success — for work the human had not asked for, in a lane he could not steer.
++#
++# The distinction that survives: a herdr pane is the HUMAN'S OWN visible workspace.
++# It is opened on an explicit request, it shows up in the TUI he is looking at, and
++# he can read, steer or kill it himself. The failure _raw_agent_invocation_reason
++# exists to prevent is the INVISIBLE one — Hermes composing its own `claude -p` in
++# its own process, where nothing is observable and no bound applies. That stays
++# blocked, and so does `rd bg|work` / `agent-dispatch`, which place a headless
++# session with no pane to look at.
++#
++# Unattended background work still belongs to warden (`hermes-cc.sh` → the ledger,
++# budgets and audit log). On this lane that is an INSTRUCTION — SOUL.md plus the
++# `herdr` and `claude-dispatch` skills — not a block, because the human's eyes on
++# a pane he asked for are the bound.
 +
 +# Wrappers that take the real program as a later argument. Stripped so
 +# `timeout 300 claude -p …` and `env FOO=1 claude …` are seen for what they are.
@@ -272,8 +276,7 @@ index 79cee1db48..2a38a0f7d1 100644
 +    if not command or _depth > 2:
 +        return ""
 +    if (not any(prog in command for prog in _AGENT_PROGRAMS)
-+            and not any(prog in command for prog in _PLACEMENT_VERBS)
-+            and _HERDR_PROGRAM not in command):
++            and not any(prog in command for prog in _PLACEMENT_VERBS)):
 +        return ""
 +
 +    for tokens in _agent_segments(command):
@@ -287,10 +290,6 @@ index 79cee1db48..2a38a0f7d1 100644
 +            verb = next((t for t in tokens[1:] if not t.startswith("-")), "")
 +            if verb in _PLACEMENT_VERBS[base]:
 +                return f"`{base} {verb}` places a coding agent session directly"
-+        if base == _HERDR_PROGRAM:
-+            herdr_reason = _herdr_agent_reason(tokens, _depth)
-+            if herdr_reason:
-+                return herdr_reason
 +        # `bash -c "... claude -p ..."` — recurse into the inline script, which the
 +        # quote-aware tokenizer above preserved as a single argument.
 +        if base in _AGENT_INTERPRETERS:
@@ -299,59 +298,6 @@ index 79cee1db48..2a38a0f7d1 100644
 +                    inner = _raw_agent_invocation_reason(tokens[j + 1], _depth + 1)
 +                    if inner:
 +                        return f"{inner} inside `{base} -c`"
-+    return ""
-+
-+
-+def _herdr_agent_reason(tokens: list, _depth: int = 0) -> str:
-+    """`herdr agent start|prompt|send-keys|attach` places or drives an agent; `herdr
-+    pane run|send-text|send-keys … <command>` types one into a pane. Flags between
-+    `herdr` and its noun (`--remote mini`, `-s name`) are skipped by value-agnostic
-+    scanning: the first non-flag token after any flag's operand is the noun, the next
-+    the verb. The typed command is handed back to _raw_agent_invocation_reason as
-+    spelled, so every shape the top-level guard blocks — `rd bg`, `remote-dev.sh work`,
-+    `agent-dispatch`, a wrapper, a `sh -c` — is blocked one hop down too, instead of a
-+    substring match on the bare agent names. Conservative on purpose — an unknown
-+    shape defers."""
-+    words, positions = [], []
-+    skip_next = False
-+    for i, t in enumerate(tokens[1:], 1):
-+        if skip_next:
-+            skip_next = False
-+            continue
-+        if t in _HERDR_VALUE_FLAGS:
-+            skip_next = True
-+            continue
-+        if t.startswith("-"):
-+            continue
-+        words.append(t)
-+        positions.append(i)
-+    if len(words) < 2:
-+        return ""
-+    noun, verb = words[0], words[1]
-+    if noun == "agent" and verb in _HERDR_AGENT_PLACE_VERBS:
-+        return f"`herdr agent {verb}` starts or drives a coding agent directly"
-+    if noun == "agent":
-+        pass  # an unknown agent verb: scan its operands below, `herdr agent claude …`
-+    elif noun != "pane" or verb not in _HERDR_PANE_TYPE_VERBS:
-+        return ""
-+    # Everything from the verb on, as spelled (flags included, a quoted command as one
-+    # token). Scanned from each position so the pane id in front of the command —
-+    # `herdr pane run argo claude -p x` — is not what ends up at argv[0].
-+    tail = tokens[positions[1]:]
-+    for k in range(len(tail)):
-+        inner = _raw_agent_invocation_reason(" ".join(tail[k:]), _depth + 1)
-+        if inner:
-+            return f"{inner} inside `herdr {noun} {verb}`"
-+    # Belt and braces: a quoted command the re-tokenizer cannot parse (an unbalanced
-+    # quote inside it) deferred above; for those tokens only, a plain word scan still
-+    # sees the agent name. Parseable tokens were judged by the full guard, so `grep
-+    # claude README.md` stays data. Over-blocking is the safe direction here.
-+    for tok in tail:
-+        if _agent_segments(tok):
-+            continue
-+        for inner in tok.split():
-+            if os.path.basename(inner) in _AGENT_PROGRAMS:
-+                return f"`herdr {noun} {verb}` places `{os.path.basename(inner)}` in a pane"
 +    return ""
 +
 +
@@ -927,7 +873,7 @@ index 79cee1db48..2a38a0f7d1 100644
  # --- Main API ---
  _MAX_FINDINGS = 50
  _MAX_SUMMARY_LEN = 500
-@@ -484,13 +1395,107 @@ def check_command_security(command: str) -> dict:
+@@ -484,13 +1341,107 @@ def check_command_security(command: str) -> dict:
      Exit code determines the action; JSON enriches. Spawn failures/timeouts respect fail_open."""
      global _crash_count
      cfg = _load_security_config()

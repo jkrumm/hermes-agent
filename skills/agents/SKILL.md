@@ -21,9 +21,10 @@ ready, `close` = finished, `stale` = abandoned, `watch` = working, nothing
 to do).
 
 **This skill is READ-ONLY.** It never sends keys to a herdr pane and never
-dispatches a new episode — it only reads sideclaw's overview. Steering an
-agent (answering it, nudging it to continue, opening a new episode) is
-`claude-dispatch`'s job, not this one.
+dispatches a new episode — it only reads sideclaw's overview. Steering a live
+agent in a pane (prompting it, nudging it, interrupting it, opening a new
+pane) is the `herdr` skill's job; opening a new *tracked, unattended* episode
+is `claude-dispatch`'s. Neither is this one.
 
 ## Quick read (no refresh, ~instant)
 

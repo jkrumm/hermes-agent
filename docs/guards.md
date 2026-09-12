@@ -62,12 +62,21 @@ blocked and 1/1 quoted newline still allowed, 4000-input fuzz clean.
 ## 3. `raw_agent_invocation`
 
 Blocks Hermes composing its own `claude`/`claude_iu`/`claude_bridge`/`ca`/
-`opencode`/`rd bg|work`/`agent-dispatch`/`remote-dev.sh bg|work` call, a
-`herdr agent start|prompt|send-keys|attach` or a `herdr pane run|send-text|
-send-keys … <command>` whose typed command is any of the above (re-scanned with
-the whole guard, so `herdr pane run argo 'rd bg …'` is caught one hop down).
-`herdr agent list|get|read|wait|explain`, `pane list|read`,
-`rd repos|agents|read` stay allowed — the `agents` skill's read path.
+`opencode`/`rd bg|work`/`agent-dispatch`/`remote-dev.sh bg|work` call —
+every spelling that places a **headless, invisible** session. `rd repos|agents|
+read` stay allowed.
+
+**`herdr` is not guarded at all since 2026-09-12** — every verb, `agent
+start|prompt|send-keys|attach` and `pane run|send-text|send-keys` included. It
+used to be blocked as session placement one hop up, and that bound produced the
+exact failure it was meant to prevent: asked in Slack to "open a herdr pane in
+warden with `cf`", Hermes was refused, silently substituted a Warden dispatch,
+and reported success for work Johannes had not asked for. A herdr pane is **his
+own visible workspace** — opened on an explicit request, rendered in the TUI he
+is watching, readable and killable by him. The invisible lane is what this rule
+still closes. Unattended background work belonging to Warden is now carried by
+instruction (SOUL.md, the `herdr` and `claude-dispatch` skills), because on a
+lane he is looking at, his eyes are the bound.
 
 Why it exists: handed the `claude-dispatch` skill on 2026-08-02, Hermes read it,
 understood the task, and then composed its own prompt and ran `claude -p`
@@ -78,8 +87,8 @@ instruction is not a bound, so the block moved into tirith. Handles wrapper
 programs (`timeout`, `env`, `nohup`, `sudo`, `xargs`, `nice`), env-assignment
 prefixes (`K=$(...)`), `sh -c` inline scripts, and subshells.
 
-Regression suite: **`tests/test_raw_agent_guard.py`** — 51/51 attack shapes
-blocked, 42/42 real commands allowed, plus 5/5 wrapper-operand bypasses blocked
+Regression suite: **`tests/test_raw_agent_guard.py`** — 36/36 attack shapes
+blocked, 51/51 real commands allowed, plus 5/5 wrapper-operand bypasses blocked
 and 5/5 value-less wrapper flags still blocked, 4000-input fuzz clean.
 
 ## 4. `raw_repo_write`

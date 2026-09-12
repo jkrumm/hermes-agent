@@ -89,25 +89,6 @@ ATTACKS = [
     "agent-dispatch bg sideclaw 'why is it red'",
     "agent-dispatch work argo",
     "cd ~/SourceRoot/argo && agent-dispatch bg argo 'fix it'",
-    # herdr verbs that spawn an agent
-    "herdr agent start --cwd ~/SourceRoot/argo claude",
-    "herdr --remote mini agent claude -p x",
-    "herdr pane run --workspace argo 'claude -p \"why\"'",
-    "herdr pane run argo claude --print x",
-    "herdr pane run argo ~/.local/bin/claude -p x",
-    # 2026-09-07 review: typing into a pane is not only `pane run`, and the typed
-    # command is not only a bare agent name — the placement launchers one hop up
-    # and the other `herdr agent` verbs that drive a live agent
-    "herdr pane send-text argo 'claude -p \"why\"'",
-    "herdr pane send-keys argo 'claude -p x' Enter",
-    "herdr pane run argo 'rd bg sideclaw fix it'",
-    "herdr pane run argo '~/SourceRoot/dotfiles/scripts/remote-dev.sh bg sideclaw x'",
-    "herdr pane run argo 'agent-dispatch bg sideclaw x'",
-    "herdr pane run argo 'timeout 300 claude -p x'",
-    "herdr agent send-keys argo 'claude -p x' Enter",
-    "herdr agent prompt argo 'fix the failing test'",
-    "herdr agent attach argo",
-    "herdr --remote mini agent start --cwd ~/SourceRoot/argo claude",
 ]
 
 # Shapes that MUST be allowed. These are real commands from this fleet's skills;
@@ -142,13 +123,14 @@ LEGITIMATE = [
     'sqlite3 ~/.hermes/watchdog.db "select count(*) from events"',
     'python3 -c "print(1)"',
     "gh issue create -R jkrumm/homelab --title x --body y",
-    # herdr READS stay allowed — the agents skill's path
+    # EVERY herdr verb is allowed (2026-09-12). Reads were always the `agents`
+    # skill's path; the write/placement verbs are now the `herdr` skill's, because
+    # a pane is the human's own visible workspace and he asks for it explicitly.
+    # See the _AGENT_PROGRAMS comment block in tirith_security.py for the argument.
     "herdr session list",
     "herdr pane list --workspace argo",
     "herdr status",
     "herdr pane run argo 'git status'",
-    # `herdr agent` reads (list/get/read/wait/explain) are the agents skill's path —
-    # only start/prompt/send-keys/attach place or drive an agent
     "herdr agent list",
     "herdr agent read argo",
     "herdr agent get argo",
@@ -157,6 +139,16 @@ LEGITIMATE = [
     "herdr pane send-text argo 'ls -la'",
     "herdr pane send-keys argo Enter",
     "herdr pane run argo 'grep claude README.md'",
+    # the placement verbs the human asks for by name
+    "herdr tab create --workspace w1E --cwd ~/SourceRoot/warden --label hermes --no-focus",
+    "herdr pane split w1E:t9 --direction right --cwd ~/SourceRoot/warden --no-focus",
+    "herdr pane run w1E:p4 'cf'",
+    "herdr pane run w1E:p4 'claude --model fable'",
+    "herdr agent start reviewer --kind claude --pane w1E:p4",
+    "herdr agent prompt reviewer 'fix the failing test'",
+    "herdr agent send-keys reviewer esc",
+    "herdr agent attach reviewer",
+    "herdr --remote mini agent start reviewer --kind claude --pane w1E:p4",
     "rd repos",
     "rd agents",
     "rd read abc123",

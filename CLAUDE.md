@@ -39,7 +39,7 @@ the first pass.
 | `cron/`, `scripts/`, `hooks/` | `~/.hermes/…` | Hermes-driven cron + pre-run scripts (must live under `HERMES_HOME/scripts/`) + host-level shell scripts |
 | `plugins/{name}/` | `~/.hermes/plugins/{name}/` | **`HERMES_PLUGINS`** is the source of truth. Today `dispatch-approval` (the Ed25519 signer). Must **also** be enabled once — `hermes plugins enable <name>`; the symlink alone is inert. |
 | `config/` | `~/.hermes/config/` | **empty** since 2026-09-10 — `dispatch-repos.json` (root, `deny`, `defaultTier`, per-repo ceilings) moved to `~/SourceRoot/warden/config/`, warden's own defence-in-depth copy |
-| `skills/{name}/` | `~/.hermes/skills/{name}/` | **`HERMES_SKILLS` in the Makefile is the source of truth** — 20 dirs (roster + `homelab` category-dir note: docs). |
+| `skills/{name}/` | `~/.hermes/skills/{name}/` | **`HERMES_SKILLS` in the Makefile is the source of truth** — 21 dirs (roster + `homelab` category-dir note: docs). |
 | `USER.md` | `~/.hermes/memories/USER.md` | **copied** — Hermes writes to it |
 
 **A skill is durable only if symlinked from this repo.** `skills.external_dirs` satisfies the
@@ -146,6 +146,32 @@ coverage) — the former also reaches across to warden's `watchdog-summary.py`
 **`hermes cron create --script` rejects any substantial script** (`cron/lifecycle_guard.py`
 fails closed on an exhausted recursion budget) — keep entry points thin, logic in an imported
 module. Detail: **`docs/scheduled-jobs.md`**.
+
+## Herdr — the interactive lane Hermes may drive
+
+**Warden is the background lane; herdr is Johannes's own visible workspace, and
+Hermes may drive it on his explicit request.** The `herdr` skill
+(`skills/herdr/SKILL.md`) is the door: open a tab/pane in a repo workspace, run a
+command, read a pane back, start an interactive Claude Code session with the
+dotfiles launchers (`c`/`cf`/`cs`, typed into the pane's zsh — `herdr agent start`
+uses herdr's own bare `claude` and loses the house flags), prompt it, steer it.
+
+**`herdr` came off `raw_agent_invocation` on 2026-09-12** — every verb is allowed.
+The old block treated `herdr agent start|prompt|send-keys|attach` and
+`herdr pane run|send-text|send-keys <agent-command>` as session placement one hop
+up, and it produced the failure it existed to prevent: asked to "open a herdr pane
+in warden with `cf`", Hermes was refused, silently substituted a Warden dispatch and
+reported success for work that was never asked for. The lane that stays blocked is
+the invisible one — a self-composed `claude -p`, `rd bg|work`, `agent-dispatch`.
+Everything binding unattended work to Warden is now instruction (SOUL.md boundary +
+the skill), because a pane he asked for and is looking at is bounded by his own eyes.
+
+Hermes runs **outside** any pane: no `HERDR_ENV`, no `$HERDR_PANE_ID`, so the skill
+forbids `--current` and focus-dependent targeting and requires explicit
+`w1E` / `w1E:t9` / `w1E:p4` ids. Two gotchas baked into the skill: `pane read`
+returns **plain text, not JSON** (don't pipe it to `jq`), and the terminal tool's
+180 s timeout means `agent prompt --wait` above ~150000 ms kills the call, not the
+agent — prompt without waiting, then poll `agent get`.
 
 ## Alert triage
 
@@ -371,7 +397,8 @@ imported once at startup.
 **Four guard rules in `tirith-hermes-guards.patch`**: trusted-pipeline allowlist (argo/karakeep/
 research/hyperdx/audio-gateway hosts only), `download_then_execute` (blocks the two-step
 `curl -o f && sh f` form tirith itself misses), `raw_agent_invocation` (blocks Hermes composing
-its own `claude`/`rd bg|work`/`agent-dispatch`/`herdr agent …` call), `raw_repo_write` (blocks
+its own `claude`/`rd bg|work`/`agent-dispatch` call — the **headless, invisible** lane;
+**`herdr` came off this guard entirely 2026-09-12**, see *Herdr* below), `raw_repo_write` (blocks
 editing a repo instead of dispatching — two exemptions: GitHub issues, and the brain vault when
 the command names it). All three write/execution guards share **one tokenizer bug history** — a
 newline inside `shlex.whitespace_split` let a multi-line command scan only its first line,
