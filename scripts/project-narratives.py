@@ -212,16 +212,26 @@ def _newest_transcript_mtime(project_dir: Path, claude_projects_dir: Path | None
     return newest
 
 
+# Sideclaw job statuses that end the wait without a result. "failed" was the only
+# one this loop used to check; "interrupted"/"cancelled" are the same "no result
+# coming" case and were previously mis-treated as still-running.
+_TERMINAL_FAILURE_STATUSES = frozenset({"failed", "interrupted", "cancelled"})
+
+
 # --- sideclaw job client (the seam tests monkeypatch) -----------------------
 
 def run_narrative_job(
     base: str, project: str, cwd: str, previous_page: str | None, since: str | None,
-    *, timeout_s: int = 300, poll_interval: int = 10,
+    *, poll_interval: int = 10,
 ) -> dict[str, Any] | None:
-    """POST /api/jobs {tool:narrative,...}, poll GET /api/jobs/<id> until
-    done|failed, bounded by timeout_s (sideclaw's own contract: up to 5 min
-    for a Sonnet pass). Returns the job's `result` dict on `done`, None on
-    any transport failure, `failed`, or timeout — callers treat None as
+    """POST /api/jobs {tool:narrative,...}, poll GET /api/jobs/<id> until the job reaches a
+    terminal status. Sideclaw workers have no turn or wall-clock limit (2026-09-12 policy), so
+    this polls indefinitely rather than giving up on a healthy job — only a transport failure or
+    a genuinely terminal status (`failed`/`interrupted`/`cancelled`) ends the wait early. This
+    runs under Hermes cron (narratives-cron.py, no_agent), whose only guard is the idle-output
+    watchdog (HERMES_CRON_TIMEOUT) — so a progress line to stderr once a minute is what keeps a
+    long, healthy job alive rather than tripping it on silence. Returns the job's `result` dict
+    on `done`, None on any transport failure or terminal-failure status — callers treat None as
     'try again next run', never as changed:false."""
     try:
         body = json.dumps({
@@ -244,9 +254,10 @@ def run_narrative_job(
     if not job_id:
         return None
 
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
+    elapsed = 0
+    while True:
         time.sleep(poll_interval)
+        elapsed += poll_interval
         try:
             with urllib.request.urlopen(f"{base}/api/jobs/{job_id}", timeout=15) as resp:
                 polled = json.loads(resp.read().decode())
@@ -256,9 +267,13 @@ def run_narrative_job(
         status = job.get("status")
         if status == "done":
             return job.get("result")
-        if status == "failed":
+        if status in _TERMINAL_FAILURE_STATUSES:
             return None
-    return None
+        if elapsed % 60 < poll_interval:
+            print(
+                f"project-narratives: {project} — job {job_id} still {status or 'running'} "
+                f"({elapsed}s elapsed)", file=sys.stderr,
+            )
 
 
 def _base_url() -> str:

@@ -30,7 +30,15 @@ fallback_providers:
 toolsets:
   - hermes-cli
 agent:
-  max_turns: 90
+  # 0 = unlimited (resolve_turn_limit's documented sentinel: null/"none"/"unlimited"/-1/0 all
+  # mean unbounded). Agent workers have no turn limit (owner rule, settled 2026-09-12, see
+  # ~/.claude/rules/agent-limits.md) — the only liveness rule left is the idle watchdog below
+  # (gateway_timeout), never a turn count.
+  max_turns: 0
+  # Gateway INACTIVITY timeout (seconds) — the idle watchdog: fires only when the agent is
+  # completely idle (no tool calls, no API responses in flight), never a wall-clock cap on an
+  # active turn. This is the ONE liveness rule agent workers still have (2026-09-12 policy).
+  # 0 = unlimited/disabled.
   gateway_timeout: 1800
   restart_drain_timeout: 180
   api_max_retries: 3
@@ -40,6 +48,8 @@ agent:
   environment_probe: true
   environment_hint: ''
   verify_on_stop: false
+  # Inactivity warning (seconds), once per run before gateway_timeout fires; notify-only, never
+  # kills the turn itself. 0 = off.
   gateway_timeout_warning: 900
   clarify_timeout: 600
   gateway_notify_interval: 180
@@ -51,6 +61,10 @@ terminal:
   backend: local
   modal_mode: auto
   cwd: .
+  # Default per-shell-command timeout (seconds) for the terminal tool — a guard on one command
+  # invocation, not a bound on the agent's turn/iteration count or wall-clock life. Out of scope
+  # for the no-turn-limit policy (owner rule, settled 2026-09-12); a caller can still override it
+  # per call.
   timeout: 180
   env_passthrough: []
   shell_init_files: []
@@ -390,7 +404,12 @@ delegation:
   api_key: ''
   api_mode: ''
   inherit_mcp_toolsets: true
-  max_iterations: 250
+  # Per-subagent iteration cap. NOT resolve_turn_limit'd like agent.max_turns — this value flows
+  # raw (tools/delegate_tool.py -> agent/agent_init.py) into IterationBudget's `used >= max_total`
+  # comparison with no unbounded sentinel, so 0 here means ZERO iterations allowed, not unlimited.
+  # Set to sys.maxsize (the same value init_agent() defaults to when max_iterations is omitted
+  # entirely) so subagents have no turn limit either (owner rule, settled 2026-09-12).
+  max_iterations: 9223372036854775807
   # 0 = no cap, upstream's default since they found a fixed timeout killed
   # legitimate heavy work mid-task. Our 600 was a copy of the OLD default and
   # is a hard kill for a `high`-effort child.
@@ -402,7 +421,13 @@ delegation:
   subagent_auto_approve: false
 prefill_messages_file: ''
 goals:
-  max_turns: 20
+  # Max continuation turns for the kanban goal-mode loop before auto-pause. Same trap as
+  # delegation.max_iterations: hermes_cli/goals.py rejects non-positive values outright
+  # (`if max_turns < 1: max_turns = DEFAULT_MAX_TURNS`) and GoalManager falls back on falsy 0 too
+  # (`int(default_max_turns or DEFAULT_MAX_TURNS)`), so 0 means "use the 20-turn default", not
+  # unlimited. Set to sys.maxsize so goal mode has no turn limit either (owner rule, settled
+  # 2026-09-12).
+  max_turns: 9223372036854775807
 skills:
   # Agent-created skills land in the git repo, not under ~/.hermes/skills/.
   # Because this path is also in external_dirs, the background curator refuses
@@ -565,6 +590,11 @@ kanban:
   default_assignee: ''
   auto_decompose: true
   auto_decompose_per_tick: 3
+  # Reclaim (not kill): a `running` task past this age AND with no heartbeat for the last hour
+  # (dual-gated, hermes_cli/kanban_db_dispatch.py:detect_stale_running/_STALE_HEARTBEAT_GAP_SECONDS)
+  # is returned to its source phase for a fresh dispatch — a healthy worker still heartbeating past
+  # this age is never touched. Not a hard kill, so it stays even under the no-turn-limit policy.
+  # 0 disables the check.
   dispatch_stale_timeout_seconds: 14400
 code_execution:
   mode: project

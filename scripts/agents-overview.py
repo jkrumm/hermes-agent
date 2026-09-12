@@ -7,8 +7,10 @@ LaunchAgent — see `skills/agents/SKILL.md`):
 
   GET  /api/overview          -> {ok, data: {generatedAt, summary, projects[], overview, ...}}
   POST /api/jobs {"tool":"overview"} -> {ok, job:{id, status, ...}}   -- triggers
-       a fresh LLM pass; poll GET /api/jobs/<id> until status is
-       done|failed, then re-GET /api/overview for the merged result.
+       a fresh LLM pass; poll GET /api/jobs/<id> until status is terminal
+       (done|failed|interrupted|cancelled), then re-GET /api/overview for the
+       merged result on `done`. No wall-clock give-up — sideclaw workers have
+       no turn or time limit (2026-09-12 policy).
 
 Refresh is consumer-driven, not clock-driven: `--briefing` only refreshes
 when the cached overview is missing or older than
@@ -189,11 +191,19 @@ def _fmt_age_ms(ms: int | None) -> str:
     return f"{int(secs / 86400)}d"
 
 
-def refresh(base: str, timeout_s: int = 120) -> dict[str, Any] | None:
-    """Trigger a fresh overview pass and wait for it, bounded so a single
-    `terminal` tool call (180s cap) never blocks past its own budget. Six
-    polls, 20s apart, is the default — tolerates any failure by returning
-    None (never raises); the caller falls back to a plain fetch()."""
+# Sideclaw job statuses that end the wait without a result. "failed" was the only one this
+# loop used to check; "interrupted"/"cancelled" are the same "no result coming" case.
+_TERMINAL_FAILURE_STATUSES = frozenset({"failed", "interrupted", "cancelled"})
+
+
+def refresh(base: str, poll_interval: int = 20) -> dict[str, Any] | None:
+    """Trigger a fresh overview pass and wait for it. Sideclaw workers have no turn or
+    wall-clock limit (2026-09-12 policy), so this polls until the job reaches a terminal
+    status rather than giving up on a healthy job — only a transport failure or a terminal
+    status of `failed`/`interrupted`/`cancelled` ends the wait early; `done` re-fetches the
+    merged overview. Callers that reach this from under a Hermes cron job rely on its
+    idle-output watchdog (HERMES_CRON_TIMEOUT) for liveness, so a progress line to stderr once
+    a minute is what keeps a long, healthy job alive rather than tripping it on silence."""
     try:
         body = json.dumps({"tool": "overview", "params": {}}).encode()
         req = urllib.request.Request(
@@ -209,10 +219,10 @@ def refresh(base: str, timeout_s: int = 120) -> dict[str, Any] | None:
             json.JSONDecodeError, TimeoutError, OSError):
         return None
 
-    poll_interval = 20
-    polls = max(1, timeout_s // poll_interval)
-    for _ in range(polls):
+    elapsed = 0
+    while True:
         time.sleep(poll_interval)
+        elapsed += poll_interval
         try:
             with urllib.request.urlopen(f"{base}/api/jobs/{job_id}", timeout=15) as resp:
                 polled = json.loads(resp.read().decode())
@@ -225,9 +235,13 @@ def refresh(base: str, timeout_s: int = 120) -> dict[str, Any] | None:
                 return fetch(base)
             except Exception:
                 return None
-        if status == "failed":
+        if status in _TERMINAL_FAILURE_STATUSES:
             return None
-    return None
+        if elapsed % 60 < poll_interval:
+            print(
+                f"agents-overview: refresh job {job_id} still {status or 'running'} "
+                f"({elapsed}s elapsed)", file=sys.stderr,
+            )
 
 
 def _summary_line(cur: dict[str, Any]) -> str:
