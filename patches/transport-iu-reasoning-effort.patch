@@ -1,26 +1,78 @@
 diff --git a/agent/transports/chat_completions.py b/agent/transports/chat_completions.py
-index 5ead023e5b..e47e072e5d 100644
+index 5ead023e5b..cb0b7a9007 100644
 --- a/agent/transports/chat_completions.py
 +++ b/agent/transports/chat_completions.py
-@@ -200,6 +200,89 @@ def _is_openai_api_base_url(base_url: Any) -> bool:
+@@ -200,6 +200,143 @@ def _is_openai_api_base_url(base_url: Any) -> bool:
          return False
  
  
 +# LOCAL MODIFICATION (patches/transport-iu-reasoning-effort.patch)
 +# Kept in sync by hand with the same literal in hermes_cli/runtime_provider.py
 +# (patches/runtime-provider-iu-responses-api.patch), which routes this host's
-+# OpenAI leg onto the Responses API. Both are local patches over upstream, so
-+# there is no shared module to hang one constant off.
++# OpenAI leg onto the Responses API, and with the identical host+path predicate
++# in agent/auxiliary_client.py (``_is_iu_openai_leg``) and run_agent.py
++# (``_is_iu_unified_endpoint_openai_leg``). All local patches over upstream, so
++# there is no shared module to hang one constant off — keep the three in sync.
 +_IU_UNIFIED_ENDPOINT_HOST = "unified-endpoint-main.app.iu-it.org"
 +# Efforts the IU gateway accepts, per model family. Probed against the live
-+# endpoint 2026-08-14:
++# endpoint 2026-08-14 (gpt-5.x / Anthropic) and 2026-09-13 (deepseek / glm):
 +#   gpt-5.6-luna + 'max'  -> "Unsupported value: 'reasoning_effort' does not
 +#                            support 'max' with this model. Supported values
 +#                            are: 'none', 'low', 'medium', 'high', 'xhigh'."
 +#   claude-sonnet-4-6-eu + 'xhigh' -> "effort='xhigh' is not supported by this
 +#                            model" (LiteLLM -> Anthropic); none/low/medium/high OK.
-+_IU_EFFORTS_OPENAI = ("none", "low", "medium", "high", "xhigh")
-+_IU_EFFORTS_ANTHROPIC = ("none", "low", "medium", "high")
++#   deepseek-v4.1-flash: accepts low/high/xhigh/max, and — unlike gpt-5.x —
++#                            accepts function tools and an effort in the same
++#                            /chat/completions request (no 400 seen).
++#   glm-5.3-flash: 'medium' is refused on this leg; low/high/max OK.
++_IU_EFFORTS_BY_FAMILY: dict[str, tuple[str, ...]] = {
++    "gpt-5": ("none", "low", "medium", "high", "xhigh"),
++    "anthropic": ("none", "low", "medium", "high"),
++    "deepseek": ("low", "high", "xhigh", "max"),
++    "glm": ("low", "high", "max"),
++}
++# Deny-by-default: only these families are probed (2026-09-13) to accept function tools AND
++# a top-level reasoning_effort in the same /chat/completions request. Everything else — gpt-5.x
++# included, and any model id this endpoint hasn't been probed against — has the effort stripped
++# whenever tools are present, never the other way around.
++_IU_TOOLS_EFFORT_ALLOWED_FAMILIES = frozenset({"anthropic", "deepseek", "glm"})
++
++
++def _iu_model_family(model: str) -> str:
++    """One of ``gpt-5``/``anthropic``/``deepseek``/``glm``, or ``""`` for a model id this
++    gateway hasn't been probed against — callers must not guess a ladder or a tools+effort
++    allowance for the unrecognized case."""
++    m = (model or "").lower()
++    if "claude" in m:
++        return "anthropic"
++    if "glm" in m:
++        return "glm"
++    if "deepseek" in m:
++        return "deepseek"
++    if m.startswith("gpt-5"):
++        return "gpt-5"
++    return ""
++
++
++def _iu_effort_family(model: str) -> tuple[str, ...]:
++    """Allowed top-level ``reasoning_effort`` values for ``model`` on this gateway, or ``()``
++    for an unrecognized id — effort is omitted rather than guessed."""
++    return _IU_EFFORTS_BY_FAMILY.get(_iu_model_family(model), ())
++
++
++def _is_iu_openai_leg(base_url: Any) -> bool:
++    """True for the IU unified endpoint's OpenAI-compatible leg (``…/openai/v1``), exact
++    hostname + path — never containment, so a lookalike host
++    (``unified-endpoint-main.app.iu-it.org.example.test``) or the gateway's own
++    ``/anthropic`` leg don't match. Identical predicate to
++    ``agent.auxiliary_client._is_iu_openai_leg`` and
++    ``run_agent.AIAgent._is_iu_unified_endpoint_openai_leg`` — keep all three in sync."""
++    try:
++        parsed = urlparse(str(base_url or "").strip())
++    except Exception:
++        return False
++    return ((parsed.hostname or "").lower() == _IU_UNIFIED_ENDPOINT_HOST
++             and (parsed.path or "").rstrip("/").endswith("/openai/v1"))
 +
 +
 +def _apply_iu_reasoning_effort(
@@ -35,7 +87,7 @@ index 5ead023e5b..e47e072e5d 100644
 +    'reasoning'``. What upstream cannot know is which values each leg of the
 +    gateway accepts, and it emits the configured value unconditionally.
 +
-+    Two live-verified refusals this reconciles (2026-08-14):
++    Two live-verified refusals this reconciles (2026-08-14, gpt-5.x / Anthropic):
 +
 +    * The Azure-backed gpt-5.x models refuse *any* effort as soon as the
 +      request carries function tools — "Function tools with reasoning_effort
@@ -50,19 +102,19 @@ index 5ead023e5b..e47e072e5d 100644
 +      That one is clamped down rather than dropped, so a failover never turns
 +      a config value into a 400.
 +
++    **Tools+effort is deny-by-default, not gpt-5-only** (2026-09-13): only
++    ``anthropic``/``deepseek``/``glm`` (``_IU_TOOLS_EFFORT_ALLOWED_FAMILIES``) are
++    probed to accept both together — deepseek-v4.1-flash (the brain) accepts them,
++    so its ``reasoning_effort`` reaches the wire on every turn, but an
++    **unrecognized** model id gets the same strip as gpt-5.x, never the benefit of
++    the doubt.
++
 +    Anything outside this host is left exactly as upstream built it.
 +    """
-+    # Exact hostname, never containment: a lookalike host
-+    # (unified-endpoint-main.app.iu-it.org.example.test) must not inherit
-+    # this endpoint's quirks. Same contract as the sibling patch's check.
-+    try:
-+        host = (urlparse(str(params.get("base_url") or "").strip()).hostname or "").lower()
-+    except Exception:
++    if not _is_iu_openai_leg(params.get("base_url")):
 +        return api_kwargs
-+    if host != _IU_UNIFIED_ENDPOINT_HOST:
-+        return api_kwargs
-+    is_anthropic = "claude" in (model or "").lower()
-+    if api_kwargs.get("tools") and not is_anthropic:
++    family = _iu_model_family(model)
++    if api_kwargs.get("tools") and family not in _IU_TOOLS_EFFORT_ALLOWED_FAMILIES:
 +        api_kwargs.pop("reasoning_effort", None)
 +        return api_kwargs
 +    effort = api_kwargs.get("reasoning_effort")
@@ -72,7 +124,9 @@ index 5ead023e5b..e47e072e5d 100644
 +            return api_kwargs
 +        effort = "none" if cfg.get("enabled") is False else cfg.get("effort")
 +    effort = str(effort or "").strip().lower()
-+    allowed = _IU_EFFORTS_ANTHROPIC if is_anthropic else _IU_EFFORTS_OPENAI
++    # () for an unrecognized model family — the clamp below finds no candidate at or
++    # below the request and omits the key, rather than guessing a value.
++    allowed = _iu_effort_family(model)
 +    if effort not in allowed:
 +        # Clamp to the strongest supported level at or below the request.
 +        ladder = ("none", "low", "medium", "high", "xhigh", "max")
@@ -92,7 +146,7 @@ index 5ead023e5b..e47e072e5d 100644
  def _model_consumes_thought_signature(model: Any) -> bool:
      """True for Gemini-family targets, which require tool-call ``extra_content`` (thought_signature) replay.
  
-@@ -370,7 +453,12 @@ class ChatCompletionsTransport(ProviderTransport):
+@@ -370,7 +507,12 @@ class ChatCompletionsTransport(ProviderTransport):
          sanitized = self.convert_messages(messages, model=model)
          _profile = params.get("provider_profile")
          if _profile:
@@ -106,7 +160,7 @@ index 5ead023e5b..e47e072e5d 100644
  
          sanitized = _swap_developer_role(sanitized, params.get("model_lower", (model or "").lower()))
          api_kwargs = _base_kwargs(model, sanitized, tools, params)
-@@ -440,9 +528,14 @@ class ChatCompletionsTransport(ProviderTransport):
+@@ -440,9 +582,14 @@ class ChatCompletionsTransport(ProviderTransport):
              api_kwargs["extra_body"] = extra_body
          if params.get("request_overrides"):
              api_kwargs.update(params["request_overrides"])

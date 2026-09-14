@@ -1,0 +1,34 @@
+diff --git a/gateway/run.py b/gateway/run.py
+index d6bfc83ec1..ebbf7bb290 100644
+--- a/gateway/run.py
++++ b/gateway/run.py
+@@ -4795,6 +4795,29 @@ async def _start_gateway_replace_existing_instance(existing_pid: int, replace: b
+     Returns False when startup must abort (refused, permission denied, target still alive)."""
+     from gateway.status import get_process_start_time, remove_pid_file, terminate_pid
+     if not replace:
++        # LOCAL MODIFICATION (patches/gateway-start-predecessor-grace.patch): a
++        # launcher that never passes --replace (launchd KeepAlive) can respawn while
++        # the predecessor from the previous stop/crash cycle is still exiting -- a
++        # real PID that will clear on its own within seconds. Give it a short
++        # startup grace before refusing outright, reusing the same wait helper
++        # --replace uses; never signal it here (that stays --replace's job).
++        existing_start_time = get_process_start_time(existing_pid)
++        if await _wait_for_pid_exit(existing_pid, 20, 1.0):
++            logger.info(
++                "Predecessor gateway (PID %d) exited during startup grace; continuing.",
++                existing_pid)
++            remove_pid_file()
++            # remove_pid_file() is a no-op when the PID doesn't match; force-unlink covers
++            # the predecessor's own record the same way the --replace branch does below.
++            with suppress(Exception):
++                (get_hermes_home() / "gateway.pid").unlink(missing_ok=True)
++            _clear_takeover_marker_quiet()
++            try:
++                from gateway.status import release_all_scoped_locks
++                release_all_scoped_locks(owner_pid=existing_pid, owner_start_time=existing_start_time)
++            except Exception:
++                pass
++            return True
+         hermes_home = str(get_hermes_home())
+         logger.error(
+             "Another gateway instance is already running (PID %d, HERMES_HOME=%s). "

@@ -1,0 +1,52 @@
+diff --git a/run_agent.py b/run_agent.py
+index 37b25fd214..503dd8db86 100644
+--- a/run_agent.py
++++ b/run_agent.py
+@@ -133,6 +133,7 @@ from agent.codex_responses_adapter import (
+     _summarize_user_message_for_log,
+ )
+ from agent.tool_guardrails import ToolGuardrailDecision, append_toolguard_guidance, toolguard_synthetic_result
++from urllib.parse import urlparse
+ from utils import base_url_host_matches, base_url_hostname, env_float, model_forces_max_completion_tokens
+ 
+ 
+@@ -526,6 +527,26 @@ class AIAgent(
+         hostname = self._hostname_for(base_url)
+         return bool(hostname) and (hostname == "api.githubcopilot.com" or hostname.endswith(".githubcopilot.com"))
+ 
++    # LOCAL MODIFICATION (patches/run-agent-iu-max-completion-tokens.patch)
++    def _is_iu_unified_endpoint_openai_leg(self, base_url: str = None) -> bool:
++        """True for the IU unified endpoint's OpenAI-compatible leg (``provider: custom``,
++        ``…/openai/v1``). That leg's 65536 output-token floor is rejected as ``max_tokens``
++        regardless of which model is behind it — ``model_forces_max_completion_tokens``
++        only recognizes OpenAI model-id prefixes (gpt-4o/4.1/5, o1/o3/o4), so a non-OpenAI
++        id served through this custom provider (deepseek-v4.1-flash) fell through to the
++        rejected key. Exact hostname + ``/openai/v1`` path, never containment — identical
++        predicate to ``agent.auxiliary_client._is_iu_openai_leg`` and
++        ``agent.transports.chat_completions._is_iu_openai_leg`` (the three IU-leg patches
++        must not drift to different rigor); the gateway's ``/anthropic`` leg must stay
++        untouched."""
++        url = str(base_url) if base_url is not None else (getattr(self, "_base_url_lower", "") or "")
++        try:
++            parsed = urlparse(str(url or "").strip())
++        except Exception:
++            return False
++        return ((parsed.hostname or "").lower() == "unified-endpoint-main.app.iu-it.org"
++                 and (parsed.path or "").rstrip("/").endswith("/openai/v1"))
++
+     def _resolved_api_call_timeout(self) -> float:
+         """Per-call request timeout: per-model ``timeout_seconds`` > provider ``request_timeout_seconds`` >
+         ``HERMES_API_TIMEOUT`` > 1800s."""
+@@ -649,8 +670,11 @@ class AIAgent(
+ 
+     def _max_tokens_param(self, value: int) -> dict:
+         """``max_completion_tokens`` for newer OpenAI families (and Azure / Copilot serving them), else
+-        ``max_tokens``. URL-first, then model-name fallback for third-party endpoints fronting those models."""
++        ``max_tokens``. URL-first, then model-name fallback for third-party endpoints fronting those models.
++        LOCAL MODIFICATION (patches/run-agent-iu-max-completion-tokens.patch): the IU unified
++        endpoint's OpenAI-compatible leg always wins too, regardless of model-id prefix."""
+         if (self._is_direct_openai_url() or self._is_azure_openai_url() or self._is_github_copilot_url()
++                or self._is_iu_unified_endpoint_openai_leg()
+                 or model_forces_max_completion_tokens(self.model)):
+             return {"max_completion_tokens": value}
+         return {"max_tokens": value}

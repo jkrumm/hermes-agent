@@ -380,13 +380,23 @@ file they no longer touch — read the table's left column, not the patch name.
 | `gateway/platforms/base.py` | `slack-media-inline-reply-anchor` | pass the text reply's anchor to media senders. **Dormant** under `reply_in_thread: true`, kept applied |
 | `agent/client_lifecycle.py` | `run-agent-third-party-endpoint-token-refresh` | stop `~/.claude/.credentials.json` OAuth replacing the IU key. **Dormant**, kept applied |
 | `tools/cronjob_prompt_scan.py` | `cronjob-tools-allowlist-argo-bearer` | argo/karakeep/research/hyperdx/audio-gateway bearer allowlist so a legitimate cron curl stops tripping `exfil_curl_auth_header` |
-| `hermes_cli/runtime_provider.py` | `runtime-provider-iu-responses-api` | route the IU `…/openai/v1` leg onto `codex_responses` — **the only way to run a reasoning effort here** |
-| `agent/transports/chat_completions.py` | `transport-iu-reasoning-effort` | drop `reasoning_effort` on a gpt-5.x request carrying function tools; clamp `xhigh`/`max` → `high` for the Anthropic fallback |
+| `hermes_cli/runtime_provider.py` | `runtime-provider-iu-responses-api` | route the IU `…/openai/v1` leg onto `codex_responses` for any gpt-5.x model with no explicit `api_mode` — **dormant on the current config**, every live slot sets `api_mode` explicitly |
+| `agent/transports/chat_completions.py` | `transport-iu-reasoning-effort` | deny-by-default tools+`reasoning_effort`: keep both only for the probed-safe allowlist (Anthropic/DeepSeek/GLM); strip for everything else, gpt-5.x and any unrecognized model id included; clamp per model family (Anthropic: no `xhigh`; GLM: no `medium`; unrecognized: omitted entirely) |
+| `run_agent.py` | `run-agent-iu-max-completion-tokens` | always send `max_completion_tokens` (never `max_tokens`) on the IU OpenAI leg, regardless of which model-id prefix is behind it — `model_forces_max_completion_tokens` only recognizes OpenAI ids, so a non-OpenAI custom-provider model (DeepSeek) fell through to the rejected key |
+| `agent/auxiliary_client.py` | `auxiliary-client-iu-openai-leg-quirks` | strip explicit `temperature` for any gpt-5.x id on the IU OpenAI leg (`title_generation`'s `gpt-5.6-luna` hardcodes one and 503s on it) **and** always `max_completion_tokens` there, covering every call site of `auxiliary_max_tokens_param` (compression/title/vision, the fast-lane cap, the credit-limited-402 retry, the same-provider fallback rebuild) |
+| `gateway/run.py` | `gateway-start-predecessor-grace` | non-`--replace` startup (launchd KeepAlive) gets a 20s/1s poll grace for a still-dying predecessor PID before refusing — continues (clearing stale PID/lock like `--replace` does) if it exits, refuses as before if it doesn't. Never signals the target |
+| `tools/skill_manager_tool.py` | `skill-manager-colon-hint` | `_validate_frontmatter` stays fail-closed on a YAML `ScannerError`, but appends a hint when the message is "mapping values are not allowed here" — an unquoted `key: value: with-a-colon` description |
+| `gateway/shutdown_forensics.py` | `shutdown-forensics-darwin` | `spawn_async_diagnostic` branches on `sys.platform == 'darwin'`: BSD `ps -axo … -r`, `sysctl -n vm.loadavg`, `sample <pid> 3` instead of the GNU-only `ps auxf --sort`, `/proc/loadavg`, `dmesg` — Linux path unchanged |
 
 Re-apply: `cd ~/.hermes/hermes-agent && git apply ~/SourceRoot/hermes-agent/patches/<name>.patch`.
-**Anything touching `cronjob_prompt_scan.py` or `runtime_provider.py`
-needs a gateway restart** (`launchctl kickstart -k gui/$(id -u)/ai.hermes.gateway`) — modules are
-imported once at startup.
+**Anything touching `cronjob_prompt_scan.py`, `runtime_provider.py`,
+`agent/transports/chat_completions.py`, `run_agent.py`, `agent/auxiliary_client.py` or
+`config.yaml` needs a gateway restart** (`launchctl kickstart -k gui/$(id -u)/ai.hermes.gateway`)
+— modules are imported once at startup and `config.yaml` is read at startup too. **The
+2026-09-13 model rollout (deepseek-v4.1-flash brain, the reworked reasoning-effort/
+max-completion-tokens patches, the auxiliary re-routing) is not live on the running gateway
+until it is restarted** — a running process still serves whatever model/patch state it started
+with, regardless of what `config.yaml` or these patched files say on disk.
 
 **No approval prompts, no command guards (owner decision 2026-09-14) — do not re-add either.**
 Hermes runs like Claude Code with `--dangerously-skip-permissions` and is steered by
@@ -415,39 +425,56 @@ published source disagrees in some direction. Re-probe after an endpoint change.
 
 | | Value | How established |
 |-|-|-|
-| Input cap, `gpt-5.6-luna` | **922,000** | 900k ok; 1.1M → `context_length_exceeded` (a *combined* input+reasoning+output budget) |
+| Context, `deepseek-v4.1-flash` (brain) | **1,000,000** | probed 2026-09-13; `/responses` 404s ("No suitable backend") despite `/models` listing it — `chat_completions` is the only wire that works |
+| Input cap, `gpt-5.6-luna` (fallback, title) | **922,000** | 900k ok; 1.1M → `context_length_exceeded` (a *combined* input+reasoning+output budget) |
 | `/v1/models` metadata | `ContextSize: "105000"` | **Wrong** — 110k/260k/520k/900k all succeed. Never configure from it |
-| `claude-sonnet-4-6-eu` | ≥300,000 proven | config sits at 300,000; metadata claims 1M, untested above |
 | Efforts, gpt-5.6 family | `none, low, medium, high, xhigh` | `max` refused here; `minimal` isn't a gpt-5.6 value |
+| Efforts, deepseek-v4.1-flash | `low, high, xhigh, max` | accepts tools + effort together on `chat_completions` — unlike gpt-5.x, no strip needed |
 | Efforts, Anthropic leg | `none, low, medium, high` | `xhigh` refused by the IU LiteLLM gateway |
 
-**Reasoning effort only exists on the Responses API here.** `/v1/chat/completions` refuses any
-effort once the request carries function tools — and Hermes always sends tools, so the effort
-400s **every** turn and lands the conversation on the Anthropic fallback while looking healthy.
-Hence `model.api_mode: codex_responses` + the runtime-provider patch. **Tell:** `Fallback
-activated: gpt-5.6-luna → claude-sonnet-4-6-eu` every turn in `~/.hermes/logs/agent.log`, with
-`Ignoring persisted custom api_mode=codex_responses for non-OpenAI endpoint` one line above —
-that second line means the patch fell off, which is what a `hermes update` does.
+**DeepSeek runs `chat_completions` and gets its effort every turn — the Responses dance was a
+gpt-5.x-only problem.** `/v1/chat/completions` refuses any effort on gpt-5.x once the request
+carries function tools — and Hermes always sends tools — but DeepSeek takes tools and
+`reasoning_effort` together on the same wire with no such refusal (probed 2026-09-13). So the
+brain needs no Responses routing at all: `model.api_mode: chat_completions`,
+`patches/transport-iu-reasoning-effort.patch` now strips the effort only for a gpt-5.x model id
+(the fallback, `gpt-5.6-luna`), never for DeepSeek. **Tell if the fallback is active:**
+`Fallback activated: deepseek-v4.1-flash → gpt-5.6-luna` in `~/.hermes/logs/agent.log` — expected
+under throttling, not a misconfiguration; the fallback runs with no reasoning effort while tools
+are attached (the 503-avoidance tradeoff), which is accepted, not a bug.
 
 - **`agent.log` is not rotated per process** — slice every read at the current process start
   (`pgrep -f "hermes_cli.main gateway run"` → `ps -o lstart=`). `skills/hermes-gateway/` owns
   this. **Hermes may not restart its own gateway.**
-- **The live key is `agent.reasoning_effort`, not `model.reasoning_effort`.**
-- **The Anthropic fallback shares this base URL and must not follow it onto Responses** — an
-  explicit `api_mode` on a `fallback_providers` entry wins over URL detection.
+- **The live key is `agent.reasoning_effort`, not `model.reasoning_effort`** (the latter was a
+  dead, never-read mirror and has been removed from `config.yaml`).
+- **`patches/runtime-provider-iu-responses-api.patch` is dormant on the current config** — every
+  slot on this endpoint now sets an explicit `api_mode` (`chat_completions`), which always wins
+  over the patch's forced host-detection. Kept applied: it is the fallback the moment anything
+  here is switched back to a gpt-5.x model with no explicit `api_mode`, and a stale
+  `Ignoring persisted custom api_mode=codex_responses for non-OpenAI endpoint` log line still
+  means a patch fell off a `hermes update`, not that this one is broken.
 - **Compaction triggers at 240,000 tokens** (absolute — the *lower* of ratio and absolute
   governs). A window **under 512K** floors its threshold at **0.75**, and the auxiliary
   compression model's own `context_length` clamps the trigger to itself — hence
-  `auxiliary.compression.context_length: 850000`, not the default 200,000.
+  `auxiliary.compression.context_length: 850000`, not the model's real 1,000,000 or the
+  default 200,000 (DeepSeek's lack of prompt caching is accepted, not chased here).
 
-**Auxiliary lanes are separately routed, not the brain** — `title_generation` and `approval` are
-pinned off a flash/haiku model (the flagship 503s on their hardcoded `temperature`); `approval`
+**Auxiliary lanes are separately routed, not the brain** — `title_generation` (`gpt-5.6-luna`)
+and `approval` (`claude-haiku-4-5`) are pinned off non-brain models because both hardcode a
+`temperature` the flagship rejects; `patches/auxiliary-client-iu-openai-leg-quirks.patch` strips
+`temperature` for any gpt-5.x id on the IU OpenAI leg (mirrors the tools+effort strip). `approval`
 runs the **native `/anthropic` leg**, 0.9s vs 3.0s through the OpenAI-compat shim, `provider`
-stays `custom` so it never reaches for `~/.claude` OAuth. **`delegation.*` (subagent routing)
-exists but is unused** — a Hermes child gets no `.claude/rules`/`skills`/PR artifact, so repo work
-stays on the dispatch bridge. **Core-tool deferral is on** (`tools.tool_search.enabled: auto`) —
-measured −19.8% off the cached tool prefix every turn; if Hermes ever claims it can't schedule
-something, check `cronjob_manage` isn't wrongly deferred rather than disabling the feature.
+stays `custom` so it never reaches for `~/.claude` OAuth. `vision` moved off Google AI Studio
+direct onto the same IU leg (`gemini-3.5-flash`, EU-resident per the IU catalog) — no documented
+reason for the direct route was ever found; see `modelpick/docs/decisions/vision-and-image.md`.
+`auxiliary.web_extract` and `auxiliary.session_search` are gone — upstream stopped reading them
+(`config_defaults.py`: "no longer use an auxiliary LLM... ignored"), so the blocks were dead
+weight. **`delegation.*` (subagent routing) exists but is unused** — a Hermes child gets no
+`.claude/rules`/`skills`/PR artifact, so repo work stays on the dispatch bridge. **Core-tool
+deferral is on** (`tools.tool_search.enabled: auto`) — measured −19.8% off the cached tool prefix
+every turn; if Hermes ever claims it can't schedule something, check `cronjob_manage` isn't
+wrongly deferred rather than disabling the feature.
 
 Full numbers, lane rationale, deferral measurement: **`docs/model-context-reasoning.md`**.
 

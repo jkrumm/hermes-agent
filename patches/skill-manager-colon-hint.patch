@@ -1,0 +1,20 @@
+diff --git a/tools/skill_manager_tool.py b/tools/skill_manager_tool.py
+index 81d64b909b..03a11f45b1 100644
+--- a/tools/skill_manager_tool.py
++++ b/tools/skill_manager_tool.py
+@@ -142,7 +142,14 @@ def _validate_frontmatter(content: str, *, new_skill: bool = False) -> Optional[
+     try:
+         parsed = yaml.safe_load(content[3:end_match.start() + 3])
+     except yaml.YAMLError as e:
+-        return f"YAML frontmatter parse error: {e}"
++        # LOCAL MODIFICATION (patches/skill-manager-colon-hint.patch): stays fail-closed —
++        # only appends a hint for the specific ScannerError an unquoted "key: value with: a
++        # colon" description throws, so a frontmatter author sees the fix instead of a bare
++        # PyYAML trace.
++        hint = ""
++        if "mapping values are not allowed here" in str(e):
++            hint = " — a value likely contains an unquoted ': '; wrap it in double quotes"
++        return f"YAML frontmatter parse error: {e}{hint}"
+     if not isinstance(parsed, dict):
+         return "Frontmatter must be a YAML mapping (key: value pairs)."
+     for field in ("name", "description"):

@@ -1,0 +1,133 @@
+diff --git a/agent/auxiliary_client.py b/agent/auxiliary_client.py
+index f8927a3a36..7f76ccdeda 100644
+--- a/agent/auxiliary_client.py
++++ b/agent/auxiliary_client.py
+@@ -613,6 +613,33 @@ def _is_codex_spark(model: Optional[str], provider: Optional[str] = None) -> boo
+     return _codex_route_bare_model(model, provider) == "gpt-5.3-codex-spark"
+ 
+ 
++# LOCAL MODIFICATION (patches/auxiliary-client-iu-openai-leg-quirks.patch)
++_IU_UNIFIED_ENDPOINT_HOST = "unified-endpoint-main.app.iu-it.org"
++
++
++def _is_iu_openai_leg(base_url: Optional[str]) -> bool:
++    """True for the IU unified endpoint's OpenAI-compatible leg (``…/openai/v1``), exact
++    hostname + path — never containment, so a lookalike host or the gateway's own
++    ``/anthropic`` leg don't match. Identical predicate to
++    ``run_agent.AIAgent._is_iu_unified_endpoint_openai_leg`` and the host check in
++    ``agent.transports.chat_completions._apply_iu_reasoning_effort`` — keep all three in
++    sync; they must not drift to different rigor."""
++    try:
++        parsed = urlparse(str(base_url or "").strip())
++    except Exception:
++        return False
++    return ((parsed.hostname or "").lower() == _IU_UNIFIED_ENDPOINT_HOST
++             and (parsed.path or "").rstrip("/").endswith("/openai/v1"))
++
++
++def _is_gpt5_on_iu_openai_leg(model: Optional[str], base_url: Optional[str]) -> bool:
++    """True when ``model`` is a gpt-5.x id being called on the IU unified endpoint's
++    OpenAI-compatible leg — that leg 503s on any explicit, non-default ``temperature``
++    for gpt-5.x (title_generation hardcodes 0.3 at the call site). Mirrors the
++    tools+reasoning_effort strip in ``patches/transport-iu-reasoning-effort.patch``."""
++    return _bare_model(model).startswith("gpt-5") and _is_iu_openai_leg(base_url)
++
++
+ def _fixed_temperature_for_model(
+     model: Optional[str], base_url: Optional[str] = None
+ ) -> "Optional[float] | object":
+@@ -620,6 +647,9 @@ def _fixed_temperature_for_model(
+     if _is_kimi_model(model):
+         logger.debug("Omitting temperature for Kimi model %r (server-managed)", model)
+         return OMIT_TEMPERATURE
++    if _is_gpt5_on_iu_openai_leg(model, base_url):
++        logger.debug("Omitting temperature for %r on the IU OpenAI leg (gpt-5.x 503s on it)", model)
++        return OMIT_TEMPERATURE
+     return 0.5 if _is_arcee_trinity_thinking(model) else None
+ 
+ 
+@@ -3594,7 +3624,7 @@ def _fallback_request_kwargs(
+         temperature=temperature, max_tokens=fallback_max_tokens, tools=fallback_tools, timeout=effective_timeout,
+         extra_body=fallback_extra_body, reasoning_config=reasoning_config, base_url=destination.base_url, task=task)
+     if apply_fast_lane and fallback_max_tokens is not None and max_tokens is None:
+-        fb_kwargs.update(auxiliary_max_tokens_param(fallback_max_tokens, model=destination.model))
++        fb_kwargs.update(auxiliary_max_tokens_param(fallback_max_tokens, model=destination.model, base_url=destination.base_url))
+     return fb_kwargs
+ 
+ 
+@@ -5061,15 +5091,24 @@ def get_auxiliary_extra_body() -> dict:
+     return _nous_extra_body() if auxiliary_is_nous else {}
+ 
+ 
+-def auxiliary_max_tokens_param(value: int, *, model: Optional[str] = None) -> dict:
++def auxiliary_max_tokens_param(value: int, *, model: Optional[str] = None, base_url: Optional[str] = None) -> dict:
+     """Max-tokens kwarg for the auxiliary provider: direct OpenAI/Copilot and newer OpenAI-family
+-    models (by ``model`` name, so custom endpoints fronting gpt-5.x are caught) need max_completion_tokens."""
+-    _custom_host = base_url_hostname(_current_custom_base_url()) or ""
++    models (by ``model`` name, so custom endpoints fronting gpt-5.x are caught) need max_completion_tokens.
++
++    LOCAL MODIFICATION (patches/auxiliary-client-iu-openai-leg-quirks.patch): the IU unified
++    endpoint's OpenAI-compatible leg always needs it too, regardless of model-id prefix — a
++    non-OpenAI id served through this custom provider (deepseek-v4.1-flash) otherwise falls
++    through to the rejected ``max_tokens`` key on every reachable call site (the primary
++    ``_build_call_kwargs`` cap, the fast-compression-lane cap, the credit-limited-402 retry, and
++    the same-provider fallback rebuild). ``base_url`` defaults to the currently-resolved custom
++    provider's base URL when the caller has none more specific in scope."""
++    resolved_base_url = base_url if base_url is not None else _current_custom_base_url()
++    _custom_host = base_url_hostname(resolved_base_url) or ""
+     direct_openai_family = (
+         not _scoped_key_env("OPENROUTER_API_KEY") and _read_nous_auth() is None
+         and (_custom_host in ("api.openai.com", "api.githubcopilot.com") or _custom_host.endswith(".githubcopilot.com"))
+     )
+-    if direct_openai_family or model_forces_max_completion_tokens(model):
++    if direct_openai_family or model_forces_max_completion_tokens(model) or _is_iu_openai_leg(resolved_base_url):
+         return {"max_completion_tokens": value}
+     return {"max_tokens": value}
+ 
+@@ -5935,7 +5974,7 @@ def _build_call_kwargs(
+     effective_base = base_url or (_current_custom_base_url() if provider == "custom" else "")
+     provider_norm = str(provider or "").strip().lower()
+     if max_tokens is not None and _forwards_max_tokens(provider, provider_norm, model, effective_base, task):
+-        kwargs.update(auxiliary_max_tokens_param(max_tokens, model=model))  # picks max_completion_tokens where needed
++        kwargs.update(auxiliary_max_tokens_param(max_tokens, model=model, base_url=effective_base))  # picks max_completion_tokens where needed
+     if tools:
+         kwargs["tools"] = _dedupe_tool_names(tools, provider, model)
+     # Provider profiles are the source of truth for reasoning wire shapes (top-level, nested body,
+@@ -5945,6 +5984,18 @@ def _build_call_kwargs(
+     kwargs.update(projection.top_level)
+     if merged_extra := _merge_aux_extra_body(extra_body, projection, reasoning_config, provider_norm):
+         kwargs["extra_body"] = merged_extra
++    # LOCAL MODIFICATION (patches/auxiliary-client-iu-openai-leg-quirks.patch): the IU OpenAI leg
++    # rejects ``extra_body.reasoning`` ("Unknown parameter: 'reasoning'", a 503 on gpt-5.x — every
++    # title_generation call failed on it) and wants a top-level ``reasoning_effort``. Move it there
++    # and reuse the main loop's per-family clamp and tools+effort rule, so both paths agree.
++    if _is_iu_openai_leg(effective_base):
++        _iu_extra = kwargs.get("extra_body")
++        _iu_reasoning = _iu_extra.pop("reasoning", None) if isinstance(_iu_extra, dict) else None
++        if isinstance(_iu_extra, dict) and not _iu_extra:
++            kwargs.pop("extra_body", None)
++        if isinstance(_iu_reasoning, dict) or "reasoning_effort" in kwargs:
++            from agent.transports.chat_completions import _apply_iu_reasoning_effort
++            _apply_iu_reasoning_effort(kwargs, model, {"base_url": effective_base, "reasoning_config": _iu_reasoning})
+     # Anthropic Messages adapters take reasoning via a private kwarg that plain OpenAI SDK clients
+     # would reject; Portal Claude is dual-wire, so include it only when the catalog id selects
+     # /v1/messages.
+@@ -6186,7 +6237,8 @@ def _create_with_progress(
+         retry_kwargs.pop("max_tokens", None)
+         retry_kwargs.pop("max_completion_tokens", None)
+         retry_kwargs.update(
+-            auxiliary_max_tokens_param(affordable, model=str(kwargs.get("model") or "") or None))
++            auxiliary_max_tokens_param(affordable, model=str(kwargs.get("model") or "") or None,
++                                        base_url=str(getattr(client, "base_url", "") or "")))
+         logger.info("Auxiliary %s: credit-limited 402 (affordable=%d tokens); "
+                     "retrying once with a clamped output cap instead of failing: %s",
+                     task or "call", affordable, exc)
+@@ -6561,7 +6613,7 @@ def _prepare_aux_request(
+     if fast_compression_cap is not None and max_tokens is None:
+         # The compression route is certified non-reasoning, so a bounded summary is
+         # intentional; explicit caller caps pass through untouched.
+-        kwargs.update(auxiliary_max_tokens_param(fast_compression_cap, model=final_model))
++        kwargs.update(auxiliary_max_tokens_param(fast_compression_cap, model=final_model, base_url=base_info or resolved_base_url))
+     if extra_headers:
+         kwargs["extra_headers"] = dict(extra_headers)
+     # Convert image blocks for Anthropic-compatible endpoints (e.g. MiniMax)
