@@ -61,6 +61,50 @@ command runner.
    target was absent, say so plainly and report that unrelated requests remain
    pending; do not claim the queue was drained.
 
+7. **A count that drops is not proof of *your* action — read the `.res`.** The
+   queue dir is the **mini's** (`${XDG_STATE_HOME:-$HOME/.local/state}/human-queue`,
+   `~/.local/state/human-queue` on this estate); the MacBook only reaches it over
+   the ssh hop and has no local copy, so a walk that dies mid-prompt (gateway
+   restart, dropped TTY) still leaves a resolution behind. Each request has a
+   `<id>.req` (JSON: `id`, `created`, `host`, `cwd`, `text`, `cmd`) and, once
+   resolved, a `<id>.res` (JSON: `status`, `exit`, `ran_at`, `output_tail`).
+   Read both before reporting:
+   ```bash
+   D="$HOME/.local/state/human-queue"; cat "$D/<id>.req"; cat "$D/<id>.res"
+   ```
+   A `status: done` with an `output_tail` like `ran-out-of-band-from-…` means a
+   **human** closed it outside this walk — say that, and never claim credit for it.
+   Only a `run` you drove through the two prompts is yours.
+
+8. **Verify the work itself, not just the queue entry.** A resolution is a claim
+   by whoever wrote it. For a secrets/1Password request, confirm the effect
+   independently: the target item exists with the expected fields, and the values
+   match the source. Compare **hashes, never plaintext**, and never print a secret
+   value into the chat:
+   ```bash
+   for p in "new-vault/item/new_field" "old-vault/item/old_field"; do
+     printf '%s  %s\n' "$(op read --account <acct> "op://$p" | shasum -a 256 | cut -c1-12)" "$p"
+   done
+   ```
+   Matching prefixes on both pairs = equal, and the transcript stays clean. Note
+   that a `for p in "a b" "c d"; do set -- $p; …` loop is **not** word-split under
+   `zsh` (no `SH_WORD_SPLIT`) — it silently compares field `"a b"` and prints a
+   bogus `ok`. Run verification loops in `bash`, or pass a real array.
+
+9. **Confirm a reseal by *reading the cache back*, not by the seed's exit code.**
+   `make secrets-seed` writes the age-encrypted `cache/secrets.enc.json` in
+   `dotfiles-private`; the mini then resolves refs offline through
+   `~/.local/bin/secrets-run`. A ref being *listed* in `headless.iu.refs` proves
+   nothing about whether it sealed. Read it back through the shim, which is the
+   same path the apps use:
+   ```bash
+   OP_ACCOUNT=<account> ~/.local/bin/secrets-run read "op://<vault>/<item>/<field>"
+   ```
+   **The account matters.** `secrets-run` defaults to the personal `tkrumm` account;
+   an IU ref (`headless.iu.refs`, account `careerpartner`) returns `MISS` with no
+   account set even when it sealed correctly. A `MISS` on the wrong account is not
+   a failed seed — re-run with `OP_ACCOUNT` before concluding anything.
+
 ## Pitfalls
 
 - **Never drain from the mini.** The MacBook-side script deliberately refuses
