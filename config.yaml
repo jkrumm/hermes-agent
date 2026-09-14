@@ -4,6 +4,9 @@ model:
   base_url: ${OPENAI_BASE_URL}
   api_mode: codex_responses
   reasoning_effort: high
+  # Explicit so model_tools/auxiliary lookups stop falling back to the hardcoded "deepseek"
+  # 128k catalog entry (they don't read custom_providers); the main agent already used 1M.
+  context_length: 1000000
   tool_use_enforcement: true
   key_env: HERMES_CUSTOM_CUSTOM_API_KEY
 providers:
@@ -56,7 +59,10 @@ agent:
   gateway_auto_continue_freshness: 3600
   image_input_mode: auto
   disabled_toolsets: []
-  reasoning_effort: high
+  # max: DeepSeek's documented setting for complex agent work and the one its published agent
+  # benchmarks use. On this route (Requesty -> Fireworks) none..max measured flat in thinking
+  # length and latency (2026-09-13/14), so max costs nothing extra and wins if it ever bites.
+  reasoning_effort: max
 terminal:
   backend: local
   modal_mode: auto
