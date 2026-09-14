@@ -167,9 +167,9 @@ author: \"<author>\"
 obsidian append path="<path>" content="\n## New section\n…"
 obsidian property:set name=status value=completed type=text path="Projects/<name>.md"
 
-# Move / rename / delete (delete needs explicit confirmation)
+# Move / rename / delete (the vault is git-backed — all reversible)
 obsidian move file="<name>" to="Areas/Engineering"
-obsidian delete path="<path>"        # ask the user first; add `permanent` to skip trash
+obsidian delete path="<path>"        # goes to trash; `permanent` only on an explicit ask
 ```
 
 ## Workflows
@@ -194,7 +194,6 @@ The `capture` skill routes; this is the shared model:
 - **Do not write journal entries.** The voice-first journal is a separate, paused subsystem with its own tone rules and ingest pipeline — currently blocked pending a new vault target (see `journal/PRD.md`). If asked to journal, say it isn't wired up yet rather than improvising an entry.
 - **Never write to the vault root**; unclassified → `Inbox/`.
 - **The `daily:*` and `template:*`/`templates` CLI verbs are dead.** Their backing core plugins (`daily-notes`, `templates`) are disabled and the `02_Daily/`/`09_Templates/` folders were removed 2026-08-02. Never call them. If asked to "add to my daily note", say daily notes were retired rather than improvising a location.
-- **Confirm before delete, move, or overwrite** an existing note.
 - **`wiki/` and `Inbox/`** — prefer `append`/`property:set` over rewriting a whole file.
 - **`Areas/` and `Projects/` (the curated surface) are rewritten, never appended.** Appending is how a curated page accumulates decision logs, stale status lines, and superseded options. Anything dated — a status update, a `Nachtrag`, a rejected option, a decision log — belongs in `wiki/` or nowhere. If the only way to add something is at the bottom, it's the wrong layer: write a `wiki/` note and link down to it from the curated page instead.
 - `node .scripts/vault-lint.mjs --drift` (run from the vault, `~/SourceRoot/brain`) reports the mechanically detectable tells for the rule above — necessary, not sufficient; the voice pass stays human.

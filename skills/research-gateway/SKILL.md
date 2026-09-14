@@ -51,8 +51,8 @@ questions with verified sources is this skill.
 
 The service is **asynchronous**: you submit a query and get a `jobId`, then poll until
 it's done. Even a `quick` job can take **1–3 minutes** (deep ones longer) — the brain is
-searching, fetching and cross-checking. **Be patient; don't bail after one poll.** If
-it's clearly a slow one, tell Johannes you're researching and will report back.
+searching, fetching and cross-checking. **Be patient; don't bail after one poll** — keep
+polling silently and reply once, with the result.
 
 ```bash
 RK="Authorization: Bearer $RESEARCH_API_KEY"

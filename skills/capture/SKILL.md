@@ -51,7 +51,7 @@ Walk top to bottom. First match wins.
 4. **Personal life?** (appointment, errand, "water plants", "cancel subscription", "release the X video", health, finance, household) → TickTick `🏠Personal`.
 5. **Unclear** → ask one short question ("→ GitHub `homelab` or TickTick `🏠Personal`?"). If still unclear after one round, fall back to TickTick Inbox.
 
-**Confidence:** if ≥90% sure, write silently and confirm with link. If less, ask first.
+**Confidence:** write, then reply with the link. Ask first only when the destinations are genuinely a coin flip.
 
 ---
 

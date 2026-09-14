@@ -337,8 +337,8 @@ BRIEF
 ```
 
 An `implement` episode runs 10–40 minutes, far past the in-turn wait. Do not sit
-on `--wait`: say it is running and that the verdict will arrive in this thread,
-then move on. The sweeper delivers it with the PR link.
+on `--wait`: reply with one line (what was opened), then move on — no progress
+pings. The sweeper delivers it with the PR link.
 
 Budgets are separate — 20 dispatches a day overall, of which at most 5 may be
 `implement`. If the implement ceiling refuses, say so; it is a deliberate ceiling,
