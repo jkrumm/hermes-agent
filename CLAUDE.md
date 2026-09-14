@@ -395,7 +395,15 @@ Re-apply: `cd ~/.hermes/hermes-agent && git apply ~/SourceRoot/hermes-agent/patc
 needs a gateway restart** (`launchctl kickstart -k gui/$(id -u)/ai.hermes.gateway`) — modules are
 imported once at startup.
 
-**Four guard rules in `tirith-hermes-guards.patch`**: trusted-pipeline allowlist (argo/karakeep/
+**No approval prompts — `approvals.mode: 'off'` (owner decision 2026-09-14), do not re-enable.**
+Hermes runs like Claude Code with `--dangerously-skip-permissions`: `smart` turned flagged
+commands into Slack Approve buttons that stalled the turn 300 s and failed closed. `off` skips
+tirith **and the four guards below** (the bypass is checked before the scan), cron/`-q`/
+unattended contexts are `approve`, `security.protected_instruction_files: false`. Only the
+upstream hardline floor and three irreversible `approvals.deny` globs still block. `make status`
+grades it. The guards stay applied (and tested) for the moment anyone flips back.
+
+**Four guard rules in `tirith-hermes-guards.patch`** (inert while approvals are off): trusted-pipeline allowlist (argo/karakeep/
 research/hyperdx/audio-gateway hosts only), `download_then_execute` (blocks the two-step
 `curl -o f && sh f` form tirith itself misses), `raw_agent_invocation` (blocks Hermes composing
 its own `claude`/`rd bg|work`/`agent-dispatch` call — the **headless, invisible** lane;

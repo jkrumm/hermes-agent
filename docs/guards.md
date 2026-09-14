@@ -5,6 +5,11 @@ keeps the rules, the limits and the regression-suite names — the operational
 surface a session needs — with each incident that forced a rule condensed to
 one paragraph rather than a full narrative.
 
+**Inert since 2026-09-14:** `approvals.mode: 'off'` returns approved before
+`tools/approval.py` ever calls the tirith scan, so none of these rules fire in the
+gateway, cron or `-q` (owner decision — no approval prompts, see CLAUDE.md). They
+stay applied and tested so flipping the mode back restores them unchanged.
+
 All four rules live in `tools/tirith_security.py`, source
 `patches/tirith-hermes-guards.patch`. Re-apply:
 `cd ~/.hermes/hermes-agent && git apply ~/SourceRoot/hermes-agent/patches/tirith-hermes-guards.patch`.

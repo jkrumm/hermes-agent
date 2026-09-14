@@ -195,8 +195,8 @@ auxiliary:
     # rather than the OpenAI-compat shim: measured 0.9s vs 3.0s for the same model,
     # no LiteLLM translation in between. provider stays `custom` (not `anthropic`)
     # so the auxiliary client never reaches for ~/.claude OAuth credentials — the
-    # key is supplied explicitly. tirith and the four local guards remain the hard
-    # gate; this classifier is the soft second opinion.
+    # key is supplied explicitly. Idle while approvals.mode is 'off' — kept routed
+    # so flipping back to smart doesn't regress to the 503 path.
     provider: custom
     model: claude-haiku-4-5
     base_url: ${ANTHROPIC_BASE_URL}
@@ -535,24 +535,26 @@ matrix:
   require_mention: true
   free_response_rooms: ''
   allowed_rooms: ''
+# No approval prompts, anywhere — the Claude Code --dangerously-skip-permissions
+# equivalent (owner decision 2026-09-14). `smart` turned every flagged command into
+# a Slack Approve button that blocked the turn for `timeout` seconds and then failed
+# closed; `mode: off` also skips tirith and the local guards in tirith-hermes-guards
+# (approval.py checks the bypass before the scan). What still blocks: upstream's
+# hardline floor and the `deny` globs below — irreversible data loss only. Never
+# re-add a glob that matches reads (`*config.yaml*` blocked `git log -- config.yaml`).
+# `make status` asserts this block so it can't silently drift back.
 approvals:
-  mode: smart
+  mode: 'off'
   timeout: 300
-  cron_mode: deny
+  cron_mode: approve
+  single_query_mode: approve
+  unattended_mode: approve
   deny:
-    - '*hermes*config*set *'
-    - '*hermes*config*unset *'
-    - '*hermes*config*edit*'
-    - '*hermes*config*migrate*'
-    - '*config.yaml*'
     - '*gh repo delete*'
-    - '*docker*rm -f*'
-    - '*docker*rm --force*'
-    - '*docker rm *$(*'
-    - '*docker stop *$(*'
     - '*docker*prune*'
-  mcp_reload_confirm: true
-  destructive_slash_confirm: true
+    - '*docker rm *$(*'
+  mcp_reload_confirm: false
+  destructive_slash_confirm: false
 command_allowlist:
   - script execution via -e/-c flag
 plugins:
@@ -562,8 +564,11 @@ plugins:
   entries:
     dispatch-approval:
       allow_tool_override: false
-hooks_auto_accept: false
+hooks_auto_accept: true
 security:
+  # Writes to SOUL.md/AGENTS.md/CLAUDE.md-style instruction files otherwise raise
+  # an approval prompt — same no-prompt decision as approvals.mode above.
+  protected_instruction_files: false
   allow_private_urls: false
   redact_secrets: true
   tirith_enabled: true
