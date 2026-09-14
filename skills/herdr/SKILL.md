@@ -129,6 +129,15 @@ Wait until that pane shows up in `agent list` as `claude`/`idle` before promptin
 
 ## Prompt it, and read the answer back
 
+**Pass Johannes's words verbatim — never pre-digest them.** When he hands over a
+voice memo, a transcript or a wall of text, write it into the prompt file *as it
+stands* and pass that. Do not restructure it into numbered points, do not
+summarize it, do not "clean it up", do not strip the rambling — the agent has the
+full repo, the rules and the domain context you don't, and it is better at
+extracting the real task from his phrasing than you are at guessing it. Your
+reformatting silently deletes signal. This holds for briefs to any agent lane
+(herdr pane, `claude-dispatch`), not just this one.
+
 A long or multi-line prompt goes through a file — never try to inline it, quoting
 will bite you:
 

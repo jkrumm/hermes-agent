@@ -93,6 +93,14 @@ that", not `/board`'s one-line summary.
 - **"What needs me"** → `/board`, filter to `needs_human` and
   `merge_blocked`, name each by `repo` + `note` — the `note` is why it's
   stuck; lead with it, not the state name.
+- **A `needs_human` card may be stale by hours — verify before relaying it
+  as outstanding work.** `note: "…apply the fix by hand"` means the loop
+  *stopped trying*, not that the fix is still missing: the work can land
+  while the card is in flight, and the card is only re-synced on the next
+  state change. Before telling Johannes something needs him, check the
+  repo's `git log` for a commit since `item.updated_at` and the live state
+  of whatever the verdict named. If it landed, say so and lead with that,
+  not with the card's ask.
 - **"What happened to item N" / "is that PR merged yet"** → `/items/N`.
   Relay `item.state`, the latest `dispatches[].verdict.summary` if there is
   one, and `pr_url` if it exists.
@@ -114,4 +122,9 @@ that", not `/board`'s one-line summary.
   `/board` or `/items/:id` this turn, call it — a verdict the sweeper
   delivered earlier in the thread is a snapshot from when it was posted,
   not the item's current state.
+- **`operations` rows are the retry-loop signal.** Every failed row carries
+  its refusal in `receipt_json`. A large count of the *same* failure with
+  `outcome: failed` means the loop is stuck against a wall (a tier ceiling,
+  a denied repo) — that is a finding worth naming, and it is invisible in
+  `item.state` alone, which just reads `verdict`.
 - **`http://127.0.0.1:7735` only, never `localhost`.**

@@ -37,3 +37,6 @@ __pycache__/
 # Cron runtime state — per-fire single-instance locks + catch-up ledger
 cron/.fire-*.lock
 cron/catch_up_occurrences
+
+# Employer-internal skills: loaded by Hermes from disk, never published (this repo is public)
+skills/work/iu-*/

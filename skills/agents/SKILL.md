@@ -65,7 +65,8 @@ confidence}]}], warnings[]}}`.
 The header's `overview <age>` tells you how old the last LLM pass is. If
 it's stale and Johannes is asking a real question (not just skimming),
 trigger a fresh one — bounded, since the `terminal` tool caps at 180s and a
-pass runs a Haiku summarization over every agent (usually 30–60s):
+pass runs a `glm-5.3-flash` summarization over every agent (`claude-haiku-4-5`
+fallback if that's unavailable; usually 30–60s):
 
 ```bash
 JOB=$(curl -s -X POST localhost:7705/api/jobs \
