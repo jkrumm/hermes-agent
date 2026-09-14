@@ -535,14 +535,13 @@ matrix:
   require_mention: true
   free_response_rooms: ''
   allowed_rooms: ''
-# No approval prompts, anywhere — the Claude Code --dangerously-skip-permissions
-# equivalent (owner decision 2026-09-14). `smart` turned every flagged command into
-# a Slack Approve button that blocked the turn for `timeout` seconds and then failed
-# closed; `mode: off` also skips tirith and the local guards in tirith-hermes-guards
-# (approval.py checks the bypass before the scan). What still blocks: upstream's
-# hardline floor and the `deny` globs below — irreversible data loss only. Never
-# re-add a glob that matches reads (`*config.yaml*` blocked `git log -- config.yaml`).
-# `make status` asserts this block so it can't silently drift back.
+# No approval prompts and no command guards — the Claude Code
+# --dangerously-skip-permissions equivalent (owner decision 2026-09-14). `smart` turned
+# every flagged command into a Slack Approve button that blocked the turn for `timeout`
+# seconds and then failed closed. Hermes is steered by SOUL.md and its skills, not by
+# gates. What still blocks: upstream's hardline floor and the `deny` globs below —
+# irreversible data loss only. Never re-add a glob that matches reads (`*config.yaml*`
+# blocked `git log -- config.yaml`). `make status` asserts this block.
 approvals:
   mode: 'off'
   timeout: 300
@@ -571,7 +570,7 @@ security:
   protected_instruction_files: false
   allow_private_urls: false
   redact_secrets: true
-  tirith_enabled: true
+  tirith_enabled: false
   tirith_path: tirith
   tirith_timeout: 5
   tirith_fail_open: true

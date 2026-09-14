@@ -75,7 +75,7 @@ repo's `CLAUDE.md`, `.claude/rules/` or `.claude/skills/`. `warden` (the CLI) is
 client that hands the episode to Claude Code (sideclaw's `dispatch` job tool) instead — it
 lives at `warden/scripts/warden` (a Python CLI; the original bash `hermes-cc.sh` was retired
 2026-09-10); `scripts/hermes-cc.sh` here (= `~/.hermes/scripts/hermes-cc.sh`) is a 6-line exec
-shim into it — the path stays because the Hermes-side guards key on it. Design +
+shim into it — the path skills document. Design +
 why each bound is shaped this way: `~/SourceRoot/warden/DESIGN.md`. The door and
 the signed-approval artifact, which stay Hermes-side: **`docs/dispatch-bridge.md`**.
 
@@ -129,8 +129,7 @@ workspace, not human-vs-bot: HomeLab/VPS/Argo post from inside the tailnet and l
 auto-triage depends on it. `require_mention_channels` silences `#media`/`#updates` (pure-echo
 channels) — inbound-only, `hermes send`/cron/dispatch verdicts still post there.
 
-**Tests** (`~/.hermes/hermes-agent/venv/bin/python3`): `test_raw_agent_guard.py`,
-`test_repo_write_guard.py`, `test_cron_allowlist.py`. `test_hermes_cc.py` moved to
+**Tests** (`~/.hermes/hermes-agent/venv/bin/python3`): `test_cron_allowlist.py`. `test_hermes_cc.py` moved to
 `warden/tests/test_warden_cli.py` (black-box against the real `warden` CLI, stubbed sideclaw +
 GitHub + Slack) with `hermes-cc.sh` itself (2026-09-10); `test_dispatch_approval.py` moved with
 it and still loads this plugin by path. Run both with warden's own venv (`make test` from
@@ -157,15 +156,11 @@ command, read a pane back, start an interactive Claude Code session with the
 dotfiles launchers (`c`/`cf`/`cs`, typed into the pane's zsh — `herdr agent start`
 uses herdr's own bare `claude` and loses the house flags), prompt it, steer it.
 
-**`herdr` came off `raw_agent_invocation` on 2026-09-12** — every verb is allowed.
-The old block treated `herdr agent start|prompt|send-keys|attach` and
-`herdr pane run|send-text|send-keys <agent-command>` as session placement one hop
-up, and it produced the failure it existed to prevent: asked to "open a herdr pane
-in warden with `cf`", Hermes was refused, silently substituted a Warden dispatch and
-reported success for work that was never asked for. The lane that stays blocked is
-the invisible one — a self-composed `claude -p`, `rd bg|work`, `agent-dispatch`.
-Everything binding unattended work to Warden is now instruction (SOUL.md boundary +
-the skill), because a pane he asked for and is looking at is bounded by his own eyes.
+Every herdr verb is allowed. The command guard that once blocked agent-starting herdr verbs
+produced the failure it existed to prevent — asked to "open a herdr pane in warden with `cf`",
+Hermes was refused, silently substituted a Warden dispatch and reported success for work never
+asked for. That guard is gone (see *No approval prompts, no command guards* below); lane choice
+is SOUL.md guidance.
 
 Hermes runs **outside** any pane: no `HERDR_ENV`, no `$HERDR_PANE_ID`, so the skill
 forbids `--current` and focus-dependent targeting and requires explicit
@@ -278,7 +273,7 @@ search, which stays for quick lookups. EU/IU models, off Max.
 - **Named `research-gateway`, not `research`** — upstream's bundled skill *category* dir
   `~/.hermes/skills/research/` would collide with a top-level `research` symlink. Routing is by
   description/tags, so "recherchier mal" still triggers it.
-- Its host is in both allowlist patches (`tirith-hermes-guards`, `cronjob-tools-allowlist-argo-bearer`).
+- Its host is in the cron scanner allowlist patch (`cronjob-tools-allowlist-argo-bearer`).
 
 ## Observability triage (hyperdx)
 
@@ -322,8 +317,7 @@ model call. `scripts/project-narratives.py --run` is the cron entry (job `9909f8
 via `narratives-cron.py`); `--bootstrap a,b,c` writes for human review without committing. It
 takes brain-sync's `mkdir` lock around add/commit, pushes (fail-soft), and POSTs each written
 page to Argo `/api/agents/narratives` (best-effort, a 404 is non-fatal).
-Every commit names the vault (`git -C ~/SourceRoot/brain …`), the sole
-exemption in the `raw_repo_write` guard (`docs/guards.md`). **`docs/project-narratives.md`**.
+Every commit names the vault (`git -C ~/SourceRoot/brain …`). **`docs/project-narratives.md`**.
 
 ## Second Brain (Obsidian + KaraKeep)
 
@@ -356,11 +350,11 @@ scheduled.
 baron. **Vault-first:** builds, runes, matchups, bans and a dated stats snapshot live at
 `~/SourceRoot/brain/Areas/Gaming/Wild Rift/*.md` (curated surface, not `wiki/`); the open web
 via `research-gateway` only *refreshes* a note when a patch moved. No secret, no external API.
-Writes use the `obsidian` CLI-first contract and the `git -C ~/SourceRoot/brain …` exemption
+Writes use the `obsidian` CLI-first contract and `git -C ~/SourceRoot/brain …`
 (never push — the LaunchAgent syncs).
 
-**Never a build site directly** — no Riot/Tencent/build-site host is trusted by tirith or the
-cron scanner, so every fetch routes through `research-gateway`. **Stats are China-server only**
+**Web facts go through `research-gateway`** — build sites are JS-heavy and contradict each
+other; the gateway cross-verifies. **Stats are China-server only**
 and swing hard by rank tier (0-4 — Hecarim ~45% WR at tier 0 vs ~53.7% at tier 4): qualify every
 answer by rank. An Argo `/wildrift/*` group is **built but not deployed**; the skill tells the
 agent not to call it.
@@ -385,34 +379,27 @@ file they no longer touch — read the table's left column, not the patch name.
 | `plugins/platforms/slack/adapter.py` | `slack-cannot-reply-to-message` | mrkdwn normalization + `cannot_reply_to_message` retry (drop `thread_ts`, retry flat) |
 | `gateway/platforms/base.py` | `slack-media-inline-reply-anchor` | pass the text reply's anchor to media senders. **Dormant** under `reply_in_thread: true`, kept applied |
 | `agent/client_lifecycle.py` | `run-agent-third-party-endpoint-token-refresh` | stop `~/.claude/.credentials.json` OAuth replacing the IU key. **Dormant**, kept applied |
-| `tools/tirith_security.py` | `tirith-hermes-guards` | four guard rules, below |
 | `tools/cronjob_prompt_scan.py` | `cronjob-tools-allowlist-argo-bearer` | argo/karakeep/research/hyperdx/audio-gateway bearer allowlist so a legitimate cron curl stops tripping `exfil_curl_auth_header` |
 | `hermes_cli/runtime_provider.py` | `runtime-provider-iu-responses-api` | route the IU `…/openai/v1` leg onto `codex_responses` — **the only way to run a reasoning effort here** |
 | `agent/transports/chat_completions.py` | `transport-iu-reasoning-effort` | drop `reasoning_effort` on a gpt-5.x request carrying function tools; clamp `xhigh`/`max` → `high` for the Anthropic fallback |
 
 Re-apply: `cd ~/.hermes/hermes-agent && git apply ~/SourceRoot/hermes-agent/patches/<name>.patch`.
-**Anything touching `tirith_security.py`, `cronjob_prompt_scan.py` or `runtime_provider.py`
+**Anything touching `cronjob_prompt_scan.py` or `runtime_provider.py`
 needs a gateway restart** (`launchctl kickstart -k gui/$(id -u)/ai.hermes.gateway`) — modules are
 imported once at startup.
 
-**No approval prompts — `approvals.mode: 'off'` (owner decision 2026-09-14), do not re-enable.**
-Hermes runs like Claude Code with `--dangerously-skip-permissions`: `smart` turned flagged
-commands into Slack Approve buttons that stalled the turn 300 s and failed closed. `off` skips
-tirith **and the four guards below** (the bypass is checked before the scan), cron/`-q`/
-unattended contexts are `approve`, `security.protected_instruction_files: false`. Only the
-upstream hardline floor and three irreversible `approvals.deny` globs still block. `make status`
-grades it. The guards stay applied (and tested) for the moment anyone flips back.
-
-**Four guard rules in `tirith-hermes-guards.patch`** (inert while approvals are off): trusted-pipeline allowlist (argo/karakeep/
-research/hyperdx/audio-gateway hosts only), `download_then_execute` (blocks the two-step
-`curl -o f && sh f` form tirith itself misses), `raw_agent_invocation` (blocks Hermes composing
-its own `claude`/`rd bg|work`/`agent-dispatch` call — the **headless, invisible** lane;
-**`herdr` came off this guard entirely 2026-09-12**, see *Herdr* below), `raw_repo_write` (blocks
-editing a repo instead of dispatching — two exemptions: GitHub issues, and the brain vault when
-the command names it). All three write/execution guards share **one tokenizer bug history** — a
-newline inside `shlex.whitespace_split` let a multi-line command scan only its first line,
-exploited twice before every guard moved `\n`/`\r` into `punctuation_chars`. Rules, current test
-counts, the full incident record: **`docs/guards.md`**.
+**No approval prompts, no command guards (owner decision 2026-09-14) — do not re-add either.**
+Hermes runs like Claude Code with `--dangerously-skip-permissions` and is steered by
+**guidance, not gates**: SOUL.md *How you get things done* + the skills. `approvals.mode: 'off'`
+(`smart` turned flagged commands into Slack Approve buttons that stalled the turn 300 s and
+failed closed), cron/`-q`/unattended `approve`, `security.tirith_enabled: false`,
+`security.protected_instruction_files: false`. The local `tirith-hermes-guards` patch
+(pipeline allowlist, `download_then_execute`, `raw_agent_invocation`, `raw_repo_write`) was
+**deleted** with its tests — it produced friction and silent lane substitutions, not safety.
+Still blocking: upstream's hardline floor, the gateway-self-restart block, three irreversible
+`approvals.deny` globs, and Warden's own dispatch policy (in `~/SourceRoot/warden`). `make
+status` grades the config. **When Hermes does the wrong thing, fix SOUL.md or the skill** — make
+the guidance clearer; never answer with a new block.
 
 **Slack threading is a context-window boundary.** `slack.reply_in_thread: true` makes
 `build_session_key()` append `thread_ts` whenever `source.thread_id` is set, so **one thread ==

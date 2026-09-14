@@ -59,11 +59,9 @@ stale projects drains gradually rather than in one giant run:
    - **Lint passes** → commit, always naming the vault (`git -C
      ~/SourceRoot/brain add wiki/engineering/projects
      wiki/engineering/index.md` + `git -C ~/SourceRoot/brain commit -m
-     "narrative(<project>): <summary>"`) — the repo-write guard's one
-     exemption is narrow and requires the command to *name* the vault (see
-     `docs/guards.md`'s `raw_repo_write` section); a bare `git commit` is
-     still refused. Update state (`lastRevisedAt`, `lastCommit`,
-     `lastSessionMtime`, `summary`).
+     "narrative(<project>): <summary>"`) — never a bare `git commit`, so the
+     commit is unambiguous among the repos on this box. Update state
+     (`lastRevisedAt`, `lastCommit`, `lastSessionMtime`, `summary`).
 
 ## State
 

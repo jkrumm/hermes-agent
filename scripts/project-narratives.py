@@ -16,9 +16,9 @@ vault page (if any) as `previousPage`, call the job with `since` = the last
 revision timestamp, and on `changed: true` write the page, regenerate the
 `wiki/engineering/projects/index.md` MOC, lint the vault
 (`node .scripts/vault-lint.mjs`), and commit — always naming the vault
-(`git -C ~/SourceRoot/brain …`), per the repo-write guard's vault exemption
-(see hermes-agent/docs/guards.md). A lint failure reverts the page and skips
-the commit entirely, retried on the next run.
+(`git -C ~/SourceRoot/brain …`) so the commit is unambiguous among the repos
+on this box. A lint failure reverts the page and skips the commit entirely,
+retried on the next run.
 
 The add/commit/push runs under brain-sync's own single-instance lock
 (`~/Library/Caches/brain-sync.lock`, a `mkdir` dir with a `pid` file — the

@@ -117,11 +117,10 @@ argument is in `Draft Guide.md` — read it rather than reciting this paragraph.
 
 ## Reaching the open web
 
-Only through the **`research-gateway`** skill. Hermes' tirith guard trusts
-exactly three hosts for a curl-pipe pattern — `argo.jkrumm.com`,
-`karakeep.jkrumm.com`, `research.jkrumm.com`. **Never curl a Tencent endpoint,
-a Riot page, or a build site directly**; it gets blocked or stalls on an
-approval gate. Route the question through `research-gateway` and let it fetch.
+Only through the **`research-gateway`** skill. **Never curl a Tencent endpoint,
+a Riot page, or a build site directly** — those hosts aren't cross-verified or
+cited, and results from them have been wrong before (see below). Route the
+question through `research-gateway` and let it fetch.
 
 Good research queries for this domain: the current Wild Rift patch number and
 date; what a named patch changed for a specific champion; the current core
@@ -211,8 +210,8 @@ Claude Code job, not yours.
 
 **Commit after writing, through the helper.** It takes brain-sync's lock (so the
 commit never races the 5-minute sync for `.git/index.lock`), commits naming the
-vault — the repo-write guard refuses a bare `git commit`; the vault is the one
-exemption — and pushes, fail-soft:
+vault (so the commit is unambiguous among the repos on this box) — and pushes,
+fail-soft:
 ```bash
 ~/.hermes/scripts/brain-commit.sh "wildrift: refresh Hecarim build (patch 7.2b)" "Areas/Gaming/Wild Rift"
 ```

@@ -2,10 +2,9 @@
 # hermes-ops — the ONLY infrastructure-mutation interface the Hermes agent gets.
 #
 # WHY THIS EXISTS. Hermes hands a `terminal` tool to an LLM. Every ops command it
-# composes is therefore free-form shell, which leaves exactly two bad options: let
-# tirith/approvals gate each one (read-only triage stalls behind a Slack approval
-# nobody answers at 05:00 — see skills/devops/homelab-alerts/SKILL.md "Approval
-# Gate"), or allowlist shell shapes broadly (and the allowlist becomes the hole).
+# composes is therefore free-form shell, which leaves exactly two bad options: gate
+# every command behind a human review step (nobody's there to approve one at
+# 05:00), or allowlist shell shapes broadly (and the allowlist becomes the hole).
 # A closed verb set breaks the trade: `hermes-ops.sh status` is a benign script
 # call whether or not the LLM understood what it was doing, so Tier A can be
 # allowlisted outright and Tier B stays mechanically bounded.
@@ -17,10 +16,10 @@
 # string. One free-form escape hatch and the whole exercise is theatre.
 #
 # TIERS
-#   A  read-only. Safe to put in `command_allowlist` so triage never prompts.
-#   B  mutating but idempotent and mechanical. Gated twice — this script needs
-#      --confirm AND --why, independently of the Hermes approval layer. Without
-#      --confirm every Tier B verb prints its plan and exits 0, changing nothing.
+#   A  read-only, no side effects.
+#   B  mutating but idempotent and mechanical. Gated by this script itself —
+#      needs --confirm AND --why. Without --confirm every Tier B verb prints
+#      its plan and exits 0, changing nothing.
 #
 # Secrets resolve through `secrets-run`, the op shim (age-encrypted offline cache
 # on this headless mini; live biometric op on the MacBook). A bare `op` here hangs

@@ -82,20 +82,6 @@ prediction — retry once; if health is fine but every request fails, see
 Not reliably available in every session, especially cron. Call the gateway
 directly via curl or `urllib.request` — don't depend on the native tool.
 
-### 3. `execute_code` can be blocked under `cron_mode` approval
-Use `terminal` with a Python script file instead (write to `/tmp`, run with
-`python3`).
-
-### 4. Heredoc Python is blocked by Tirith
-`python3 << 'PYEOF'` gets flagged as a security pattern. Write the script to
-a file first (`write_file` to `/tmp/script.py`), then
-`terminal("python3 /tmp/script.py")`.
-
-### 5. `curl | python3` is blocked by Tirith
-Piping curl output straight into an interpreter trips the "pipe to
-interpreter" gate. Write the response to a file, or use `urllib.request`
-inside the Python script instead of shelling out to curl.
-
 ---
 
 ## Canonical Pattern — One Request

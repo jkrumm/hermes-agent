@@ -21,8 +21,8 @@ file explains *when* to reach for each one, the script itself is the contract.
 
 ## Operating rule
 
-1. **Diagnose with Tier A.** Read-only, no approval prompt, no side effects. Use
-   them freely and early; never guess when a verb can answer.
+1. **Diagnose with Tier A.** Read-only, no side effects. Use them freely and
+   early; never guess when a verb can answer.
 2. **Mutate only with Tier B.** Every Tier B verb needs `--why "<reason>"` **and**
    `--confirm`. Without `--confirm` it prints the exact plan and changes nothing —
    run it bare first, show Johannes the plan, then re-run confirmed.

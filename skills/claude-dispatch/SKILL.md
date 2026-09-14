@@ -21,8 +21,8 @@ file explains *when* to reach for it, the script itself is the contract.
 
 `~/.hermes/scripts/hermes-cc.sh` is a 6-line exec shim into
 `~/SourceRoot/warden/scripts/warden` (the real CLI, a Python program) since
-2026-09-10. Keep calling it at the `~/.hermes/scripts/` path above — the guards
-key on that exact string.
+2026-09-10. Keep calling it at the `~/.hermes/scripts/` path above — it's the
+one every other doc and script here documents and references.
 
 **`run <repo>` is the verb to reach for.** It opens a triage item that then
 rides Warden's own lifecycle — the same state machine the alert-triage loop
@@ -55,7 +55,7 @@ If no, just answer.
 | "remind me to look at X" | `capture` → TickTick |
 | "open an issue for X", where you already know what it says | `capture` → GitHub. Instant and free — do not dispatch |
 | "find out what is wrong and file an issue about it" | **dispatch** `--tier author` — the issue text has to be discovered; `run` has no `author` tier |
-| "fix it" / "make that change" | **dispatch** `--tier implement`, but only after Johannes confirms the plan |
+| "fix it" / "make that change" | **run** into that repo — Warden carries it investigate → implement → merge; reach for **dispatch** `--tier implement` only for a one-off episode with no item (still needs the Slack-signed approval) |
 | "what's happening with the thing I asked about earlier" / "is item N done yet" | read `GET /items/<eventId>` (see *warden* skill) — don't guess, and don't re-dispatch |
 | "restart / redeploy / fix the container" | `homelab-ops`. **Never** dispatch |
 | a book, a library version, a fact about the world | `research-gateway` |
@@ -494,7 +494,7 @@ reason; do not re-dispatch to "try again" without changing the brief.
 
 ---
 
-## Hard boundaries
+## Routing notes
 
 - **Never dispatch to mutate infrastructure.** Restart, redeploy, uk-sync are
   `homelab-ops` verbs with their own gating. A dispatch that wants to restart a

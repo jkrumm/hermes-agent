@@ -307,14 +307,15 @@ status:
 	@if crontab -l 2>/dev/null | grep -q "hermes-liveness.sh\|hermes-backup.sh"; then \
 		echo "    ✗ legacy crontab entries [double-firing — run make cron-migrate]"; \
 	fi
-	@# No approval prompts (owner decision 2026-09-14): approvals.mode 'off' plus
-	@# approve for every unattended context. A drift back to smart/manual/deny is
-	@# the 5-minute-Slack-button stall again, so it is graded, not remembered.
+	@# No approval prompts, no command guards (owner decision 2026-09-14):
+	@# approvals.mode 'off', approve for every unattended context, tirith and the
+	@# protected-instruction gate off. A drift back is the 5-minute-Slack-button
+	@# stall again, so it is graded, not remembered.
 	@"$(HERMES_DIR)/hermes-agent/venv/bin/python3" -c 'import yaml,sys;\
 c=yaml.safe_load(open("$(HERMES_REPO)/config.yaml"));a=c.get("approvals") or {};\
 bad=[k for k,v in (("mode","off"),("cron_mode","approve"),("single_query_mode","approve"),("unattended_mode","approve")) if str(a.get(k))!=v];\
-bad+=["security.protected_instruction_files"] if (c.get("security") or {}).get("protected_instruction_files") is not False else [];\
-print("    ✓ approvals off (no prompts)") if not bad else print("    ✗ approval prompts re-enabled [%s]" % ", ".join(bad))' 2>/dev/null \
+s=c.get("security") or {};bad+=[k for k in ("protected_instruction_files","tirith_enabled") if s.get(k) is not False];\
+print("    ✓ approvals + guards off (no prompts)") if not bad else print("    ✗ approval prompts re-enabled [%s]" % ", ".join(bad))' 2>/dev/null \
 		|| echo "    ✗ approvals check [could not parse config.yaml]"
 	@# Every skill a cron job preloads must actually resolve. The scheduler only
 	@# logs a WARNING and runs anyway when one doesn't (cron/scheduler.py: "skill

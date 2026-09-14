@@ -28,9 +28,8 @@ is `claude-dispatch`'s. Neither is this one.
 
 ## Quick read (no refresh, ~instant)
 
-Bare `curl`, no pipe — piping `curl` output straight into another program is
-what tirith's pipeline gate exists to catch (see `podcast`'s pattern), so
-read the plain-text overview directly:
+Bare `curl`, no pipe — the plain-text overview is already the shape you want,
+so read it directly rather than piping it through another program:
 
 ```bash
 curl -s http://localhost:7705/api/overview.txt

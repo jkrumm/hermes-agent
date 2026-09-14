@@ -12,8 +12,8 @@
 # Usage: brain-commit.sh "<commit message>" [path ...]
 #   No paths → `git add -A`. Exit 0 on commit; 0 with "nothing to commit"; 3
 #   when the lock is busy (nothing committed — say so, retry later); 1 on a
-#   git failure. Every git call names the vault (`git -C`), per the
-#   raw_repo_write guard's vault exemption.
+#   git failure. Every git call names the vault (`git -C`), so the commit is
+#   unambiguous among the repos on this box.
 set -u
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 

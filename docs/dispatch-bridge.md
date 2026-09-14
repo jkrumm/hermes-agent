@@ -5,9 +5,8 @@ worktree isolation, the `merge` verb, the ledger schema, repo policy) moved
 to `~/SourceRoot/warden` on 2026-09-10 — see its `DESIGN.md` (authoritative
 design), `CLAUDE.md` (developer notes) and `FLOWS.md` (six end-to-end
 scenarios). `scripts/hermes-cc.sh` in this repo (= `~/.hermes/scripts/hermes-cc.sh`)
-is now a 6-line exec shim into `warden/scripts/warden`, kept only because the
-Hermes-side guards (`tests/test_raw_agent_guard.py`,
-`tests/test_repo_write_guard.py`) key on that exact path.
+is now a 6-line exec shim into `warden/scripts/warden`, kept because its
+exact path is the one every other doc and script here references.
 
 What genuinely stays Hermes-side is the door a Slack turn opens through, and
 the artifact that makes an `implement` click mean something.
@@ -84,12 +83,8 @@ warns about).
 
 ## Tests (this repo)
 
-`tests/test_raw_agent_guard.py` (the recursion guard that refuses `warden`
-when `CLAUDE_CODE_SESSION` is set) and `tests/test_repo_write_guard.py` (the
-guard that keeps a dispatched episode off paths it should never touch) — run
-with `~/.hermes/hermes-agent/venv/bin/python3`. The signed-approval gate
-itself now has its own suite in `~/SourceRoot/warden/tests/test_dispatch_approval.py`
-(moved with the rest of the bridge); everything else (tiers, worktree
-isolation, the merge verb, the ledger, repo policy) is tested in
-`~/SourceRoot/warden/tests/` and `sideclaw/tests/` — not restated here since
-it already drifted once.
+The signed-approval gate has its own suite in
+`~/SourceRoot/warden/tests/test_dispatch_approval.py` (moved with the rest of
+the bridge); everything else (tiers, worktree isolation, the merge verb, the
+ledger, repo policy) is tested in `~/SourceRoot/warden/tests/` and
+`sideclaw/tests/` — not restated here since it already drifted once.

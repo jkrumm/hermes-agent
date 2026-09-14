@@ -172,8 +172,6 @@ is a `skills_list`.
 - An auxiliary model 404/`not found` (title generation, compression) → non-blocking, but
   check the model name in `config.yaml` still exists on the endpoint. Auxiliaries are
   `gpt-5.6-luna`; any log line naming `DeepSeek-V4-Flash` is stale config, not a bug.
-- `Command Approval Required` / `blocked` on a routine argo curl → a tirith patch didn't
-  re-apply; see the `hermes-update` skill.
 
 ---
 
@@ -210,9 +208,8 @@ is a `skills_list`.
 
 Skills are symlinked so SKILL.md changes are live immediately.
 **SOUL.md, `config.yaml`, and any patched Python module** require a gateway restart —
-Python modules are imported once at startup, so an edited `tirith_security.py` (or any
-other patched file) is inert in the running process until you restart, no matter what a
-direct in-process test reports.
+Python modules are imported once at startup, so an edited patched file is inert in the
+running process until you restart, no matter what a direct in-process test reports.
 
 ```bash
 hermes gateway restart          # launchd-supervised; drains in-flight runs (up to 180s)
@@ -258,7 +255,7 @@ Then re-send the same test message and compare `api_calls` and `time` in `agent.
 | Usage: monthly AI spend | `argo-api` (usage) | — | ~64s | Working — `/usage/headline` + breakdown, per-source + per-model, honest about fixed 7/30/90d windows |
 | Research: latest Bun version | `research-gateway` | — | ~54s | Working — submit+poll to research-gateway, cited answer (Bun v1.3.14); tirith allowlist let `curl research… \| jq` through with no approval gate |
 | Post-update (v0.16.0→v0.18.2) TickTick overdue check | `tasks` (method A) | 4 | ~26s | Working — general agent loop intact after platform-plugin rewrite |
-| Post-update infra status (homelab+vps) | `infrastructure` (method A) | 4 | ~16s | Working — 2× terminal/curl tool calls, zero tirith approval gates (confirms `tirith-hermes-guards.patch` re-applied correctly) |
+| Post-update infra status (homelab+vps) | `infrastructure` (method A) | 4 | ~16s | Working — 2× terminal/curl tool calls, clean routing after the platform-plugin rewrite |
 | Post-update Slack formatting check (`*` bullet) | — (method B, real Slack path) | 1 | 5.2s | Working — response posted with `-` bullets (confirms `format_message()` pre-steps ported to `plugins/platforms/slack/adapter.py`). *Recorded `thread_ts: null` — correct then (`reply_in_thread: false`), and the opposite of correct now; see the threading note below.* |
 | Post-update TTS title check ("say out loud") | — (method B, real Slack path) | 2 | 16.2s | Working — `tools.tts_tool: TTS audio saved: .../Update Verification Successful.mp3` (confirms `tts-tool-audio-title.patch` re-applied correctly post-conflict, not `tts_<timestamp>.mp3`); media send via patched `base.py` completed with no errors |
 | Post-audit infra status (method A) | `argo-api` (infrastructure) | 3 | 15.4s | Working — Homelab 36/36 + VPS 29/29, zero approval gates (argo allowlist intact after the tirith rewrite) |
@@ -269,7 +266,6 @@ Then re-send the same test message and compare `api_calls` and `time` in `agent.
 | v0.19.1 `format_message()` pre-steps (in-process) | `slack-cannot-reply-to-message.patch` | — | — | Working — `* ` → `- ` at all nesting levels, and `` `:white_check_mark: …` `` backticks stripped. This is the check that actually pins the patch |
 | v0.19.1 TTS + thread continuation (method B, `/reply`) | `tts-tool-audio-title` + `base.py` anchor | — | ~29s | Working — `TTS audio saved: …/Gateway und Dienste prüfen.mp3` (human title, not `tts_<timestamp>`), `[Slack] Delivering 1 non-image MEDIA attachment(s)` then a clean send, no errors. Same session reused (mc 5→9) |
 | v0.19.1 STT round-trip (in-process) | `stt.openai` → audio-gateway | — | — | Working — fed the TTS mp3 back to `transcribe_audio()`: `gpt-4o-transcribe` returned accurate German with umlauts intact ("Prüfe Gateway und Dienste… keine Fehler in der Gateway-Logdatei"). Closes the loop Gemini Charon → gpt-4o-transcribe |
-| v0.19.1 download-guard (method A + in-process) | `tirith-hermes-guards` | 1 | — | Working — the agent's `wget -qO … && chmod +x … && exec` chain was **cut**: the file landed but was never `+x`'d and never ran. In-process verdicts confirm why (chain `block`, bare download `allow`), and the gateway (pid started 14:22:42) postdates the module write (14:17:16) |
 | v0.19.1 cron delivery target (in-process) | `scheduler-skip-resolver-for-slack-ids` | — | — | Working — `slack:C0ASRUD7K1U` resolved to `{'chat_id': 'C0ASRUD7K1U', 'thread_id': None}`, un-mangled by the channel directory |
 
 **In-process recipe for `format_message()`** — worth keeping, because two things block the
@@ -329,7 +325,6 @@ table, which has gone stale before.
 | `skills/karakeep/SKILL.md` · `skills/obsidian/SKILL.md` | Read-later bucket · second brain |
 | `skills/reading/SKILL.md` · `skills/research-gateway/SKILL.md` | Book shelf · deep cited research |
 | `skills/image-delivery/SKILL.md` | `imgcli share`/`publish` — private by default |
-| `tests/test_download_guard.py` | Regression suite for the local tirith hardening |
 | `~/.hermes/logs/agent.log` | Structured run log (api_calls, time, inbound messages) |
 | `~/.hermes/logs/gateway.log` | Gateway stdout (startup, tool progress bars) |
 | `~/.hermes/sessions/*.jsonl` | Turn-by-turn traces — **Slack path only** (see method-A note) |

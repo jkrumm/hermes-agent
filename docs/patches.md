@@ -1,7 +1,10 @@
 # Local patches to upstream Hermes — per-file detail and retirements
 
-The `tools/tirith_security.py` entry lives in **`guards.md`** — it is one patch file with four
-guard rules, split out for length.
+**Retired 2026-09-14: `tirith-hermes-guards`** (`tools/tirith_security.py` — trusted-pipeline
+allowlist, `download_then_execute`, `raw_agent_invocation`, `raw_repo_write`), deleted with its
+three test files and `guards.md`. Owner decision: Hermes runs with approvals and tirith off and is
+steered by SOUL.md/skills instead of command guards. The rules and their incident history are in
+git (`git log --all -- patches/tirith-hermes-guards.patch docs/guards.md`).
 
 Re-apply after `hermes update`: **one `.patch` file per patched upstream file** (each applied with `git apply --3way`; `/hermes-update` carries the loop). `ls patches/` is the count and `make patch-check` proves they are applied — the number is deliberately not restated here, having drifted at four of the last five updates. All of them are regenerated against the current upstream baseline (**v0.21.0**, upstream `d8a07768c5`) so they re-apply cleanly on minor upstream bumps; only a structural rewrite of a touched function needs a hand-rewrite.
 

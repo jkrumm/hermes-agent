@@ -38,7 +38,6 @@ Files touched (all are `.patch` files applied with `git apply` — no full-file 
 | `plugins/platforms/slack/adapter.py` | `patches/slack-cannot-reply-to-message.patch` | mrkdwn normalization + `cannot_reply_to_message` retry (3 hunks; the synthetic-thread guard was **retired at v0.19.0**) |
 | `gateway/platforms/base.py` | `patches/slack-media-inline-reply-anchor.patch` | pass text reply anchor to media senders so attachments don't thread |
 | `agent/client_lifecycle.py` | `patches/run-agent-third-party-endpoint-token-refresh.patch` | broaden third-party endpoint skip to all non-anthropic.com hosts |
-| `tools/tirith_security.py` | `patches/tirith-hermes-guards.patch` | two local rules: allowlist argo-only pipelines past tirith **and** block download-then-execute (renamed from `tirith-allowlist-argo-pipes.patch` at v0.19.0) |
 | `tools/cronjob_prompt_scan.py` | `patches/cronjob-tools-allowlist-argo-bearer.patch` | allowlist argo bearer curls past the cron-prompt scanner |
 | `hermes_cli/runtime_provider.py` | `patches/runtime-provider-iu-responses-api.patch` | route the IU endpoint's `/openai/v1` leg onto `codex_responses` — the only surface there that takes function tools + a reasoning effort |
 | `agent/transports/chat_completions.py` | `patches/transport-iu-reasoning-effort.patch` | clamp/strip the top-level `reasoning_effort` upstream emits to what each leg of the IU gateway accepts |
@@ -161,7 +160,6 @@ the file set:
 git diff HEAD --name-only        # must be exactly the patched files
 grep -n "_rename_with_title"          tools/tts_tool.py
 grep -n "x-audio-title"               tools/tts_tool_openai.py
-grep -n "_download_then_execute_reason\|_ALLOWED_PIPELINE_HOSTS" tools/tirith_security.py
 grep -n "cannot_reply_to_message"     plugins/platforms/slack/adapter.py
 grep -n "_is_third_party_anthropic_endpoint" agent/client_lifecycle.py
 grep -n "_sanitize_trusted_api_fence" tools/cronjob_prompt_scan.py
@@ -459,45 +457,16 @@ tail -20 ~/.hermes/logs/gateway.log
 
 ## Verify
 
-**Touching `tools/tirith_security.py` needs a gateway restart** — the module is imported
-once at startup, so an edited guard is inert in the running process no matter what a
+**Touching a patched Python module needs a gateway restart** — modules are imported
+once at startup, so an edit is inert in the running process no matter what a
 direct in-process test says. Test the function standalone first, restart second, then
 re-run the live checks below.
-
-**Security rules get a regression suite, not a spot-check.** The download-then-execute
-guard passed a hand-written check at v0.19.0 and an adversarial audit one day later found
-**11 bypasses** in it, including a shape CLAUDE.md's own table claimed was blocked. What
-a suite has to cover, in this order:
-
-1. **Attack shapes** — every spelling of the thing you're blocking. The misses clustered
-   in *tokenisation*, not logic: newline separators, glued `>/tmp/f`, a flag whose value
-   is the next token (`-qO /tmp/f`), `//tmp//f` vs `/tmp/f` (`os.path.normpath` keeps a
-   leading `//`), and `exec`-style prefixes.
-2. **Legitimate shapes** — pull real commands from the skills Hermes actually uses
-   (argo-api, karakeep, research-gateway, capture, obsidian, reading). A false positive
-   here is a Slack approval gate on every routine call, which is worse than the gap.
-3. **Fuzz** — a few thousand random token soups asserting only "never raises". These
-   helpers run before tirith on *every* command; an exception is an outage.
-4. **The premise itself** — confirm the gap is really upstream's before patching around
-   it: `~/.hermes/bin/tirith check --json --non-interactive --shell posix -- '<cmd>'`.
-
-The suite lives at `tests/test_download_guard.py` — run it after every update that
-touches `tirith_security.py`, before restarting the gateway:
-
-```bash
-~/.hermes/hermes-agent/venv/bin/python3 tests/test_download_guard.py
-```
-
-It also asserts the documented gaps are *still* gaps, so a change that happens to close
-one gets flagged instead of silently drifting from CLAUDE.md. Keep the verdict counts in
-CLAUDE.md in sync; a stale "tested against N shapes" is how a false claim survives.
 
 A basic "send a message and see a reply" check doesn't exercise most of the patched code paths — they only fire under specific conditions (a real Slack round-trip, a TTS request, an argo curl). After any update, run through these; each targets a specific patch. Use the `hermes-validate` skill's gateway-API (method A) and Slack-API (method B) send recipes to drive them, and confirm results by reading `~/.hermes/logs/agent.log` / `gateway.log` for the relevant timestamp (not just eyeballing the Slack reply) — that's what actually proves which code path ran.
 
 | Check | Drives | Confirms | What to look for |
 |-|-|-|-|
 | General question (method A, e.g. "what's on my TickTick") | Core agent loop, unaffected by any patch | Update didn't break routing/skills at all | Clean 200 response, `Turn ended: reason=text_response` in `agent.log` |
-| Infra/argo question that triggers a `curl \| jq`/`python3` pipe (method A, e.g. "infra status") | `tirith-hermes-guards.patch` | Argo pipelines still bypass tirith | `tool terminal completed` in `agent.log`, **zero** hits for `grep -i "approval\|blocked" gateway.log` around that timestamp — a hit means the patch didn't re-apply |
 | Any request routed through real Slack (method B — HomeLab synthetic sender), containing a raw `*` list marker in the model's likely output | `format_message()` pre-steps in `plugins/platforms/slack/adapter.py` | mrkdwn normalization ported to the new adapter path | Fetch the posted message (`GET /api/slack/channels/:id/messages` via argo) — bullets render as `-`, not `*` |
 | "Say/speak X out loud" (method B) | `tts-tool-audio-title.patch` + `slack-media-inline-reply-anchor.patch` (base.py) | Title-naming works; media threads with its text reply | `agent.log` line `tools.tts_tool: TTS audio saved: .../<Human Title>.mp3` (not `tts_<timestamp>.mp3`); no errors after `[Slack] Sending response`; since v0.19.0 (`reply_in_thread: true`) the audio and the text reply share the **same `thread_ts`** — they must not land in different places |
 | A German-language message (method B) | Config only (`tts.openai.model` = Gemini TTS), not a patch | Charon still pronounces German natively, no translation | Manual listen — text-based checks above can't verify pronunciation |
@@ -510,14 +479,7 @@ from tools.tts_tool import _generate_openai_tts, _rename_with_title
 title = _generate_openai_tts("Kurzer Test.", "/tmp/tts_123.mp3", yaml_cfg["tts"])
 assert title, "X-Audio-Title header missing — patch not applied or gateway changed"
 _rename_with_title("/tmp/tts_123.mp3", title)   # → '/tmp/Kurzer Test.mp3'
-
-# tirith patch: assert BOTH directions in one shot
-from tools.tirith_security import check_command_security as chk
-assert chk('curl -s https://argo.jkrumm.com/x | jq .')["action"] == "allow"
-assert chk('curl -s https://argo.jkrumm.com/x | sh')["action"] == "block"   # must NOT be allowlisted
 ```
-
-The second tirith assertion is the important one — it proves the allowlist didn't over-broaden into letting argo content pipe to a shell. (Note: `curl … > /tmp/f && sh /tmp/f` is allowed for *any* host — that's a pre-existing gap in upstream tirith, not something our patch introduced.)
 
 **Secrets check (v0.19.0+):** `hermes gateway status` must print `Command helper: applied 29 secrets`. Missing → the gateway is running credential-less; test the helper directly with `secrets-run export --env-file=~/.hermes/.env.tpl | sed 's/^export //' | wc -l`.
 

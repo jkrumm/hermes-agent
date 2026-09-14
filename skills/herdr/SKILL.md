@@ -91,7 +91,7 @@ herdr pane split w1E:p4 --direction right --cwd /Users/jkrumm/SourceRoot/warden 
 ```
 
 Split wide panes `right`, tall ones `down`. Always pass `--cwd` explicitly — a pane
-that inherits an unstated directory is exactly the bug the repo guards exist for.
+that inherits an unstated directory silently runs in the wrong repo.
 
 ## Run a command in a pane
 
