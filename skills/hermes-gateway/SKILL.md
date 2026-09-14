@@ -88,50 +88,51 @@ the listener is reachable, never that the model route works.
 
 ## Model routing on the IU endpoint
 
-The one failure mode worth memorising:
+The brain (`deepseek-v4.1-flash`) runs plain `api_mode: chat_completions` and needs no
+Responses-API workaround: probed 2026-09-13, it accepts function tools **and** a top-level
+`reasoning_effort` in the same request, so `agent.reasoning_effort: high` reaches the wire on
+every turn without any 400/503 dance. The failure mode below is real, but it is
+**gpt-5.6-luna-only** — it fires only when Hermes has failed over to the fallback model:
 
 > Function tools with reasoning_effort are not supported for gpt-5.6-luna in
 > `/v1/chat/completions`. To use function tools, use `/v1/responses` or set
 > reasoning_effort to 'none'.
 
-Hermes always sends tools, so this 503s **every** turn, burns the retry budget and
-lands the conversation on the Anthropic fallback while the gateway looks perfectly
-healthy from the outside. Diagnosis tell in the log:
-`Fallback activated: gpt-5.6-luna → claude-sonnet-4-6-eu` on every turn.
+`patches/transport-iu-reasoning-effort.patch` avoids this 503 by dropping `reasoning_effort`
+whenever the model id starts with `gpt-5` **and** the request carries tools — DeepSeek and GLM
+are exempt (probed to accept both together), so only the fallback and `title_generation` lose
+their effort under tools, never the brain. Diagnosis tell in the log if the fallback is active:
+`Fallback activated: deepseek-v4.1-flash → gpt-5.6-luna` — expected under throttling, and the
+fallback then runs with **no** reasoning effort while tools are attached (the tradeoff, not a
+fault).
 
-**Do not fix this by lowering `reasoning_effort`.** The correct route is
-`api_mode: codex_responses`, which is already in `config.yaml`.
-
-**And on this endpoint that setting alone is not enough — it needs the local patch.**
-`codex_responses` is a native Hermes mode, but upstream refuses to auto-detect it for
-an unrecognised host and silently downgrades to `chat_completions`, logging:
+**`patches/runtime-provider-iu-responses-api.patch` is dormant on the current config, not
+retired.** It forces the IU OpenAI leg onto `codex_responses` only when a slot has **no explicit
+`api_mode`** — every slot here (brain, fallback, compression, title_generation, vision) pins
+`chat_completions` explicitly, which always wins, so the forced detection never fires today. It
+stays applied as the safety net for the day this endpoint runs a gpt-5.x model with no explicit
+`api_mode` again. If you ever see:
 
 ```
 Ignoring persisted custom api_mode=codex_responses for non-OpenAI endpoint https://…/openai/v1
 ```
 
-That line is the whole diagnosis. It means `patches/runtime-provider-iu-responses-api.patch`
-has fallen off — which is exactly what a `hermes update` does. Verify with:
+— that means whatever slot logged it *was* relying on the forced-detection fallback and the
+patch fell off (`hermes update` does this). Verify with `make patch-check`. Never advise "stay
+on the standard Hermes path, don't patch" for this symptom: on this machine the patch **is** the
+standard path.
 
-```bash
-cd ~/SourceRoot/hermes-agent && make patch-check
-```
-
-Never advise "stay on the standard Hermes path, don't patch" for this symptom: on
-this machine the patch **is** the standard path, and dropping it is what caused the
-outage. `~/SourceRoot/hermes-agent/CLAUDE.md` § "Local Modifications to Upstream" is
-the contract; `/hermes-update` re-applies every patch in `patches/`.
-
-Prove the route positively rather than inferring it from log prose:
+Prove the resolved mode positively rather than inferring it from log prose:
 
 ```bash
 cd ~/.hermes/hermes-agent && ./venv/bin/python3 -c "
-import os; from hermes_cli.runtime_provider import _detect_api_mode_for_url as d
-print(d(os.environ['OPENAI_BASE_URL']))"   # -> codex_responses
+import os; from hermes_cli.runtime_provider import _resolve_plain_custom_api_mode as r
+print(r({'api_mode': 'chat_completions'}, os.environ['OPENAI_BASE_URL']))"   # -> chat_completions
 ```
 
-`reasoning_effort` lives at **`agent.reasoning_effort`**, not `model.reasoning_effort`
-— only the `agent` key is read. Check it the same way:
+`reasoning_effort` lives at **`agent.reasoning_effort`**, not `model.reasoning_effort` (the
+latter has been removed from `config.yaml` — only `agent.reasoning_effort` was ever read). Check
+it the same way:
 
 ```bash
 cd ~/.hermes/hermes-agent && ./venv/bin/python3 -c "
@@ -141,12 +142,11 @@ print(resolve_reasoning_config(yaml.safe_load(open(os.path.expanduser('~/.hermes
 
 ## False positives that look like faults
 
-- **`gpt-5.6-luna-does-not-exist`** in a fallback line is a *deliberate probe*, run to
-  prove the Anthropic fallback still engages. It is documented in CLAUDE.md. Never
-  report it as a broken fallback model.
-- **The fallback entry uses `chat_completions`.** That is correct and intentional —
-  `claude-sonnet-4-6-eu` 404s on the Responses leg. It says nothing about how the
-  primary Luna route is configured.
+- **`deepseek-v4.1-flash-does-not-exist`** in a fallback line is a *deliberate probe*, run to
+  prove the fallback still engages. Never report it as a broken fallback model.
+- **The fallback entry uses `chat_completions`, same as the brain.** That is correct and
+  intentional — the fallback (`gpt-5.6-luna`) and the brain (`deepseek-v4.1-flash`) are both on
+  the same IU OpenAI leg now; only the tools+effort strip differs between them by model family.
 - **`check_fn … returned False`** WARNINGs at every turn start (browser, computer-use,
   image-gen, kanban) are ordinary capability probes for tools this deployment does not
   install. Noise.
@@ -192,7 +192,8 @@ Do not report a fix until all of these hold:
 - listener present on the configured tailnet address and port
 - `/health` returns 200
 - `make patch-check` green
-- `_detect_api_mode_for_url` returns `codex_responses` for the OpenAI leg
+- `_resolve_plain_custom_api_mode` returns `chat_completions` for the brain's configured
+  `api_mode` + the OpenAI leg's base URL
 - one real tool-using turn completes without a `Fallback activated` line
 
 See `references/model-routing.md` for the 2026-08-14 incident in full.

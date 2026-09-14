@@ -1,9 +1,8 @@
 model:
   provider: custom
-  default: gpt-5.6-luna
+  default: deepseek-v4.1-flash
   base_url: ${OPENAI_BASE_URL}
-  api_mode: codex_responses
-  reasoning_effort: high
+  api_mode: chat_completions
   # Explicit so model_tools/auxiliary lookups stop falling back to the hardcoded "deepseek"
   # 128k catalog entry (they don't read custom_providers); the main agent already used 1M.
   context_length: 1000000
@@ -13,23 +12,23 @@ providers:
   custom:
     name: Custom
     base_url: https://unified-endpoint-main.app.iu-it.org/openai/v1
-    model: gpt-5.6-luna
+    model: deepseek-v4.1-flash
     discover_models: false
+    api_mode: chat_completions
     models:
+      deepseek-v4.1-flash:
+        context_length: 1000000
       gpt-5.6-luna:
         context_length: 850000
-      gpt-5.6-terra: {}
-      gpt-5.6-sol: {}
-      DeepSeek-V4-Pro: {}
     context_length: 850000
     key_env: HERMES_CUSTOM_CUSTOM_API_KEY
 fallback_providers:
   - provider: custom
-    model: claude-sonnet-4-6-eu
+    model: gpt-5.6-luna
     base_url: ${OPENAI_BASE_URL}
     api_key: ${OPENAI_API_KEY}
     api_mode: chat_completions
-    context_length: 300000
+    context_length: 850000
 toolsets:
   - hermes-cli
 agent:
@@ -67,6 +66,7 @@ terminal:
   backend: local
   modal_mode: auto
   cwd: .
+  font_family: JetBrainsMono Nerd Font
   # Default per-shell-command timeout (seconds) for the terminal tool — a guard on one command
   # invocation, not a bound on the agent's turn/iteration count or wall-clock life. Out of scope
   # for the no-turn-limit policy (owner rule, settled 2026-09-12); a caller can still override it
@@ -90,7 +90,6 @@ terminal:
   docker_extra_args: []
   docker_run_as_host_user: false
   persistent_shell: true
-  font_family: JetBrainsMono Nerd Font
 web:
   backend: tavily
   search_backend: ''
@@ -173,18 +172,23 @@ bedrock:
     trace: disabled
 auxiliary:
   vision:
-    provider: google
-    model: gemini-2.5-flash
-    base_url: ''
-    api_key: ${GEMINI_API_KEY}
-    timeout: 120
-    download_timeout: 30
-  compression:
     provider: custom
-    model: gpt-5.6-luna
+    model: gemini-3.5-flash
     base_url: ${OPENAI_BASE_URL}
     api_key: ${OPENAI_API_KEY}
     timeout: 120
+    download_timeout: 30
+    api_mode: chat_completions
+  compression:
+    # timeout is a hang guard, not a budget (~/.claude/rules/agent-limits.md): the aux client
+    # applies it as an absolute ceiling on top of the stream idle check, and a high-effort
+    # DeepSeek summary of a long thread can legitimately think past 120s.
+    provider: custom
+    model: deepseek-v4.1-flash
+    base_url: ${OPENAI_BASE_URL}
+    api_key: ${OPENAI_API_KEY}
+    timeout: 1800
+    reasoning_effort: high
     api_mode: chat_completions
     context_length: 850000
   skills_hub:
@@ -217,19 +221,18 @@ auxiliary:
     api_key: ''
     timeout: 30
   title_generation:
-    # NOT the flagship: title_generator.py hardcodes temperature=0.3 at the call
-    # site, and gpt-5.x refuses any non-default temperature — every title 503'd
-    # and self-healed via a retry-without-temperature (48 wasted round trips in
-    # one gateway window). A flash-lite also drops titling from a high-effort
-    # reasoning model to ~0.7s. Must stay api_mode: chat_completions — only the
-    # gpt-5.x leg of this endpoint speaks Responses.
+    # title_generator.py hardcodes temperature=0.3 and the auxiliary client sends effort as
+    # extra_body.reasoning — both 503 on this leg for gpt-5.x. Neither reaches the wire only
+    # because of patches/auxiliary-client-iu-openai-leg-quirks.patch; if titles start failing
+    # after an update, that patch fell off.
     provider: custom
-    model: gemini-2.5-flash-lite
+    model: gpt-5.6-luna
     base_url: ${OPENAI_BASE_URL}
     api_key: ${OPENAI_API_KEY}
     timeout: 30
+    reasoning_effort: low
     api_mode: chat_completions
-    context_length: 200000
+    context_length: 850000
   triage_specifier:
     provider: auto
     model: ''
@@ -254,21 +257,6 @@ auxiliary:
     base_url: ''
     api_key: ''
     timeout: 600
-  web_extract:
-    provider: custom
-    model: gpt-5.6-luna
-    base_url: ${OPENAI_BASE_URL}
-    api_key: ${OPENAI_API_KEY}
-    timeout: 360
-    context_length: 850000
-  session_search:
-    provider: auto
-    model: ''
-    base_url: ''
-    api_key: ''
-    timeout: 30
-    extra_body: {}
-    max_concurrency: 3
 display:
   compact: false
   personality: kawaii
@@ -435,14 +423,14 @@ goals:
   # 2026-09-12).
   max_turns: 9223372036854775807
 skills:
+  external_dirs:
+    - ~/SourceRoot/hermes-agent/skills
   # Agent-created skills land in the git repo, not under ~/.hermes/skills/.
   # Because this path is also in external_dirs, the background curator refuses
   # every autonomous mutation on it (is_external_skill_path), so a new skill is
   # durable and reviewable by construction instead of being detected after the
   # fact by warden's watchdog-poll.py stray_skill source.
   create_dir: ~/SourceRoot/hermes-agent/skills
-  external_dirs:
-    - ~/SourceRoot/hermes-agent/skills
   template_vars: true
   inline_shell: false
   inline_shell_timeout: 10
@@ -490,10 +478,9 @@ slack:
   # or stays open — no LLM call anywhere in that loop. Mentioning Hermes directly in
   # #alerts still works for an ad-hoc question; see ~/SourceRoot/warden/docs/triage.md.
   require_mention: false
-  require_mention_channels: C0AS5GUH5U4,C0ARZJD824W,C0AS1LAUQ3C
   free_response_channels: ''
   allowed_channels: ''
-  channel_prompts: {}
+  require_mention_channels: C0AS5GUH5U4,C0ARZJD824W,C0AS1LAUQ3C
   enabled: true
   bot_token: ${SLACK_BOT_TOKEN}
   app_token: ${SLACK_APP_TOKEN}
@@ -562,6 +549,7 @@ approvals:
   destructive_slash_confirm: false
 command_allowlist:
   - script execution via -e/-c flag
+  - shell command via -c/-lc flag
 plugins:
   enabled:
     - dispatch-approval
@@ -721,9 +709,11 @@ custom_providers:
   - name: Unified-endpoint-main.app.iu-it.org
     base_url: https://unified-endpoint-main.app.iu-it.org/openai/v1
     key_env: HERMES_CUSTOM_UNIFIED_ENDPOINT_MAIN_APP_IU_IT_ORG_API_KEY
-    model: gpt-5.6-luna
-    api_mode: codex_responses
+    model: deepseek-v4.1-flash
+    api_mode: chat_completions
     models:
+      deepseek-v4.1-flash:
+        context_length: 1000000
       gpt-5.6-luna:
         context_length: 850000
 

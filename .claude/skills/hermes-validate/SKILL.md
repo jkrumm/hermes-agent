@@ -170,8 +170,11 @@ is a `skills_list`.
 - `find skills/argo-api/reference.md` → dead file path in SOUL.md (rename to skill name)
 - 404 on guessed API paths → skill SKILL.md missing or not loaded
 - An auxiliary model 404/`not found` (title generation, compression) → non-blocking, but
-  check the model name in `config.yaml` still exists on the endpoint. Auxiliaries are
-  `gpt-5.6-luna`; any log line naming `DeepSeek-V4-Flash` is stale config, not a bug.
+  check the model name in `config.yaml` still exists on the endpoint. Auxiliaries are split
+  by task, not all one model: `compression` is `deepseek-v4.1-flash` (same as the brain),
+  `title_generation` is `gpt-5.6-luna`, `vision` is `gemini-3.5-flash`, `approval` is
+  `claude-haiku-4-5`. A log line naming any other id (e.g. a retired `gemini-2.5-flash*` or
+  `claude-sonnet-4-6-eu`) is stale config, not a bug in the current model.
 
 ---
 

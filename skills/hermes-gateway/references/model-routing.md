@@ -2,6 +2,16 @@
 
 Two incidents, and the second one is the more instructive.
 
+> **2026-09-13 update: this incident is historical, and its "gpt-5.6-luna is the brain" framing
+> no longer matches the live config.** `model.default` is now `deepseek-v4.1-flash`, and `gpt-5.6-luna`
+> is the **fallback** model instead of `claude-sonnet-4-6-eu`. The specific bug this incident
+> documents — an unrecognised host silently downgrading a persisted `codex_responses` — is
+> still real and the patch that prevents it is still applied, but it now only matters for a
+> gpt-5.x model on this endpoint (the fallback, or `title_generation`), never for the brain:
+> DeepSeek accepts function tools and `reasoning_effort` together on plain `chat_completions`,
+> so it was never routed through `codex_responses` in the first place. See the corrected
+> "Endpoint facts" at the bottom and `CLAUDE.md`'s "Model, context window and reasoning effort".
+
 ## What actually happened on 2026-08-14
 
 `hermes update` to v0.20.1 dropped `patches/runtime-provider-iu-responses-api.patch`.
@@ -100,15 +110,23 @@ checks that prove the live route rather than describing the log.
 
 ## Endpoint facts, so they are not re-derived
 
-- `gpt-5.6-luna` accepts `none, low, medium, high, xhigh`. `max` is refused here
-  despite the model card; `minimal` is not a value for this family.
+- `gpt-5.6-luna` (fallback, `title_generation`) accepts `none, low, medium, high, xhigh`.
+  `max` is refused here despite the model card; `minimal` is not a value for this family.
+- `deepseek-v4.1-flash` (the brain) accepts `low, high, xhigh, max` and — unlike gpt-5.x —
+  takes function tools **and** `reasoning_effort` together on plain `chat_completions`, no
+  400/503 (probed 2026-09-13). `glm-5.3-flash` (reachable via this endpoint, unused by
+  hermes-agent today) is the same shape but refuses `medium`.
 - The Anthropic leg accepts `none, low, medium, high` — `xhigh` is refused by
   LiteLLM, which is why `patches/transport-iu-reasoning-effort.patch` clamps it.
-- The fallback entry spells `api_mode: chat_completions` explicitly, and must keep
-  doing so: an explicit `api_mode` on a `fallback_providers` entry beats URL
-  detection, and `claude-sonnet-4-6-eu` 404s on the Responses leg.
-- Reasoning effort on this endpoint exists **only** on the Responses API once tools
-  are in play. There is no configuration of `chat_completions` that has both.
+- Both `model.api_mode` (the brain) and the fallback entry now spell `api_mode:
+  chat_completions` explicitly, and must keep doing so: an explicit `api_mode` beats URL
+  detection, and neither `deepseek-v4.1-flash` nor `gpt-5.6-luna` speaks Responses usefully
+  here (DeepSeek 404s on `/responses` outright; gpt-5.x on Responses is what
+  `runtime-provider-iu-responses-api.patch` exists for, but nothing here opts into it anymore).
+- **Reasoning effort + tools together on `chat_completions` is a model-family question, not an
+  endpoint-wide one.** It was true that no gpt-5.x configuration had both (hence this whole
+  incident) — it is not true for DeepSeek, which is why the brain needed no Responses-API
+  workaround when it was rolled out 2026-09-13.
 
 Never print API keys, `.env` contents or the raw `secrets-run` output when reporting
 any of this. `hermes config` masks; raw file reads do not.

@@ -24,7 +24,8 @@ SLACK_CHANNEL_HERMES=op://hermes/slack/channel-hermes
 SLACK_HOME_CHANNEL=op://hermes/slack/channel-hermes
 SLACK_CHANNEL_INBOX=op://hermes/slack/channel-inbox
 
-# gpt-5.6-luna brain (default) — IU unified endpoint, OpenAI-compatible transport.
+# deepseek-v4.1-flash brain (default), gpt-5.6-luna fallback/title_generation, and
+# gemini-3.5-flash vision — all on the IU unified endpoint's OpenAI-compatible leg.
 # Same key as ANTHROPIC_*; the base is the OpenAI-compat surface (…/openai/v1).
 OPENAI_API_KEY=op://common/anthropic/API_KEY
 OPENAI_BASE_URL=https://unified-endpoint-main.app.iu-it.org/openai/v1
@@ -40,13 +41,13 @@ OPENAI_BASE_URL=https://unified-endpoint-main.app.iu-it.org/openai/v1
 HERMES_CUSTOM_CUSTOM_API_KEY=op://common/anthropic/API_KEY
 HERMES_CUSTOM_UNIFIED_ENDPOINT_MAIN_APP_IU_IT_ORG_API_KEY=op://common/anthropic/API_KEY
 
-# Anthropic — auxiliary models only (Haiku: web_extract / compression / approval
-# / title_generation). The IU company proxy serves Anthropic Messages here.
+# Anthropic — the approval classifier only (auxiliary.approval: claude-haiku-4-5,
+# native /anthropic leg). Every other auxiliary (compression, title_generation,
+# vision) is on the IU OpenAI leg above; Google AI Studio direct (GEMINI_API_KEY)
+# was retired 2026-09-13 — vision now runs gemini-3.5-flash through the same
+# unified endpoint as everything else, no separate key.
 ANTHROPIC_API_KEY=op://common/anthropic/API_KEY
 ANTHROPIC_BASE_URL=op://common/anthropic/BASE_URL
-
-# Google AI Studio — vision only (Anthropic endpoint doesn't support images)
-GEMINI_API_KEY=op://hermes/google-ai-studio/api-key
 
 # Tavily — web search, extract, crawl (replaces browser-based search)
 TAVILY_API_KEY=op://hermes/tavily/API_KEY
@@ -54,7 +55,7 @@ TAVILY_API_KEY=op://hermes/tavily/API_KEY
 # Voice — fallback api_key for the native openai TTS/STT tools, only consulted by
 # hermes-agent's _resolve_openai_audio_client_config() when config.yaml's
 # tts.openai.api_key / stt.openai.api_key is unset — both are set directly there
-# (config.yaml:304,331), so this ref is currently inert, kept as a safety net.
+# (config.yaml:336,363), so this ref is currently inert, kept as a safety net.
 # audio-gateway runs with PROXY_API_KEY empty (tailnet gates access) and maps the
 # bearer value to a caller name via AUDIO_CALLER_TOKENS — "hermes" attributes
 # audio-gateway traces/usage to this agent, not a real credential.
