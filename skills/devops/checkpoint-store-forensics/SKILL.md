@@ -69,6 +69,20 @@ Reproduce any store operation by exporting exactly those three.
   recovery (`add -A` returns 0 and drops the gitlink itself); `--ignore-errors` does
   **not** help (still rc=128) and neither does `info/exclude` (the gitlink is already
   in the index).
+- `'<name>/' hat keinen Commit ausgecheckt` / `does not have a commit checked out`
+  → **commitless nested repo** (a *healthy* `git init` with no commit yet), NOT the
+  dead-gitlink case above and NOT transient. The two are easy to conflate because both
+  name a nested directory; the tell is the stderr: this shape carries **no `.git`
+  substring**, so `_stage_all_with_gitlink_recovery`'s recovery branch never fires and
+  its single retry re-runs the identical `add -A` and fails identically — one ERROR, not
+  a self-heal. `info/exclude` cannot help either: the boundary is a directory git refuses
+  to descend into, not a tracked path, so an ignore rule never gets consulted. Verified
+  live by reproducing it (`git init` in `$T/nested`, then `add -A` over `$T`: rc=128,
+  retry rc=128). It self-limits only when the offending directory is removed — the
+  observed instance was an agent's diagnostic scratch dir under `/private/tmp` (the
+  `/tmp` project), which was gone minutes later, after which `add -A` over `/private/tmp`
+  returned 0. **Nothing to repair and nothing to dispatch**: confirm the directory is
+  gone or remove it, re-run `add -A` on the project's workdir, and close the item.
 - `Konnte Datei <store>/objects/<xx>/<sha> nicht schreiben: No such file or directory`
   → **gc race**. A concurrent `git gc --prune=now` removed the loose-object fanout dir
   between git's stat and its write. Tool calls run on a daemon thread pool, so two
