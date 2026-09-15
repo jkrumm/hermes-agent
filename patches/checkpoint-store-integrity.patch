@@ -1,16 +1,26 @@
 diff --git a/tools/checkpoint_manager.py b/tools/checkpoint_manager.py
-index f820aca..6efce00 100644
+index f820aca..ba25565 100644
 --- a/tools/checkpoint_manager.py
 +++ b/tools/checkpoint_manager.py
-@@ -19,6 +19,7 @@ import re
+@@ -10,6 +10,7 @@ repo with per-project ``refs/hermes/<hash16>``, ``indexes/<hash16>``, ``projects
+ with GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE so nothing leaks into the user's project.
+ """
+ 
++import contextlib
+ import hashlib
+ import itertools
+ import json
+@@ -19,7 +20,9 @@ import re
  import shutil
  import stat as stat_mod
  import subprocess
 +import threading
  import time
++from contextlib import suppress
  from dataclasses import dataclass, field
  from pathlib import Path
-@@ -47,12 +48,29 @@ DEFAULT_EXCLUDES = [
+ from typing import Dict, Iterator, List, NamedTuple, Optional, Set, Tuple
+@@ -47,12 +50,42 @@ DEFAULT_EXCLUDES = [
      "*.7z", "*.rar", "*.iso",
      ".env", ".env.*", ".env.local", ".env.*.local",  # secrets
      ".DS_Store", "Thumbs.db", "*.log",  # OS junk / logs
@@ -37,24 +47,115 @@ index f820aca..6efce00 100644
 +# staged-but-uncommitted blobs are prunable mid-flight because a per-project index is not a gc
 +# reachability root.  Reentrant: `_take` → `_enforce_size_cap` → `_gc_store` nests.
 +_STORE_LOCK = threading.RLock()
++# LOCAL MODIFICATION (patches/checkpoint-store-integrity.patch): the RLock above is *per process*,
++# but the store is shared across processes — the gateway snapshots `/private/tmp` while a fresh
++# python subprocess (a `hermes checkpoints` CLI call, a script importing the module, another
++# agent) snapshots the same project.  Observed live 14:19:32: `git add -A` failed with
++# `Unable to create '<store>/indexes/11fe14a563f7aed6.lock': File exists` — git's own index lock,
++# taken by the other process, which the in-process RLock cannot see.  So the RLock guards this
++# process's threads and this file lock guards the store against every other process, held for the
++# same critical sections.  Reentrant-per-process via a depth counter, and it degrades to the
++# RLock alone if the lock file cannot be created (a read-only store must not become fatal).
++_STORE_FILE_LOCK_NAME = ".hermes-store.lock"
++_STORE_FILE_LOCK_TIMEOUT = 300.0  # seconds; a snapshot's git calls are seconds, gc a few more
++_STORE_FILE_LOCK_POLL = 0.05
++_store_file_lock_state = threading.local()
  # Inherited GIT_* vars that would redirect the shadow store's git calls.
  _GIT_LEAK_VARS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_NAMESPACE", "GIT_ALTERNATE_OBJECT_DIRECTORIES")
  # Per-store config: isolated by env vars already, but belt-and-suspenders.
-@@ -203,8 +221,11 @@ def _git_env(store: Path, working_dir: str, index_file: Optional[Path] = None) -
+@@ -203,8 +236,89 @@ def _git_env(store: Path, working_dir: str, index_file: Optional[Path] = None) -
  
  def _git_subprocess(cmd: List[str], env: dict, timeout: int, cwd: Optional[str] = None):
      # creationflags suppresses the per-call conhost flash on Windows (no-op on POSIX).
 -    return subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=timeout,
 -                          env=env, cwd=cwd, stdin=subprocess.DEVNULL, creationflags=windows_hide_flags())
 +    # LOCAL MODIFICATION (patches/checkpoint-store-integrity.patch): serialized against every other
-+    # store-touching git call in this process — see _STORE_LOCK.
-+    with _STORE_LOCK:
++    # store-touching git call in this process (the RLock) *and* against every other process sharing
++    # the store (the file lock) — see _STORE_LOCK / _store_file_lock.
++    with _STORE_LOCK, _store_file_lock(Path(env.get("GIT_DIR", "")) if env.get("GIT_DIR") else None):
 +        return subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=timeout,
 +                              env=env, cwd=cwd, stdin=subprocess.DEVNULL, creationflags=windows_hide_flags())
++
++
++@contextlib.contextmanager
++def _store_file_lock(store: Optional[Path]):
++    """Cross-process lock over a checkpoint store (LOCAL MODIFICATION —
++    patches/checkpoint-store-integrity.patch).  The in-process ``_STORE_LOCK`` cannot see another
++    process's git index lock; this can.  Reentrant per thread via a depth counter, so the nested
++    ``_take`` → ``_enforce_size_cap`` → ``_gc_store`` path does not deadlock.  If the lock file
++    cannot be created the call proceeds unlocked rather than failing — a snapshot is not worth a
++    hard failure on a read-only or full store."""
++    if store is None:
++        yield
++        return
++    depth = getattr(_store_file_lock_state, "depth", 0)
++    if depth:
++        _store_file_lock_state.depth = depth + 1
++        try:
++            yield
++        finally:
++            _store_file_lock_state.depth -= 1
++        return
++
++    lock_path = store / _STORE_FILE_LOCK_NAME
++    fd = None
++    deadline = time.monotonic() + _STORE_FILE_LOCK_TIMEOUT
++    while fd is None:
++        try:
++            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
++        except FileExistsError:
++            if time.monotonic() >= deadline:
++                logger.warning("Checkpoint store lock %s held > %ss — proceeding unlocked",
++                               lock_path, int(_STORE_FILE_LOCK_TIMEOUT))
++                break
++            # A crashed holder leaves the file behind; if its PID is gone, clear it.
++            _reap_stale_store_lock(lock_path)
++            time.sleep(_STORE_FILE_LOCK_POLL)
++        except OSError as exc:
++            logger.debug("Cannot create checkpoint store lock %s (%s) — proceeding unlocked",
++                         lock_path, exc)
++            break
++    try:
++        if fd is not None:
++            with suppress(OSError):
++                os.write(fd, f"{os.getpid()}\n".encode())
++        _store_file_lock_state.depth = 1
++        yield
++    finally:
++        _store_file_lock_state.depth = 0
++        if fd is not None:
++            with suppress(OSError):
++                os.close(fd)
++            with suppress(OSError):
++                os.unlink(lock_path)
++
++
++def _reap_stale_store_lock(lock_path: Path) -> None:
++    """Remove a store lock file whose recorded PID no longer exists (LOCAL MODIFICATION —
++    patches/checkpoint-store-integrity.patch).  Without this a SIGKILLed holder wedges every
++    snapshot until the timeout.  Only the *dead* case is reaped: a live PID (or an unreadable
++    file) is left alone, because stealing a live lock is exactly the race this prevents."""
++    try:
++        raw = lock_path.read_text(encoding="utf-8", errors="replace").strip()
++    except OSError:
++        return
++    if not raw.isdigit():
++        return
++    pid = int(raw)
++    if pid == os.getpid():
++        return
++    try:
++        os.kill(pid, 0)
++    except ProcessLookupError:
++        with suppress(OSError):
++            lock_path.unlink()
++            logger.info("Reaped stale checkpoint store lock held by dead pid %d", pid)
++    except PermissionError:
++        return  # alive, owned by another user
  
  
  def _repair_bare_repo_dirs(store: Path) -> None:
-@@ -224,7 +245,14 @@ def _repair_bare_repo_dirs(store: Path) -> None:
+@@ -224,7 +338,14 @@ def _repair_bare_repo_dirs(store: Path) -> None:
  def _run_git(args: List[str], store: Path, working_dir: str, timeout: int = _GIT_TIMEOUT,
               allowed_returncodes: Optional[Set[int]] = None, index_file: Optional[Path] = None) -> Tuple[bool, str, str]:
      """Run git against the shared store -> (ok, stdout, stderr).  ``allowed_returncodes`` suppresses
@@ -70,7 +171,7 @@ index f820aca..6efce00 100644
      wd = _normalize_path(working_dir)
      cmd = ["git"] + list(args)
      if not wd.is_dir():
-@@ -254,10 +282,45 @@ def _run_git(args: List[str], store: Path, working_dir: str, timeout: int = _GIT
+@@ -254,10 +375,45 @@ def _run_git(args: List[str], store: Path, working_dir: str, timeout: int = _GIT
      stdout, stderr = result.stdout.strip(), result.stderr.strip()
      if not ok and result.returncode not in (allowed_returncodes or set()):
          logger.error("Git command failed: %s (rc=%d) stderr=%s",
@@ -117,7 +218,7 @@ index f820aca..6efce00 100644
  def _git_out(args: List[str], store: Path, working_dir: str, rc: Optional[Set[int]] = None) -> str:
      """stdout of a successful git call, else ``""``."""
      ok, out, _ = _run_git(args, store, working_dir, allowed_returncodes=rc)
-@@ -382,6 +445,9 @@ def _init_store(store: Path, working_dir: str) -> Optional[str]:
+@@ -382,6 +538,9 @@ def _init_store(store: Path, working_dir: str) -> Optional[str]:
              return f"Could not create checkpoint base: {exc}"
          _migrate_legacy_store(base)
      if _store_has_head(store):
@@ -127,7 +228,7 @@ index f820aca..6efce00 100644
          return None
      for d in (store, store / _INDEXES_DIRNAME, store / _PROJECTS_DIRNAME):
          d.mkdir(parents=True, exist_ok=True)
-@@ -396,11 +462,31 @@ def _init_store(store: Path, working_dir: str) -> Optional[str]:
+@@ -396,11 +555,31 @@ def _init_store(store: Path, working_dir: str) -> Optional[str]:
      for key, value in _STORE_GIT_CONFIG:
          _run_git(["config", key, value], store, str(base))
      (store / "info").mkdir(exist_ok=True)
@@ -160,7 +261,7 @@ index f820aca..6efce00 100644
  def _volume_evidence(workdir: Path) -> Dict:
      """``(st_dev, st_ino)`` of ``workdir``'s parent, captured while reachable: identifies the
      *directory*, not the path (a mount point resolves to the underlay after unmount), so orphan
-@@ -522,15 +608,120 @@ def _locate(working_dir: str, commit_hash: str,
+@@ -522,15 +701,120 @@ def _locate(working_dir: str, commit_hash: str,
      return p, None if _store_has_head(p.store) else _no_store_result()
  
  
@@ -285,7 +386,7 @@ index f820aca..6efce00 100644
      results = [_run_git(args, p.store, p.abs_dir, index_file=p.index_file) for args in diff_args]
      _run_git(["read-tree", p.ref], p.store, p.abs_dir, index_file=p.index_file, allowed_returncodes={128})
      return results
-@@ -796,7 +987,17 @@ class CheckpointManager:
+@@ -796,7 +1080,21 @@ class CheckpointManager:
      # --- internal ---
  
      def _take(self, working_dir: str, reason: str) -> bool:
@@ -296,15 +397,19 @@ index f820aca..6efce00 100644
 +        ``_STORE_LOCK``.  Serializing the individual git calls is not enough — a snapshot's staged
 +        blobs live only in the index and the loose objects ``add -A`` just wrote, and a per-project
 +        index is not a gc reachability root, so a ``gc --prune=now`` from another thread between
-+        ``add -A`` and ``write-tree`` would prune them out from under this snapshot."""
-+        with _STORE_LOCK:
++        ``add -A`` and ``write-tree`` would prune them out from under this snapshot.  The store also
++        carries a cross-process file lock, held for the same span, because a second *process*
++        snapshotting the same project takes git's own index lock (``indexes/<hash>.lock``) and the
++        in-process RLock cannot see it."""
++        p = _project_refs(working_dir)
++        with _STORE_LOCK, _store_file_lock(p.store):
 +            return self._take_locked(working_dir, reason)
 +
 +    def _take_locked(self, working_dir: str, reason: str) -> bool:
          p = _project_refs(working_dir)
          err = _init_store(p.store, working_dir)
          if err:
-@@ -807,9 +1008,18 @@ class CheckpointManager:
+@@ -807,9 +1105,18 @@ class CheckpointManager:
              return False
          ref_commit = _ref_tip(p.store, working_dir, p.ref)
          _seed_project_index(p, ref_commit)

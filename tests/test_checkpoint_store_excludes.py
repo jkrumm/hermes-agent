@@ -350,6 +350,49 @@ if callable(_log):
     check("short stderr is logged unchanged",
           _log("fatal: adding files failed"), "fatal: adding files failed")
 
+# ---------------------------------------------------------------------------------------------
+# 5. Cross-process serialization.
+#
+# The in-process RLock cannot see another *process*'s git index lock.  Live 14:19:32: the gateway
+# snapshotting /private/tmp failed with `Unable to create '<store>/indexes/11fe14a563f7aed6.lock':
+# File exists` because a second process was snapshotting the same project.  This lane spawns real
+# subprocesses against a shared store: pristine fails ~15/24 rounds, patched 0.
+# ---------------------------------------------------------------------------------------------
+print("\n[5] cross-process store serialization")
+XP_ROOT = Path(tempfile.mkdtemp(prefix="cp-xproc-"))
+XP_WORK = XP_ROOT / "work"
+XP_BASE = XP_ROOT / "checkpoints"
+XP_WORK.mkdir(parents=True)
+for i in range(300):
+    (XP_WORK / f"f{i:03d}.txt").write_text(f"content {i}\n")
+
+XP_CHILD = (
+    "import logging,sys,pathlib\n"
+    f"sys.path.insert(0, {str(Path(cm.__file__).parents[1])!r})\n"
+    "import tools.checkpoint_manager as cm\n"
+    f"cm.CHECKPOINT_BASE = pathlib.Path({str(XP_BASE)!r})\n"
+    'logging.basicConfig(level=logging.ERROR, format="%(levelname)s %(message)s")\n'
+    f"mgr = cm.CheckpointManager(enabled=True, max_snapshots=50)\n"
+    f"print(mgr.ensure_checkpoint({str(XP_WORK)!r}, reason='xproc'))\n"
+)
+_xp_env = dict(os.environ)
+_xp_env["PYTHONPATH"] = str(Path(cm.__file__).parents[1])
+
+collisions = 0
+rounds = 4
+for _ in range(rounds):
+    procs = [
+        subprocess.Popen([sys.executable, "-c", XP_CHILD], stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE, text=True, env=_xp_env)
+        for _ in range(3)
+    ]
+    for p in procs:
+        _out, _err = p.communicate(timeout=300)
+        if "File exists" in _err or "Unable to create" in _err:
+            collisions += 1
+check("no cross-process index-lock collision", collisions, 0)
+shutil.rmtree(XP_ROOT, ignore_errors=True)
+
 print()
 if failures:
     print(f"FAILED ({len(failures)}): {', '.join(failures)}")
