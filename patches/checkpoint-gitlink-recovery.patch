@@ -1,0 +1,82 @@
+diff --git a/tools/checkpoint_manager.py b/tools/checkpoint_manager.py
+index f820aca01f..1aa8d926ea 100644
+--- a/tools/checkpoint_manager.py
++++ b/tools/checkpoint_manager.py
+@@ -522,9 +522,66 @@ def _locate(working_dir: str, commit_hash: str,
+     return p, None if _store_has_head(p.store) else _no_store_result()
+ 
+ 
+-def _stage_all(p: _ProjectRefs) -> Tuple[bool, str, str]:
++def _stage_all(p: _ProjectRefs, allowed_returncodes: Optional[Set[int]] = None) -> Tuple[bool, str, str]:
+     """``git add -A`` into the per-project index."""
+-    return _run_git(["add", "-A"], p.store, p.abs_dir, timeout=_GIT_TIMEOUT * 2, index_file=p.index_file)
++    return _run_git(["add", "-A"], p.store, p.abs_dir, timeout=_GIT_TIMEOUT * 2,
++                    index_file=p.index_file, allowed_returncodes=allowed_returncodes)
++
++
++def _index_gitlinks(p: _ProjectRefs) -> List[str]:
++    """Paths recorded as mode-160000 gitlinks in the per-project index (NUL-separated, so a
++    path with a newline survives).  Empty on any failure — the caller then has nothing to drop."""
++    ok, out, _ = _run_git(["ls-files", "--stage", "-z"], p.store, p.abs_dir, index_file=p.index_file)
++    return [rec.split("\t", 1)[1] for rec in out.split("\x00") if rec.startswith("160000") and "\t" in rec]
++
++
++def _gitlink_is_live(abs_dir: str, rel: str) -> bool:
++    """Whether the nested repo behind an index gitlink still resolves.  A ``.git`` FILE is a
++    submodule checkout and always counts as live; a ``.git`` directory must still carry HEAD
++    (com.apple.tmp_cleaner removes HEAD/config/refs and leaves objects+index behind, which is
++    what wedges ``add -A``).  Deliberately filesystem-only: any ``git -C <path>`` probe under
++    the store's GIT_DIR answers about the store, not the nested repo."""
++    dot_git = Path(abs_dir) / rel / ".git"
++    return dot_git.is_file() or (dot_git / "HEAD").exists()
++
++
++def _drop_dead_gitlinks(p: _ProjectRefs) -> List[str]:
++    """``update-index --force-remove`` every index gitlink whose nested repo no longer resolves.
++    Returns the paths dropped.  ``--force-remove`` is what makes this work: the gitlink is
++    already in the index, so neither ``info/exclude`` nor ``add -A --ignore-errors`` (still
++    rc=128) can clear it, and a plain ``rm --cached`` would try to stat the dead repo."""
++    dropped = []
++    for rel in _index_gitlinks(p):
++        if _gitlink_is_live(p.abs_dir, rel):
++            continue
++        ok, _, err = _run_git(["update-index", "--force-remove", rel], p.store, p.abs_dir, index_file=p.index_file)
++        if ok:
++            dropped.append(rel)
++        else:
++            logger.warning("Could not drop dead gitlink %s in %s: %s", rel, p.abs_dir, err)
++    return dropped
++
++
++def _stage_all_with_gitlink_recovery(p: _ProjectRefs) -> Tuple[bool, str, str]:
++    """``_stage_all``, then — only when git reports the nested-repo boundary itself is broken —
++    drop the dead gitlinks and retry once.  A stale gitlink is recorded when the nested repo was
++    healthy and survives ``_seed_project_index``'s read-tree every snapshot, so without this the
++    project's checkpoints fail forever with one ERROR line per attempt and nothing self-heals.
++    The retry is itself the fix: dropping the gitlink is a change vs the ref tip, so the snapshot
++    proceeds and ``write-tree`` commits a gitlink-free tree, which no later read-tree can
++    resurrect.  The stderr test is language-independent on purpose — git localizes it (observed
++    ``Schwerwiegend: 'x/.git' nicht als Git-Repository erkannt`` under this host's de_DE locale),
++    so matching the English sentence would silently never fire here.  The first attempt's failure
++    is expected and suppressed from the log; only the retry's outcome is reported."""
++    ok, out, err = _stage_all(p, allowed_returncodes={128})
++    if ok or ".git" not in err:
++        return ok, out, err
++    dropped = _drop_dead_gitlinks(p)
++    if not dropped:
++        return _stage_all(p)
++    logger.info("Dropped %d dead gitlink(s) from the checkpoint index of %s: %s",
++                len(dropped), p.abs_dir, ", ".join(dropped))
++    return _stage_all(p)
+ 
+ 
+ def _diff_staged_tree(p: _ProjectRefs, *diff_args: List[str]) -> List[Tuple[bool, str, str]]:
+@@ -809,7 +866,7 @@ class CheckpointManager:
+         _seed_project_index(p, ref_commit)
+ 
+         # Broad patterns come from the exclude file; oversize paths are dropped post-stage.
+-        ok, _, err = _stage_all(p)
++        ok, _, err = _stage_all_with_gitlink_recovery(p)
+         if not ok:
+             return _step_failed("git-add", err)
+         if self.max_file_size_mb > 0:
