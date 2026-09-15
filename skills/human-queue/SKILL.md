@@ -119,3 +119,31 @@ command runner.
 - **Never report a skipped walk as drained.** `s` leaves the request pending and
   `q` leaves all remaining requests pending; verify the count instead of relying
   on the process exit code.
+- **Never `rm` a `.req` to "clean up" after enqueuing it.** A pending request is the
+  *only* record of the ask, and the Slack nudge naming its id is already in the channel
+  — so deleting the file turns a live request into a phantom the human cannot drain
+  (the drain reports an empty queue, and the card looks like a false alarm). A test
+  request is closed with `resolve`/`deny`, never by unlinking. Re-enqueue rather than
+  silently dropping: reconstruct the `.req` from the id in the nudge and the original
+  text, keeping the same `cmd`.
+- **A `failed` resolution is not a dead end — look for the retry first.** An
+  agent that fails a request often files a corrected one seconds later, so a
+  notification naming a `status: failed` id can be stale while the work is
+  already done. Before re-enqueuing anything, list *every* request whose text or
+  cmd matches the same target and read all their `.res` files; a later `done` on
+  the same target means the notification is a replay, not work.
+- **Never re-run a 1Password field-creation request without checking the field
+  exists first.** `op item edit` is an *upsert*: a second run silently rotates a
+  live value, and the running app keeps the old one until its env is re-rendered.
+  Read the item read-only first — `ssh vps 'op item get <item> --vault <vault>
+  --format json'` works headlessly there (the mini's `op` hangs on a biometric
+  prompt), and print only field labels, lengths and hashes.
+- **`op item edit` from the queue's `run` path needs `</dev/null`.** Without it
+  the mini's non-TTY stdin makes `op` fail with `[ERROR] invalid JSON provided`
+  and the request resolves `failed` with exit 1 — the corrected cmd that carries
+  the redirect is what actually creates the field.
+- **Prove a secret change at the consumer, not at the item.** For a VPS app the
+  chain is item → rendered `apps/<app>/.env` → container env → live endpoint;
+  compare the value by hash across the first two, then exercise the real door
+  (`curl -u … https://<app>.${DOMAIN}/<route>`) and report the status codes. A
+  field that exists in 1Password is not a feature that works.
