@@ -176,6 +176,34 @@ item as a duplicate of the one carrying the in-flight job
 second dispatch: a second episode burns budget and yields two verdicts that cannot both
 be acted on. Check `/items/<id>` for an existing `dispatch_job` before dispatching.
 
+## A fix on disk is not a fix in the running gateway
+
+`tools/checkpoint_manager.py` is imported **once** by the gateway process
+(`agent/agent_init.py` → `from tools.checkpoint_manager import CheckpointManager`), so editing it
+does nothing until that process restarts. Python has no hot reload here, and the module's own log
+lines are the tell: after a patch lands, the next gateway snapshot should print the new markers
+(`Dropped N now-excluded path(s)…`, `Retrying checkpoint staging…`). If it prints neither, the
+running process is stale.
+
+Prove it without restarting anything — make the new code's effect observable and see whether it
+happens:
+
+```bash
+# Remove a line the new code is supposed to rewrite, then let the gateway snapshot.
+cp ~/.hermes/checkpoints/store/info/exclude /tmp/exclude.bak
+grep -v '^claude-501/$' /tmp/exclude.bak > ~/.hermes/checkpoints/store/info/exclude
+# (touch a file in a checkpointed project so a snapshot fires, or wait for the next tool call)
+sleep 5; grep -c '^claude-501/$' ~/.hermes/checkpoints/store/info/exclude   # 0 = stale module
+cp /tmp/exclude.bak ~/.hermes/checkpoints/store/info/exclude                # always restore
+```
+
+A `0` there means the fix is inert. **The restart is a human action** — `hermes gateway restart`
+is guard-blocked from inside the gateway (SIGTERM would kill the command), and `ask-human.sh` is
+blocked too when its arguments contain the phrase. Hand over the one command; do not look for a
+way around the guard. Until the restart, the pre-fix behaviour continues (the gateway re-adds
+`claude-501/` to the `/tmp` ref on its next snapshot — a CLI snapshot drops it again, so the store
+oscillates rather than degrades).
+
 ## Report shape
 
 Verdict first, one line: real-or-transient and whether anything is still broken. Then
