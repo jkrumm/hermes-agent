@@ -78,6 +78,13 @@ Reproduce any store operation by exporting exactly those three.
   `_STORE_LOCK` now covers every store-touching git call and the whole `_take` sequence.
   If you see this line again, the patch is missing — check `make patch-check`, do not
   re-diagnose the mechanism.
+- `Unable to create '<store>/indexes/<hash>.lock': File exists` → **cross-process
+  collision**, not a stale lock. Two *processes* snapshotting the same project: git's own
+  index lock is held by the other one. The in-process `_STORE_LOCK` cannot see it.
+  **Fixed in code**: a cross-process file lock (`<store>/.hermes-store.lock`, holder PID,
+  stale-PID reaping) held for the same span. Measured pristine 15/24 concurrent rounds
+  fail, patched 0/24. Do **not** delete the `.lock` file by hand — it is either live or
+  already reaped; check `find <store> -name '*.lock'` is empty and move on.
 - `konnte '<path>' nicht lesen: No such file or directory` → **workdir torn down
   mid-`add -A`** (an agent worktree removed while a session was still running), or a file
   deleted mid-walk by another process. `git add -A` walks the tree and *then* reads each
@@ -89,6 +96,13 @@ Reproduce any store operation by exporting exactly those three.
   advice warning on stderr with rc=128 only because something *else* in the same add
   failed; the message names a nested repo that was added as a gitlink, which is normal.
   Read the rest of the stderr for the real cause before chasing the named directory.
+  **This is the trap that cost a dispatch**: `add -A` prints advice *before* the error, and
+  Warden derives its `hermes_log:*` signature from the **first** line — so the 13:59:12
+  failure was filed as this warning while the cause (`Fehler: '<dir>/' hat keinen Commit
+  ausgecheckt`, a commitless nested repo) sat sixteen lines down. The logger now keeps line
+  1 verbatim (it is the signature) and summarizes the tail, and the retry quotes the real
+  cause. When triaging this shape from an *older* log line, read the whole stderr block —
+  never the first line alone.
 
 A `tools.checkpoint_manager` ERROR names a **path, not the project**: the project is
 resolved by `get_working_dir_for_path` (nearest ancestor carrying a project marker),
