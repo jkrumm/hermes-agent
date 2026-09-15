@@ -187,8 +187,8 @@ check("restrict narrows to the given set", pn.discover_projects(restrict={"proj-
 print("\n7. _regenerate_projects_index() — renders from each page's frontmatter")
 _reset_paths()
 pn.PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
-(pn.PROJECTS_DIR / "meteo.md").write_text(
-    "---\ntype: Reference\ndescription: Weather/wave service.\n---\n\n# meteo\n"
+(pn.PROJECTS_DIR / "weatherorb.md").write_text(
+    "---\ntype: Reference\ndescription: Weather/wave service.\n---\n\n# weatherorb\n"
 )
 (pn.PROJECTS_DIR / "sideclaw.md").write_text(
     "---\ntype: Reference\ndescription: Local MCP daemon.\n---\n\n# sideclaw\n"
@@ -197,7 +197,7 @@ pn._regenerate_projects_index()
 index_text = (pn.PROJECTS_DIR / "index.md").read_text()
 check_true("frontmatter type: Index", "type: Index" in index_text)
 check_true("frontmatter title: Projects", "title: Projects" in index_text)
-check_true("meteo line with its description", "- [[meteo]] — Weather/wave service." in index_text)
+check_true("weatherorb line with its description", "- [[weatherorb]] — Weather/wave service." in index_text)
 check_true("sideclaw line with its description", "- [[sideclaw]] — Local MCP daemon." in index_text)
 
 print("\n8. _ensure_engineering_index_links_projects() — adds a Subdomains link once")
@@ -215,7 +215,7 @@ check("idempotent — no duplicate link", text_after_second.count(pn.SUBDOMAIN_L
 
 print("\n9. state round-trip — save then load")
 _reset_paths()
-state = {"meteo": {"lastRevisedAt": "2026-09-07T06:00:00+00:00", "lastCommit": "sha1",
+state = {"weatherorb": {"lastRevisedAt": "2026-09-07T06:00:00+00:00", "lastCommit": "sha1",
                     "lastSessionMtime": 123.0, "summary": "Added CDN icon mirroring."}}
 pn._save_state(state)
 loaded = pn._load_state()
@@ -226,7 +226,7 @@ check("round-tripped state matches", loaded, state)
 
 print("\n10. main(['--run']) — changed:false writes nothing, advances state")
 _reset_paths()
-_mk_repo("meteo")
+_mk_repo("weatherorb")
 calls: list[list[str]] = []
 pn.subprocess.run = make_fake_run(calls, head_sha="sha-new")
 pn.run_narrative_job = lambda base, project, cwd, previous_page, since, **kw: {
@@ -239,9 +239,9 @@ try:
         rc = pn.main(["--run"])
     check("exit 0", rc, 0)
     check("no stdout — nothing revised", out.getvalue(), "")
-    check_true("no page written", not (pn.PROJECTS_DIR / "meteo.md").exists())
+    check_true("no page written", not (pn.PROJECTS_DIR / "weatherorb.md").exists())
     saved = pn._load_state()
-    check("state advanced to the new HEAD", saved["meteo"]["lastCommit"], "sha-new")
+    check("state advanced to the new HEAD", saved["weatherorb"]["lastCommit"], "sha-new")
     # git rev-parse HEAD is expected (computing head_sha for the gate/state);
     # no lint (node) and no add/commit for a changed:false result.
     check_true("no vault-lint call", not any(c[0] == "node" for c in calls))
@@ -254,13 +254,13 @@ finally:
 
 print("\n11. main(['--run']) — changed:true writes the page + index, lints, commits by name")
 _reset_paths()
-_mk_repo("meteo")
+_mk_repo("weatherorb")
 _write_engineering_index()
 calls = []
 pn.subprocess.run = make_fake_run(calls, head_sha="sha-abc", lint_ok=True)
 page_md = (
     "---\ntype: Reference\ndescription: Weather/wave service — 8 mini LaunchAgents.\n"
-    "timestamp: 2026-09-07\n---\n\n# meteo\n\nShipped CDN icon mirroring this week.\n"
+    "timestamp: 2026-09-07\n---\n\n# weatherorb\n\nShipped CDN icon mirroring this week.\n"
 )
 pn.run_narrative_job = lambda base, project, cwd, previous_page, since, **kw: {
     "project": project, "changed": True, "reason": "commits landed",
@@ -274,8 +274,8 @@ try:
     with redirect_stdout(out):
         rc = pn.main(["--run"])
     check("exit 0", rc, 0)
-    check("stdout is the one revised line", out.getvalue().strip(), "meteo: Shipped CDN icon mirroring.")
-    check_true("page written", (pn.PROJECTS_DIR / "meteo.md").exists())
+    check("stdout is the one revised line", out.getvalue().strip(), "weatherorb: Shipped CDN icon mirroring.")
+    check_true("page written", (pn.PROJECTS_DIR / "weatherorb.md").exists())
     check_true("projects index regenerated", (pn.PROJECTS_DIR / "index.md").exists())
     check_true("engineering index links the projects index", pn.SUBDOMAIN_LINK in pn.ENGINEERING_INDEX.read_text())
 
@@ -291,13 +291,13 @@ try:
     check_true("git add names the vault with -C", git_add_calls[0][:3] == ["git", "-C", str(pn.VAULT_ROOT)])
     check_true("git commit names the vault with -C", git_commit_calls[0][:3] == ["git", "-C", str(pn.VAULT_ROOT)])
     check_true("git push names the vault with -C", git_push_calls[0][:3] == ["git", "-C", str(pn.VAULT_ROOT)])
-    check_true("commit message names the project", any("narrative(meteo):" in a for a in git_commit_calls[0]))
+    check_true("commit message names the project", any("narrative(weatherorb):" in a for a in git_commit_calls[0]))
     check_true("brain-sync lock released after the commit", not pn.BRAIN_LOCK_DIR.exists())
-    check("Argo fed once with the page path", argo_posts, [("meteo", "Shipped CDN icon mirroring.")])
+    check("Argo fed once with the page path", argo_posts, [("weatherorb", "Shipped CDN icon mirroring.")])
 
     saved = pn._load_state()
-    check("state records the new commit", saved["meteo"]["lastCommit"], "sha-abc")
-    check("state records the summary", saved["meteo"]["summary"], "Shipped CDN icon mirroring.")
+    check("state records the new commit", saved["weatherorb"]["lastCommit"], "sha-abc")
+    check("state records the summary", saved["weatherorb"]["summary"], "Shipped CDN icon mirroring.")
 finally:
     del pn.run_narrative_job
 
@@ -306,7 +306,7 @@ finally:
 
 print("\n11b. main(['--run']) — brain-sync holds the lock: page written, no commit, lock left alone")
 _reset_paths()
-_mk_repo("meteo")
+_mk_repo("weatherorb")
 _write_engineering_index()
 calls = []
 pn.subprocess.run = make_fake_run(calls, head_sha="sha-lock", lint_ok=True)
@@ -324,7 +324,7 @@ try:
         with _cl.redirect_stderr(err):
             rc = pn.main(["--run"])
     check("exit 0", rc, 0)
-    check_true("page still written", (pn.PROJECTS_DIR / "meteo.md").exists())
+    check_true("page still written", (pn.PROJECTS_DIR / "weatherorb.md").exists())
     check_true("no git commit while the lock is held", not any(c[0] == "git" and "commit" in c for c in calls))
     check_true("no git push while the lock is held", not any(c[0] == "git" and "push" in c for c in calls))
     check_true("the held lock was not stolen", pn.BRAIN_LOCK_DIR.exists())
@@ -347,13 +347,13 @@ pn.release_brain_lock(False)
 
 print("\n12. main(['--run']) — a lint failure reverts the page and skips the commit")
 _reset_paths()
-_mk_repo("meteo")
+_mk_repo("weatherorb")
 _write_engineering_index()
 calls = []
 pn.subprocess.run = make_fake_run(calls, head_sha="sha-bad", lint_ok=False)
 pn.run_narrative_job = lambda base, project, cwd, previous_page, since, **kw: {
     "project": project, "changed": True, "reason": "commits landed",
-    "summary": "Bad page.", "page": "---\nbroken frontmatter\n---\n\n# meteo\n",
+    "summary": "Bad page.", "page": "---\nbroken frontmatter\n---\n\n# weatherorb\n",
     "sections": [], "inputs": {}, "model": "test",
 }
 try:
@@ -365,16 +365,16 @@ try:
     git_commit_calls = [c for c in calls if c[0] == "git" and "commit" in c]
     check("no commit issued", len(git_commit_calls), 0)
     saved = pn._load_state()
-    check_true("state NOT advanced — retried next run", "meteo" not in saved)
+    check_true("state NOT advanced — retried next run", "weatherorb" not in saved)
 finally:
     del pn.run_narrative_job
 
 
 # --- --bootstrap -----------------------------------------------------------
 
-print("\n13. main(['--bootstrap', 'meteo']) — forces since=null, writes but never commits")
+print("\n13. main(['--bootstrap', 'weatherorb']) — forces since=null, writes but never commits")
 _reset_paths()
-_mk_repo("meteo")
+_mk_repo("weatherorb")
 _write_engineering_index()
 calls = []
 pn.subprocess.run = make_fake_run(calls, head_sha="sha-boot", lint_ok=True)
@@ -387,7 +387,7 @@ def _bootstrap_job(base, project, cwd, previous_page, since, **kw):
     seen_previous.append(previous_page)
     return {
         "project": project, "changed": True, "reason": "bootstrap",
-        "summary": "Bootstrapped.", "page": "---\ntype: Reference\ndescription: x.\n---\n\n# meteo\n",
+        "summary": "Bootstrapped.", "page": "---\ntype: Reference\ndescription: x.\n---\n\n# weatherorb\n",
         "sections": [], "inputs": {}, "model": "test",
     }
 
@@ -396,9 +396,9 @@ pn.run_narrative_job = _bootstrap_job
 try:
     out = io.StringIO()
     with redirect_stdout(out):
-        rc = pn.main(["--bootstrap", "meteo"])
+        rc = pn.main(["--bootstrap", "weatherorb"])
     check("exit 0", rc, 0)
-    check("prints the page path", out.getvalue().strip(), str(pn._page_path("meteo")))
+    check("prints the page path", out.getvalue().strip(), str(pn._page_path("weatherorb")))
     check("since forced to None", seen_since, [None])
     check("previousPage forced to None", seen_previous, [None])
     git_commit_calls = [c for c in calls if c[0] == "git" and "commit" in c]
@@ -417,18 +417,18 @@ now = pn._now_dt()
 recent = (now - _dt.timedelta(hours=1)).isoformat()
 stale = (now - _dt.timedelta(hours=48)).isoformat()
 pn._save_state({
-    "meteo": {"lastRevisedAt": recent, "summary": "Fresh narrative."},
+    "weatherorb": {"lastRevisedAt": recent, "summary": "Fresh narrative."},
     "sideclaw": {"lastRevisedAt": stale, "summary": "Old narrative."},
 })
 out = io.StringIO()
 with redirect_stdout(out):
     rc = pn.main(["--briefing"])
 check("exit 0", rc, 0)
-check("only the recent project surfaces", out.getvalue().strip(), "narrative: meteo — Fresh narrative.")
+check("only the recent project surfaces", out.getvalue().strip(), "narrative: weatherorb — Fresh narrative.")
 
 print("\n15. main(['--briefing']) — nothing revised recently prints nothing")
 _reset_paths()
-pn._save_state({"meteo": {"lastRevisedAt": stale, "summary": "Old narrative."}})
+pn._save_state({"weatherorb": {"lastRevisedAt": stale, "summary": "Old narrative."}})
 out = io.StringIO()
 with redirect_stdout(out):
     rc = pn.main(["--briefing"])
@@ -440,19 +440,19 @@ check("silent", out.getvalue(), "")
 
 print("\n16. main(['--dry-run']) — lists projects that would be revised and why")
 _reset_paths()
-_mk_repo("meteo")
+_mk_repo("weatherorb")
 calls = []
 pn.subprocess.run = make_fake_run(calls, head_sha="sha-dry")
 out = io.StringIO()
 with redirect_stdout(out):
     rc = pn.main(["--dry-run"])
 check("exit 0", rc, 0)
-check_true("meteo listed as never revised", "meteo: never revised" in out.getvalue())
+check_true("weatherorb listed as never revised", "weatherorb: never revised" in out.getvalue())
 
 print("\n17. main(['--dry-run']) — nothing needs revision")
 _reset_paths()
-_mk_repo("meteo")
-pn._save_state({"meteo": {"lastCommit": "sha-dry2", "lastSessionMtime": None}})
+_mk_repo("weatherorb")
+pn._save_state({"weatherorb": {"lastCommit": "sha-dry2", "lastSessionMtime": None}})
 calls = []
 pn.subprocess.run = make_fake_run(calls, head_sha="sha-dry2")
 out = io.StringIO()
