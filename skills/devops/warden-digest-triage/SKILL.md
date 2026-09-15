@@ -93,6 +93,15 @@ Three sections, and each means something different:
 
   A count that keeps climbing across ticks is a retry loop; `receipt_json` names
   the refusal. The table has no `id` column — order by `started_at`.
+- **A repo rename leaves a stale `repo` on already-open rows, and the policy rule
+  cannot rescue them.** `classify()` only writes `repo` on rows still in state
+  `new`, so an item created before the rename keeps the dead name forever — and
+  the loop then retries a dispatch that can never resolve, logging
+  `dispatch failed for <old>: repo '<old>' has no git checkout under the dispatch
+  root`. The policy file looks correct and the failure is in the ledger. Grep the
+  ledger for the old name (`SELECT event_id,state,repo FROM triage_items WHERE
+  repo='<old>'`), fix the open rows with a direct `UPDATE`, and leave terminal
+  rows alone as history.
 - **Two copies of the per-repo tier ceiling exist** (Warden's
   `config/dispatch-repos.json` and sideclaw's `GET /api/dispatch-policy`). When
   they disagree, the loop retries a dispatch the executor will always refuse. Read
@@ -101,6 +110,46 @@ Three sections, and each means something different:
   high-confidence `nextAction: implement` on its own; the verdict's own summary is
   often the only place the real finding is stated. Relay the substance, not just
   the state name.
+- **A `queued:` note survives the claim into `investigating`.** Neither
+  `escalate_origin_items()`'s CAS claim nor `_dispatch_investigate_and_advance()`
+  passes a `note`, so a row that waited at `MAX_OPEN_INVESTIGATIONS` keeps
+  `queued: … waiting for a free slot` while its episode is already running. The
+  Slack card renders the `investigating` branch and hides it; `/board` and Argo
+  show it. Cosmetic, but never read that note as "not dispatched" — check
+  `dispatch_job` first.
+- **A card for an issue whose fix already shipped is not a finding about the
+  repo.** Label-free intake ingests every open issue, so an issue that was fixed
+  and commented but never closed comes back as a fresh investigate item. Verify
+  against the repo (`git log -S<symbol>`, the issue's own comments) before
+  relaying it, then `warden abort <event-id> --why "already shipped in <version>
+  (<commit>)"` and close the issue — the abort leaves the item `closed` with the
+  reason on its card.
+- **An item whose repo has no checkout under the dispatch root retries forever in
+  an invisible claim → reclaim loop.** `escalate_origin_items()` CAS-claims
+  `new → investigating` *before* dispatching, and
+  `_dispatch_investigate_and_advance()` swallows the `UsageError` (`repo '<name>'
+  has no git checkout under the dispatch root`) and returns `None` — leaving the
+  row `investigating` with `dispatch_job` NULL. The next tick's orphan-reclaim
+  pass resets it to `new` with the **misleading** note `reclaimed: the loop
+  stopped between claiming this item and dispatching it`, which blames a crash
+  rather than the real cause. No `dispatches` row, no `deferred:` note, no
+  `needs_human`, no card update, `/health` stays `ok`. Tell: repeated
+  `reclaimed <signature> (event N)` + `dispatch failed for <repo>` pairs in
+  `~/Library/Logs/warden-loop.err`, and `item_transitions` alternating
+  `investigating → new → investigating` with no job. Intake covers every open
+  issue under the owner, so this hits any issue on a repo not cloned under
+  `~/SourceRoot` (41 of 71 repos are not). `close` refuses (`state
+  'investigating'` — "'abort' is the verb for that"); `abort <event-id> --why`
+  works even with `dispatch_job` NULL and lands the row `closed`. Do **not**
+  "fix" it by cloning the repo — that makes Warden auto-dispatch on the issue,
+  which for a third-party issue is exactly what must not happen.
+- **A repo whose issues API the token cannot read is silently outside intake.**
+  `search_issues()` is scoped to the token: where `GET /repos/<owner>/<repo>/issues`
+  returns 403 (measured on `jkrumm/dispatch-scratch`), the repo's issues never
+  appear in the search result set, nothing is ingested, and no error is raised —
+  the disappearance-resolve can then retire an event for an issue that is still
+  open. When intake looks short, diff `search_issues()`'s count against
+  `gh search issues --owner <owner> --state open`.
 
 ## Report shape
 
