@@ -68,7 +68,11 @@ Reproduce any store operation by exporting exactly those three.
   `update-ref`) so no later read-tree resurrects it. A **gone** directory needs no
   recovery (`add -A` returns 0 and drops the gitlink itself); `--ignore-errors` does
   **not** help (still rc=128) and neither does `info/exclude` (the gitlink is already
-  in the index).
+  in the index). **Discriminate with `git -C <dir> rev-parse --verify HEAD`, never by
+  looking for a `.git` directory** — a linked worktree's `.git` is a *file*
+  (`gitdir: …/.git/worktrees/<name>`) and is perfectly healthy, so `add -A` returns 0
+  with the gitlink still in the index (observed: five such gitlinks in the `/tmp` ref,
+  all resolving). Only a `.git` that exists but cannot resolve HEAD is the dead one.
 - `'<name>/' hat keinen Commit ausgecheckt` / `does not have a commit checked out`
   → **commitless nested repo** (a *healthy* `git init` with no commit yet), NOT the
   dead-gitlink case above and NOT transient. The two are easy to conflate because both
@@ -211,7 +215,7 @@ sleep 5; grep -c '^claude-501/$' ~/.hermes/checkpoints/store/info/exclude   # 0 
 cp /tmp/exclude.bak ~/.hermes/checkpoints/store/info/exclude                # always restore
 ```
 
-A `0` there means the fix is inert. **The restart is a human action** — `hermes gateway restart`
+A `0` there means the fix is inert. **Do not use `.hermes-store.lock` as the staleness tell** — the lock file is created *and unlinked* inside each critical section (`os.unlink` in the `finally`), so it is absent whenever no snapshot is in flight, on both the pre- and post-fix code. Its absence proves nothing; the exclude rewrite is the observable tell. **The restart is a human action** — `hermes gateway restart`
 is guard-blocked from inside the gateway (SIGTERM would kill the command), and `ask-human.sh` is
 blocked too when its arguments contain the phrase. Hand over the one command; do not look for a
 way around the guard. Until the restart, the pre-fix behaviour continues (the gateway re-adds
