@@ -66,6 +66,56 @@ printf %s "$(<reader> read "op://<vault>/<item>/<field>")" | shasum -a 256 | cut
 Equal prefixes on both sides = the cache carries the live value. A secret value
 must never appear in a chat transcript, a log, or a command that echoes it.
 
+## The op daemon socket — pin it, or the cache silently stops working
+
+`op`'s local cache is served by a background `op daemon` over a UNIX socket, and
+**both the client and the daemon derive that socket path from `XDG_RUNTIME_DIR`**,
+falling back to `/run/user/<uid>/op-daemon.sock` when it is unset. In a cron shell
+there is no `XDG_RUNTIME_DIR`, so the client dials `/run/user/<uid>/…` — while the
+daemon, spawned earlier from a login session, may be listening somewhere else
+entirely. The client then logs
+
+```
+WARN | InitDefaultCache: failed to establish RPC connection with daemon:
+       dial unix /var/run/user/1000/op-daemon.sock: connect: no such file or directory
+```
+
+and **every `op` invocation goes to the network**: measured on homelab, one
+`op run --env-file=.env.tpl -- true` costs 4 requests uncached vs 2 cached, and
+`op read` 3 vs 1. Nothing fails loudly — the secrets still resolve — so the only
+symptom is the shared service-account budget draining until it 429s.
+
+**Pin it explicitly in the shell every cron sources:**
+
+```bash
+export OP_SOCK="$HOME/.config/op/op-daemon.sock"
+```
+
+`OP_SOCK` governs **both halves** — a daemon started with it set binds there, and a
+client with it set dials there — so the two always agree. Verified on homelab: with
+`OP_SOCK` unset, a fresh cron-context run binds `/run/user/1000/op-daemon.sock`;
+with it set, the same run binds `~/.config/op/op-daemon.sock` and reports
+`DEBUG | InitDefaultCache: successfully initialized cache`.
+
+**Root is unaffected, which is what makes this look like a mystery.** `/run/user/0`
+does not exist, so root's `op` falls back to `/root/.config/op/op-daemon.sock`,
+where its daemon already listens — root's crons keep their cache while every user
+cron loses it. A watchdog running as root therefore stays green while the same
+`op`-wrapped work as the login user fails.
+
+**Tell them apart before blaming the account.** `op service-account ratelimit`
+reports the budget; `OP_DEBUG=true op …` reports which socket was dialled. A
+`WARN InitDefaultCache` line is the cache miss, not a limit. Restarting the daemon
+does **not** clear a real 429 — that error is served live by the server, not cached
+in the daemon (verified: identical behaviour with the daemon killed and with
+`--cache=false`), so a genuine budget exhaustion only clears when the window resets.
+
+**Budget arithmetic is part of the check.** On a 1Password Families/Teams account
+the daily cap is **1000 read/write requests per account, shared by every service
+account** — not per token. Count the invocations (`journalctl | grep "op run"` for
+cron) and multiply by the per-call cost above; a fleet at ~380 invocations/day is
+~760 requests/day cached, which is thin headroom against one shared 1000.
+
 ## Pitfalls
 
 - **A ref listed in `headless*.refs` proves nothing about whether it sealed.** The
