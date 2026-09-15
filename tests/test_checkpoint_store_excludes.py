@@ -220,13 +220,10 @@ try:
 finally:
     f.close()
 
-# ---------------------------------------------------------------------------
-print("store access is serialized by one reentrant lock")
-f = Fixture()
-try:
-    (f.work / "top.txt").write_text("top\n")
-    check("lock exists", isinstance(cm._STORE_LOCK, type(threading.RLock())), True)
 
+
+# ---------------------------------------------------------------------------
+def _run_lock_checks(f, cm, _STORE_LOCK):
     # Reentrancy: _take -> _enforce_size_cap -> _gc_store nests inside the same lock, so a plain
     # Lock would deadlock.  Prove the nesting path actually runs while held.
     depths = []
@@ -290,8 +287,68 @@ try:
     finally:
         cm._git_subprocess = real_sub
     check("no two store git calls overlapped", len(overlap), 0)
+
+
+
+# ---------------------------------------------------------------------------------------------
+# 4. The ERROR line must name the cause, not the first line of stderr.
+#
+# `git add -A` emits advice before the error.  Live, the 13:59:12 failure opened with
+# "Warnung: Füge eingebettetes Repository hinzu: cpexp.znuOaZ" — an entirely normal nested repo —
+# while the cause ("Fehler: 'cpexp3.sgahXS/' hat keinen Commit ausgecheckt") was sixteen lines
+# down.  Warden derives its `hermes_log:*` signature from the first line, so it filed a dispatch
+# against the innocent directory.  The retry's own log line must therefore quote the cause.
+# ---------------------------------------------------------------------------------------------
+
+
+print("store access is serialized by one reentrant lock")
+f = Fixture()
+try:
+    (f.work / "top.txt").write_text("top\n")
+    _lock = getattr(cm, "_STORE_LOCK", None)
+    check("lock exists", isinstance(_lock, type(threading.RLock())), True)
+    if _lock is None:
+        # Pristine module: the behaviour checks cannot run.  Report and move on so the suite still
+        # produces a complete FAIL list instead of aborting on the first missing attribute.
+        print("  (skipping lock-behaviour checks — no _STORE_LOCK on this module)")
+    else:
+        _run_lock_checks(f, cm, _lock)
 finally:
     f.close()
+
+
+print("\n[4] stderr cause extraction")
+ADVICE_FIRST = "\n".join(
+    ["Warnung: Füge eingebettetes Repository hinzu: cpexp.znuOaZ"]
+    + [f"Hinweis: Zeile {i}" for i in range(15)]
+    + ["Fehler: 'cpexp3.sgahXS/' hat keinen Commit ausgecheckt",
+       "Schwerwiegend: Hinzufügen von Dateien fehlgeschlagen"]
+)
+# getattr-guarded: on the pristine module these helpers do not exist, and the suite must report a
+# FAIL per check rather than abort with an AttributeError (it is run against both trees).
+_cause = getattr(cm, "_stage_failure_cause", None)
+_log = getattr(cm, "_log_stderr", None)
+check("_stage_failure_cause exists", callable(_cause), True)
+check("_log_stderr exists", callable(_log), True)
+if callable(_cause):
+    check("cause is the last error marker, not line 1",
+          _cause(ADVICE_FIRST),
+          "Schwerwiegend: Hinzufügen von Dateien fehlgeschlagen")
+    check("cause of a plain English failure",
+          _cause("fatal: unable to stat 'many/f118.txt': No such file or directory"),
+          "fatal: unable to stat 'many/f118.txt': No such file or directory")
+    check("cause falls back to line 1 when git emits no marker",
+          _cause("Warnung: Füge eingebettetes Repository hinzu: x\nHinweis: y"),
+          "Warnung: Füge eingebettetes Repository hinzu: x")
+    check("empty stderr yields an empty cause", _cause(""), "")
+if callable(_log):
+    # The logged stderr keeps the first line verbatim (it is the signature) and summarizes the rest.
+    logged = str(_log(ADVICE_FIRST))
+    check("logged stderr keeps line 1 verbatim", logged.startswith(ADVICE_FIRST.splitlines()[0]), True)
+    check("logged stderr is summarized", "more line(s)" in logged, True)
+    check("logged stderr is bounded", len(logged) < 500, True)
+    check("short stderr is logged unchanged",
+          _log("fatal: adding files failed"), "fatal: adding files failed")
 
 print()
 if failures:

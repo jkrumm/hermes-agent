@@ -1,5 +1,5 @@
 diff --git a/tools/checkpoint_manager.py b/tools/checkpoint_manager.py
-index f820aca..8bd9315 100644
+index f820aca..6efce00 100644
 --- a/tools/checkpoint_manager.py
 +++ b/tools/checkpoint_manager.py
 @@ -19,6 +19,7 @@ import re
@@ -54,7 +54,70 @@ index f820aca..8bd9315 100644
  
  
  def _repair_bare_repo_dirs(store: Path) -> None:
-@@ -382,6 +403,9 @@ def _init_store(store: Path, working_dir: str) -> Optional[str]:
+@@ -224,7 +245,14 @@ def _repair_bare_repo_dirs(store: Path) -> None:
+ def _run_git(args: List[str], store: Path, working_dir: str, timeout: int = _GIT_TIMEOUT,
+              allowed_returncodes: Optional[Set[int]] = None, index_file: Optional[Path] = None) -> Tuple[bool, str, str]:
+     """Run git against the shared store -> (ok, stdout, stderr).  ``allowed_returncodes`` suppresses
+-    error logging for expected non-zero exits (``diff --cached --quiet`` -> 1); ``ok`` stays rc == 0."""
++    error logging for expected non-zero exits (``diff --cached --quiet`` -> 1); ``ok`` stays rc == 0.
++
++    LOCAL MODIFICATION (patches/checkpoint-store-integrity.patch): the logged stderr is capped.
++    ``add -A`` over a large tree can emit megabytes of per-path diagnostics, and the ERROR line is
++    read by a human and by Warden's log poller — observed live, a single add produced ~20 lines of
++    git advice plus the real failure, and the *first* line was the advice, so the signature Warden
++    filed named an innocent directory instead of the cause.  The first line is kept verbatim
++    (that is the signature) and the tail is truncated with a marker."""
+     wd = _normalize_path(working_dir)
+     cmd = ["git"] + list(args)
+     if not wd.is_dir():
+@@ -254,10 +282,45 @@ def _run_git(args: List[str], store: Path, working_dir: str, timeout: int = _GIT
+     stdout, stderr = result.stdout.strip(), result.stderr.strip()
+     if not ok and result.returncode not in (allowed_returncodes or set()):
+         logger.error("Git command failed: %s (rc=%d) stderr=%s",
+-                     " ".join(cmd), result.returncode, stderr)
++                     " ".join(cmd), result.returncode, _log_stderr(stderr))
+     return ok, stdout, stderr
+ 
+ 
++def _log_stderr(stderr: str, max_lines: int = 1, max_chars: int = 400) -> str:
++    """Cap a git stderr for the log line (LOCAL MODIFICATION — patches/checkpoint-store-integrity.patch).
++
++    The FIRST line is the signature — Warden's log poller derives a `hermes_log:*` external_id from
++    it — so it is kept verbatim; the remainder is summarized.  Observed live: an `add -A` failure
++    whose true cause was `'cpexp3.sgahXS/' hat keinen Commit ausgecheckt` on line 16 was filed as
++    "Füge eingebettetes Repository hinzu: cpexp.znuOaZ" (an advice warning on line 1) and sent a
++    dispatch after an innocent directory.  The full stderr still reaches the caller unchanged."""
++    lines = stderr.splitlines()
++    if len(lines) <= max_lines and len(stderr) <= max_chars:
++        return stderr
++    head = lines[0][:max_chars] if lines else ""
++    return f"{head} … [+{max(0, len(lines) - max_lines)} more line(s), {len(stderr)} chars total]"
++
++
++def _stage_failure_cause(stderr: str) -> str:
++    """The line in an ``add -A`` stderr that actually explains the failure.
++
++    LOCAL MODIFICATION (patches/checkpoint-store-integrity.patch).  ``git add -A`` reports one
++    failure and a pile of advice, and the advice can come FIRST — the live 13:59:12 failure opened
++    with ``Warnung: Füge eingebettetes Repository hinzu: cpexp.znuOaZ`` (a nested repo added as a
++    gitlink, entirely normal) while the cause was ``Fehler: 'cpexp3.sgahXS/' hat keinen Commit
++    ausgecheckt`` sixteen lines later.  The dispatch that followed chased the innocent directory.
++    So the retry's own log line names the cause, not the first line: the last line matching git's
++    error/fatal markers, falling back to the first line when nothing matches."""
++    lines = [l for l in stderr.splitlines() if l.strip()]
++    if not lines:
++        return ""
++    markers = ("fatal:", "error:", "Schwerwiegend:", "Fehler:")
++    for line in reversed(lines):
++        if any(line.startswith(m) for m in markers):
++            return line
++    return lines[0]
++
++
+ def _git_out(args: List[str], store: Path, working_dir: str, rc: Optional[Set[int]] = None) -> str:
+     """stdout of a successful git call, else ``""``."""
+     ok, out, _ = _run_git(args, store, working_dir, allowed_returncodes=rc)
+@@ -382,6 +445,9 @@ def _init_store(store: Path, working_dir: str) -> Optional[str]:
              return f"Could not create checkpoint base: {exc}"
          _migrate_legacy_store(base)
      if _store_has_head(store):
@@ -64,7 +127,7 @@ index f820aca..8bd9315 100644
          return None
      for d in (store, store / _INDEXES_DIRNAME, store / _PROJECTS_DIRNAME):
          d.mkdir(parents=True, exist_ok=True)
-@@ -396,11 +420,31 @@ def _init_store(store: Path, working_dir: str) -> Optional[str]:
+@@ -396,11 +462,31 @@ def _init_store(store: Path, working_dir: str) -> Optional[str]:
      for key, value in _STORE_GIT_CONFIG:
          _run_git(["config", key, value], store, str(base))
      (store / "info").mkdir(exist_ok=True)
@@ -97,7 +160,7 @@ index f820aca..8bd9315 100644
  def _volume_evidence(workdir: Path) -> Dict:
      """``(st_dev, st_ino)`` of ``workdir``'s parent, captured while reachable: identifies the
      *directory*, not the path (a mount point resolves to the underlay after unmount), so orphan
-@@ -522,15 +566,114 @@ def _locate(working_dir: str, commit_hash: str,
+@@ -522,15 +608,120 @@ def _locate(working_dir: str, commit_hash: str,
      return p, None if _store_has_head(p.store) else _no_store_result()
  
  
@@ -201,6 +264,12 @@ index f820aca..8bd9315 100644
 +        if dropped:
 +            logger.info("Dropped %d dead gitlink(s) from the checkpoint index of %s: %s",
 +                        len(dropped), p.abs_dir, ", ".join(dropped))
++    # LOCAL MODIFICATION (patches/checkpoint-store-integrity.patch): name the cause, not the first
++    # line.  `add -A` puts advice before the error, and the first line is what a reader (and Warden's
++    # log poller) treats as the signature — live, that filed a dispatch against an innocent nested
++    # repo while the real cause sat sixteen lines down.
++    logger.info("Retrying checkpoint staging after a transient add failure in %s (cause: %s)",
++                p.abs_dir, _stage_failure_cause(err))
 +    return _stage_all(p)
  
  
@@ -216,7 +285,7 @@ index f820aca..8bd9315 100644
      results = [_run_git(args, p.store, p.abs_dir, index_file=p.index_file) for args in diff_args]
      _run_git(["read-tree", p.ref], p.store, p.abs_dir, index_file=p.index_file, allowed_returncodes={128})
      return results
-@@ -796,7 +939,17 @@ class CheckpointManager:
+@@ -796,7 +987,17 @@ class CheckpointManager:
      # --- internal ---
  
      def _take(self, working_dir: str, reason: str) -> bool:
@@ -235,7 +304,7 @@ index f820aca..8bd9315 100644
          p = _project_refs(working_dir)
          err = _init_store(p.store, working_dir)
          if err:
-@@ -807,9 +960,18 @@ class CheckpointManager:
+@@ -807,9 +1008,18 @@ class CheckpointManager:
              return False
          ref_commit = _ref_tip(p.store, working_dir, p.ref)
          _seed_project_index(p, ref_commit)
