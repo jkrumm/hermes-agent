@@ -128,6 +128,28 @@ producing `checks_failed` items until that lands.
 
 ## Pitfalls
 
+- **A raw NUL byte in the working tree kills the commit, and the error names the
+  message, not the file.** An episode that *removes* a NUL byte from a source
+  file can still carry one into the commit message it builds, and git rejects the
+  whole commit — `args[4] must be a string without null bytes` (Node) or an
+  `error: a NUL byte in commit log message not allowed`. The job then reports
+  `status: failed`, `lastAction: committing`, `turns: 0`, and **no branch and no
+  PR** — the work exists only in sideclaw's salvage bundle. Same tell on the diff
+  side: `git diff <base> <ref> -- <file>` says *"Binary files … differ"* for a
+  file that is plain text. Find them with a byte scan, not `grep`:
+  `git show <ref>:<file> | python3 -c "import sys;print(sys.stdin.buffer.read().count(b'\x00'))"`.
+  Recover the salvage bundle, then escape the byte (`\u0000` in a TS/JS string
+  literal) rather than dropping the file.
+- **Salvage bundle location and shape.** `~/.local/state/sideclaw/salvage/<branch>.bundle`
+  — a bare repo. `git clone` it, then `git bundle list-heads` / `git fsck --lost-found`;
+  the stash commit is reachable but usually on no named branch. Re-parent it as a
+  fresh commit onto the current merge-base (`git commit-tree <tree> -p <base> -m …`)
+  instead of reusing the stash commit, so the branch is linear and PR-able.
+- **Before landing your own recovery, check the item for an existing branch or PR.**
+  A parallel session (or a late-finishing episode) can recover the same salvage and
+  open a second PR for one item. `gh pr list --state open` plus
+  `git branch -r --contains <sha>`; if two exist, keep the complete one, comment the
+  supersede reason on the other, and close it — two open PRs for one issue is noise.
 - **Build the verification worktree under `~/SourceRoot/`, never `/tmp`.** colima
   mounts only `/Users` into its VM, so a `/tmp` worktree's bind-mounted paths
   (`${PROJECT_ROOT}/e2e/mock-oidc`) resolve to nothing inside the container and
