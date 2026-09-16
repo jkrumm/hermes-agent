@@ -80,6 +80,21 @@ mean **you** own the disposition.
   `verdict` deadline dumps everything the loop could not act on. Before relaying one
   as work for the owner, check whether the underlying thing is already done — the
   card is only re-synced on the next state change, so it can be hours stale.
+- **A `needs_human` card citing a repo tier cap can be stale — the cap is a policy
+  value and nothing re-evaluates the card when it changes.** `triage.py`'s
+  auto-implement path writes `investigation concluded implement, but repo 'X' is
+  capped at tier 'investigate' … apply the fix by hand` and comments that "the cap
+  never lifts on its own". It can: an owner edit to `config/dispatch-repos.json`
+  lifts it, and no pass revisits `needs_human` against the policy afterwards — the
+  card keeps its old note until the 7 d expiry, and its reminder fires at 24 h
+  asking for hand work that is no longer needed. Before relaying one, re-run the
+  gate yourself: `resolve_tier('implement', resolve_repo('<repo>'))` from warden's
+  own venv, plus `make check-policy`. If it now passes, the card is stale — close
+  the item naming the lifting commit, and re-open the work as a fresh `run <repo>
+  --tier implement` (the old item's `dispatch_job` verdict is still `nextAction:
+  implement` at `confidence: high`, so reuse its recommendation in the new brief).
+  Do not try to un-stick the old item in place: `needs_human` is not a state
+  `maybe_auto_implement()` reads.
 - **The fix often lives in a different repo than the issue.** An issue filed on
   repo A can be a defect *in* repo B (a renderer reading a probe's JSON that repo
   A emits). The item's `repo` is A, so A's ceiling gates it — and when A is capped
