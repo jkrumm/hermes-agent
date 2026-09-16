@@ -87,6 +87,25 @@ Reproduce any store operation by exporting exactly those three.
   `/tmp` project), which was gone minutes later, after which `add -A` over `/private/tmp`
   returned 0. **Nothing to repair and nothing to dispatch**: confirm the directory is
   gone or remove it, re-run `add -A` on the project's workdir, and close the item.
+  **The shape is plural and the error names one path at a time — sweep, don't fix the
+  named one.** Under `/private/tmp` (which is a whole checkpoint project) agent scratch
+  trees accumulate them: a real repair found six in one pass (`glab-probe/a`,
+  `sal2`, `salvage-check`, `ckpt-clean.0rEL`, `ckpt-repro.RJa8`, `cprepro2.9C1fVL`,
+  `cprepro.Hgscbg`), each surfacing only after the previous one was removed, plus a
+  seventh transient (`unable to stat '<path>': No such file or directory`, a file deleted
+  mid-walk — self-healing, ignore). Enumerate them with a walk that probes
+  `git -C <dir> rev-parse --verify HEAD` for every directory containing `.git`, over each
+  `projects/*.json` workdir; do not stop at the path in the message.
+  **Quarantine outside the checkpointed workdir.** Moving the offender to
+  `<workdir>/.quarantine-<ts>/` still fails identically — it is still inside the tree
+  `add -A` walks. Move it to `~/.hermes/quarantine/` (nothing is lost: the `.git` has no
+  HEAD and no config), then re-run `add -A` and confirm rc=0 before closing.
+  **A candidate code fix exists but is the owner's call, not a dispatch's:**
+  `git add -A -- . ':(exclude)<path>'` returns rc=0 where the bare `add -A` is rc=128
+  (verified in a scratch repo), so the retry could exclude a commitless boundary instead of
+  re-running the identical add. That revises a *deliberate* report-only choice in
+  `patches/checkpoint-store-integrity.patch` — and `hermes-agent` is `investigate`-capped in
+  `dispatch-repos.json`, so the loop cannot auto-implement it. Report it; do not dispatch it.
 - `Konnte Datei <store>/objects/<xx>/<sha> nicht schreiben: No such file or directory`
   → **gc race**. A concurrent `git gc --prune=now` removed the loose-object fanout dir
   between git's stat and its write. Tool calls run on a daemon thread pool, so two
