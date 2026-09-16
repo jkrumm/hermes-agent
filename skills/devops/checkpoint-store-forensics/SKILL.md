@@ -51,6 +51,12 @@ Reproduce any store operation by exporting exactly those three.
    and a skip logged as `working directory not found` is the workdir-teardown case,
    not a store defect.
 6. **Discharge or escalate** via `hermes-cc.sh close <event-id> --why "<mechanism>"`.
+   **If the item is in state `investigating`, `close` refuses** ("an episode or operation is in
+   flight; 'abort' is the verb for that") — because the triage loop already opened an
+   `investigate` dispatch. When you have diagnosed and repaired the cause by hand, that episode
+   is redundant: `hermes-cc.sh abort <event-id> --why "<mechanism + what you did>"` cancels the
+   job and lands the item `closed` in one step. Do not wait for the verdict, and do not fire a
+   second dispatch.
 
 ## Three causes of `git add -A (rc=128)` — triage by the stderr tail
 
@@ -100,6 +106,12 @@ Reproduce any store operation by exporting exactly those three.
   `<workdir>/.quarantine-<ts>/` still fails identically — it is still inside the tree
   `add -A` walks. Move it to `~/.hermes/quarantine/` (nothing is lost: the `.git` has no
   HEAD and no config), then re-run `add -A` and confirm rc=0 before closing.
+  **Provenance of the `/private/tmp` offenders is usually an agent's own verification
+  scratch:** a `git init` + `git fetch <bundle>` against a sideclaw salvage bundle
+  (`~/.local/state/sideclaw/salvage/dispatch-*.bundle`) leaves `.git/FETCH_HEAD` and a
+  `refs/remotes/x/…` ref but **no local branch**, so `HEAD` → `refs/heads/main` is unborn
+  and the directory is commitless by construction. Read `.git/FETCH_HEAD` to attribute it;
+  the dirs are disposable (`b2/`, `b3/`, `sal2`, `salvage-check` are typical names).
   **A candidate code fix exists but is the owner's call, not a dispatch's:**
   `git add -A -- . ':(exclude)<path>'` returns rc=0 where the bare `add -A` is rc=128
   (verified in a scratch repo), so the retry could exclude a commitless boundary instead of
