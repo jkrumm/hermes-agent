@@ -59,6 +59,14 @@ Reading Warden's state is the `warden` skill; the daily digest is
 | `needs_human`, `schemaVersion N, warden expects M` | pin-vs-server drift | check `make check-schemas`; the episode's work often already landed |
 | `needs_human`, `step-7 validation (needs-human): Review ran N reviewers but synthesis failed to serialize a structured verdict` | the review pipeline broke, not the PR — see below | verify the branch yourself, close the item, file the pipeline defect |
 
+**A validation `review` job can break on the very defect the PR fixes.** The step-7
+validator is itself a `review` job, so a PR touching `review.ts`'s salvage branch or
+`classifyExitFailure` gets validated by the still-broken code path — `needs_human` with
+`blocking: []` and a `discussions[0].message` that is only the constructed error string.
+That is a self-referential false block, not a finding about the diff: verify the branch
+in a throwaway worktree, `close` the item naming it, and `gh pr ready` the PR. Do not
+re-dispatch.
+
 **The synthesis-salvage card carries no findings — read `result.discussions`.** The
 review job's verdict is `outcome: needs-human` with `blocking: []`, and its
 `discussions[0].message` is supposed to hold the raw synthesizer text. Check its length
