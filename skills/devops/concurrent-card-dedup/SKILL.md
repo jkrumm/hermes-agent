@@ -55,6 +55,27 @@ refuse the duplicate anyway, but only after an episode has been spent.
 3. **Name the survivor and the mechanism in the `--why`.** The note is the only
    place a later reader learns why two items existed; write it for them, not as
    an apology.
+4. **Re-read `/board` immediately before the abort, and never abort into a
+   race.** Two sessions deduping one pair at the same time each keep the other
+   and abort their own view of the duplicate:
+   `A: "1105 is older → abort 1106"` / `B: "1106 has the better brief → abort 1105"`,
+   and the repo is left with **zero** carriers. Tell in the ledger: both items
+   `investigating → closed` seconds apart, each `note` naming the other as
+   survivor.
+   - **Keep the oldest live item.** It is the one rule every session can compute
+     from the same read, so it converges; the exception above is for a brief
+     that is *strictly* stronger, never for "mine".
+   - **A session that finds itself the duplicate aborts its own item.**
+   - **Aborting an `investigating` episode leaves it terminal with no verdict**,
+     which folds to `needs_human` (`investigate episode cancelled with no
+     verdict: sideclaw recorded no reason`). That card is the dedup's artifact,
+     not a finding — `close` it naming the survivor.
+   - **After the abort, re-read `/board`.** No live item on the repo means the
+     ask was dropped, not carried: re-open one (`run <repo> --tier implement`)
+     with the surviving brief at once.
+   - **Expect a herd.** Each re-open spawns further duplicates — three sessions
+     opened replacements within 40 seconds of one double abort. Collapse to the
+     oldest and stop re-opening.
 
 ## Rules
 
@@ -80,5 +101,7 @@ refuse the duplicate anyway, but only after an episode has been spent.
   not as an extra step.
 - **A duplicate's own investigation still costs an episode and a job id.** It
   looks like progress in `list open`; it is not.
-- **Aborting is not losing the ask.** The survivor carries the identical brief;
-  the aborted item's note is the record that the ask was not dropped.
+- **Aborting is not losing the ask — but only while a survivor exists.** The
+  survivor carries the identical brief and the aborted item's note is the record
+  that the ask was not dropped; if the abort raced another session's (above),
+  nothing carries it and the fix is silently gone.
