@@ -141,6 +141,22 @@ Reproduce any store operation by exporting exactly those three.
   staging entry point retries once on any transient failure, and the retry succeeds
   (verified by reproducing the race against a 6000-file tree). Transient and self-limiting;
   nothing to repair, nothing lost.
+- `Git command skipped: <cmd> (working directory not found: <path>)` → **the target directory
+  did not exist yet** — the write that triggered the snapshot is the thing that creates it.
+  The pre-write checkpoint resolves the write target's *parent* as the project workdir, so a
+  first write into a new directory (`~/.hermes/payloads/`, for a dispatch brief) hits
+  `wd.is_dir()` False: `rev-parse`, `ls-files -X exclude` and `add -A` all skip, the retry
+  (`Retrying checkpoint staging after a transient add failure…`) skips identically, and
+  `projects/<hash>.json` is left behind with no ref and no index. **Not a store defect and
+  nothing to repair**: the directory exists microseconds later, the next write in it
+  snapshots normally, and a live `CheckpointManager.ensure_checkpoint(workdir, reason=…)`
+  returns True — run it, it *is* the proof (it also materialises the missing ref).
+  Self-limiting, does not recur; the residue is one commitless project entry.
+  **The real defect is severity, not integrity**: an expected skip is logged at ERROR, so
+  every first-write-into-a-new-directory files a `hermes_log` card — and one batch files
+  **three** items (`rev-parse`, `ls-files -X exclude`, `add -A`) that are one investigation.
+  Report the severity finding; do not dispatch it (`hermes-agent` is `investigate`-capped and
+  a log-level change is inert until a gateway restart, which is human-only).
 - `Warnung: Füge eingebettetes Repository hinzu: <dir>` → **not a failure.** That is an
   advice warning on stderr with rc=128 only because something *else* in the same add
   failed; the message names a nested repo that was added as a gitlink, which is normal.
