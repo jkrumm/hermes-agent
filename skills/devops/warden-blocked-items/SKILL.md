@@ -157,24 +157,27 @@ BRIEF
   the per-repo lock working, not a stuck item.** The next tick picks it up once
   the sibling finishes; `operations` stays empty. Do not re-dispatch and do not
   call it a retry loop.
-- **Two sessions deduping the same card can leave no carrier at all.** Every
-  session that sees the card runs this procedure, so two `run` calls seconds apart
-  create two items for one finding — and if each agent closes its own as "the
-  duplicate", the pair aborts *symmetrically* and zero live items remain (measured:
-  two items each aborted the other, then three replacements were filed inside 40 s).
-  Before opening one, check `/board` for a live sibling; when one exists, abort only
-  the **later** claim, then **re-read `/board` after your own abort** to confirm a
-  carrier still exists. Never abort the only live item for a finding because your
-  brief reads better — briefs converge after a round, a carried finding beats a
-  perfect one.
-- **An abort can bounce the item straight back to `needs_human`.** `abort <id>`
-  closes the item and cancels the episode, but the verdict-less-dispatch fold
-  (`triage.py`'s `status != done and not result` branch) can then move the
-  just-closed item to `needs_human` with "…episode cancelled with no verdict:
-  sideclaw recorded no reason" — a card that reads like a fresh ask for the owner.
-  Re-read `/items/<id>` after any abort; if it bounced, `close` it again with a
-  `--why` naming it as a dedup artifact, and never relay the folded note as a
-  finding (the code defect is the fold ignoring a terminal state, not this card).
+- **Check `/board` for a live sibling before opening the fix item, and again after
+  aborting one.** Several sessions read the same card, so this step runs in parallel
+  and the dedup can collapse to *zero* carriers — two items aborted each other inside
+  two minutes and three replacements landed in the next forty seconds. Survivor is
+  the **oldest live item**; abort only the later claim, re-read after your own abort,
+  and close the `needs_human` bounce an abort leaves behind. The procedure is
+  `concurrent-card-dedup` — do not re-derive it here.
 - **A blocked item is not evidence the fix is missing.** The repo's `git log`
   since `item.updated_at` and the live state of whatever the verdict named decide
   that; a card can be hours stale because it is only re-synced on a state change.
+- **A remedy is not verified until you run the variant the brief prescribes.** The
+  review's own suggested remedy can itself be insufficient, and briefing it as-is
+  buys another review round. Concrete case: a citation guard over report prose that
+  compares URL sets — "compare exact occurrences/positions instead" closes the
+  drop-one-of-two and the swap, but **not** a single URL whose prose context is
+  moved (`Alpha is limited [https://a]. Beta is unlimited.` → `Alpha is unlimited.
+  Beta is limited [https://a].`): the URL sequence is byte-identical and the
+  attribution is inverted. Everything URL-level (set, count, ordered sequence) is
+  blind to it, because the pairing lives in the prose. Make the rule categorical —
+  no span's `find` or `replace` may contain a citation reference, so every URL in
+  the result is an untouched original byte — keep the URL-sequence equality as an
+  unreachable-but-asserted invariant, and write the accepted residual (pairing
+  inside a reworded span) into the doc comment. Measure the candidate rule against
+  the classes with the repo's own runtime before it reaches a brief.
