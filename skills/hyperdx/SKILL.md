@@ -1,7 +1,7 @@
 ---
 name: hyperdx
 description: Triage OpenTelemetry traces/logs/metrics in ClickStack/HyperDX (VPS-only) via its authenticated REST + MCP API — never the browser UI, which needs an interactive login you cannot provide. Use when a HyperDX-authored alert lands in #alerts ("VPS edge 5xx rate > 5%", "VPS edge p95 > 3s", "VPS error logs >= 20"), or when asked "why are requests failing/slow on the VPS", "what's causing 5xx on <app>", "show me recent errors for <service>". Ends in a diagnosis you either report directly or escalate via claude-dispatch / capture.
-version: 1.0.0
+version: 1.1.0
 metadata:
   hermes:
     tags: [hyperdx, clickstack, clickhouse, otel, opentelemetry, observability, traces, tracing, logs, metrics, 5xx, latency, p95, error-rate, edge, traefik]
@@ -125,6 +125,38 @@ GROUP BY ServiceName, route, code ORDER BY n DESC LIMIT 20
 ```
 
 **`VPS edge p95 > 3s (15m)`** — same edge scope, p95 of `Duration` (ns) over 15m.
+
+### Rule out the estate's own telemetry before calling either edge alert an incident
+
+The edge scope excludes only `server.address = 'otel.jkrumm.com'` — but every app host also
+carries the **same-origin ingest routes** `/v1/logs` and `/v1/traces` (the browser HyperDX SDK
+posting to `<app>.DOMAIN`, added for CORS reasons), and those spans are fire-and-forget
+telemetry, not user traffic. One stalled browser export can therefore drive the edge p95 *or*
+5xx tile on its own, while every user request stays fast. Two queries settle it:
+
+```sql
+-- who drove the slow spans, on which path
+SELECT SpanAttributes['client.address'] AS cli, SpanAttributes['server.address'] AS host,
+       SpanAttributes['url.path'] AS path, count() AS n, countIf(Duration > 3e9) AS slow,
+       round(max(Duration)/1e6,1) AS max_ms
+FROM default.otel_traces
+WHERE ServiceName='traefik' AND SpanKind='Server' AND Timestamp > now() - INTERVAL 24 HOUR
+GROUP BY cli, host, path HAVING slow > 0 ORDER BY slow DESC LIMIT 20
+
+-- was the receiver backpressured? same receiver, the authed public ingest host
+SELECT count() AS n, round(quantile(0.95)(Duration)/1e6,1) AS p95_ms
+FROM default.otel_traces
+WHERE ServiceName='traefik' AND SpanKind='Server' AND SpanAttributes['server.address']='otel.jkrumm.com'
+  AND SpanAttributes['url.path']='/v1/logs' AND Timestamp > now() - INTERVAL 15 MINUTE
+```
+
+Read it as: slow spans concentrated on `/v1/*` from **one** client while the same receiver
+answered `otel.jkrumm.com` ingest in tens of ms in the same window → a client-side upload
+stall (499/502 land at exactly 60s, Traefik's ceiling), not collector backpressure and not
+slow serving. Also check that host's user-facing spans (`/api/*` at ~10–340ms) before
+reporting latency. The fix is a tile-scope change in
+`observability/dashboards/vps-overview.json` (exclude the `/v1/*` ingest paths) — `vps` repo
+work, never a container restart.
 
 **`VPS error logs >= 20 (15m)`**:
 ```sql
