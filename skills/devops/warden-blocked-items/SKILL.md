@@ -133,6 +133,19 @@ BRIEF
   runtime. Reproducing it also surfaces cases the review missed (false negatives
   beside the false positives), which is what makes the follow-up brief complete
   rather than a restatement.
+- **A review finding that says "make this check stricter" is usually not a
+  threshold. Measure before briefing it that way.** For a guard that validates a
+  model-authored *replacement* of a document (a reviewer/critic rewriting a
+  report), no body-level text heuristic can separate a legitimate edit from a
+  hallucinated insertion of the same size: measured length ratio, changed
+  fraction and 8/20/40-word n-gram overlap are identical (0.99 vs 1.01, 0.15 vs
+  0.16, 0.65/0.48/0.40 for both). The fix that works is to change the *contract* —
+  the model returns find/replace spans and code applies them by exact match, so
+  unchanged content is the original bytes rather than a reproduction, and a span
+  that is absent, ambiguous or a no-op is refusable mechanically. Verify the
+  candidate design against the classes in a scratch `bun run` before writing the
+  brief, and put the measurement in the brief: it is what stops the episode from
+  shipping a tighter version of the same predicate.
 - **An implement episode outlives the in-turn wait.** `--wait` caps at 170s; an
   `implement` episode runs 10–40 minutes. Reply with what was opened and let the
   5-minute sweeper deliver the verdict into the origin thread. If you must watch
@@ -144,6 +157,24 @@ BRIEF
   the per-repo lock working, not a stuck item.** The next tick picks it up once
   the sibling finishes; `operations` stays empty. Do not re-dispatch and do not
   call it a retry loop.
+- **Two sessions deduping the same card can leave no carrier at all.** Every
+  session that sees the card runs this procedure, so two `run` calls seconds apart
+  create two items for one finding — and if each agent closes its own as "the
+  duplicate", the pair aborts *symmetrically* and zero live items remain (measured:
+  two items each aborted the other, then three replacements were filed inside 40 s).
+  Before opening one, check `/board` for a live sibling; when one exists, abort only
+  the **later** claim, then **re-read `/board` after your own abort** to confirm a
+  carrier still exists. Never abort the only live item for a finding because your
+  brief reads better — briefs converge after a round, a carried finding beats a
+  perfect one.
+- **An abort can bounce the item straight back to `needs_human`.** `abort <id>`
+  closes the item and cancels the episode, but the verdict-less-dispatch fold
+  (`triage.py`'s `status != done and not result` branch) can then move the
+  just-closed item to `needs_human` with "…episode cancelled with no verdict:
+  sideclaw recorded no reason" — a card that reads like a fresh ask for the owner.
+  Re-read `/items/<id>` after any abort; if it bounced, `close` it again with a
+  `--why` naming it as a dedup artifact, and never relay the folded note as a
+  finding (the code defect is the fold ignoring a terminal state, not this card).
 - **A blocked item is not evidence the fix is missing.** The repo's `git log`
   since `item.updated_at` and the live state of whatever the verdict named decide
   that; a card can be hours stale because it is only re-synced on a state change.
