@@ -81,6 +81,16 @@ If no, just answer.
    actionable. Do not dump the JSON into Slack.
 5. **Anything not covered by a verb gets escalated, never improvised.** Do not
    compose raw `claude`, `ssh`, or `git` commands to do repo work yourself.
+6. **Before opening a fix round on a repo, check the board for a live item on the
+   same finding.** More than one Hermes lane watches the same Warden cards, so the
+   same finding gets dispatched twice within seconds. Preflight with
+   `curl -s http://127.0.0.1:7735/board`, and if an item is already in
+   `investigating`/`verdict` for that repo and finding, do **not** open a second —
+   say it is already in flight. Once two exist, aborting the duplicate is itself a
+   race: each lane sees the other's item, each aborts its own, and the round ends
+   with zero episodes and no fix on the way. When a duplicate does appear, let the
+   older claim run; if two implementations land, one PR supersedes the other, which
+   is recoverable — a mutual abort is not.
 
 ---
 
@@ -200,12 +210,16 @@ Every repo also carries a ceiling, and the ceiling always wins over the request.
 Warden's own copy, `~/SourceRoot/warden/config/dispatch-repos.json`, sets them
 (this repo's `config/` is empty — the policy file moved there 2026-09-10), and
 there are only two kinds of exception:
-`dotfiles`, `brain`, `hermes-agent`, `sideclaw` and `warden` are capped at
-`investigate` (the machine's control plane, the vault, and Warden's own executor and
-ledger — a loop that could merge into its own executor has no outside; `vps` and
-`homelab` came off the floor 2026-09-08), and two repos
+`dotfiles`, `brain` and `hermes-agent` are capped at
+`investigate` (the machine's control plane and the vault; `vps` and `homelab` came off
+the floor 2026-09-08), and two repos
 (`dotfiles-private`, `homelab-private`) are **denied outright** and cannot be
-dispatched to at any tier. Everything else permits every
+dispatched to at any tier. `sideclaw` and `warden` allow `implement` but carry no
+`autoMergePaths` in `config/triage-policy.json`, so an implement episode there ends
+in a draft PR Warden never merges itself (a loop that could merge into its own
+executor has no outside) — read the ceiling off `dispatch --dry-run`'s
+`repoMaxTier` rather than from this list, which went stale once before.
+Everything else permits every
 tier, up to `implement`. A denial is deliberate, not an oversight — do not offer
 to "add it", say it is not dispatchable. Same for a tier above a repo's ceiling:
 report the refusal, do not look for another way to do it.
