@@ -20,6 +20,15 @@ state must match the live job's — `make status` asserts it.
 | `8fe7be4985d9` | Brain drift audit | `0 9 * * 6` | agent | `cron/brain-drift-audit.prompt.txt` | `claude-dispatch`, `obsidian` | `slack:C0ASRULFTSS` #watchdog | live |
 | `9909f808fe17` | Project narratives | `30 6 * * *` | no-agent | `narratives-cron.py` → `project-narratives.py --run` | — | `slack:C0ASRUD7K1U` #hermes | live |
 
+**Unpinned jobs stop, they don't re-route, when the global model moves.** `cron.model_drift_guard`
+(on unless `cron.model_drift_guard: false`) refuses to fire any job whose *creation snapshot* of
+the global provider/model no longer matches the resolved one — no inference call, one alert, then
+silent until resolved. Remediation is a deliberate pin: `hermes cron edit <job_id> --provider <p>
+--model <m>`. Only jobs created (or inference-edited) after the snapshot feature carry snapshots,
+so `8fe7be4985d9` — pinned `custom`/`deepseek-v4.1-flash` on 2026-09-19 after the 09-13 brain
+rollout skipped its 09-19 run — is the one live job that is guarded *and* pinned; the older rows
+carry no snapshot and still follow the global default silently.
+
 **Watchdog (`*/30 * * * *`) and Dispatch sweep (`*/5 * * * *`) left this registry 2026-09-09** —
 they're LaunchAgents in `~/SourceRoot/warden` now (`com.jkrumm.warden-poll`,
 `com.jkrumm.warden-sweep`), for the same reason the alert-triage loop did: see
