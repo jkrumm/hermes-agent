@@ -181,6 +181,20 @@ producing `checks_failed` items until that lands.
   worktree at pristine `master` before treating it as the diff's fault; the same
   suite is green in CI. Land on the repo's other gates (`lint`, `typecheck`,
   `check:basalt`) plus the PR's own CI run instead.
+- **A `checks_failed` can be the box's toolchain, not the tree.** Check the
+  local tool against the repo's CI pin before blaming a file
+  (`preexisting-red-check-recovery` has the procedure): weatherorb's whole TS
+  lane was red on pristine `master` under Bun 1.1.7 while CI pins 1.4.0, and
+  `bun upgrade` turned it green with no source change — leaving only the
+  hand-opened PR. When the fix is environmental, put it in the PR body and the
+  close `--why`; nothing in the repo records it.
+- **A later round's branch contains the earlier rounds' commits — open the PR
+  by hand against the default branch, then close the superseded ones.** Round 4
+  of a review cycle built on round 3's branch: `gh pr create --draft --base
+  master --head <branch>` gives the owner **one** diff for the whole change
+  (the branch's parent PR's commits come along), and each earlier PR gets a
+  supersede comment plus `gh pr close`. Close the matching ledger items too —
+  otherwise the digest re-surfaces three cards for one change.
 - **Do not re-dispatch a stuck item.** Same verdict, same wall, one more episode
   spent. Recover the branch instead.
 - **`outcome` is the routing fact, the note is prose.** Only `outcome` tells you
