@@ -151,7 +151,15 @@ Reproduce any store operation by exporting exactly those three.
   nothing to repair**: the directory exists microseconds later, the next write in it
   snapshots normally, and a live `CheckpointManager.ensure_checkpoint(workdir, reason=…)`
   returns True — run it, it *is* the proof (it also materialises the missing ref).
-  Self-limiting, does not recur; the residue is one commitless project entry.
+  Self-limiting, does not recur; the residue is one commitless project entry —
+  and the entry is the discriminator: when the directory truly did not exist at
+  resolve time, `projects/<hash>.json` carries **only** `workdir`/`last_touch`/
+  `created_at`, with no `workdir_parent_dev`/`workdir_parent_ino` (the parent was
+  never statable); a residue that *does* carry them is the torn-down-parent case,
+  not this one. Second observed instance (2026-09-20, `/Users/jkrumm/.hermes/tmp`):
+  not a dispatch brief but a session's own `write_file` into a fresh dir — the skip
+  fired 0.1 s before the write that created it. `ensure_checkpoint` materialises
+  the missing ref *and* index, so the residue is cleared by the proof step itself.
   **The real defect is severity, not integrity**: an expected skip is logged at ERROR, so
   every first-write-into-a-new-directory files a `hermes_log` card — and one batch files
   **three** items (`rev-parse`, `ls-files -X exclude`, `add -A`) that are one investigation.
