@@ -151,6 +151,27 @@ Three sections, and each means something different:
   open. When intake looks short, diff `search_issues()`'s count against
   `gh search issues --owner <owner> --state open`.
 
+- **`_fetch_note_rows()` has no age filter, so the notes section is a standing
+  reprint, not a daily finding.** Every UTC day the digest re-lists every
+  `state='note'` row it can find; a family routed there on day one prints daily
+  until someone moves the row by hand. Check `created_at` before reading a line
+  as new — a line that is days old is a reprint, and the finding is the
+  mechanism, not the line.
+- **`note` rows are `propose_mappings()` candidates, so the loop auto-appends
+  rules for them daily — and those rules can never fire.** `classify()` only
+  ever touches rows still in `state='new'`, and `_write_policy_additions()`
+  appends without deduplicating, so the same handful of signatures is
+  re-proposed and auto-committed every 24h. Measure it by unique *match* values,
+  never entry count: `ignore` was 49 entries / 12 unique, `rules` 151 / 61, ~25
+  new lines per day. Report the growth rate and that the fix is a dedupe (or a
+  candidate exclusion) in `propose_mappings()`, not a policy edit.
+- **`ignore` is evaluated *before* the `ignoreUnstructuredSlackProse` filter;
+  `rules` are matched *after* it.** So an `ignore` entry does rescue a future
+  occurrence of an un-prefixed `slack_alert` — a `rules` entry never does. Both
+  leave existing rows alone (`classify()` only touches `new`), so a rule or an
+  ignore entry added today still needs a one-time reset of the rows already in
+  `note`.
+
 ## Report shape
 
 Lead with the count and the split, then one block per real finding:
