@@ -54,6 +54,7 @@ Reading Warden's state is the `warden` skill; the daily digest is
 | `merge_blocked`, `step-7 validation (blocked): <file:line — finding>` | the review refused this PR | open a **new** `run <repo> --tier implement` item (below) |
 | `merge_blocked`, `merge refused: … requires a human pull-request review` | repo is on the human-review list | owner merges by hand — not a Warden defect |
 | `merge_blocked`, `no_changes` / `diff_refused` / `branch_no_pr` / `pr_failed` | the episode produced no artifact | re-run only with a **changed** brief |
+| `merge_blocked`, `implement episode <job> finished 'failed' with no pull request: git remote get-url origin failed (2)` | the repo has **no `origin` remote**, so no worktree `implement` episode can ever push or open a PR | re-running changes nothing — land the change by hand, or dispatch an `in-place` episode (below) |
 | `needs_human`, `investigation concluded implement, but repo '<r>' is capped at tier '<t>'` | a policy ceiling, not a bug | the fix is a code change no dispatch can make — hand it to the owner |
 | `needs_human`, `implement <job>: <summary>` with `nextAction: human` | the episode itself asked | relay the ask, do not re-dispatch |
 | `needs_human`, `schemaVersion N, warden expects M` | pin-vs-server drift | check `make check-schemas`; the episode's work often already landed |

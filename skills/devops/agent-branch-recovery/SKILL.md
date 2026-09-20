@@ -128,6 +128,22 @@ producing `checks_failed` items until that lands.
 
 ## Pitfalls
 
+- **A repo with no `origin` remote cannot be fixed by any worktree `implement`
+  episode — on `warden` this is permanent.** `resolveRepoIdentity()`
+  (`sideclaw server/jobs/handlers/dispatch.ts` → `dispatch-git.ts`, run for every
+  tier that is not `investigate` and not `workspace: in-place`) shells
+  `git remote get-url origin` before the session starts, so the job lands
+  `failed` in ~40 ms with **no branch, no worktree and no verdict** — and the item
+  goes to `merge_blocked` carrying that error. `warden` itself is local-only
+  (no remote by design), yet both policy copies list it as `implement`-reachable,
+  so its own fixes can never arrive as a PR. Check `git remote -v` in the repo
+  before believing a re-dispatch is the remedy; the real options are land it by
+  hand (repo convention: append a § to `docs/history/state-log.md` and update
+  `STATE.md` in the same commit, direct-to-master) or ask for a
+  `workspace: "in-place"` dispatch, which skips identity resolution entirely and
+  leaves the edits uncommitted for review. Never report this as "the episode
+  failed to fix it" — the episode never ran.
+
 - **A raw NUL byte in the working tree kills the commit, and the error names the
   message, not the file.** An episode that *removes* a NUL byte from a source
   file can still carry one into the commit message it builds, and git rejects the
