@@ -118,6 +118,14 @@ Three sections, and each means something different:
   verdict auto-runs without a Slack click. A bare `dispatch <repo> --tier
   implement` is the other door, but it mints a 30-minute Slack approval the owner
   has to click, so re-filing the item is the one that lands.
+- **The implement episode does not read the brief you wrote.** `--auto-from-item`
+  substitutes warden's own generic brief (`dispatches.brief`: "re-read that
+  investigation's own verdict and evidence yourself … then implement the fix it
+  described") and records that as the job's brief. What the implementer actually
+  works from is the **verdict**. So an item filed at `implement` tier still gets a
+  read-only investigate episode first — write its brief to end by demanding
+  `nextAction: implement` with the change spelled out in the verdict, or the plan
+  never reaches the episode that implements it.
 - **An auto-implemented verdict is still worth reading.** The loop acts on a
   high-confidence `nextAction: implement` on its own; the verdict's own summary is
   often the only place the real finding is stated. Relay the substance, not just
