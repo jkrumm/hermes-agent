@@ -106,6 +106,18 @@ Three sections, and each means something different:
   `config/dispatch-repos.json` and sideclaw's `GET /api/dispatch-policy`). When
   they disagree, the loop retries a dispatch the executor will always refuse. Read
   both before concluding a ceiling is or is not in force.
+- **An `implement`/high verdict on an item whose `max_tier` is `investigate`
+  closes as `answered` and runs nothing.** The row ends `closed`, `note='answered:
+  …'`, `implement_job` NULL — a verdict that asks for work with no episode to do
+  it. `run <repo>` sets `max_tier='investigate'` for every human-origin item
+  (`warden.py`: `max_tier = "implement" if tier == "implement" else "investigate"`),
+  and the auto-implement gate then refuses (`policy.py`: `has max_tier=…, not
+  'implement'`). Re-file with the verdict's `recommendation` quoted as the brief:
+  `warden run <repo> --tier implement --brief-file <f> --why "<one line>"` — the
+  new item carries `max_tier='implement'`, so a high-confidence `implement`
+  verdict auto-runs without a Slack click. A bare `dispatch <repo> --tier
+  implement` is the other door, but it mints a 30-minute Slack approval the owner
+  has to click, so re-filing the item is the one that lands.
 - **An auto-implemented verdict is still worth reading.** The loop acts on a
   high-confidence `nextAction: implement` on its own; the verdict's own summary is
   often the only place the real finding is stated. Relay the substance, not just
