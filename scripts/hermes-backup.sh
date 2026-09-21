@@ -4,6 +4,14 @@
 # none by design — `hermes model` recreates one, and a copy of it must never
 # reach homelab). State.db (conversation history) IS included. Runs at 03:00 via the com.jkrumm.hermes-backup LaunchAgent
 # (launchd/, installed by `make setup`).
+#
+# SQLite's transient sidecars (*-shm, *-wal) are excluded. They are meaningless
+# without the main .db, which IS transferred, and they race their owner: the
+# gateway checkpoints kanban.db/state.db while rsync walks them, the sidecar
+# disappears between the file list and the transfer, rsync reports "open: No such
+# file or directory" and exits 23 (partial transfer) — which suppresses the
+# UptimeKuma ping even though every real file shipped, so a healthy backup reads
+# as a dead one.
 
 set -u
 
@@ -65,6 +73,8 @@ PUSH_URL=""
   --exclude='sessions/' \
   --exclude='*.lock' \
   --exclude='*.pid' \
+  --exclude='*-shm' \
+  --exclude='*-wal' \
   --exclude='/.env' \
   --exclude='hermes-agent/' \
   --exclude='.update_check' \
