@@ -49,6 +49,20 @@ real; escalate.
 
 ## Pitfalls
 
+- **A card can be a REPOST of a weeks-old, already-closed item — read the ledger
+  before triaging its text.** `sync_card()` posts a fresh card whenever Slack
+  refuses `chat.update` with `cant_update_message` (the old card was posted by
+  *Hermes's* app identity, before Warden's own token was seeded); the tell is
+  `triage: cant_update_message for cluster […] — reposting as a new card` in
+  `~/Library/Logs/warden-loop.err`. The repost carries the item's original
+  `first_seen`/`last_seen` and its historical `×N`, so it reads as a fresh alert
+  over a two-week-old firing. Check `triage_items` for the signature first:
+  `state = 'quiet'` is the silence-resolve closure (terminal — the loop owns
+  reopening), and `card_ts` equals the *new* Slack ts, so it says nothing about
+  the item's age. `no new occurrence for 2h` is the policy constant
+  `quietResolveHours` (`DEFAULT_QUIET_RESOLVE_HOURS = 2.0`), not a measurement of
+  the card's age. Reposting is one-time per old card (`card_ts` is written back),
+  and such an item needs no close, no snooze and no dispatch.
 - **The `×N` on a gateway-sourced card is roughly DOUBLE the real occurrence
   count.** The poller tails **both** `logs/errors.log` and
   `logs/gateway.error.log` (`HERMES_LOG_FILES` in warden's `watchdog-poll.py`),
