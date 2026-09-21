@@ -88,11 +88,25 @@ Reproduce any store operation by exporting exactly those three.
   a self-heal. `info/exclude` cannot help either: the boundary is a directory git refuses
   to descend into, not a tracked path, so an ignore rule never gets consulted. Verified
   live by reproducing it (`git init` in `$T/nested`, then `add -A` over `$T`: rc=128,
-  retry rc=128). It self-limits only when the offending directory is removed — the
-  observed instance was an agent's diagnostic scratch dir under `/private/tmp` (the
-  `/tmp` project), which was gone minutes later, after which `add -A` over `/private/tmp`
-  returned 0. **Nothing to repair and nothing to dispatch**: confirm the directory is
-  gone or remove it, re-run `add -A` on the project's workdir, and close the item.
+  retry rc=128). It self-limits only when the offending directory is removed, so the repair is a removal,
+ never a wait. **Only the commitless shape blocks `add -A`, though** — a gutted `.git` (no
+ `HEAD`, no `config`, objects/index left behind) is *invisible to git as a repo boundary*, so
+ it does **not** trip the add; git stages its files as ordinary ones. Verified live:
+ `/private/tmp` carried six of them (`bundletest`, `dispatch-scratch-check`,
+ `homelab-verify`, `ntfygit`, `ntfy-mac-check`, `stashtest`) alongside two commitless ones,
+ and `add -A` failed on the commitless pair only — rc=0 the moment they were gone, with all
+ six still in place. Sweep and *classify*; leave the dead ones alone (they cost pack bytes,
+ not errors).
+ **Never trust a sweep run with `GIT_*` exported.** `git -C <dir> rev-parse --verify HEAD`
+ inherits `GIT_DIR`/`GIT_WORK_TREE`/`GIT_INDEX_FILE` from the shell, so a sweep run after any
+ store command answers `Needed a single revision` for **every** repo on the box (98 phantom
+ commitless hits, `hermes-agent`/`brain`/`dotfiles` among them): `unset GIT_DIR GIT_WORK_TREE
+ GIT_INDEX_FILE` first, or strip the `GIT_*` keys from the env passed to each `subprocess.run`.
+ Observed instances: `glab-probe/a` + `b2` (2026-09-16) and `gittest` + `tmpcheck`
+ (2026-09-21) — empty or near-empty agent `git init` scratch dirs under `/private/tmp`,
+ quarantined to `~/.hermes/quarantine/cp-<date>/`; the same case, three runs in a row.
+ **Nothing to repair and nothing to dispatch**: confirm the directory is gone or remove it,
+ re-run `add -A` on the project's workdir, and close the item.
   **The shape is plural and the error names one path at a time — sweep, don't fix the
   named one.** Under `/private/tmp` (which is a whole checkpoint project) agent scratch
   trees accumulate them: a real repair found six in one pass (`glab-probe/a`,
