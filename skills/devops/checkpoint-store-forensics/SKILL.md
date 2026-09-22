@@ -57,6 +57,17 @@ Reproduce any store operation by exporting exactly those three.
    is redundant: `hermes-cc.sh abort <event-id> --why "<mechanism + what you did>"` cancels the
    job and lands the item `closed` in one step. Do not wait for the verdict, and do not fire a
    second dispatch.
+   **Abort the item that carries the job and the whole batch goes with it** (warden §82,
+   2026-09-22): every other row sharing that `dispatch_job` still in an episode state is closed
+   with the same note, and an already-terminal job (sideclaw's 409) is tolerated rather than
+   refused, so re-aborting a sibling is no longer a dead end. Before that, aborting the carrier
+   stranded the siblings in `investigating` with **no exit at all** — `close` refuses in-flight
+   states, a second `abort` refused on the 409, and the sweep only reads rows with
+   `reported_at IS NULL`, the column the abort had just stamped — so they expired to a
+   `needs_human` card two hours later. The old CLI's `abort` also ignored `--dry-run` outright:
+   the "preview" cancelled the job and closed the item for real (fixed in the same §).
+   Confirm an item's state by reading `/items/<event-id>`, never by re-running a mutating verb
+   under `--dry-run`.
 
 ## Three causes of `git add -A (rc=128)` — triage by the stderr tail
 
