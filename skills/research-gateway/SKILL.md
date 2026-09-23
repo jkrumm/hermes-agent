@@ -10,8 +10,9 @@ metadata:
 
 # Research — cited, cross-verified answers
 
-A standalone agentic research service (`research.jkrumm.com`, on the VPS,
-**tailnet-only** — the Mac Mini reaches it). One research brain runs a multi-step
+A standalone agentic research service (`research.mini.jkrumm.com`, on the mini
+(native LaunchAgent; the VPS container is a fallback until retired), **tailnet-only**).
+One research brain runs a multi-step
 tool loop (Tavily web search + page fetch + Context7 library docs), **cross-verifies
 claims**, and returns a **cited markdown report**. Runs on EU/IU models — off Max,
 cost-aware.
@@ -19,7 +20,7 @@ cost-aware.
 Use the terminal (`curl`). Don't say you lack tooling — answering substantive
 questions with verified sources is this skill.
 
-**Base URL:** `https://research.jkrumm.com`
+**Base URL:** `https://research.mini.jkrumm.com`
 **Auth:** `Authorization: Bearer $RESEARCH_API_KEY` (in env — never run `op`, never print it)
 
 ---
@@ -56,7 +57,7 @@ polling silently and reply once, with the result.
 
 ```bash
 RK="Authorization: Bearer $RESEARCH_API_KEY"
-B="https://research.jkrumm.com"
+B="https://research.mini.jkrumm.com"
 
 # 1) Submit — depth ∈ quick | standard | deep (omit → standard)
 JOB=$(curl -s -X POST -H "$RK" -H "Content-Type: application/json" \
@@ -137,7 +138,12 @@ and why you must relay them.
 
 - **`429`** on submit → rate-limited (a job is already running, or the global cap hit).
   Wait ~30s and retry once; if it persists, tell Johannes it's busy.
-- **`404`** on poll → bad or expired `jobId` (jobs aren't kept forever). Re-submit.
+- **`404`** on poll → bad or expired `jobId`. Jobs are kept for **~30 minutes after completion** (not
+  just while running), so a long job whose result nobody read is gone — re-submit. **Never poll from a
+  fire-and-forget background loop that only reports at the end:** it can sleep past the retention
+  window and hand you a 404 for a job that finished fine. Poll inside the turn (10–15s interval, ~10
+  min budget covers a `standard` run) and **write `GET /research/{jobId}` to a file the moment
+  `status` flips**, then parse the file.
 - **Non-2xx on submit** / `health` down → the service is unreachable. It's tailnet-only on
   the VPS; surface "research service unreachable" rather than falling back to a guess.
 - **Still `running` past the cap** → don't hang. Tell Johannes it's taking long and offer

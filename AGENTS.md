@@ -259,8 +259,9 @@ in briefings or the watchdog. Errors: `503 M365 not authenticated` → `bun m365
 
 ## Research (research-gateway)
 
-Deep cited research is the standalone **research-gateway** (`research.jkrumm.com`, VPS,
-**Tailscale-only**), used through `skills/research-gateway/SKILL.md` via `terminal`:
+Deep cited research is the standalone **research-gateway** (`research.mini.jkrumm.com`, on the
+mini as a native LaunchAgent — the VPS container is a fallback until retired, **Tailscale-only**),
+used through `skills/research-gateway/SKILL.md` via `terminal`:
 `POST /research/ {query, depth?}` → `{jobId}`, poll `GET /research/{jobId}` until `status: done`
 → `{result: {report, citations[], sources[]}}`. Async because even `quick` runs 1–3 min.
 **Preferred path for substantive / factual / library-version questions** over built-in Tavily

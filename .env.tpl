@@ -75,10 +75,11 @@ HOMELAB_API_KEY=op://common/api/SECRET
 # Base URL https://karakeep.jkrumm.com/api/v1 is hardcoded in the skill (like argo).
 KARAKEEP_API_KEY=op://hermes/karakeep/api-key
 
-# research-gateway (agentic cited research, Tailscale-only at research.jkrumm.com,
-# on the VPS). Bearer for the `research-gateway` skill — canonical secret is the
-# gateway's own API_SECRET (shared with the /research Claude Code skill). Base URL
-# https://research.jkrumm.com is hardcoded in the skill (like argo / karakeep).
+# research-gateway (agentic cited research, Tailscale-only at research.mini.jkrumm.com,
+# on the mini — native LaunchAgent; the VPS container is a fallback until retired).
+# Bearer for the `research-gateway` skill — canonical secret is the gateway's own
+# API_SECRET (shared with the /research Claude Code skill). Base URL
+# https://research.mini.jkrumm.com is hardcoded in the skill (like argo / karakeep).
 RESEARCH_API_KEY=op://vps/research-gateway/API_SECRET
 
 # HyperDX/ClickStack (observability, Tailscale-only at hyperdx.jkrumm.com, on the

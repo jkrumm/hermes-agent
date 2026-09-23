@@ -11,8 +11,8 @@ index 90077d9832..43ab7593a2 100644
 +    """Scrub known-safe curl shapes so they don't trip the broader auth-header exfil rule:
 +
 +    - the bundled GitHub skill's `Authorization: token $GITHUB_TOKEN` + api.github.com curl
-+    - argo.jkrumm.com / karakeep.jkrumm.com / research.jkrumm.com / hyperdx.jkrumm.com /
-+      audio-gateway.jkrumm.com bearer curls (this deployment's trusted personal APIs)
++    - argo.jkrumm.com / karakeep.jkrumm.com / research.jkrumm.com / research.mini.jkrumm.com /
++      hyperdx.jkrumm.com / audio-gateway.jkrumm.com bearer curls (this deployment's trusted personal APIs)
  
      re.sub scrubs EVERY occurrence. The trailing ``[^\\s;&|$`]*`` consumes only the URL path —
      never separators or subshell openers — so a payload smuggled onto the same line still gets
@@ -29,8 +29,8 @@ index 90077d9832..43ab7593a2 100644
      )
  
 +    # Local patch (Hermes-agent local mod, see ~/SourceRoot/hermes-agent/patches/):
-+    # argo.jkrumm.com, karakeep.jkrumm.com, research.jkrumm.com, hyperdx.jkrumm.com
-+    # and audio-gateway.jkrumm.com are this deployment's trusted personal APIs.
++    # argo.jkrumm.com, karakeep.jkrumm.com, research.jkrumm.com, research.mini.jkrumm.com,
++    # hyperdx.jkrumm.com and audio-gateway.jkrumm.com are this deployment's trusted personal APIs.
 +    # Bundled skills curl them with `Authorization: Bearer $HOMELAB_API_KEY` /
 +    # `$KARAKEEP_API_KEY` / `$RESEARCH_API_KEY` / `$HYPERDX_AGENT_ACCESS_KEY` /
 +    # `hermes` (the podcast skill's caller label, not a secret) — GET and POST
@@ -42,8 +42,8 @@ index 90077d9832..43ab7593a2 100644
 +    # allowlisted curls outside fences. Real exfil to a non-allowlisted host
 +    # stays flagged: it lives either outside a clean fence or on a line
 +    # carrying a foreign host.
-+    _trusted_api_host = r'(?:argo|karakeep|research|hyperdx|audio-gateway)\.jkrumm\.com'
-+    _trusted_api_suffixes = ('argo.jkrumm.com', 'karakeep.jkrumm.com', 'research.jkrumm.com', 'hyperdx.jkrumm.com', 'audio-gateway.jkrumm.com')
++    _trusted_api_host = r'(?:argo|karakeep|research(?:\.mini)?|hyperdx|audio-gateway)\.jkrumm\.com'
++    _trusted_api_suffixes = ('argo.jkrumm.com', 'karakeep.jkrumm.com', 'research.jkrumm.com', 'research.mini.jkrumm.com', 'hyperdx.jkrumm.com', 'audio-gateway.jkrumm.com')
 +
 +    def _host_is_trusted(host: str) -> bool:
 +        # Exact match or a genuine subdomain — NOT a mere suffix match, which would let
