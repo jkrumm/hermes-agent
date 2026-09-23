@@ -60,8 +60,8 @@ regression is monitored rather than merely accepted:
   empty or absent `.env.tpl` makes the assertion vacuous (`WANT=0`) — a gateway with no
   secrets can't reach Slack, so the connected-check below catches that case anyway.
 
-Manual check after any secrets change: `Command helper: applied 29 secrets` in
-`hermes gateway status`, and `✓ secrets (29 refs …)` from `make status`.
+Manual check after any secrets change: `Command helper: applied 28 secrets` in
+`hermes gateway status`, and `✓ secrets (28 refs …)` from `make status`.
 
 **launchd genuinely supervises the gateway** — `hermes gateway status` reports
 it as such, so auto-start at login and auto-restart on crash are live.

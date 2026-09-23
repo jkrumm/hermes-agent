@@ -1,8 +1,8 @@
 diff --git a/run_agent.py b/run_agent.py
-index 37b25fd214..503dd8db86 100644
+index 1e6fb74ee6..1825e9a783 100644
 --- a/run_agent.py
 +++ b/run_agent.py
-@@ -133,6 +133,7 @@ from agent.codex_responses_adapter import (
+@@ -152,6 +152,7 @@ from agent.codex_responses_adapter import (
      _summarize_user_message_for_log,
  )
  from agent.tool_guardrails import ToolGuardrailDecision, append_toolguard_guidance, toolguard_synthetic_result
@@ -10,7 +10,7 @@ index 37b25fd214..503dd8db86 100644
  from utils import base_url_host_matches, base_url_hostname, env_float, model_forces_max_completion_tokens
  
  
-@@ -526,6 +527,26 @@ class AIAgent(
+@@ -553,6 +554,26 @@ class AIAgent(
          hostname = self._hostname_for(base_url)
          return bool(hostname) and (hostname == "api.githubcopilot.com" or hostname.endswith(".githubcopilot.com"))
  
@@ -37,7 +37,7 @@ index 37b25fd214..503dd8db86 100644
      def _resolved_api_call_timeout(self) -> float:
          """Per-call request timeout: per-model ``timeout_seconds`` > provider ``request_timeout_seconds`` >
          ``HERMES_API_TIMEOUT`` > 1800s."""
-@@ -649,8 +670,11 @@ class AIAgent(
+@@ -689,8 +710,11 @@ class AIAgent(
  
      def _max_tokens_param(self, value: int) -> dict:
          """``max_completion_tokens`` for newer OpenAI families (and Azure / Copilot serving them), else

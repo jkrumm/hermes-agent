@@ -1,10 +1,10 @@
 diff --git a/gateway/platforms/base.py b/gateway/platforms/base.py
-index 5c115fcf59..bc815ebfed 100644
+index 38ec5bc31f..2dc68d7428 100644
 --- a/gateway/platforms/base.py
 +++ b/gateway/platforms/base.py
-@@ -3785,19 +3785,30 @@ class BasePlatformAdapter(ABC):
-             await self._send_image_batch(
-                 event, [(f"file://{_quote(p)}", "") for p in _image_paths], metadata, human_delay)
+@@ -4171,19 +4171,30 @@ class BasePlatformAdapter(ABC):
+                 event, [(f"file://{_quote(p)}", "") for p in _image_paths], metadata, human_delay,
+                 record_delivery)
          chat_id = event.source.chat_id
 +        # LOCAL MODIFICATION (patches/slack-media-inline-reply-anchor.patch):
 +        # Pass the same reply anchor the text reply uses so media files thread
@@ -14,7 +14,7 @@ index 5c115fcf59..bc815ebfed 100644
 +        # while the text reply is inline.
 +        _media_reply_anchor = _reply_anchor_for_event(event)
  
-         async def _send_one(path: str, *, is_voice: bool, media_tag: bool) -> None:
+         async def _send_one(path: str, *, is_voice: bool, media_tag: bool) -> SendResult:
              """MEDIA-tag files (``media_tag``) may route to send_voice; bare local files never
              do."""
              ext = Path(path).suffix.lower()

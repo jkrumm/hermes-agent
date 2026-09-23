@@ -27,7 +27,7 @@ If clean: jump straight to **Restart**. If conflicts or upstream rewrote a custo
 
 One `.patch` file per patched upstream file — `ls ~/SourceRoot/hermes-agent/patches/` is the count, and `make patch-check` asserts every one of them is applied to the live checkout. Do not restate the number in prose: it has drifted repeatedly, and a stale count reads as "a patch is missing" when nothing is wrong. Source-of-truth list (with re-apply commands and *why* each is needed) lives in `~/SourceRoot/hermes-agent/AGENTS.md` under "Local Modifications to Upstream"; every retirement to date and its reason is in `docs/patches.md`. This file is the operational playbook.
 
-> **Secrets no longer come from a launch wrapper (v0.19.0+).** `scripts/gateway-cache-launch.sh` is gone; Hermes resolves its own secrets via `secrets.command` in `config.yaml` (→ the dotfiles `secrets-run` cache). After any update, confirm `hermes gateway status` prints `Command helper: applied 29 secrets`. If that line is missing the gateway will start **credential-less** (the source degrades with a warning rather than failing closed) — check `secrets-run export --env-file=~/.hermes/.env.tpl` by hand before debugging anything else.
+> **Secrets no longer come from a launch wrapper (v0.19.0+).** `scripts/gateway-cache-launch.sh` is gone; Hermes resolves its own secrets via `secrets.command` in `config.yaml` (→ the dotfiles `secrets-run` cache). After any update, confirm `hermes gateway status` prints `Command helper: applied N secrets` with N = the `KEY=` count in `.env.tpl` (28 at 2026-09-23). If that line is missing the gateway will start **credential-less** (the source degrades with a warning rather than failing closed) — check `secrets-run export --env-file=~/.hermes/.env.tpl` by hand before debugging anything else.
 >
 > **v0.18.x platform rewrite:** upstream moved built-in chat platforms out of `gateway/platforms/` into a plugin system — Slack now lives at `plugins/platforms/slack/adapter.py` (was `gateway/platforms/slack.py`, which no longer exists). Only the Slack-targeting patch's *path* changed; `gateway/platforms/base.py` (shared response-delivery base class) stayed in place.
 
@@ -42,7 +42,7 @@ Files touched (all are `.patch` files applied with `git apply` — no full-file 
 | `hermes_cli/runtime_provider.py` | `patches/runtime-provider-iu-responses-api.patch` | route the IU endpoint's `/openai/v1` leg onto `codex_responses` for a gpt-5.x model with no explicit `api_mode` — dormant on the current config, every live slot pins `api_mode` explicitly |
 | `agent/transports/chat_completions.py` | `patches/transport-iu-reasoning-effort.patch` | clamp/strip the top-level `reasoning_effort` for the **main-loop model only** (brain + fallback), per model family — does not cover the auxiliaries |
 | `run_agent.py` | `patches/run-agent-iu-max-completion-tokens.patch` | always send `max_completion_tokens` (never `max_tokens`) on the IU OpenAI leg, regardless of model-id prefix |
-| `agent/auxiliary_client.py` | `patches/auxiliary-client-iu-openai-leg-quirks.patch` | strip explicit `temperature` for any gpt-5.x id, and always `max_completion_tokens`, on the IU OpenAI leg — covers the auxiliaries the transport/run_agent patches don't |
+| `agent/auxiliary_client.py` | `patches/auxiliary-client-iu-openai-leg-quirks.patch` | always `max_completion_tokens`, and a clamped top-level `reasoning_effort`, on the IU OpenAI leg — covers the auxiliaries the transport/run_agent patches don't (the gpt-5.x `temperature` strip retired at v0.21.4, upstream does it) |
 | `tools/tts_tool_openai.py` + `tools/tts_tool.py` | `patches/tts-tool-audio-title.patch` | name the audio file from the audio-gateway's `X-Audio-Title` header (a short title from the gateway's own prep step) instead of `tts_<timestamp>` |
 
 > **STT is not patched.** `tools/transcription_tools.py` (native `openai` STT → `gpt-4o-transcribe`) is pointed at the audio-gateway purely via `config.yaml`. TTS uses the stock native `openai` provider (→ Gemini Charon via the audio-gateway) plus the one small `tts-tool-audio-title` patch above for the filename. After an update, confirm `config.yaml`'s `tts.openai` / `stt.openai` `base_url` still reads `https://audio-gateway.jkrumm.com/v1`.
@@ -379,6 +379,31 @@ permanently red), and **both** `.claude/skills/hermes-{update,validate}/SKILL.md
 guess. Also re-read `make status` output after any change: a stale `✗` line trains you to
 ignore the one that eventually matters.
 
+### Rehearse in a worktree first, and baseline the test failures
+
+At v0.21.4 (8060 commits) the whole port was done **before** `hermes update` touched the
+live tree: `git fetch`, `git worktree add /tmp/hermes-verify origin/main --detach`, the
+`--3way` loop there, resolve, regenerate patches. The live update then only needed a plain
+`git apply` of already-verified patches, so the unpatched window after the CLI's automatic
+restart was a minute, not an hour.
+
+Upstream's tests run against the patched worktree. `pytest` is **not** in the runtime venv —
+install upstream's pinned dev versions into a scratch target, never into the venv:
+
+```bash
+PY=~/.hermes/hermes-agent/venv/bin/python3
+uv pip install -q --python $PY --target /tmp/hermes-pt pytest==<pyproject dev pin> pytest-asyncio==<pin>
+find tests \( -name "test_*checkpoint*.py" -o -name "test_*slack*.py" … \) > /tmp/tf.txt
+PYTHONPATH=/tmp/hermes-verify:/tmp/hermes-pt xargs $PY -m pytest -q -p no:cacheprovider < /tmp/tf.txt
+```
+
+`xargs`, not `$files` — zsh does not word-split an unquoted variable, so pytest receives one
+127-path "file". Re-run every failure against a **pristine** worktree before attributing it:
+at v0.21.4, 4 Slack + 1 auxiliary failures were upstream cross-file ordering flakes (green in
+isolation, red in pristine too), and the 9 TTS failures (`bytes-like object is required, not
+'MagicMock'`) are permanent — upstream's mocks stub `audio.speech.create`, our patch calls
+`with_raw_response`. Zero were caused by the patches.
+
 ### Environment gotchas on this box
 
 - **The shell is zsh.** Bash associative arrays (`declare -A` + `${!arr[@]}`) fail with
@@ -411,6 +436,21 @@ ignore the one that eventually matters.
   references unknown toolset 'messaging'`. Drop the name from `platform_toolsets` in
   `config.yaml`; check nothing in `skills/`, `cron/` or `SOUL.md` told the agent to call it.
   `hermes send` is untouched, so `dispatch-sweep.py`'s verdict delivery is unaffected.
+- **A traceback at the very end of `hermes update` can be module skew, not a bug.** v0.21.4
+  ended in `TypeError: _find_stale_dashboard_pids() got an unexpected keyword argument
+  'scope_home'` — the running CLI still held the *old* `main.py` while importing the *new*
+  `update_cmd_maint.py` from disk. Code, deps and config migration had all completed first. The
+  receipt says `failed`; check `_pending_fleet_restart_needed()` (above) — it was `False`.
+- **A "references unknown toolset" warning printed by `hermes update` can come from the old
+  registry.** v0.21.4's config migration (v41→v46) *added* `connections` to
+  `platform_toolsets`, and the still-running old process warned it was unknown. Grep the new
+  `toolsets.py` before dropping a name.
+- **`hermes gateway start`'s deferred reload is a second full drain.** After `gateway restart`
+  + `gateway start`, the old process got SIGTERM twice and the job was booted out for ~3 min
+  until it exited; the new boot then tripped the **restart-loop breaker** (3 chained restarts)
+  and skipped auto-resume — an in-flight Slack turn was simply dropped. Do the restart and the
+  plist repair back to back, then poll `launchctl print gui/$(id -u)/ai.hermes.gateway` for a
+  new pid rather than trusting the first `gateway status`.
 - **Sessions for API-server requests aren't written to `~/.hermes/sessions/`**, and the
   terminal tool's *command text* is never logged — only `tool terminal completed`. Don't
   plan a verification that depends on recovering the executed command; test the guard
@@ -477,12 +517,16 @@ A basic "send a message and see a reply" check doesn't exercise most of the patc
 
 ```python
 # tts-tool-audio-title: real call to the audio-gateway, asserts the header + rename
+import copy
 from tools.tts_tool import _generate_openai_tts, _rename_with_title
-title = _generate_openai_tts("Kurzer Test.", "/tmp/tts_123.mp3", yaml_cfg["tts"])
+# The live model (elevenlabs/flash-v2.5) runs no prep step and sends NO title header —
+# a None here with Flash is correct, not a broken patch. Force a prep lane:
+cfg = copy.deepcopy(yaml_cfg["tts"]); cfg["openai"]["model"] = "elevenlabs/v3"
+title = _generate_openai_tts("Kurzer Test.", "/tmp/tts_123.mp3", cfg)
 assert title, "X-Audio-Title header missing — patch not applied or gateway changed"
 _rename_with_title("/tmp/tts_123.mp3", title)   # → '/tmp/Kurzer Test.mp3'
 ```
 
-**Secrets check (v0.19.0+):** `hermes gateway status` must print `Command helper: applied 29 secrets`. Missing → the gateway is running credential-less; test the helper directly with `secrets-run export --env-file=~/.hermes/.env.tpl | sed 's/^export //' | wc -l`.
+**Secrets check (v0.19.0+):** `hermes gateway status` must print `Command helper: applied N secrets`, N = the `KEY=` count in `.env.tpl`. Missing → the gateway is running credential-less; test the helper directly with `secrets-run export --env-file=~/.hermes/.env.tpl | sed 's/^export //' | wc -l`.
 
 Config sanity check (not patch-related, but always confirm after an update): `config.yaml`'s `tts.openai.base_url` / `stt.openai.base_url` still read `https://audio-gateway.jkrumm.com/v1`.

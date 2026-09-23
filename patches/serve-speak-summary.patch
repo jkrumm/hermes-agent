@@ -1,8 +1,8 @@
 diff --git a/hermes_cli/web_routers/audio.py b/hermes_cli/web_routers/audio.py
-index ec49c90467..8941a2ea93 100644
+index b56a68ad74..3d3fb23281 100644
 --- a/hermes_cli/web_routers/audio.py
 +++ b/hermes_cli/web_routers/audio.py
-@@ -336,6 +336,59 @@ async def tts_lease(payload: TTSLeaseRequest, profile: Optional[str] = None):
+@@ -369,6 +369,59 @@ async def tts_lease(payload: TTSLeaseRequest, profile: Optional[str] = None):
      return {"ok": True, "lease": lease, "active": payload.active, **result}
  
  
@@ -62,7 +62,7 @@ index ec49c90467..8941a2ea93 100644
  @router.websocket("/api/audio/speak-stream")
  async def speak_stream_ws(ws: "WebSocket") -> None:
      """Streaming TTS for the desktop: text in, raw int16 PCM frames out.
-@@ -353,6 +406,13 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
+@@ -387,6 +440,13 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
                 binary PCM frames, then ``{"type": "end"}``
        server → ``{"type": "fallback"}`` when the configured provider has no
                 chunked API — the client uses the POST endpoint instead.
@@ -76,7 +76,7 @@ index ec49c90467..8941a2ea93 100644
      """
      if not _ws_auth_ok(ws):
          await ws.close(code=4401)
-@@ -384,6 +444,9 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
+@@ -417,6 +477,9 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
      except Exception:
          _log.exception("speak-stream provider resolution failed")
          streamer, cap = None, 0
@@ -86,7 +86,7 @@ index ec49c90467..8941a2ea93 100644
      if streamer is None:
          with contextlib.suppress(Exception):
              await ws.send_json({"type": "fallback"})
-@@ -413,8 +476,12 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
+@@ -464,8 +527,12 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
          idle_poll_seconds = 0.5
          idle_polls_before_force_flush = 4  # ~2s of silence
  
@@ -100,7 +100,7 @@ index ec49c90467..8941a2ea93 100644
              while not stop.is_set():
                  try:
                      delta = text_q.get(timeout=idle_poll_seconds)
-@@ -433,7 +500,41 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
+@@ -484,7 +551,41 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
                  yield from chunker.feed(delta)
  
          try:
@@ -143,7 +143,7 @@ index ec49c90467..8941a2ea93 100644
                  cleaned = _strip_markdown_for_tts(sentence)
                  if not cleaned:
                      continue
-@@ -453,8 +554,41 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
+@@ -504,8 +605,41 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
          # Text frames feed synthesis; done ends the text; stop/disconnect
          # (or any unparseable frame) is barge-in.
          try:

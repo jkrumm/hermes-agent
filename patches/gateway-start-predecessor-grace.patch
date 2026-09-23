@@ -1,8 +1,8 @@
 diff --git a/gateway/run.py b/gateway/run.py
-index d6bfc83ec1..ebbf7bb290 100644
+index 2fb0fbca58..229574e1b4 100644
 --- a/gateway/run.py
 +++ b/gateway/run.py
-@@ -4795,6 +4795,29 @@ async def _start_gateway_replace_existing_instance(existing_pid: int, replace: b
+@@ -5123,6 +5123,29 @@ async def _start_gateway_replace_existing_instance(existing_pid: int, replace: b
      Returns False when startup must abort (refused, permission denied, target still alive)."""
      from gateway.status import get_process_start_time, remove_pid_file, terminate_pid
      if not replace:
@@ -31,4 +31,4 @@ index d6bfc83ec1..ebbf7bb290 100644
 +            return True
          hermes_home = str(get_hermes_home())
          logger.error(
-             "Another gateway instance is already running (PID %d, HERMES_HOME=%s). "
+             "Another gateway instance is already running (PID %d, HERMES_HOME=%s) and did not "

@@ -1,8 +1,8 @@
 diff --git a/agent/client_lifecycle.py b/agent/client_lifecycle.py
-index f617870920..ab363db187 100644
+index cfe6a5cd06..fef1fb240e 100644
 --- a/agent/client_lifecycle.py
 +++ b/agent/client_lifecycle.py
-@@ -792,10 +792,16 @@ class ClientLifecycleMixin:
+@@ -872,10 +872,16 @@ class ClientLifecycleMixin:
      def _try_refresh_anthropic_client_credentials(self) -> bool:
          # Only native Anthropic rotates OAuth tokens; other anthropic_messages providers (MiniMax, Alibaba, ...)
          # and Azure use static keys — a refresh would pick up the ~/.claude OAuth token and break auth.

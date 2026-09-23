@@ -1,8 +1,8 @@
 diff --git a/hermes_cli/runtime_provider.py b/hermes_cli/runtime_provider.py
-index db1d8dc8bc..2ff1c80f53 100644
+index 534f731f67..3a902d8b4b 100644
 --- a/hermes_cli/runtime_provider.py
 +++ b/hermes_cli/runtime_provider.py
-@@ -118,6 +118,20 @@ def _detect_api_mode_for_url(base_url: str) -> Optional[str]:
+@@ -114,6 +114,20 @@ def _detect_api_mode_for_url(base_url: str) -> Optional[str]:
      """
      normalized = (base_url or "").strip().lower().rstrip("/")
      hostname = base_url_hostname(base_url)

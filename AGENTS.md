@@ -200,7 +200,7 @@ secrets:
 
 `secrets-run` is the dotfiles shim over the age-encrypted offline cache; `.env.tpl` stays the
 single list of `KEY=op://vault/item/field` refs. The `sed` exists because `export` emits
-`export K='V'` while the bulk parser wants `K=V`. 0.29s for 29 refs (default budget 3s), and
+`export K='V'` while the bulk parser wants `K=V`. 0.29s for 29 refs (28 since 2026-09-14) (default budget 3s), and
 secrets resolve for **every** hermes invocation — gateway, CLI, cron.
 
 - **Not `secrets.onepassword`**: it needs an interactive `op` session (hangs headless) or a
@@ -209,7 +209,7 @@ secrets resolve for **every** hermes invocation — gateway, CLI, cron.
 - **Fail-soft, monitored.** The `command` source can't abort startup; it degrades to "no secrets
   applied" + a warning. `hermes-liveness.sh` covers both halves — total failure via
   `platforms.slack.state == "connected"`, partial via `KEY=` count vs rendered count.
-- Manual check: `Command helper: applied 29 secrets` in `hermes gateway status`, `✓ secrets (29
+- Manual check: `Command helper: applied 28 secrets` in `hermes gateway status`, `✓ secrets (28
   refs …)` from `make status`.
 - **Never run `hermes model` on the mini** — it writes a plaintext `~/.hermes/.env`
   (`save_env_value`) that duplicates two `.env.tpl` names on the same op ref; deleted 2026-09-07,
@@ -364,7 +364,7 @@ agent not to call it.
 Re-apply after `hermes update`: **one `.patch` file per patched upstream file**, each with `git
 apply --3way` (`/hermes-update` carries the loop). `ls patches/` is the count, `make patch-check`
 proves they are applied — deliberately not restated here (it drifted repeatedly). Baseline
-**v0.21.0**, upstream `d8a07768c5`.
+**v0.21.4**, upstream `d3b25b52ad`.
 
 **2026-09-07 — every patch moved file.** Upstream landed 5503 commits in six days under an
 unchanged version number, splitting every monolith apart. The **patch names are unchanged**
@@ -383,10 +383,9 @@ file they no longer touch — read the table's left column, not the patch name.
 | `hermes_cli/runtime_provider.py` | `runtime-provider-iu-responses-api` | route the IU `…/openai/v1` leg onto `codex_responses` for any gpt-5.x model with no explicit `api_mode` — **dormant on the current config**, every live slot sets `api_mode` explicitly |
 | `agent/transports/chat_completions.py` | `transport-iu-reasoning-effort` | deny-by-default tools+`reasoning_effort`: keep both only for the probed-safe allowlist (Anthropic/DeepSeek/GLM); strip for everything else, gpt-5.x and any unrecognized model id included; clamp per model family (Anthropic: no `xhigh`; GLM: no `medium`; unrecognized: omitted entirely) |
 | `run_agent.py` | `run-agent-iu-max-completion-tokens` | always send `max_completion_tokens` (never `max_tokens`) on the IU OpenAI leg, regardless of which model-id prefix is behind it — `model_forces_max_completion_tokens` only recognizes OpenAI ids, so a non-OpenAI custom-provider model (DeepSeek) fell through to the rejected key |
-| `agent/auxiliary_client.py` | `auxiliary-client-iu-openai-leg-quirks` | strip explicit `temperature` for any gpt-5.x id on the IU OpenAI leg (`title_generation`'s `gpt-5.6-luna` hardcodes one and 503s on it) **and** always `max_completion_tokens` there, covering every call site of `auxiliary_max_tokens_param` (compression/title/vision, the fast-lane cap, the credit-limited-402 retry, the same-provider fallback rebuild) |
+| `agent/auxiliary_client.py` | `auxiliary-client-iu-openai-leg-quirks` | always `max_completion_tokens` on the IU OpenAI leg, covering every call site of `auxiliary_max_tokens_param` (compression/title/vision, the fast-lane cap via `_build_call_kwargs`, the credit-limited-402 retry, the same-provider fallback rebuild), and move `extra_body.reasoning` to a clamped top-level `reasoning_effort` there. The gpt-5.x `temperature` strip was retired at v0.21.4 — upstream's `_is_openai_default_temperature_only` now omits it on every endpoint |
 | `gateway/run.py` | `gateway-start-predecessor-grace` | non-`--replace` startup (launchd KeepAlive) gets a 20s/1s poll grace for a still-dying predecessor PID before refusing — continues (clearing stale PID/lock like `--replace` does) if it exits, refuses as before if it doesn't. Never signals the target |
 | `tools/skill_manager_tool.py` | `skill-manager-colon-hint` | `_validate_frontmatter` stays fail-closed on a YAML `ScannerError`, but appends a hint when the message is "mapping values are not allowed here" — an unquoted `key: value: with-a-colon` description |
-| `gateway/shutdown_forensics.py` | `shutdown-forensics-darwin` | `spawn_async_diagnostic` branches on `sys.platform == 'darwin'`: BSD `ps -axo … -r`, `sysctl -n vm.loadavg`, `sample <pid> 3` instead of the GNU-only `ps auxf --sort`, `/proc/loadavg`, `dmesg` — Linux path unchanged |
 | `tools/checkpoint_manager.py` | `checkpoint-store-integrity` | four fixes in the shared shadow store, one file: (1) `_take()`'s `git add -A` retries once on **any** transient failure — a stale gitlink (drop the dead gitlinks, `update-index --force-remove`) *and* a file deleted mid-walk by another process (`unable to stat …: No such file or directory`, the Claude Code scratch race); (2) `info/exclude` is rewritten from `DEFAULT_EXCLUDES` whenever it has moved on, and tracked paths the store's own exclude file matches are force-removed — a path committed *before* its pattern existed survives `_seed_project_index`'s read-tree forever otherwise (`claude-501/` sat at 1925 tracked paths / ~32 MB in the `/tmp` ref while nominally excluded); (3) one reentrant `_STORE_LOCK` over every store-touching git call **and** a cross-process file lock on the store, so a snapshot cannot be pruned by a concurrent `gc --prune=now` between `add -A` and `write-tree` (a per-project index is not a gc reachability root) and two *processes* snapshotting the same project cannot collide on git's own `indexes/<hash>.lock`; (4) the logged stderr keeps its first line verbatim (Warden's signature) but is summarized, and the retry quotes the real cause — `add -A` prints advice before the error, so a commitless nested repo was filed as an innocent `Füge eingebettetes Repository hinzu: …` |
 
 Re-apply: `cd ~/.hermes/hermes-agent && git apply ~/SourceRoot/hermes-agent/patches/<name>.patch`.
@@ -463,8 +462,8 @@ are attached (the 503-avoidance tradeoff), which is accepted, not a bug.
 
 **Auxiliary lanes are separately routed, not the brain** — `title_generation` (`gpt-5.6-luna`)
 and `approval` (`claude-haiku-4-5`) are pinned off non-brain models because both hardcode a
-`temperature` the flagship rejects; `patches/auxiliary-client-iu-openai-leg-quirks.patch` strips
-`temperature` for any gpt-5.x id on the IU OpenAI leg (mirrors the tools+effort strip). `approval`
+`temperature` the flagship rejects; upstream's `_is_openai_default_temperature_only` (v0.21.4)
+omits `temperature` for any gpt-5.x/o-series id on every endpoint — our own IU-leg strip is retired. `approval`
 runs the **native `/anthropic` leg**, 0.9s vs 3.0s through the OpenAI-compat shim, `provider`
 stays `custom` so it never reaches for `~/.claude` OAuth. `vision` moved off Google AI Studio
 direct onto the same IU leg (`gemini-3.5-flash`, EU-resident per the IU catalog) — no documented

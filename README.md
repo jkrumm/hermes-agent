@@ -185,8 +185,8 @@ This also means **every** hermes invocation gets secrets — gateway, CLI, and c
 so ad-hoc debugging works without hand-wrapping commands.
 
 ```bash
-make status                       # → ✓ secrets (29 refs via secrets-run cache)
-hermes gateway status             # → Command helper: applied 29 secrets
+make status                       # → ✓ secrets (28 refs via secrets-run cache)
+hermes gateway status             # → Command helper: applied 28 secrets
 
 # If either is missing, test the helper in isolation:
 secrets-run export --env-file=~/.hermes/.env.tpl | sed 's/^export //' | wc -l

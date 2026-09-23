@@ -1,5 +1,5 @@
 diff --git a/tools/checkpoint_manager.py b/tools/checkpoint_manager.py
-index f820aca..ba25565 100644
+index ef9cfc9318..01980bf276 100644
 --- a/tools/checkpoint_manager.py
 +++ b/tools/checkpoint_manager.py
 @@ -10,6 +10,7 @@ repo with per-project ``refs/hermes/<hash16>``, ``indexes/<hash16>``, ``projects
@@ -20,7 +20,7 @@ index f820aca..ba25565 100644
  from dataclasses import dataclass, field
  from pathlib import Path
  from typing import Dict, Iterator, List, NamedTuple, Optional, Set, Tuple
-@@ -47,12 +50,42 @@ DEFAULT_EXCLUDES = [
+@@ -57,12 +60,42 @@ DEFAULT_EXCLUDES = [
      "*.7z", "*.rar", "*.iso",
      ".env", ".env.*", ".env.local", ".env.*.local",  # secrets
      ".DS_Store", "Thumbs.db", "*.log",  # OS junk / logs
@@ -63,20 +63,26 @@ index f820aca..ba25565 100644
  # Inherited GIT_* vars that would redirect the shadow store's git calls.
  _GIT_LEAK_VARS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_NAMESPACE", "GIT_ALTERNATE_OBJECT_DIRECTORIES")
  # Per-store config: isolated by env vars already, but belt-and-suspenders.
-@@ -203,8 +236,89 @@ def _git_env(store: Path, working_dir: str, index_file: Optional[Path] = None) -
+@@ -213,16 +246,97 @@ def _git_env(store: Path, working_dir: str, index_file: Optional[Path] = None) -
  
  def _git_subprocess(cmd: List[str], env: dict, timeout: int, cwd: Optional[str] = None):
      # creationflags suppresses the per-call conhost flash on Windows (no-op on POSIX).
--    return subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=timeout,
--                          env=env, cwd=cwd, stdin=subprocess.DEVNULL, creationflags=windows_hide_flags())
 +    # LOCAL MODIFICATION (patches/checkpoint-store-integrity.patch): serialized against every other
 +    # store-touching git call in this process (the RLock) *and* against every other process sharing
 +    # the store (the file lock) — see _STORE_LOCK / _store_file_lock.
+     # Text mode both replaces undecodable path bytes and normalizes CR/CRLF.
+     text_options = {} if "-z" in cmd else {"text": True, "encoding": "utf-8", "errors": "replace"}
+-    result = subprocess.run(cmd, capture_output=True, timeout=timeout, **text_options,
+-                            env=env, cwd=cwd, stdin=subprocess.DEVNULL, creationflags=windows_hide_flags())
 +    with _STORE_LOCK, _store_file_lock(Path(env.get("GIT_DIR", "")) if env.get("GIT_DIR") else None):
-+        return subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=timeout,
-+                              env=env, cwd=cwd, stdin=subprocess.DEVNULL, creationflags=windows_hide_flags())
-+
-+
++        result = subprocess.run(cmd, capture_output=True, timeout=timeout, **text_options,
++                                env=env, cwd=cwd, stdin=subprocess.DEVNULL, creationflags=windows_hide_flags())
+     if "-z" in cmd:
+         result.stdout = os.fsdecode(result.stdout)
+         result.stderr = result.stderr.decode("utf-8", errors="replace")
+     return result
+ 
+ 
 +@contextlib.contextmanager
 +def _store_file_lock(store: Optional[Path]):
 +    """Cross-process lock over a checkpoint store (LOCAL MODIFICATION —
@@ -152,10 +158,12 @@ index f820aca..ba25565 100644
 +            logger.info("Reaped stale checkpoint store lock held by dead pid %d", pid)
 +    except PermissionError:
 +        return  # alive, owned by another user
- 
- 
++
++
  def _repair_bare_repo_dirs(store: Path) -> None:
-@@ -224,7 +338,14 @@ def _repair_bare_repo_dirs(store: Path) -> None:
+     """Recreate ``refs/heads`` and ``branches`` after ``git gc``: gc on a bare repo with only
+     packed refs can remove them, yet git 2.34+ requires them — without them ``git add -A``
+@@ -240,7 +354,14 @@ def _repair_bare_repo_dirs(store: Path) -> None:
  def _run_git(args: List[str], store: Path, working_dir: str, timeout: int = _GIT_TIMEOUT,
               allowed_returncodes: Optional[Set[int]] = None, index_file: Optional[Path] = None) -> Tuple[bool, str, str]:
      """Run git against the shared store -> (ok, stdout, stderr).  ``allowed_returncodes`` suppresses
@@ -171,8 +179,8 @@ index f820aca..ba25565 100644
      wd = _normalize_path(working_dir)
      cmd = ["git"] + list(args)
      if not wd.is_dir():
-@@ -254,10 +375,45 @@ def _run_git(args: List[str], store: Path, working_dir: str, timeout: int = _GIT
-     stdout, stderr = result.stdout.strip(), result.stderr.strip()
+@@ -272,10 +393,45 @@ def _run_git(args: List[str], store: Path, working_dir: str, timeout: int = _GIT
+     stderr = result.stderr.strip()
      if not ok and result.returncode not in (allowed_returncodes or set()):
          logger.error("Git command failed: %s (rc=%d) stderr=%s",
 -                     " ".join(cmd), result.returncode, stderr)
@@ -218,7 +226,7 @@ index f820aca..ba25565 100644
  def _git_out(args: List[str], store: Path, working_dir: str, rc: Optional[Set[int]] = None) -> str:
      """stdout of a successful git call, else ``""``."""
      ok, out, _ = _run_git(args, store, working_dir, allowed_returncodes=rc)
-@@ -382,6 +538,9 @@ def _init_store(store: Path, working_dir: str) -> Optional[str]:
+@@ -420,6 +576,9 @@ def _init_store(store: Path, working_dir: str) -> Optional[str]:
              return f"Could not create checkpoint base: {exc}"
          _migrate_legacy_store(base)
      if _store_has_head(store):
@@ -228,7 +236,7 @@ index f820aca..ba25565 100644
          return None
      for d in (store, store / _INDEXES_DIRNAME, store / _PROJECTS_DIRNAME):
          d.mkdir(parents=True, exist_ok=True)
-@@ -396,11 +555,31 @@ def _init_store(store: Path, working_dir: str) -> Optional[str]:
+@@ -434,11 +593,31 @@ def _init_store(store: Path, working_dir: str) -> Optional[str]:
      for key, value in _STORE_GIT_CONFIG:
          _run_git(["config", key, value], store, str(base))
      (store / "info").mkdir(exist_ok=True)
@@ -261,7 +269,7 @@ index f820aca..ba25565 100644
  def _volume_evidence(workdir: Path) -> Dict:
      """``(st_dev, st_ino)`` of ``workdir``'s parent, captured while reachable: identifies the
      *directory*, not the path (a mount point resolves to the underlay after unmount), so orphan
-@@ -522,15 +701,120 @@ def _locate(working_dir: str, commit_hash: str,
+@@ -560,15 +739,120 @@ def _locate(working_dir: str, commit_hash: str,
      return p, None if _store_has_head(p.store) else _no_store_result()
  
  
@@ -386,7 +394,7 @@ index f820aca..ba25565 100644
      results = [_run_git(args, p.store, p.abs_dir, index_file=p.index_file) for args in diff_args]
      _run_git(["read-tree", p.ref], p.store, p.abs_dir, index_file=p.index_file, allowed_returncodes={128})
      return results
-@@ -796,7 +1080,21 @@ class CheckpointManager:
+@@ -854,7 +1138,21 @@ class CheckpointManager:
      # --- internal ---
  
      def _take(self, working_dir: str, reason: str) -> bool:
@@ -409,7 +417,7 @@ index f820aca..ba25565 100644
          p = _project_refs(working_dir)
          err = _init_store(p.store, working_dir)
          if err:
-@@ -807,9 +1105,18 @@ class CheckpointManager:
+@@ -865,9 +1163,18 @@ class CheckpointManager:
              return False
          ref_commit = _ref_tip(p.store, working_dir, p.ref)
          _seed_project_index(p, ref_commit)
