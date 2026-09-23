@@ -10,7 +10,7 @@ Two incidents, and the second one is the more instructive.
 > gpt-5.x model on this endpoint (the fallback, or `title_generation`), never for the brain:
 > DeepSeek accepts function tools and `reasoning_effort` together on plain `chat_completions`,
 > so it was never routed through `codex_responses` in the first place. See the corrected
-> "Endpoint facts" at the bottom and `CLAUDE.md`'s "Model, context window and reasoning effort".
+> "Endpoint facts" at the bottom and `AGENTS.md`'s "Model, context window and reasoning effort".
 
 ## What actually happened on 2026-08-14
 
@@ -40,7 +40,7 @@ Three retries per turn, then the whole conversation on the Anthropic fallback â€
 throughout. **Supervisor health told you nothing about request health.**
 
 At 12:44:09 a line reads `Fallback activated: gpt-5.6-luna-does-not-exist â†’
-claude-sonnet-4-6-eu`. That is the deliberate probe CLAUDE.md prescribes for proving
+claude-sonnet-4-6-eu`. That is the deliberate probe AGENTS.md prescribes for proving
 the fallback chain still engages after touching either `api_mode`. It is evidence of
 a test, not of a broken model name.
 

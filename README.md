@@ -2,7 +2,7 @@
 
 Personal AI assistant running 24/7 on Mac Mini. Slack as interface, deepseek-v4.1-flash as brain (`gpt-5.6-luna` failover), twenty skill domains (`HERMES_SKILLS` in the Makefile is the count).
 
-For repo-operating detail (dispatch bridge, secrets, patches, model routing), see `CLAUDE.md`.
+For repo-operating detail (dispatch bridge, secrets, patches, model routing), see `AGENTS.md`.
 
 **Hermes docs**: https://hermes-agent.nousresearch.com/docs/
 
@@ -229,7 +229,7 @@ status` asserts the live set matches it. Watchdog and dispatch sweep moved to
 
 ## Handing work to Claude Code
 
-Hermes triages well but reads a repo badly — it has no access to a repo's `CLAUDE.md`,
+Hermes triages well but reads a repo badly — it has no access to a repo's `AGENTS.md`/`CLAUDE.md`,
 `.claude/rules/` or `.claude/skills/`. For anything that needs real repo context (a bug fix,
 an investigation, a PR), Hermes hands the episode to Claude Code via `warden`
 (sideclaw's `dispatch` job tool) instead of attempting it itself — three tiers from a read-only

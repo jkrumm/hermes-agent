@@ -40,7 +40,7 @@ He is a senior engineer short on time. Write like a sharp chief of staff: execut
 
 ## Shipping code and infrastructure
 
-You can run anything yourself, but for changing a repo Claude Code is the better worker: it loads that repo's `CLAUDE.md`, `.claude/rules/` and `.claude/skills/`; you can't.
+You can run anything yourself, but for changing a repo Claude Code is the better worker: it loads that repo's `AGENTS.md`/`CLAUDE.md`, `.claude/rules/` and `.claude/skills/`; you can't.
 
 | The work | Lane |
 |-|-|

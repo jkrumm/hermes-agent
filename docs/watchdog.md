@@ -1,7 +1,7 @@
 # Briefing pre-run scripts and runtime state
 
 The watchdog poll, its Slack digest, the dispatch sweeper and the alert-triage act-loop
-moved to `~/SourceRoot/warden` on 2026-09-09 (see its `CLAUDE.md`, `DESIGN.md`, `STATE.md`).
+moved to `~/SourceRoot/warden` on 2026-09-09 (see its `AGENTS.md`, `DESIGN.md`, `STATE.md`).
 What's left here is the briefing side, which still runs inside `hermes-agent`:
 
 **Hermes cron pre-run scripts (executed by `hermes-agent` before each cron run, *not* by macOS crontab or launchd):**
@@ -11,7 +11,7 @@ What's left here is the briefing side, which still runs inside `hermes-agent`:
 - `skills/capture/state.json` — *gitignored* runtime cache for the capture skill (GitHub repos + TickTick projects). Refreshed on miss via `gh repo list jkrumm` and `/ticktick/projects`. Seeded empty from `state.example.json` on first `make setup`.
 
 For the watchdog poll's sources/reminder cadence, the SQLite ledger (`~/.warden/warden.db`),
-the dispatch sweeper's verdict/nudge delivery, and the alert-triage act-loop: `~/SourceRoot/warden/CLAUDE.md`,
+the dispatch sweeper's verdict/nudge delivery, and the alert-triage act-loop: `~/SourceRoot/warden/AGENTS.md`,
 `DESIGN.md`, `STATE.md` — including the `dispatches`/`dispatch_approvals` half of the ledger,
 which `warden` (`warden/scripts/warden` + `warden/scripts/lifecycle/`, the
 CLI `hermes-cc.sh` has exec-shimmed into since 2026-09-10) and this

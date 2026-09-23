@@ -78,4 +78,4 @@ file /tmp/test.mp3
 ```
 
 No local TTS path exists to fall back to — the gateway is the only backend
-(see repo `CLAUDE.md`'s audio section).
+(see repo `AGENTS.md`'s audio section).

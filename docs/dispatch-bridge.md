@@ -3,7 +3,7 @@
 The dispatch bridge itself (tiers, the sideclaw `dispatch` job tool, the
 worktree isolation, the `merge` verb, the ledger schema, repo policy) moved
 to `~/SourceRoot/warden` on 2026-09-10 — see its `DESIGN.md` (authoritative
-design), `CLAUDE.md` (developer notes) and `FLOWS.md` (six end-to-end
+design), `AGENTS.md` (developer notes) and `FLOWS.md` (six end-to-end
 scenarios). `scripts/hermes-cc.sh` in this repo (= `~/.hermes/scripts/hermes-cc.sh`)
 is now a 6-line exec shim into `warden/scripts/warden`, kept because its
 exact path is the one every other doc and script here references.

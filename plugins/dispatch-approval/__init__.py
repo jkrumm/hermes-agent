@@ -281,7 +281,7 @@ def _read_approval(db: Path, nonce: str) -> Optional[sqlite3.Row]:
 
     `mode=ro` is not decoration: it is what makes "this plugin is not a ledger
     writer" a property SQLite enforces on every connection this file opens,
-    rather than one the file merely promises. warden's CLAUDE.md states it as a
+    rather than one the file merely promises. warden's AGENTS.md states it as a
     rule — read-only means read-only.
 
     `signature` is selected alongside the fields the caller returns because the

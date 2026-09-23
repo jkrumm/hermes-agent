@@ -76,7 +76,7 @@ a worktree missing a gitignored store — is `agent-worktree-test-hygiene` and
   nothing to commit on `master` — only the hand-opened PR
   (`agent-branch-recovery` steps 5–6). Note the host tool fix in the PR body and
   in the close `--why`; the next episode in that repo needs it too.
-- **Run the repo's canonical lanes from its `CLAUDE.md`** (weatherorb's
+- **Run the repo's canonical lanes from its `AGENTS.md` (or `CLAUDE.md`)** (weatherorb's
   *Python* / *TypeScript* / *Design guard* rows: `uv run pytest`;
   `bun install --frozen-lockfile && bun run typecheck && bun run build && bun test
   packages/engine apps/web`; `bun run --filter weatherorb-web lint`). A green

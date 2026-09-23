@@ -8,7 +8,7 @@ project-narratives.py's needs_revision gate). This wrapper stays thin and
 quotes nothing because the cron-creation guard walks anything that tokenizes
 like a referenced script and fails closed once it exhausts its recursion
 budget — a long entry point, or one whose comments quote filenames and
-command lines, gets rejected regardless of content. See CLAUDE.md's
+command lines, gets rejected regardless of content. See AGENTS.md's
 "Dispatch Bridge" section for the measurement.
 """
 

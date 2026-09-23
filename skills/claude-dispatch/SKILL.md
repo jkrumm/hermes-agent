@@ -37,7 +37,7 @@ each step. `dispatch` still exists for a one-off episode with no item.
 
 > **You observe and decide. Claude Code reads the repo and reaches a verdict.**
 
-You cannot use a repo's `CLAUDE.md`, `.claude/rules/` or `.claude/skills/` — that
+You cannot use a repo's `AGENTS.md`/`CLAUDE.md`, `.claude/rules/` or `.claude/skills/` — that
 context is Claude-shaped. So don't approximate it by grepping around with the
 terminal tool and guessing. Open an episode, get a verdict, answer with it.
 

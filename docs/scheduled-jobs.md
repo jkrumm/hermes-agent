@@ -32,7 +32,7 @@ carry no snapshot and still follow the global default silently.
 **Watchdog (`*/30 * * * *`) and Dispatch sweep (`*/5 * * * *`) left this registry 2026-09-09** —
 they're LaunchAgents in `~/SourceRoot/warden` now (`com.jkrumm.warden-poll`,
 `com.jkrumm.warden-sweep`), for the same reason the alert-triage loop did: see
-`~/SourceRoot/warden/CLAUDE.md`.
+`~/SourceRoot/warden/AGENTS.md`.
 
 ## Retired
 
