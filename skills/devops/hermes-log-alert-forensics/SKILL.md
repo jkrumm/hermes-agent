@@ -91,6 +91,22 @@ real; escalate.
   do **not** set `cron.model_drift_guard: false`, which is the brake itself. The
   resulting Warden item is discharged with `close` once the pin is verified: the
   guard cannot re-fire against a pinned axis.
+- **`… 404 - No suitable backend server found for model '<something>-does-not-exist'` is a
+  deliberate fallback probe, and the card it files is a false positive — but you must
+  recognise both of its shapes.** A post-rollout check overrides the model to a sentinel id
+  ending in `-does-not-exist` so the endpoint is *guaranteed* to 404 — that 404 is the probe's
+  expected result, and the fallback then serves the turn. Hermes retries `api_max_retries`
+  times, so **one probe writes exactly three ERROR lines and lands on `minOccurrences: 3`**:
+  the card's `×N` is the probe's own retry attempts, not N incidents. Warden's poller now
+  drops this shape at ingest (`PROBE_SENTINEL_RE` in warden's `scripts/watchdog-poll.py` —
+  a content match, because `triage-policy.json`'s `ignore` keys on the truncated
+  `external_id` and so cannot separate the sentinel from a real brain 404), which means a
+  card still arriving with this signature is **either older than that filter or a genuine
+  404 for the configured model** — read the model id in the line before deciding. Triage it
+  the cheap way: `grep -a "<session-id>" agent.log` for the `Fallback activated: <sentinel>
+  → <model>` line and the successful `API call #1` after it, then discharge with
+  `abort <event-id> --why` (which closes the item and cancels the queued episode — an
+  investigate episode here can only restate the probe).
 - **`Streaming failed before delivery: Request timed out.` is logged BEFORE the
   retry, not after the failure.** A retry that succeeds seconds later still
   leaves this ERROR with a full traceback. Never relay it as an outage without

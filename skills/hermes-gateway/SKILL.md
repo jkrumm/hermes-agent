@@ -140,10 +140,57 @@ from hermes_constants import resolve_reasoning_config; import yaml, os
 print(resolve_reasoning_config(yaml.safe_load(open(os.path.expanduser('~/.hermes/config.yaml')))))"
 ```
 
+## A burst of "Another gateway instance is already running" is a drain, not a crash loop
+
+The tell that this is the launchd/wrapper interaction and not a broken gateway: **the PID in the
+refusals is the PID of the gateway that is still draining**, and the Shutdown-context line for it
+shows `parent_pid=<wrapper>` where the wrapper is `hermes_cli.stderr_timestamp`.
+
+What happens: the generated plist hardcodes `ExitTimeOut = 25` (`hermes_cli/gateway.py`), while
+`agent.restart_drain_timeout` is a separate, much larger budget (180 on this machine). launchd's
+SIGTERM goes to the **wrapper**, which forwards it; when the drain outlives 25s launchd SIGKILLs
+the *wrapper*, the gateway child survives, reparents to PID 1, keeps the runtime lock, and every
+KeepAlive respawn (30s `ThrottleInterval`) refuses startup until the drain finally ends. The
+systemd path does not have this asymmetry — it derives `TimeoutStopSec` from the drain budget via
+`resolve_systemd_timeout_stop_sec`; the launchd plist derives nothing.
+
+Confirm it before calling anything a hang:
+
+1. `grep -a "Shutdown context" ~/.hermes/logs/agent.log` — a `parent_pid=<wrapper>` line followed
+   by a `parent_pid=1` line for the same shutdown is the reparent, i.e. the wrapper was killed and
+   the gateway was not.
+2. Find the *real* death time of the old PID from the system log, never from the SIGKILL
+   timestamp: `log show --style compact --start "<t0>" --end "<t1>" | grep <old-pid>`. Network
+   activity or a `cfprefsd` connection close minutes after the SIGKILL proves it was alive and
+   working.
+3. `grep "drain done at" ~/.hermes/logs/agent.log` on the next clean restart. `drain took ~0.00s`
+   with `active_at_start=0` proves the whole burst was a function of in-flight work, not of the
+   restart itself — the same `kickstart` on an idle gateway produces zero refusals.
+
+**Count the refusals with `grep -a "ERROR gateway.run: Another gateway instance"`.** A plain
+`grep -c` on the message text also matches the *inbound-message echo* of the Slack card that
+reported it (`INFO gateway.run: inbound message: … msg='gateway.run: Another gateway instance…'`),
+so the count comes out high by one per card and looks like a longer storm than it was.
+
+**Never relay "stalled shutdown" / "suspected hang" from a triage verdict as fact.** The verdict
+is written from `grep gateway.run` alone, which shows the notify phase and then silence — the
+drain's own `drain done` line lands on the *next* process's boot. Check the drain budget against
+the old PID's real lifetime first; a drain that finished inside its budget is not a stall, and a
+py-spy dump of it would have nothing to find.
+
 ## False positives that look like faults
 
 - **`deepseek-v4.1-flash-does-not-exist`** in a fallback line is a *deliberate probe*, run to
-  prove the fallback still engages. Never report it as a broken fallback model.
+  prove the fallback still engages. Never report it as a broken fallback model. It appears in
+  **two** shapes: in a `Fallback activated: … → …` line, and — when the probe overrides the
+  *primary* slot rather than the fallback — as three `ERROR agent.chat_completion_helpers:
+  Streaming failed before delivery: … 404 …` lines (one per `api_max_retries` attempt) from a
+  single `platform=cli` session, followed by the `Fallback activated` line and a successful
+  `API call #1`. The 404 is the probe's expected answer; read the session id forward, not the
+  log level. Warden's hermes-log poller drops the sentinel shape at ingest
+  (`PROBE_SENTINEL_RE`, warden `scripts/watchdog-poll.py`), so a card from this signature is
+  either older than that filter or a genuine 404 for the real brain model — check which model
+  id the line names.
 - **The fallback entry uses `chat_completions`, same as the brain.** That is correct and
   intentional — the fallback (`gpt-5.6-luna`) and the brain (`deepseek-v4.1-flash`) are both on
   the same IU OpenAI leg now; only the tools+effort strip differs between them by model family.
