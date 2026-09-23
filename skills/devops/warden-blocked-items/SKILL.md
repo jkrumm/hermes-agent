@@ -108,19 +108,22 @@ verdict and stop rather than forcing a change.
 BRIEF
 ```
 
-- **Your brief never reaches the implement episode — the *verdict* does.** The
-  lifecycle composes the implement brief from its own template ("re-read that
-  investigation's own verdict … then implement the fix it described"), so the
-  text you wrote reaches only the investigate stage. An implement episode's
-  worktree is cut from **master**, and an unmerged carrier branch's symbols do
-  not exist there — so a brief that says "fix on top of PR #N's branch" dies as
-  `implement …: no_changes` / `needs_human`: *"investigation targeted unmerged
-  commit f15ba7c … the fix needs a human decision on which branch it lands on."*
-  Put the **base commit and the checkout mechanism** (`git fetch origin <branch>`,
-  `git checkout -b <new> <sha>`) into the brief, require the verdict to name them,
-  and state that a master-based re-derivation is rejected. Deciding which branch
-  is the landing site is the owner question; `close <event-id> --why` discharges
-  the `needs_human` bounce it leaves behind.
+- **An implement episode cannot base on another branch — the brief cannot fix that.**
+  Its worktree is cut fresh from the repository's **default branch**, and the tier's
+  own rules forbid remote operations and touching another branch, so
+  "commit on `<sha>`" / "push to the PR's branch" is *structurally* impossible
+  there: it answers `no_changes`, `nextAction: human`, tree clean
+  (*"the implement tier cuts from master and forbids touching another branch or
+  remote ops, so 'commit on e671bf1' is structurally impossible here"*). Naming the
+  base commit and the checkout mechanism in the brief does **not** help, and
+  neither does the verdict saying it — the constraint is the tier prompt, not the
+  text. So a fix that belongs to an *unmerged* carrier has exactly two routes:
+  the owner merges the carrier PR first and the follow-up is briefed from master,
+  or the carrier is abandoned and the change is re-derived from master in one PR.
+  Both are one episode; the merge route keeps the already-reviewed diff, the
+  re-derivation gets step-7 validation of its own. Surface that pair as the single
+  owner decision and discharge the `needs_human` bounce with
+  `close <event-id> --why`.
 - **`run --tier implement` needs no Slack click.** Warden's own lifecycle opens
   the episode when the verdict is `implement` at high confidence and the repo's
   policy allows it; the signed-approval door belongs to `dispatch`, not `run`.
