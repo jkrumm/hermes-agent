@@ -18,13 +18,13 @@ providers:
     models:
       deepseek-v4.1-flash:
         context_length: 1000000
-      gpt-5.6-luna:
+      gpt-6-luna:
         context_length: 850000
     context_length: 850000
     key_env: HERMES_CUSTOM_CUSTOM_API_KEY
 fallback_providers:
   - provider: custom
-    model: gpt-5.6-luna
+    model: gpt-6-luna
     base_url: ${OPENAI_BASE_URL}
     api_key: ${OPENAI_API_KEY}
     api_mode: chat_completions
@@ -199,7 +199,7 @@ auxiliary:
     timeout: 30
   approval:
     # The dangerous-command classifier, on the endpoint's NATIVE Anthropic leg.
-    # Why not gpt-5.6-luna: approval_smart.py hardcodes temperature=0 at the call
+    # Why not a gpt-5.x/6.x luna: approval_smart.py hardcodes temperature=0 at the call
     # site and gpt-5.x refuses any non-default temperature, so every risky command
     # paid a 503 + retry plus a high-effort reasoning turn. Why the /anthropic leg
     # rather than the OpenAI-compat shim: measured 0.9s vs 3.0s for the same model,
@@ -222,11 +222,11 @@ auxiliary:
     timeout: 30
   title_generation:
     # title_generator.py hardcodes temperature=0.3 and the auxiliary client sends effort as
-    # extra_body.reasoning — both 503 on this leg for gpt-5.x. Neither reaches the wire only
-    # because of patches/auxiliary-client-iu-openai-leg-quirks.patch; if titles start failing
-    # after an update, that patch fell off.
+    # extra_body.reasoning — both 503 on this leg for gpt-5.x/gpt-6.x. Neither reaches the wire
+    # only because of patches/auxiliary-client-iu-openai-leg-quirks.patch; if titles start
+    # failing after an update, that patch fell off.
     provider: custom
-    model: gpt-5.6-luna
+    model: gpt-6-luna
     base_url: ${OPENAI_BASE_URL}
     api_key: ${OPENAI_API_KEY}
     timeout: 30
@@ -716,7 +716,7 @@ custom_providers:
     models:
       deepseek-v4.1-flash:
         context_length: 1000000
-      gpt-5.6-luna:
+      gpt-6-luna:
         context_length: 850000
 
 # ── Fallback Model ────────────────────────────────────────────────────

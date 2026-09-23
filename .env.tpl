@@ -24,7 +24,7 @@ SLACK_CHANNEL_HERMES=op://hermes/slack/channel-hermes
 SLACK_HOME_CHANNEL=op://hermes/slack/channel-hermes
 SLACK_CHANNEL_INBOX=op://hermes/slack/channel-inbox
 
-# deepseek-v4.1-flash brain (default), gpt-5.6-luna fallback/title_generation, and
+# deepseek-v4.1-flash brain (default), gpt-6-luna fallback/title_generation, and
 # gemini-3.5-flash vision — all on the IU unified endpoint's OpenAI-compatible leg.
 # Same key as ANTHROPIC_*; the base is the OpenAI-compat surface (…/openai/v1).
 OPENAI_API_KEY=op://common/anthropic/API_KEY

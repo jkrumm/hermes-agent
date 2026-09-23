@@ -70,7 +70,7 @@ restart gateway).
 
 ## Dispatch Bridge — handing repo work to Claude Code
 
-Hermes observes well and reads repos badly — `gpt-5.6-luna` with a `terminal` tool cannot use a
+Hermes observes well and reads repos badly — an LLM with a `terminal` tool cannot use a
 repo's `AGENTS.md`/`CLAUDE.md`, `.claude/rules/` or `.claude/skills/`. `warden` (the CLI) is the bounded
 client that hands the episode to Claude Code (sideclaw's `dispatch` job tool) instead — it
 lives at `warden/scripts/warden` (a Python CLI; the original bash `hermes-cc.sh` was retired
@@ -426,9 +426,10 @@ published source disagrees in some direction. Re-probe after an endpoint change.
 | | Value | How established |
 |-|-|-|
 | Context, `deepseek-v4.1-flash` (brain) | **1,000,000** | probed 2026-09-13; `/responses` 404s ("No suitable backend") despite `/models` listing it — `chat_completions` is the only wire that works |
-| Input cap, `gpt-5.6-luna` (fallback, title) | **922,000** | 900k ok; 1.1M → `context_length_exceeded` (a *combined* input+reasoning+output budget) |
+| Input cap, `gpt-5.6-luna` (former fallback, title) | **922,000** | 900k ok; 1.1M → `context_length_exceeded` (a *combined* input+reasoning+output budget). **Not re-probed for `gpt-6-luna`** — config keeps 850,000 |
 | `/v1/models` metadata | `ContextSize: "105000"` | **Wrong** — 110k/260k/520k/900k all succeed. Never configure from it |
 | Efforts, gpt-5.6 family | `none, low, medium, high, xhigh` | `max` refused here; `minimal` isn't a gpt-5.6 value |
+| Efforts, `gpt-6-luna` (fallback, title) | `none, low, medium, high, xhigh` | probed 2026-09-23; `max` refused, only default `temperature` (1); with tools it needs an **explicit** `none` — omitting the key 503s too, unlike gpt-5.6 |
 | Efforts, deepseek-v4.1-flash | `low, high, xhigh, max` | accepts tools + effort together on `chat_completions` — unlike gpt-5.x, no strip needed |
 | Efforts, Anthropic leg | `none, low, medium, high` | `xhigh` refused by the IU LiteLLM gateway |
 
@@ -437,9 +438,9 @@ gpt-5.x-only problem.** `/v1/chat/completions` refuses any effort on gpt-5.x onc
 carries function tools — and Hermes always sends tools — but DeepSeek takes tools and
 `reasoning_effort` together on the same wire with no such refusal (probed 2026-09-13). So the
 brain needs no Responses routing at all: `model.api_mode: chat_completions`,
-`patches/transport-iu-reasoning-effort.patch` now strips the effort only for a gpt-5.x model id
-(the fallback, `gpt-5.6-luna`), never for DeepSeek. **Tell if the fallback is active:**
-`Fallback activated: deepseek-v4.1-flash → gpt-5.6-luna` in `~/.hermes/logs/agent.log` — expected
+`patches/transport-iu-reasoning-effort.patch` strips the effort for a gpt-5.x model id and
+forces an explicit `none` for gpt-6.x (the fallback, `gpt-6-luna`), never touches DeepSeek's. **Tell if the fallback is active:**
+`Fallback activated: deepseek-v4.1-flash → gpt-6-luna` in `~/.hermes/logs/agent.log` — expected
 under throttling, not a misconfiguration; the fallback runs with no reasoning effort while tools
 are attached (the 503-avoidance tradeoff), which is accepted, not a bug.
 
@@ -460,10 +461,10 @@ are attached (the 503-avoidance tradeoff), which is accepted, not a bug.
   `auxiliary.compression.context_length: 850000`, not the model's real 1,000,000 or the
   default 200,000 (DeepSeek's lack of prompt caching is accepted, not chased here).
 
-**Auxiliary lanes are separately routed, not the brain** — `title_generation` (`gpt-5.6-luna`)
+**Auxiliary lanes are separately routed, not the brain** — `title_generation` (`gpt-6-luna`)
 and `approval` (`claude-haiku-4-5`) are pinned off non-brain models because both hardcode a
 `temperature` the flagship rejects; upstream's `_is_openai_default_temperature_only` (v0.21.4)
-omits `temperature` for any gpt-5.x/o-series id on every endpoint — our own IU-leg strip is retired. `approval`
+omits `temperature` for any gpt-5.x/o-series id on every endpoint, and the aux patch extends it to gpt-6.x. `approval`
 runs the **native `/anthropic` leg**, 0.9s vs 3.0s through the OpenAI-compat shim, `provider`
 stays `custom` so it never reaches for `~/.claude` OAuth. `vision` moved off Google AI Studio
 direct onto the same IU leg (`gemini-3.5-flash`, EU-resident per the IU catalog) — no documented

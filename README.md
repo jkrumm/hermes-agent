@@ -1,6 +1,6 @@
 # Hermes Agent — Mac Mini M2 Pro
 
-Personal AI assistant running 24/7 on Mac Mini. Slack as interface, deepseek-v4.1-flash as brain (`gpt-5.6-luna` failover), twenty skill domains (`HERMES_SKILLS` in the Makefile is the count).
+Personal AI assistant running 24/7 on Mac Mini. Slack as interface, deepseek-v4.1-flash as brain (`gpt-6-luna` failover), twenty skill domains (`HERMES_SKILLS` in the Makefile is the count).
 
 For repo-operating detail (dispatch bridge, secrets, patches, model routing), see `AGENTS.md`.
 
@@ -18,7 +18,7 @@ Mac Mini M2 Pro — Hermes Agent (always-on)
   │     STT: gpt-4o-transcribe (German/English steered).
   ├→ Homelab — Docker containers, CouchDB, backups (via Tailscale)
   ├→ VPS — Production apps, ClickStack (via Tailscale)
-  └→ IU unified endpoint — deepseek-v4.1-flash (brain + compression), gpt-5.6-luna (fallback +
+  └→ IU unified endpoint — deepseek-v4.1-flash (brain + compression), gpt-6-luna (fallback +
         title_generation), gemini-3.5-flash (vision), claude-haiku-4-5 (approval, native /anthropic)
 ```
 

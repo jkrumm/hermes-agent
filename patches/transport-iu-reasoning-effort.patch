@@ -1,8 +1,8 @@
 diff --git a/agent/transports/chat_completions.py b/agent/transports/chat_completions.py
-index 8f3ae66712..f5a2928acd 100644
+index 8f3ae66712..c36a9ca63b 100644
 --- a/agent/transports/chat_completions.py
 +++ b/agent/transports/chat_completions.py
-@@ -246,6 +246,143 @@ def _is_openai_api_base_url(base_url: Any) -> bool:
+@@ -246,6 +246,158 @@ def _is_openai_api_base_url(base_url: Any) -> bool:
          return False
  
  
@@ -25,8 +25,14 @@ index 8f3ae66712..f5a2928acd 100644
 +#                            accepts function tools and an effort in the same
 +#                            /chat/completions request (no 400 seen).
 +#   glm-5.3-flash: 'medium' is refused on this leg; low/high/max OK.
++#   gpt-6-luna (2026-09-23): same none..xhigh ladder as gpt-5.x ('max' refused),
++#                            same tools+effort refusal — but, unlike gpt-5.6-luna,
++#                            it also refuses tools with the key *omitted* (its
++#                            default effort isn't 'none'); only an explicit
++#                            'none' passes alongside tools.
 +_IU_EFFORTS_BY_FAMILY: dict[str, tuple[str, ...]] = {
 +    "gpt-5": ("none", "low", "medium", "high", "xhigh"),
++    "gpt-6": ("none", "low", "medium", "high", "xhigh"),
 +    "anthropic": ("none", "low", "medium", "high"),
 +    "deepseek": ("low", "high", "xhigh", "max"),
 +    "glm": ("low", "high", "max"),
@@ -36,10 +42,13 @@ index 8f3ae66712..f5a2928acd 100644
 +# included, and any model id this endpoint hasn't been probed against — has the effort stripped
 +# whenever tools are present, never the other way around.
 +_IU_TOOLS_EFFORT_ALLOWED_FAMILIES = frozenset({"anthropic", "deepseek", "glm"})
++# Families that refuse function tools unless the effort is explicitly 'none' — dropping the
++# key is not enough for them (probed 2026-09-23, gpt-6-luna).
++_IU_TOOLS_EFFORT_NONE_FAMILIES = frozenset({"gpt-6"})
 +
 +
 +def _iu_model_family(model: str) -> str:
-+    """One of ``gpt-5``/``anthropic``/``deepseek``/``glm``, or ``""`` for a model id this
++    """One of ``gpt-5``/``gpt-6``/``anthropic``/``deepseek``/``glm``, or ``""`` for a model id this
 +    gateway hasn't been probed against — callers must not guess a ladder or a tools+effort
 +    allowance for the unrecognized case."""
 +    m = (model or "").lower()
@@ -51,6 +60,8 @@ index 8f3ae66712..f5a2928acd 100644
 +        return "deepseek"
 +    if m.startswith("gpt-5"):
 +        return "gpt-5"
++    if m.startswith("gpt-6"):
++        return "gpt-6"
 +    return ""
 +
 +
@@ -107,13 +118,17 @@ index 8f3ae66712..f5a2928acd 100644
 +    probed to accept both together — deepseek-v4.1-flash (the brain) accepts them,
 +    so its ``reasoning_effort`` reaches the wire on every turn, but an
 +    **unrecognized** model id gets the same strip as gpt-5.x, never the benefit of
-+    the doubt.
++    the doubt. ``gpt-6`` (``_IU_TOOLS_EFFORT_NONE_FAMILIES``) gets an explicit
++    ``none`` instead of a strip — it refuses tools with the key omitted, too.
 +
 +    Anything outside this host is left exactly as upstream built it.
 +    """
 +    if not _is_iu_openai_leg(params.get("base_url")):
 +        return api_kwargs
 +    family = _iu_model_family(model)
++    if api_kwargs.get("tools") and family in _IU_TOOLS_EFFORT_NONE_FAMILIES:
++        api_kwargs["reasoning_effort"] = "none"
++        return api_kwargs
 +    if api_kwargs.get("tools") and family not in _IU_TOOLS_EFFORT_ALLOWED_FAMILIES:
 +        api_kwargs.pop("reasoning_effort", None)
 +        return api_kwargs
@@ -146,7 +161,7 @@ index 8f3ae66712..f5a2928acd 100644
  def _model_consumes_thought_signature(model: Any) -> bool:
      """True for Gemini-family targets, which require tool-call ``extra_content`` (thought_signature) replay.
  
-@@ -474,7 +611,12 @@ class ChatCompletionsTransport(ProviderTransport):
+@@ -474,7 +626,12 @@ class ChatCompletionsTransport(ProviderTransport):
          _profile = params.get("provider_profile")
          sanitized = self.convert_messages(messages, model=model, base_url=params.get("base_url"), provider_profile=_profile)
          if _profile:
@@ -160,7 +175,7 @@ index 8f3ae66712..f5a2928acd 100644
  
          sanitized = _swap_developer_role(sanitized, params.get("model_lower", (model or "").lower()))
          api_kwargs = _base_kwargs(model, sanitized, tools, params)
-@@ -544,9 +686,14 @@ class ChatCompletionsTransport(ProviderTransport):
+@@ -544,9 +701,14 @@ class ChatCompletionsTransport(ProviderTransport):
              api_kwargs["extra_body"] = extra_body
          if params.get("request_overrides"):
              api_kwargs.update(params["request_overrides"])

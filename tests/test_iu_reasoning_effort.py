@@ -32,6 +32,7 @@ from agent.transports.chat_completions import (  # noqa: E402
 
 IU = "https://unified-endpoint-main.app.iu-it.org/openai/v1"
 LUNA = "gpt-5.6-luna"
+LUNA6 = "gpt-6-luna"
 CLAUDE = "claude-sonnet-4-6-eu"
 DEEPSEEK = "deepseek-v4.1-flash"
 GLM = "glm-5.3-flash"
@@ -83,6 +84,11 @@ check("glm max", effort_for(GLM, {"enabled": True, "effort": "max"}), "max")
 # glm rejects 'medium' on this leg; clamp to the strongest supported level below it.
 check("glm medium clamps to low", effort_for(GLM, {"enabled": True, "effort": "medium"}), "low")
 
+print("gpt-6 family — same none..xhigh ladder as gpt-5")
+for effort in ("none", "low", "medium", "high", "xhigh"):
+    check(f"luna6 {effort}", effort_for(LUNA6, {"enabled": True, "effort": effort}), effort)
+check("luna6 max clamps to xhigh", effort_for(LUNA6, {"enabled": True, "effort": "max"}), "xhigh")
+
 print("unknown model family — deny-by-default, never falls through to the gpt-5 ladder")
 # An id this endpoint hasn't been probed against gets no effort at all, not a guess.
 check("unknown, no tools -> omitted", effort_for(UNKNOWN, {"enabled": True, "effort": "high"}), None)
@@ -97,6 +103,9 @@ print("function tools present (Hermes always sends them)")
 # /v1/chat/completions" — 400s every turn into the fallback model.
 check("gpt + tools -> skipped", effort_for(LUNA, {"enabled": True, "effort": "high"}, tools=TOOLS), None)
 check("gpt + tools + none -> skipped", effort_for(LUNA, {"enabled": False}, tools=TOOLS), None)
+# gpt-6-luna refuses tools with the key omitted too — only an explicit 'none' passes.
+check("gpt-6 + tools -> none", effort_for(LUNA6, {"enabled": True, "effort": "max"}, tools=TOOLS), "none")
+check("gpt-6 + tools, no config -> none", effort_for(LUNA6, None, tools=TOOLS), "none")
 check("deepseek + tools -> emitted", effort_for(DEEPSEEK, {"enabled": True, "effort": "high"}, tools=TOOLS), "high")
 check("glm + tools -> emitted", effort_for(GLM, {"enabled": True, "effort": "high"}, tools=TOOLS), "high")
 # The LiteLLM/Anthropic leg of the same gateway takes both together.

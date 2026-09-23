@@ -5,10 +5,11 @@ Numbers here are **probed against the live IU endpoint**, not read off a model c
 | | Value | How it was established |
 |-|-|-|
 | Context, `deepseek-v4.1-flash` (brain) | **1,000,000** | probed 2026-09-13. `/chat/completions` 200; `/responses` **404** ("No suitable backend") despite `/models` listing Responses |
-| Input cap, `gpt-5.6-luna` (fallback, title_generation) | **922,000 tokens** | 900k accepted; 1.1M → `context_length_exceeded`, "configured limit of 922000 tokens". Matches Microsoft's Foundry note that the 1.05M window is a *combined* input+reasoning+output budget. |
+| Input cap, `gpt-5.6-luna` (fallback + title_generation until 2026-09-23; not re-probed for `gpt-6-luna`) | **922,000 tokens** | 900k accepted; 1.1M → `context_length_exceeded`, "configured limit of 922000 tokens". Matches Microsoft's Foundry note that the 1.05M window is a *combined* input+reasoning+output budget. |
 | `/v1/models` metadata | `ContextSize: "105000"` | **Wrong** — 110k, 260k, 520k and 900k prompts all succeed. Don't configure from it. |
 | Published model card (gpt-5.6-luna) | 1,050,000 in / 128,000 out | OpenAI, OpenRouter, Bedrock, Azure all agree; the gateway's own limit is lower. |
 | Efforts, gpt-5.6 family | `none, low, medium, high, xhigh` | `max` refused by the endpoint although OpenAI's card lists it; `minimal` is not a gpt-5.6 value at all. |
+| Efforts, `gpt-6-luna` (fallback, title_generation since 2026-09-23) | `none, low, medium, high, xhigh` | probed 2026-09-23. `max` refused; only default `temperature`. With function tools it refuses **both** a real effort and an omitted key — only an explicit `reasoning_effort: none` passes, so the transport patch sets `none` for the `gpt-6` family instead of stripping. |
 | Efforts, `deepseek-v4.1-flash` | `low, high, xhigh, max` | accepts function tools **and** `reasoning_effort` in the same `/chat/completions` request — no strip needed, unlike gpt-5.x |
 | Efforts, `glm-5.3-flash` (OpenAI leg, reachable via this endpoint) | `low, high, max` | `medium` refused |
 | Efforts, Anthropic leg | `none, low, medium, high` | `xhigh` refused by LiteLLM. |
@@ -19,7 +20,7 @@ gpt-5.x models — *"Function tools with reasoning_effort are not supported for 
 /v1/chat/completions. To use function tools, use /v1/responses or set reasoning_effort to
 'none'"* — and Hermes always sends tools. That is what `patches/runtime-provider-iu-responses-api.patch`
 and the effort-strip half of `patches/transport-iu-reasoning-effort.patch` exist for, and it's
-still exactly true for `gpt-5.6-luna` today (the fallback + title_generation model). But DeepSeek
+still true for `gpt-6-luna` today (the fallback + title_generation model since 2026-09-23), which additionally needs an explicit `none` rather than an omitted key. But DeepSeek
 (probed 2026-09-13) takes tools and a top-level `reasoning_effort` together with no refusal, so
 the brain runs plain `api_mode: chat_completions` and gets `agent.reasoning_effort: high` on
 every turn, tools included — `patches/transport-iu-reasoning-effort.patch`'s tools-strip branch
@@ -34,7 +35,7 @@ compression, title_generation, vision), so the patch's forced detection never fi
 applied as the safety net for the next time this endpoint runs a gpt-5.x model with no explicit
 `api_mode` — dropping it would silently reopen the tools+effort 400 for that future case.
 Diagnosis tell if the fallback *is* active: `Fallback activated: deepseek-v4.1-flash →
-gpt-5.6-luna` on every turn in `~/.hermes/logs/agent.log` (expected under throttling — the
+gpt-6-luna` on every turn in `~/.hermes/logs/agent.log` (expected under throttling — the
 fallback then runs with **no** reasoning effort while tools are attached, the 503-avoidance
 tradeoff `transport-iu-reasoning-effort.patch` makes, not a fault); one line above it,
 `Ignoring persisted custom api_mode=codex_responses for non-OpenAI endpoint` means some patch
@@ -63,7 +64,7 @@ fell off, which is what a `hermes update` does.
 
 | Lane | Model | Why not the brain |
 |-|-|-|
-| `title_generation` | `gpt-5.6-luna`, OpenAI leg, `reasoning_effort: low` | `title_generator.py:268` hardcodes `temperature=0.3`; gpt-5.x 503s on any non-default temperature — fixed by `patches/auxiliary-client-iu-openai-leg-quirks.patch` stripping it for gpt-5.x ids on this leg (same host-scoped pattern as the tools+effort strip) |
+| `title_generation` | `gpt-6-luna`, OpenAI leg, `reasoning_effort: low` | `title_generator.py:268` hardcodes `temperature=0.3`; gpt-5.x 503s on any non-default temperature — upstream's `_is_openai_default_temperature_only` omits it for gpt-5.x, `patches/auxiliary-client-iu-openai-leg-quirks.patch` extends that to gpt-6.x (gpt-6-luna refuses 0.3, probed 2026-09-23) |
 | `approval` | `claude-haiku-4-5`, **native `/anthropic` leg** (`${ANTHROPIC_BASE_URL}`, `api_mode: anthropic_messages`) | same 503 shape (`approval_smart.py` hardcodes `temperature=0`), and this gates every risky terminal command. Measured **0.9s native vs 3.0s** for the same model through the OpenAI-compat shim. `provider` stays `custom`, never `anthropic`, so the auxiliary client never reaches for `~/.claude` OAuth |
 | `vision` | `gemini-3.5-flash`, IU OpenAI leg | moved off Google AI Studio direct 2026-09-13 — no deliberate reason for the direct route was ever recorded here, and modelpick flagged it as two generations stale. See `modelpick/docs/decisions/vision-and-image.md` |
 

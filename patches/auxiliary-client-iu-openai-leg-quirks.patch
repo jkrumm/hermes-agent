@@ -1,8 +1,24 @@
 diff --git a/agent/auxiliary_client.py b/agent/auxiliary_client.py
-index 80f27197fc..538c7b88cc 100644
+index 80f27197fc..35c7034377 100644
 --- a/agent/auxiliary_client.py
 +++ b/agent/auxiliary_client.py
-@@ -653,6 +653,25 @@ def remember_temperature_rejection(
+@@ -636,9 +636,13 @@ def _is_codex_spark(model: Optional[str], provider: Optional[str] = None) -> boo
+ def _is_openai_default_temperature_only(model: Optional[str]) -> bool:
+     """True for OpenAI reasoning families that 400 (``unsupported_value``) on any non-default
+     ``temperature``: gpt-5.x (incl. dated snapshots, ``-pro``, ``-codex``), o1/o3/o4. The
+-    ``gpt-5-chat`` non-reasoning line still accepts it (#51083)."""
++    ``gpt-5-chat`` non-reasoning line still accepts it (#51083).
++
++    LOCAL MODIFICATION (patches/auxiliary-client-iu-openai-leg-quirks.patch): gpt-6.x too —
++    gpt-6-luna refuses ``temperature: 0.3`` ("Only the default (1) value is supported",
++    probed 2026-09-23 on the IU leg), which title_generator.py hardcodes."""
+     bare = _bare_model(model)
+-    return bare.startswith(("gpt-5", "o1", "o3", "o4")) and not bare.startswith("gpt-5-chat")
++    return bare.startswith(("gpt-5", "gpt-6", "o1", "o3", "o4")) and not bare.startswith("gpt-5-chat")
+ 
+ 
+ # Routes (host + model) that rejected ``temperature`` at runtime; the next call omits it up front
+@@ -653,6 +657,25 @@ def remember_temperature_rejection(
      _TEMPERATURE_REJECTED_ROUTES.add((_route_key(provider, base_url), _bare_model(rejected_kwargs.get("model"))))
  
  
@@ -28,7 +44,7 @@ index 80f27197fc..538c7b88cc 100644
  def _fixed_temperature_for_model(
      model: Optional[str], base_url: Optional[str] = None, provider: Optional[str] = None,
  ) -> "Optional[float] | object":
-@@ -5649,15 +5668,24 @@ def get_auxiliary_extra_body() -> dict:
+@@ -5649,15 +5672,24 @@ def get_auxiliary_extra_body() -> dict:
      return _nous_extra_body() if auxiliary_is_nous else {}
  
  
@@ -57,7 +73,7 @@ index 80f27197fc..538c7b88cc 100644
          return {"max_completion_tokens": value}
      return {"max_tokens": value}
  
-@@ -6595,7 +6623,7 @@ def _build_call_kwargs(
+@@ -6595,7 +6627,7 @@ def _build_call_kwargs(
              kwargs["temperature"] = temperature
      provider_norm = str(provider or "").strip().lower()
      if max_tokens is not None and _forwards_max_tokens(provider, provider_norm, model, effective_base, task):
@@ -66,7 +82,7 @@ index 80f27197fc..538c7b88cc 100644
      if tools:
          kwargs["tools"] = _dedupe_tool_names(tools, provider, model)
      # Provider profiles are the source of truth for reasoning wire shapes (top-level, nested body,
-@@ -6622,6 +6650,18 @@ def _build_call_kwargs(
+@@ -6622,6 +6654,18 @@ def _build_call_kwargs(
          merged_extra = without_unsupported_response_format(merged_extra, provider_norm, effective_base, model, task)
      if merged_extra:
          kwargs["extra_body"] = merged_extra
@@ -85,7 +101,7 @@ index 80f27197fc..538c7b88cc 100644
      # Anthropic Messages adapters take reasoning via a private kwarg that plain OpenAI SDK clients
      # would reject; Portal Claude is dual-wire, so include it only when the catalog id selects
      # /v1/messages. A profile declaring api_mode=anthropic_messages (commandcode-anthropic) is on
-@@ -6871,7 +6911,8 @@ def _create_with_progress(
+@@ -6871,7 +6915,8 @@ def _create_with_progress(
          retry_kwargs.pop("max_tokens", None)
          retry_kwargs.pop("max_completion_tokens", None)
          retry_kwargs.update(
