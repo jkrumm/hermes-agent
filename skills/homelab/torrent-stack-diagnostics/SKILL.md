@@ -64,6 +64,31 @@ For a morning run, verify:
 
 Self-healing coverage must be described by failure class. Existing VPN/Watchdog and container restart behavior does not automatically recover a logically stuck download. A proper functional watchdog should test API reachability plus queue/transfer progress, not only container state.
 
+## MAM seed-obligation telemetry (mam-account.json)
+
+**MAM's `jsonLoad.php` layout is not a contract, and the sync script owns ours.**
+`scripts/mam-account-sync.sh` (homelab-private, cron every 30 min + inline in every
+VPN cycle) is the only writer of `/mnt/hdd/torrent-app/mam-account.json`; MAM nested
+the whole snatch summary under a `snatch_summary` object on 2026-09-23, and the
+writer flattens it back onto the root so readers keep asking for `.unsat.count` /
+`.unsat.limit` / `.connectable`. Check the writer before touching a reader.
+
+- **A stale file is diagnosed from `~/logs/mam-account-sync.log` on homelab first,
+  not from the container.** It logs every rejection verbatim and names the missing
+  key; the script exits 0 on every failure path, so the log is the only place the
+  failure exists locally.
+- **Silence on Uptime Kuma 226 (`MyAnonamouse Session - Push`) is the primary alarm,
+  and it fires ahead of the container-side staleness check.** Both MAM scripts push
+  only when MAM answered *authenticated*; a rejected run skips the heartbeat, and no
+  other job covers the monitor in steady state (`mam-seedbox-sync.sh` skips the MAM
+  call whenever the exit IP is unchanged). 226 DOWN + a stale `mam-account.json` is
+  one incident, not two.
+- `torrent-app`'s reader is `adapters/mam_account.py` (`blind` = missing/malformed/
+  stale, `STALE_AFTER` = 1h); verify a fix with it rather than by eye:
+  `docker exec -i torrent-app python -` reading `mam_account.read()`.
+- The file is bind-mounted, so a host-side write is visible in the container at once —
+  no restart or rebuild is needed for a writer-only fix.
+
 ## Do not mutate prematurely
 
 Do not restart the stack merely because a torrent is idle when VPN, containers, scheduler, and API health are green. First inspect the authenticated queue, qBittorrent state, and recent app logs. Use bounded remediation only after identifying a wedged container or a documented transient failure. Code-level queue logic or missing observability belongs in a code-change escalation, not improvised production edits.
