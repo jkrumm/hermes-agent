@@ -181,6 +181,22 @@ BRIEF
   the **oldest live item**; abort only the later claim, re-read after your own abort,
   and close the `needs_human` bounce an abort leaves behind. The procedure is
   `concurrent-card-dedup` — do not re-derive it here.
+- **A `merge_blocked` PR has not been re-read since its verdict — read it against
+  the host before you tell the owner to merge.** Two things pass the gate
+  unrepaired: a step-7 finding recorded as `actionable` rather than `blocking`
+  (the item still folds `confirmed` and the defect ships), and a doc that calls a
+  value "canonical" while the machine runs a different one. Check both —
+  `gh pr diff <n>` against the live state (`ssh <host> '<the fact>'`) — and when
+  the fix is small and belongs to that unreviewed head, one commit on the branch
+  (`git worktree add --detach`, push back to the same branch) is cheaper than a
+  second round, since an implement episode cannot base on an unmerged branch.
+  Verify it yourself (`bash -n`, the repo's `make test`, a fixture reproducing
+  both spellings), then say plainly that the commit lands **post-review** — the
+  stored verdict covers the old head.
+- **A blocked item is not evidence the live machine is broken.** The issue can be
+  real while the host already satisfies it (an installed cron entry, a file that
+  exists): check the host, and lead with "no acute gap, this is about fresh
+  installs" rather than relaying the gap as current.
 - **A blocked item is not evidence the fix is missing.** The repo's `git log`
   since `item.updated_at` and the live state of whatever the verdict named decide
   that; a card can be hours stale because it is only re-synced on a state change.
