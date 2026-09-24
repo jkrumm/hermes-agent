@@ -29,7 +29,12 @@ Three sections, and each means something different:
 1. **Get current state first.** `GET /health` and `GET /board` — the digest is a
    snapshot from when it was posted, not the item's state now. A signature in the
    digest may already be resolved, or already have a rule.
-2. **Resolve each signature to its live event and item.** Read the ledger
+2. **Resolve each signature to its live event and item, and establish liveness.**
+   `GET /api/uptime-kuma/status` (all green = the condition already cleared) plus the
+   producer's own artifact: for a push monitor that is the pusher's log at the plist's
+   `StandardOutPath` (`curl: (28) Connection timed out` under a `done: N backed up` line
+   means the *job* was fine and only its *heartbeat* failed — a different finding from a
+   failed job, with a different recommendation). Read the ledger
    read-only through **warden's own venv python**, never the `sqlite3` CLI:
 
    ```bash
@@ -61,25 +66,32 @@ Three sections, and each means something different:
 
 ## Pitfalls that cost real time here
 
-- **A signature in the digest may already have a rule, and the rule can no longer
-  rescue it.** The `ignoreUnstructuredSlackProse` structural filter runs inside
-  `classify()` *before* rule matching, so a `slack_alert` whose title does not
-  start with a recognised bot-alert prefix is routed straight to `note` and never
-  reaches the rules. `note` is terminal and `reopen_if_needed()` deliberately
-  skips it, so a rule added afterwards is dead for that row. **Check the row's
-  state before proposing a rule**: if it is already `note`, the fix is a code
-  change (filter after matching, or make `note` reopenable for a new occurrence),
-  not a policy edit — and the existing rows need a one-time reset.
-- **The structural filter is a prefix test, so an un-prefixed producer's alerts
-  all land in `note`.** Notifications from a watchdog that emits plain sentences
-  (`HomeLab CPU above threshold`) never look like bot alerts, however real they
-  are. When a whole family of signatures shows up as "unstructured prose", suspect
-  the producer's message shape, not the policy file.
+- **Check the row's state before proposing anything: `classify()` only ever touches
+  `new`, so a row already in `note` is out of reach of any policy entry added today.**
+  The order inside `classify()` is `ignore` → `rules` → `ignoreUnstructuredSlackProse`
+  (the prose filter runs **LAST**, deliberately: a mapped signal must never be swallowed
+  by it). So a rule *does* rescue future occurrences from an un-prefixed producer like
+  Beszel (`HomeLab CPU above threshold`); what it cannot do is move a row that already
+  went terminal as `note`, because `reopen_if_needed()` skips `note` — those rows need
+  `scripts/reset-frozen-notes.py` as a one-time reset, and naming that step is the
+  difference between a working recommendation and a dead one. `ignore` is checked first,
+  so it always wins over a rule for the same target.
+- **The structural filter is a prefix test (`_BOT_ALERT_PREFIXES` = `[`, 🚨, ✅, ⚠️, `*⚠️`),
+  so an un-prefixed producer's alerts land in `note` only when no rule matched them.**
+  Notifications from a watchdog that emits plain sentences (`HomeLab CPU above threshold`,
+  Beszel) never look like bot alerts, however real they are — but because the filter runs
+  last, an `ignore` or `rules` entry now rescues their *future* occurrences. When a whole
+  family of signatures shows up as "unstructured prose", suspect the producer's message
+  shape, and say which entry fixes it rather than reaching for a code change.
 - **Map `uk` signatures by title, never by monitor id.** `uk:<number>` is an
   opaque UptimeKuma monitor id that changes if the monitor is recreated. The
   mappable form is the title-derived one: `normalize_title('Warden Backup - Push')`
   → `uk:warden-backup-push`. A rule written against the numeric id is a rule that
-  silently stops matching.
+  silently stops matching. **Then check where the pusher lives before writing a
+  `repo`**: Warden's dispatch root is `~/SourceRoot` only and `~/IuRoot` is
+  unreachable at any tier, so a heartbeat owned by an IU LaunchAgent (e.g.
+  `com.iu.prometheus-state-backup` → `prometheus-scripts`) can never be dispatched by
+  any rule — `ignore` is the honest entry, and say why (no reachable owner repo).
 - **A stuck item can be invisible in `/board` and `/items/:id` alike.** Count
   `operations` rows instead. A dispatch refused by policy leaves no `dispatches`
   row, writes no `note` (only a `PolicyError` writes a `deferred:` note), and
@@ -185,12 +197,12 @@ Three sections, and each means something different:
   never entry count: `ignore` was 49 entries / 12 unique, `rules` 151 / 61, ~25
   new lines per day. Report the growth rate and that the fix is a dedupe (or a
   candidate exclusion) in `propose_mappings()`, not a policy edit.
-- **`ignore` is evaluated *before* the `ignoreUnstructuredSlackProse` filter;
-  `rules` are matched *after* it.** So an `ignore` entry does rescue a future
-  occurrence of an un-prefixed `slack_alert` — a `rules` entry never does. Both
-  leave existing rows alone (`classify()` only touches `new`), so a rule or an
-  ignore entry added today still needs a one-time reset of the rows already in
-  `note`.
+- **`ignore` wins over `rules`, and both run before the prose filter**, so either
+  entry rescues a future occurrence of an un-prefixed `slack_alert` — and an
+  `ignore` entry makes a rule for the same target unreachable. Neither touches
+  existing rows (`classify()` only touches `new`), so a policy entry added today
+  still needs the one-time reset of rows already in `note`. Pick `ignore` for a
+  recovery notice (`*-below-threshold`) and `rules` for a real alert.
 
 ## Report shape
 
