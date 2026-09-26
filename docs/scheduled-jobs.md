@@ -19,6 +19,8 @@ state must match the live job's — `make status` asserts it.
 | `2d38c80e685c` | Evening report | `0 22 * * 1-4` | agent | `briefing-context.py` pre-run · `cron/evening-report.prompt.txt` | `argo-api`, `work` | `slack:C0AT6TH404R` #briefings | live |
 | `8fe7be4985d9` | Brain drift audit | `0 9 * * 6` | agent | `cron/brain-drift-audit.prompt.txt` | `claude-dispatch`, `obsidian` | `slack:C0ASRULFTSS` #watchdog | live |
 | `9909f808fe17` | Project narratives | `30 6 * * *` | no-agent | `narratives-cron.py` → `project-narratives.py --run` | — | `slack:C0ASRUD7K1U` #hermes | live |
+| `fd2fa108e0cc` | homelab-pr6-hardening-followup | `every 180m` | agent | monitor `homelab-pr6-state.sh` (agent runs only on output change) | `claude-dispatch`, `warden` | `origin` | live |
+| `91800bba0031` | Human-queue push retry (tcp:1143 ACL) | `every 15m` | no-agent | `human-queue-push-retry.sh` | — | `origin` #agents | live |
 
 **Unpinned jobs stop, they don't re-route, when the global model moves.** `cron.model_drift_guard`
 (on unless `cron.model_drift_guard: false`) refuses to fire any job whose *creation snapshot* of
@@ -36,6 +38,11 @@ they're LaunchAgents in `~/SourceRoot/warden` now (`com.jkrumm.warden-poll`,
 
 ## Retired
 
+- **`ea7a8f60daf4` — weatherorb-dwd_icon-stall-recheck** — one-shot (`in 5h`, run
+  2026-09-23 06:22), agent, `origin`; it fired once (`repeat.completed: 1`) and was left
+  disabled-but-present in `jobs.json`, which the registry check reports as an unregistered
+  live job. Removed 2026-09-26 (a spent one-shot has no reason to stay); to re-arm, create a
+  fresh job — the id above is not reusable.
 - **`72aa2fb36307` — Agents overview** — `*/30 * * * *`, no-agent, `agents-cron.py` →
   `agents-overview.py --slack-body` → `slack:C0BVDE5R562` #agents (Block Kit via
   `chat.postMessage`). Paused 2026-09-08 18:45 after reposting the same blocked pane ~35
