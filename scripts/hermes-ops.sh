@@ -100,7 +100,7 @@ VALID_HOSTS=(homelab vps)
 # `grep -E '^[a-zA-Z0-9_-]+-up:' vps/Makefile`; re-check that grep whenever a
 # vps app stack is added or removed.
 VALID_STACKS_homelab="homelab"
-VALID_STACKS_vps="networking infra monitoring argo audio-gateway basalt-ui-marketing bun-email-api fpp image-gen-gateway imgproxy weatherorb photo-gallery research-gateway"
+VALID_STACKS_vps="networking infra monitoring argo audio-gateway basalt-ui-marketing email-gateway fpp image-gen-gateway imgproxy weatherorb photo-gallery research-gateway"
 
 # The four `op run`-wrapped homelab host crons (crontab -l). All share
 # ~/homelab/.env.tpl — which is why one dangling 1Password ref takes out all four
@@ -1284,7 +1284,7 @@ TIER B — mutating. Requires --why "<reason>"; prints a plan and changes NOTHIN
   restart <host> <container>    Container name validated against the live list
   redeploy <host> <stack>       homelab: homelab · vps: networking, infra, monitoring,
                                 argo, audio-gateway, basalt-ui-marketing,
-                                bun-email-api, fpp, image-gen-gateway, imgproxy,
+                                email-gateway, fpp, image-gen-gateway, imgproxy,
                                 weatherorb, photo-gallery, research-gateway
                                 (homelab-private excluded: its `make up` is a full
                                 VPN cycle, not a redeploy)
