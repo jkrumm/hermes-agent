@@ -475,6 +475,14 @@ message is only a notification.
   episode was missing.
 - **`degraded: true`** — the tool failed, this is not a finding about the repo.
   Say the run broke and offer to retry; never relay the text as a conclusion.
+- **The episode's worktree is cut from the repo's *current checkout*, not
+  `origin/master`.** A repo parked on a feature branch makes every verdict
+  describe that branch — a `run` whose brief says "the code reads X" then comes
+  back "premise inverted, X is already on master" (or the reverse) through no
+  fault of the episode. When a verdict contradicts the brief or reports an
+  unmerged branch's code as current, check `git show origin/master:<path>` and
+  `git branch --show-current` in the checkout before acting on it, and say
+  which tree the verdict actually read.
 
 ---
 

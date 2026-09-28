@@ -419,6 +419,43 @@ live there.
 
 ---
 
+## FPP daily analytics mail never arrives — stale materialized app `.env`
+
+**Trigger:** `fpp-analytics` logs `email-gateway service not configured,
+skipping email` on every `/daily-analytics` run (Vercel cron `0 1 * * *`), while
+`apps/fpp/compose.yml` plainly sets `EMAIL_GATEWAY_URL` /
+`EMAIL_GATEWAY_SECRET_KEY`.
+
+- **Root cause class:** RollHook deploys an app with `docker compose up
+  --scale` — **not** through `op run` — so `${VAR}` interpolation is resolved
+  from the **materialized `apps/<app>/.env`** (`op inject`). A secret renamed
+  or added to `apps/<app>/.env.tpl` stays invisible until `make <app>-env`
+  re-materializes that file; compose then substitutes an **empty string** and
+  the container runs with the variable present but blank.
+- **Fingerprint:** `docker inspect <c> --format
+  '{{range .Config.Env}}{{println .}}{{end}}'` piped to `awk -F= '{print $1,
+  length($0)-length($1)-1}'` → the secret's length is **0** while a
+  literal-templated sibling (e.g. `https://email-gateway.${DOMAIN}`) is fine.
+  Same trap exists for `apps/email-gateway/.env`.
+- **Not env-name drift in the app repo** — read the app's default branch first
+  (`git show origin/master:<path>`). A brief that claims "the code reads
+  `BEA_*`" is usually describing an unmerged feature branch.
+- **Fix:** `ssh vps "cd ~/vps && make <app>-env"`, then **recreate** the
+  container (env only applies on recreate): `gh workflow run deploy.yml -f
+  service=<service>` from the app repo is the documented path for an
+  env-only change. Re-check the length is no longer 0.
+- **Verify end-to-end, not at the env:** call the endpoint the cron calls —
+  from inside the container, so the bearer never leaves the box
+  (`docker exec <c> sh -c 'curl -sS -H "Authorization: $TOKEN"
+  http://localhost:<port>/<path>'`) — then confirm the downstream service
+  logged a real send. **FPP quirk:** the auth middleware compares the raw
+  `Authorization` header to the token, so a `Bearer ` prefix returns **401**
+  and reads exactly like a wrong token.
+- **Hazard to flag:** nothing detects the drift; repo and compose both look
+  correct. `make <app>-env` after **any** secret rename/rotation.
+
+---
+
 ## Reach for `hermes-ops.sh` first
 
 Its verbs already encode the right shape for each fix — the correct host,
