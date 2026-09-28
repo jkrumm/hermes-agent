@@ -1,16 +1,16 @@
 ---
 name: argo-api
-description: Call the argo REST API (https://argo.jkrumm.com/api) for TickTick tasks, Gmail, Calendar, Docker (homelab + VPS), UptimeKuma, Slack, weather, Garmin Health, Strength tracking, WalkingPad treadmill stats, AI usage/cost, user profile, and read-only SQL — use curl with Bearer $HOMELAB_API_KEY
-version: 1.5.1
+description: Call the argo REST API (https://argo.jkrumm.com/api) for TickTick tasks, Calendar, Docker (homelab + VPS), UptimeKuma, Slack, weather, Garmin Health, Strength tracking, WalkingPad treadmill stats, AI usage/cost, user profile, and read-only SQL — use curl with Bearer $HOMELAB_API_KEY. Gmail reads go through the separate email-gateway API instead (see references/schedule.md).
+version: 1.6.0
 metadata:
   hermes:
-    tags: [ticktick, tasks, gmail, calendar, docker, uptime, slack, weather, garmin, strength, workouts, weight, profile, walking-pad, walkingpad, treadmill, steps, usage, cost, spend, tokens, sql, homelab, api]
+    tags: [ticktick, tasks, gmail, email-gateway, calendar, docker, uptime, slack, weather, garmin, strength, workouts, weight, profile, walking-pad, walkingpad, treadmill, steps, usage, cost, spend, tokens, sql, homelab, api]
     related_skills: [capture, work, karakeep, obsidian, reading, research-gateway]
 ---
 
 # Argo API
 
-Personal integration layer for TickTick, Gmail, Calendar, Docker, UptimeKuma, Slack, weather, fitness tracking, and user profile over a single authenticated REST API. Use `curl` with `$HOMELAB_API_KEY` from the environment (env var name kept for shell/cron compatibility — the value is the argo API key).
+Personal integration layer for TickTick, Calendar, Docker, UptimeKuma, Slack, weather, fitness tracking, and user profile over a single authenticated REST API. Use `curl` with `$HOMELAB_API_KEY` from the environment (env var name kept for shell/cron compatibility — the value is the argo API key). **Gmail reads are a separate API** (email-gateway, not argo) with their own base URL and bearer key — see the Gmail section below and `references/schedule.md`.
 
 **Base URL:** `https://argo.jkrumm.com/api`
 **Auth:** `Authorization: Bearer $HOMELAB_API_KEY` (available in env)
@@ -49,7 +49,7 @@ tags are infrastructure Hermes deliberately does **not** call.
 | **Garmin Health** | `/daily-metrics/*`, `/activities/*`, `/recovery/*`, `/training-load`, `/fitness-direction`, `/weight-log/*`, `/user-profile` | `references/garmin-health.md` |
 | **Strength** | `/workouts/*` (incl. all 13 `/workouts/summary/*` analytics), `/workout-sets/*`, `/exercises` | `references/strength.md` |
 | **WalkingPad** | `/walking-pad/*` — treadmill sessions, live snapshot, achievements, analytics | `references/walking-pad.md` |
-| **Productivity** | `/ticktick/*`, `/gmail/*`, `/calendar`, `/slack/*` | `references/{tasks,schedule,slack}.md` |
+| **Productivity** | `/ticktick/*`, `/calendar`, `/slack/*` — Gmail moved to email-gateway (below), not this tag | `references/{tasks,schedule,slack}.md` |
 | **Infrastructure** | `/docker/*`, `/uptime-kuma/*` | `references/infrastructure.md` |
 | **External Data** | `/weather/*` | `references/weather.md` |
 | **Reading** | `/reading/*` — Hardcover shelf (ratings, genres, statuses, want-to-read) | **`reading` skill** (top-level) |
@@ -86,11 +86,35 @@ tags are infrastructure Hermes deliberately does **not** call.
 | POST | `/ticktick/projects/{projectId}/tasks/{taskId}/complete` | — | Complete task |
 | DELETE | `/ticktick/projects/{projectId}/tasks/{taskId}` | — | Delete task |
 
-### Productivity — Gmail (read-only)
+### Productivity — Gmail (read-only, via email-gateway)
+**Not argo.** Gmail reads moved to the email-gateway service (2026-09-28,
+email-gateway `docs/architecture.md` Decision D3) — a different base URL and
+bearer key from every other row on this page. See `references/schedule.md`
+for the full contract; summary:
+
+**Base URL:** `https://mail.<domain>` (the owner's email-gateway host)
+**Auth:** `Authorization: Bearer $EMAIL_GATEWAY_API_KEY` (distinct from
+`$EMAIL_GATEWAY_SECRET_KEY`, which fpp-analytics uses for the *send* routes —
+this is the mail *read* API's own key)
+
 | Method | Path | Key params | Description |
 |-|-|-|-|
-| GET | `/gmail/emails` | `days?`, `maxResults?`, `query?`, `label?`, `unread?`, `important?`, `starred?`, `excludeCategories?`, `scope?` (`inbox`/`all`) | List emails with filtering |
-| GET | `/gmail/emails/{id}` | — | Full email with decoded body + attachment metadata |
+| GET | `/api/accounts` | — | Configured mail accounts (id, provider, address) — use to find the right `account` filter value |
+| GET | `/api/messages` | `account?`, `direction?`, `since?`, `until?`, `needs_me?`, `limit?`, `cursor?` | List message envelopes + classification, newest first, keyset-paginated |
+| GET | `/api/messages/{key}` | `include=body?` | One message; add `include=body` for the cached html/text (never a live fetch) |
+| GET | `/api/threads/{key}` | — | Every message sharing that key's thread, newest first |
+| GET | `/api/threads/{key}/summary` | — | Cached 2-4 sentence LLM thread summary |
+| GET | `/api/search` | `q!`, `account?`, `limit?` | Full-text search over subject/addresses/classification-summary only — **not** a per-field `from:`/`to:`/`subject:` query (see gaps below) |
+| GET | `/api/needs-action` | `account?`, `since?`, `until?`, `limit?`, `cursor?` | `/api/messages` pre-filtered to what the classifier flagged as needing action |
+
+**Two capability gaps vs. the old `/gmail/emails` proxy — do not invent
+parameters that don't exist:**
+- No `unread=`/`important=`/`starred=` filter. Each message carries
+  `flags: string[]` (raw IMAP flags) — derive unread from the *absence* of
+  `\Seen`, starred/important from the *presence* of `\Flagged`.
+- No `query=from:X`/`to:X`/`subject:X` field search. `/api/search`'s `q` is
+  free-text FTS over subject/addresses/summary only — there is no per-field
+  operator syntax.
 
 ### Productivity — Google Calendar (read-only)
 | Method | Path | Description |
@@ -276,4 +300,4 @@ curl -s -X POST -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: ap
 - **Query param convention:** canonical names are camelCase (`dateFrom`, `dateTo`, `workoutId`, `sortDir`) and json-server-style underscored aliases (`_order`, `_sort`, `_start`, `_end`, `date_from`) still work as backwards-compat. Prefer canonical names in new code; keep legacy in the morning-briefing cron prompt for stability.
 - **Request body fields** are snake_case where the schema says so (`exercise_id`, `weight_kg`, `set_number`, `set_type`, `birth_date`, `height_cm`, `goal_weight_kg`); response field naming is unchanged from each endpoint's source.
 - **Trailing slashes** are tolerated but not preferred — use `/workouts`, not `/workouts/`.
-- This skill is auto-regenerated from the live OpenAPI spec (`https://argo.jkrumm.com/api/openapi/json`) — run `/docs` in the homelab project after API route changes. The regen pass rewrites this file using the **14-tag taxonomy** above: keep the personal / work / not-agent-facing split (don't fold M365/Atlassian/GitLab in here — they're the `work` skill — and never add `/hermes/*` or `/ai/v1/*`).
+- This skill is auto-regenerated from the live OpenAPI spec (`https://argo.jkrumm.com/api/openapi/json`) — run `/docs` in the homelab project after API route changes. The regen pass rewrites this file using the **14-tag taxonomy** above: keep the personal / work / not-agent-facing split (don't fold M365/Atlassian/GitLab in here — they're the `work` skill — and never add `/hermes/*` or `/ai/v1/*`). **Do not let a regen re-fold Gmail back under this tag**: argo's `/gmail/*` routes are pending deletion (a draft PR, owner-gated on this repoint, per email-gateway `docs/architecture.md` Decision D3) and may still appear in argo's live OpenAPI spec until that PR is merged — Gmail reads stay routed to email-gateway (above) regardless of what argo's spec still advertises.
