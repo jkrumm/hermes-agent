@@ -115,9 +115,12 @@ that", not `/board`'s one-line summary.
 - **A stale poller in `/health` is a finding — name it.** Don't just relay
   the top-level `ok` boolean.
 - **Never write.** Nothing here opens, merges, aborts, or notes anything —
-  that's `claude-dispatch`. Warden's write-adjacent endpoints
-  (`POST /items/:id/intent`, `POST /items/:id/note`) live on a
-  tailnet-only door meant for Argo, not this loopback surface.
+  that's `claude-dispatch`. Warden's API has no write endpoint at all: the
+  owner's clicks (implement/merge/dismiss/reinvestigate/note) go into Argo's
+  action queue, and warden's loop pulls and applies them itself.
+- **What waits on Johannes is `/board.awaiting_owner`** — parked items with
+  age and reason, plus PRs that outlived their item. Quote it; don't rebuild
+  it from `items`. `/health.self_audit` names any violated invariant.
 - **Never guess an item's state.** If asked and you haven't called
   `/board` or `/items/:id` this turn, call it — a verdict the sweeper
   delivered earlier in the thread is a snapshot from when it was posted,

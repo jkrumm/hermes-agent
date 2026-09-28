@@ -55,7 +55,7 @@ If no, just answer.
 | "remind me to look at X" | `capture` → TickTick |
 | "open an issue for X", where you already know what it says | `capture` → GitHub. Instant and free — do not dispatch |
 | "find out what is wrong and file an issue about it" | **dispatch** `--tier author` — the issue text has to be discovered; `run` has no `author` tier |
-| "fix it" / "make that change" | **run** into that repo — Warden carries it investigate → implement → merge; reach for **dispatch** `--tier implement` only for a one-off episode with no item (still needs the Slack-signed approval) |
+| "fix it" / "make that change" | **run** `--tier implement` into that repo — Warden carries it investigate → implement → review → merge → deploy → verify, visible in Argo. `dispatch --tier implement` (a one-off episode with no item, behind Approve/Deny buttons) is the exception, not the path |
 | "what's happening with the thing I asked about earlier" / "is item N done yet" | read `GET /items/<eventId>` (see *warden* skill) — don't guess, and don't re-dispatch |
 | "restart / redeploy / fix the container" | `homelab-ops`. **Never** dispatch |
 | a book, a library version, a fact about the world | `research-gateway` |
@@ -354,9 +354,9 @@ An `implement` episode runs 10–40 minutes, far past the in-turn wait. Do not s
 on `--wait`: reply with one line (what was opened), then move on — no progress
 pings. The sweeper delivers it with the PR link.
 
-Budgets are separate — 20 dispatches a day overall, of which at most 5 may be
-`implement`. If the implement ceiling refuses, say so; it is a deliberate ceiling,
-not a transient error to retry around.
+There are no daily budgets (removed 2026-09-15); the only ceilings are the
+per-repo in-flight lock and the open-investigation cap. A refusal from either is
+real — say so, don't retry around it.
 
 ### `merge` — closing the arc, and the one place you do NOT ask again
 
@@ -371,8 +371,11 @@ decision. Asking again for every PR would train him to rubber-stamp.
 **No button here.** The signed approval gates `dispatch --tier implement`, not `merge`
 — that asymmetry is deliberate. Dispatch is where an unattended episode starts writing
 from a brief that may trace to text you did not author; merge lands a diff he already
-authorized, and the verb re-runs every bound against the current head, pins the head
-SHA on the merge call, and caps itself at 3/day.
+authorized, and the verb re-runs every bound against the current head and pins the
+head SHA on the merge call. Two things it will refuse, correctly: a merge-approval
+repo (`warden`, `sideclaw`, `dotfiles` — Johannes merges those with one click in
+Argo), and anything GitHub's own branch rules gate on a review (read live, never
+assumed from a list).
 
 It takes a **job id, never a PR number or URL** — it merges only what this bridge
 opened, looked up from the dispatch record. If you find yourself wanting to pass
