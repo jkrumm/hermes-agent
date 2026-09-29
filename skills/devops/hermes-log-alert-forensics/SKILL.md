@@ -183,7 +183,11 @@ real; escalate.
   Name the provider-side leg (the IU unified endpoint) and the failure class,
   then route the fix: a code change in `hermes-agent`/`warden` is a dispatch at
   their `investigate` ceiling, so it produces a verdict, not a change — say that
-  plainly instead of offering a `run` that cannot land.
+  plainly instead of offering a `run` that cannot land. For the
+  `_handle_stream_error` classification gap, make the anchor a GitHub issue in
+  `jkrumm/hermes-agent` (issues enabled, no label): the patch is owner-authored
+  and only goes live on the next gateway restart, so an issue is the durable
+  handle where a dispatch cannot be.
 - **A defect in Warden's own poller** (the double-count above) is not fixable by
   a dispatch either: `warden` is capped at `investigate` and has no GitHub remote.
   Report it as a finding with the mechanism, and let the owner decide.
