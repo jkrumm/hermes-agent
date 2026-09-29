@@ -64,6 +64,19 @@ GIT_TIMEOUT=60
 # uk-sync walks every monitor over the network; the rest of Tier B is seconds.
 DEPLOY_TIMEOUT=600
 
+# Prefix for every remote `op run`: source the host profile FIRST, behind the same
+# `[ -r ]` guard the crontab lines use. The op-wrapped crons all begin
+# `. /home/jkrumm/.profile;` because that is where `OP_SOCK` is pinned; a remote
+# `op run` that skips it has no daemon socket, so the client dials an absent path,
+# the cache never engages, and the call both spends the account-wide budget and
+# reports its own 429 as a broken template (2026-09-29: env-check called a host's
+# refs unresolved while all six of its crons were green). The guard is
+# load-bearing, not decoration — `.` is a POSIX special builtin, so dash aborts
+# the ENTIRE command line when the file cannot be opened, and an absent profile
+# would cost every invocation rather than the credential alone (homelab
+# docs/decisions.md -> 1Password CLI in cron shells).
+OP_PROFILE_SRC='[ -r ~/.profile ] && . ~/.profile; '
+
 VALID_HOSTS=(homelab vps)
 
 # Stack → the compose invocation it expands to. `make up` is deliberately NOT
@@ -687,8 +700,8 @@ cmd_env_check() {
   AUDIT_TARGET="homelab,vps"
   local hl_out hl_rc vps_out vps_rc
   set +e
-  hl_out=$(ssh_run homelab 'cd ~/homelab && op run --env-file=.env.tpl -- true' 2>&1); hl_rc=$?
-  vps_out=$(ssh_run vps 'cd ~/vps && op run --env-file=.env.tpl -- true' 2>&1); vps_rc=$?
+  hl_out=$(ssh_run homelab "${OP_PROFILE_SRC}cd ~/homelab && op run --env-file=.env.tpl -- true" 2>&1); hl_rc=$?
+  vps_out=$(ssh_run vps "${OP_PROFILE_SRC}cd ~/vps && op run --env-file=.env.tpl -- true" 2>&1); vps_rc=$?
   set -e
 
   local rc
@@ -990,7 +1003,7 @@ cmd_uk_dry_run() {
   AUDIT_TARGET="homelab"
   local out rc
   set +e
-  out=$(ssh_run homelab "cd ~/homelab && op run --env-file=.env.tpl -- uptime-kuma/.venv/bin/python uptime-kuma/sync.py --dry-run --extra-config ../homelab-private/uptime-kuma/monitors.yaml" "$DEPLOY_TIMEOUT" 2>&1); rc=$?
+  out=$(ssh_run homelab "${OP_PROFILE_SRC}cd ~/homelab && op run --env-file=.env.tpl -- uptime-kuma/.venv/bin/python uptime-kuma/sync.py --dry-run --extra-config ../homelab-private/uptime-kuma/monitors.yaml" "$DEPLOY_TIMEOUT" 2>&1); rc=$?
   set -e
   if [ "$JSON" = 1 ]; then
     OUT="$out" RC="$rc" python3 -c '
@@ -1033,7 +1046,7 @@ cmd_uk_sync() {
   [ "$pre_rc" -eq 0 ] || precond_err "env-check failed — refusing to sync. A sync with an unresolvable ref writes empty hostnames and empty bearer tokens into uptime-kuma. Run 'hermes-ops.sh env-check' and fix the dangling item first."
 
   PLAN=(
-    "ssh -o BatchMode=yes -o ConnectTimeout=10 homelab \"cd ~/homelab && git pull && op run --env-file=.env.tpl -- uptime-kuma/.venv/bin/python uptime-kuma/sync.py --extra-config ../homelab-private/uptime-kuma/monitors.yaml\""
+    "ssh -o BatchMode=yes -o ConnectTimeout=10 homelab \"${OP_PROFILE_SRC}cd ~/homelab && git pull && op run --env-file=.env.tpl -- uptime-kuma/.venv/bin/python uptime-kuma/sync.py --extra-config ../homelab-private/uptime-kuma/monitors.yaml\""
   )
   if [ "$CONFIRM" != 1 ] || [ "$DRY_RUN" = 1 ]; then
     run_plan
@@ -1116,7 +1129,7 @@ cmd_redeploy() {
 
   case "$host" in
     homelab)
-      PLAN=("ssh -o BatchMode=yes -o ConnectTimeout=10 homelab \"cd ~/homelab && git pull && op run --env-file=.env.tpl -- docker compose up -d --remove-orphans\"")
+      PLAN=("ssh -o BatchMode=yes -o ConnectTimeout=10 homelab \"${OP_PROFILE_SRC}cd ~/homelab && git pull && op run --env-file=.env.tpl -- docker compose up -d --remove-orphans\"")
       ;;
     vps)
       case "$stack" in
@@ -1125,7 +1138,7 @@ cmd_redeploy() {
           # The flag is a no-op under the server's service-account token — env-check
           # resolves the same template without it, on this exact host — so it is
           # dropped rather than baked into this repo.
-          PLAN=("ssh -o BatchMode=yes -o ConnectTimeout=10 vps \"cd ~/vps && git pull && op run --env-file=.env.tpl -- docker compose -f compose.${stack}.yml up -d\"")
+          PLAN=("ssh -o BatchMode=yes -o ConnectTimeout=10 vps \"${OP_PROFILE_SRC}cd ~/vps && git pull && op run --env-file=.env.tpl -- docker compose -f compose.${stack}.yml up -d\"")
           ;;
         *)
           # Every other valid vps stack is an app: apps/<name>/compose.yml, NOT
@@ -1175,7 +1188,7 @@ cmd_cron_rerun() {
   # `=` (verified: the remote shell echoes `--env-file=~/homelab/.env.tpl`
   # literally). The scripts cd to their own repo root via lib.sh, so the cwd this
   # sets is irrelevant to them.
-  PLAN=("ssh -o BatchMode=yes -o ConnectTimeout=10 homelab \". ~/.profile; cd ~/homelab && op run --env-file=.env.tpl -- $script\"")
+  PLAN=("ssh -o BatchMode=yes -o ConnectTimeout=10 homelab \"${OP_PROFILE_SRC}cd ~/homelab && op run --env-file=.env.tpl -- $script\"")
   run_plan
 }
 

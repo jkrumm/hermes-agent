@@ -488,6 +488,37 @@ def test_tier_b_double_gate(h: Harness):
 # 4. Unknown verb -> exit 64, no fallthrough to a shell.
 # =============================================================================
 
+# =============================================================================
+# 11. env-check probes the crons' OWN environment. The 2026-09-29 false
+#     positive: the probe ran `op run` over ssh without sourcing the profile,
+#     so it had no OP_SOCK, dialled an absent daemon socket, missed the cache,
+#     and reported the shared budget's `[ERROR] Too many requests` as a
+#     dangling ref on a host whose six op-wrapped crons were all green. The
+#     probe must send the same profile-sourcing prefix the crontab lines use,
+#     behind the `[ -r ]` guard so an absent profile skips rather than aborts.
+# =============================================================================
+
+def test_env_check_probes_the_cron_environment(h: Harness):
+    failures = []
+    total = passed = 0
+
+    total += 1
+    ssh_log = h.new_log("ssh")
+    proc = h.run(["env-check", "--json"], env_extra={"OPS_TEST_SSH_LOG": str(ssh_log)})
+    lines = [json.loads(ln) for ln in _log_text(ssh_log).splitlines() if ln.strip()]
+    probes = [argv for argv in lines if argv and "op run --env-file" in argv[-1]]
+    if len(probes) == 2 and all(
+            a[-1].startswith("[ -r ~/.profile ] && . ~/.profile;")
+            and a[-1].endswith("op run --env-file=.env.tpl -- true")
+            for a in probes):
+        passed += 1
+    else:
+        failures.append("env-check did not probe the crons' environment "
+                        f"(rc={proc.returncode}, probes={probes!r})")
+
+    return total, passed, failures
+
+
 def test_unknown_verb(h: Harness):
     failures = []
     total = passed = 0
@@ -826,6 +857,7 @@ def main() -> int:
             ("8. uk-sync env-check gate", test_uk_sync_env_check_gate(h)),
             ("9. container ssh fallback", test_container_ssh_fallback(h)),
             ("10. redeploy vps stack list", test_redeploy_vps_stacks(h)),
+            ("11. env-check probes the cron env", test_env_check_probes_the_cron_environment(h)),
         ]
     finally:
         h.cleanup()
