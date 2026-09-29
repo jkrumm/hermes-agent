@@ -151,6 +151,44 @@ make the call race-free:
 Tell in the ledger: two items `investigating → closed` seconds apart, each `note`
 naming the other as survivor through `needs_human`.
 
+## The third shape: a sibling lands it by hand, in the live checkout
+
+Two sessions on one card do not always both dispatch. One can take the §76
+shape — edit the live checkout and commit straight to master — while the other
+files `run <repo> --tier implement`. Both are legitimate; together they are a
+duplicate **lane**, and the dispatched item is the one to discharge.
+
+Read the tell before opening anything, because a dispatch is blind to it:
+
+- **`git status` / `git log -1` in the live checkout.** A dirty tree, or a
+  commit newer than the item's `created_at` whose message or `docs/history`
+  entry names the same signature/item, means the fix is already landing. The
+  live checkout is what the loop's own LaunchAgents execute, so an uncommitted
+  edit is a change that is *live but invisible to the episode's base* — the
+  episode is cut from the committed default branch and will re-derive it.
+- **`session_search` is how a live-checkout edit is attributed.** A sibling
+  Hermes session's `write_file`/`patch`/`terminal` arguments are indexed, so
+  the card's own distinctive text (a test name, a `--why` string, a verdict
+  line) finds the sibling while it is still running. Grepping
+  `~/.claude/projects` finds nothing — Hermes does not go through Claude Code —
+  and the ledger shows no trace of a hand edit. `session_search` with
+  `role_filter: "user,assistant,tool"` and a short distinctive identifier;
+  a long query with incidental words ANDs itself into zero hits.
+
+Disposal, once the commit is on master (verify it first — the repo's own gate
+command, and the commit's claim against the tree):
+
+- **`abort` with the commit sha in the `--why`** while the episode is live; the
+  same `close`-in-`verdict` window as above if it already finished. Say
+  "carried by <sha>", and say that the episode would only re-derive the landed
+  change — that sentence is why a later reader does not treat the abort as a
+dropped ask.
+- **Re-read the landed diff against the brief.** A hand-landed change can drop
+  half of a two-part finding even though the verdict covered both. The
+  remainder is not discharged by the abort: file it (a GitHub issue in that
+  repo — warden ingests every open issue) rather than leaving the verdict
+  half-landed, and say in one line that you did.
+
 ## Pitfalls
 
 - **A card delivered into a shared channel is not addressed to one session.**
