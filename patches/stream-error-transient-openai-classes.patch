@@ -1,0 +1,36 @@
+diff --git a/agent/chat_completion_helpers.py b/agent/chat_completion_helpers.py
+index d1b4c6e4e4..cba536965e 100644
+--- a/agent/chat_completion_helpers.py
++++ b/agent/chat_completion_helpers.py
+@@ -3404,15 +3404,29 @@ class _StreamingCall(StreamingWaitMonitor):
+         ``result["error"]`` set (unless our own interrupt force-closed the
+         socket). Runs inside the ``except`` so ``logger.exception`` works."""
+         import httpx as _httpx
++        # LOCAL MODIFICATION (patches/stream-error-transient-openai-classes.patch)
++        # The SDK wraps a dropped or timed-out stream in ``openai.APITimeoutError`` /
++        # ``openai.APIConnectionError`` (MRO: ``APITimeoutError -> APIConnectionError
++        # -> APIError -> OpenAIError``) — neither is an httpx type nor a builtin
++        # ``ConnectionError``, so both missed the transient set below and the blip
++        # fell through to ``logger.exception(...)`` at ERROR with a traceback even
++        # though the retry loop owns recovery. The rest of the codebase already
++        # classifies them as transient (``agent/error_classifier._TRANSPORT_ERROR_TYPES``,
++        # ``agent/agent_runtime_helpers._TRANSIENT_TRANSPORT_ERRORS``); this handler was
++        # the lone hold-out. ``_is_sse_connection_error`` does not rescue them either:
++        # it returns False for anything carrying a ``status_code`` and for "Request
++        # timed out." (``_SSE_CONN_PHRASES`` has "terminated"/"connection lost", not
++        # that).
++        from openai import APIConnectionError as _OpenAIAPIConnectionError, APITimeoutError as _OpenAIAPITimeoutError
+         # Our own interrupt force-close: no retry/fallback/"reconnecting" (the
+         # poll loop raises InterruptedError).
+         if self._request_cancelled["value"]:
+             logger.debug("Streaming worker caught %s after request cancellation — exiting without retry.", type(e).__name__)
+             return False
+-        _is_timeout = isinstance(e, (_httpx.ReadTimeout, _httpx.ConnectTimeout, _httpx.PoolTimeout))
++        _is_timeout = isinstance(e, (_httpx.ReadTimeout, _httpx.ConnectTimeout, _httpx.PoolTimeout, _OpenAIAPITimeoutError))
+         # ReadError: abort/reset mid-body (stale-kill shutdown under a parked reader,
+         # ECONNRESET) — the retry loop owns recovery.
+-        _is_conn_err = isinstance(e, (_httpx.ConnectError, _httpx.ReadError, _httpx.RemoteProtocolError, ConnectionError))
++        _is_conn_err = isinstance(e, (_httpx.ConnectError, _httpx.ReadError, _httpx.RemoteProtocolError, ConnectionError, _OpenAIAPIConnectionError))
+         _is_stream_parse_err = self.agent._is_provider_stream_parse_error(e)
+         _is_empty_stream = isinstance(e, EmptyStreamError)
+         _is_sse_conn_err = not _is_timeout and not _is_conn_err and _is_sse_connection_error(e)
