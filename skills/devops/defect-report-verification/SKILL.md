@@ -96,6 +96,7 @@ applies to any defect report, not just Warden's.
   Test for the *token* the message must contain (a `.git` in stderr) rather than the
   sentence around it, and confirm the guard is narrow by checking an unrelated
   failure of the same command does not trip it.
+- **A review finding about the PR body is usually a false positive.** A step-7 review reads the diff and the commit messages, never the PR description, so a blocking item like *"the PR is missing `Closes #N`"* is routinely raised against a body that already carries it — and then consumes one of the item's two revisions. Verify against the object the finding names (`gh pr view <n> --json body`) before relaying it as work.
 - **A fix to a capped repo is a patch file, not a dispatch.** Where the repo is
   capped at `investigate` (and the ceiling is deliberate — it is live-symlinked
   into `~/.hermes/`), the deliverable is a `patches/*.patch` entry plus its row in
