@@ -185,12 +185,49 @@ real; escalate.
   their `investigate` ceiling, so it produces a verdict, not a change — say that
   plainly instead of offering a `run` that cannot land. For the
   `_handle_stream_error` classification gap, make the anchor a GitHub issue in
-  `jkrumm/hermes-agent` (issues enabled, no label): the patch is owner-authored
-  and only goes live on the next gateway restart, so an issue is the durable
-  handle where a dispatch cannot be.
+  `jkrumm/hermes-agent` (issues enabled, no label) — and then **hand-land the fix
+  rather than relaying the nag**: the card folds to `needs_human` ("apply the fix
+  by hand") and re-sends on the 24h/72h schedule until its 168h deadline, so
+  leaving it alone is the noise, not the work. Recipe: *Hand-landing the patch*
+  below. Only the gateway restart stays the owner's.
 - **A defect in Warden's own poller** (the double-count above) is not fixable by
   a dispatch either: `warden` is capped at `investigate` and has no GitHub remote.
   Report it as a finding with the mechanism, and let the owner decide.
+
+## Hand-landing the patch
+
+The `investigate` ceiling bounds **dispatches** — unattended episodes whose briefs
+are attacker-influenceable, aimed at the repo that *is* the control plane. It is
+not a claim that the fix cannot be made: there is simply no episode lane
+(`run hermes-agent --tier implement` is refused and `maybe_auto_implement()`
+routes the item to `needs_human`), so by the same reasoning as `warden-hand-fixes`
+for warden's own repo, the fix lands by hand. Six steps are yours, one never is.
+
+1. **Edit the live checkout** (`~/.hermes/hermes-agent/…` — the tree the gateway
+   imports from), marking the hunk `# LOCAL MODIFICATION (patches/<name>.patch)`,
+   the comment every patch in the set carries.
+2. **Exercise the real function before trusting it.** `venv/bin/python3 -m
+   py_compile <file>`, then call the patched method with a fake `self` — this
+   family's classification is reachable with no network. A compile check alone
+   does not show the new type actually lands in the transient set.
+3. **Generate the patch from the diff**: `git -C ~/.hermes/hermes-agent diff --
+   <file> > ~/SourceRoot/hermes-agent/patches/<name>.patch` (the repo's own
+   documented regeneration command). The live checkout is pristine upstream plus
+   the applied patches, so a scoped `git diff -- <file>` is exactly your change.
+4. **Record it in three places**: the `AGENTS.md` § *Local Modifications to
+   Upstream* table (a blank line between rows breaks the table), the restart-list
+   paragraph directly below it when the file is imported at startup, and the
+   per-file bullet in `docs/patches.md`.
+5. **Prove both directions.** `make patch-check` in `~/SourceRoot/hermes-agent`
+   must count it (`N/N applied`), and forward-applicability must be shown against
+   pristine upstream — `git -C ~/.hermes/hermes-agent show HEAD:<file>` into a temp
+   dir, `patch -p1 --dry-run` there — or the next `hermes update` silently drops it.
+6. **Commit only your three files**, never the repo's unrelated dirty state, and
+   use `git commit -F <file>`: a message in a double-quoted shell string executes
+   its backticks and silently loses the code fragments.
+7. **Never restart the gateway.** The change is inert until the owner restarts
+   it — say exactly that, and close the item with `close <event-id> --why` naming
+   the patch, the commit and the restart still outstanding.
 
 ## Report shape
 
