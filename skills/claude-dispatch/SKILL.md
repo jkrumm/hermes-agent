@@ -130,6 +130,24 @@ data?"*
 Bad: *"check usage-tracker"* — no symptom, no question, and the episode will spend
 its whole budget deciding what you meant.
 
+### The episode dies after 5 minutes of stdout silence
+
+The harness kills a session when **no stdout arrives for 5 minutes**
+(`IDLE_TIMEOUT_MS = 5 * 60 * 1000`, `sideclaw/server/lib/idle-timeout.ts`) and sets
+**no ceiling on total wall-clock** — a 40-minute episode that keeps printing is
+fine, a 6-minute one that goes quiet is not. It surfaces as
+`session.timeout — SIGTERM (opencode)` / `idle ~300000ms with no stdout (budget
+300000ms)`, and sideclaw captures no stderr for it, so a stalled run leaves
+almost nothing to diagnose — check the job's `lastAction` instead.
+
+So **never send an episode at a command that runs silently for minutes**, and
+remember that the verdict an auto-implement re-reads carries your words with it:
+an instruction like "run the full suite before opening the PR" becomes that
+silent command. A captured `uv run pytest` of a large suite is the usual trap
+(buffered output, minutes of nothing). Ask for the narrow lane by name
+(`uv run pytest tests/<area>/ -q`) and let the repo's own CI or a follow-up run
+carry the wide one.
+
 ---
 
 ## Verbs
@@ -141,7 +159,7 @@ its whole budget deciding what you meant.
 | `status <job-id>` | poll one episode you opened earlier |
 | `list [open\|today\|all]` | what is running, what landed today |
 | `merge <job-id>` | land the draft PR that `implement` job opened. Needs `--why --confirm` |
-| `abort <event-id>` | cancel an in-flight `implement`/`validate` episode. Needs `--why` |
+| `abort <event-id>` | cancel an in-flight `implement`/`validate` episode. Needs `--why`. Refuses (exit 4) any state that is not `investigating`/`implementing`/`validating` — a `merge_blocked` or `needs_human` row has no episode to cancel, so close it with `close <event-id> --why …` instead |
 | `revert <event-id>` | record that a merged item's PR was reverted. Needs `--pr <number> --why` |
 
 There is no `cancel` verb any more — sideclaw grew a real cancel endpoint, and
