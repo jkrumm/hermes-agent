@@ -108,6 +108,14 @@ and moving them is a separate decision with its own audit trail.
   `implement_job` that blocks every later verdict on that row — the second round lands by
   hand even now that the repo is implement-reachable and has a remote. Read that column
   before recommending a re-dispatch.
+- **Reconcile the tree against `origin` before calling the hand-fix landed.** A session
+  that squashes several findings into one local commit leaves `master` diverged
+  (`git status -sb` → `ahead N, behind 1`) while the code looks identical: the code files
+  merge clean because both sides already carry them, and the two memory files
+  (`STATE.md`, `docs/history/state-log.md`) conflict because both sides appended the same
+  §. The local side is the superset — resolve with `git checkout --ours <both>`, commit
+  the merge, re-run `make test`, then push. Skip it and the loop keeps running fixes
+  `origin` has never seen while the PR history points at a tree nobody runs.
 - **A neighbour skill's mechanism claim can be stale — the repo's source and its
   state-log are the authority.** Skills describing this control plane are written
   from a past state of it; when one asserts an ordering, a filter or a default,
