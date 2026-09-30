@@ -17,10 +17,15 @@
 #        currently parked, see DEFAULT_ID)
 set -u
 
-DEFAULT_ID="${HUMAN_QUEUE_RETRY_ID:-20260926T132306-28724}"
+# The parked request this job owns. Repointed 2026-09-30 from the resolved
+# Tailscale ACL grant (20260926T132306-28724) to the MAM session refresh: the
+# MacBook was unreachable at enqueue time (ssh rc=255), so the ask sits in the
+# queue with no dialog and nobody to push it. 843/845 stay needs_human until the
+# session answers.
+DEFAULT_ID="${HUMAN_QUEUE_RETRY_ID:-20260929T204135-23770}"
 ID="${1:-$DEFAULT_ID}"
-HOMELAB_HOST=homelab      # the pushed grant opens a port here
-HOMELAB_PORT=1143
+HOMELAB_HOST=homelab      # only used by the optional port probe below
+HOMELAB_PORT=""           # set to a port when the pushed grant opens one
 
 Q="${XDG_STATE_HOME:-$HOME/.local/state}/human-queue"
 RES="$Q/$ID.res"
@@ -68,7 +73,7 @@ if [ -f "$RES" ]; then
   if [ "$status" = "done" ]; then
     ip="$(homelab_ip)"
     probe="nicht geprüft"
-    if [ -n "$ip" ]; then
+    if [ -n "$HOMELAB_PORT" ] && [ -n "$ip" ]; then
       if "${SSH[@]}" vps "timeout 5 bash -c \"cat < /dev/null > /dev/tcp/$ip/$HOMELAB_PORT\"" >/dev/null 2>&1; then
         probe="offen"
       else

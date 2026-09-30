@@ -19,7 +19,7 @@ state must match the live job's — `make status` asserts it.
 | `2d38c80e685c` | Evening report | `0 22 * * 1-4` | agent | `briefing-context.py` pre-run · `cron/evening-report.prompt.txt` | `argo-api`, `work` | `slack:C0AT6TH404R` #briefings | live |
 | `8fe7be4985d9` | Brain drift audit | `0 9 * * 6` | agent | `cron/brain-drift-audit.prompt.txt` | `claude-dispatch`, `obsidian` | `slack:C0ASRULFTSS` #watchdog | live |
 | `9909f808fe17` | Project narratives | `30 6 * * *` | no-agent | `narratives-cron.py` → `project-narratives.py --run` | — | `slack:C0ASRUD7K1U` #hermes | live |
-| `91800bba0031` | Human-queue push retry (tcp:1143 ACL) | `every 15m` | no-agent | `human-queue-push-retry.sh` | — | `origin` #agents | live |
+| `91800bba0031` | Human-queue push retry (MAM session refresh) | `every 15m` | no-agent | `human-queue-push-retry.sh` | — | `origin` #agents | live |
 | `e9e72d028dc5` | Warden live checkout sync (uk-proposer) | `every 15m` | no-agent | `warden-live-sync.sh` | — | `origin` #agents | live |
 
 **`e9e72d028dc5` exists because the control plane has no deploy step.** The alert-triage
