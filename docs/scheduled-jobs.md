@@ -21,6 +21,15 @@ state must match the live job's — `make status` asserts it.
 | `9909f808fe17` | Project narratives | `30 6 * * *` | no-agent | `narratives-cron.py` → `project-narratives.py --run` | — | `slack:C0ASRUD7K1U` #hermes | live |
 | `fd2fa108e0cc` | homelab-pr6-hardening-followup | `every 180m` | agent | monitor `homelab-pr6-state.sh` (agent runs only on output change) | `claude-dispatch`, `warden` | `origin` | live |
 | `91800bba0031` | Human-queue push retry (tcp:1143 ACL) | `every 15m` | no-agent | `human-queue-push-retry.sh` | — | `origin` #agents | live |
+| `e9e72d028dc5` | Warden live checkout sync (uk-proposer) | `every 15m` | no-agent | `warden-live-sync.sh` | — | `origin` #agents | live |
+
+**`e9e72d028dc5` exists because the control plane has no deploy step.** The alert-triage
+loop runs `scripts/triage.py` from `~/SourceRoot/warden` on `master` (`com.jkrumm.warden-loop`),
+and warden's merge path only pulls a checkout for a repo with a declared deploy key — `warden`
+has none, so a merged PR is *merged*, not *live*. The watchdog waits for one specific merged
+commit (the §116 `uk`-proposer filter, marker `OPAQUE_MONITOR_SOURCE` in `scripts/triage.py`),
+fast-forwards the checkout to `origin/master`, prints one line and never speaks again; before the
+merge, and after the marker is present, its stdout is empty by construction.
 
 **Unpinned jobs stop, they don't re-route, when the global model moves.** `cron.model_drift_guard`
 (on unless `cron.model_drift_guard: false`) refuses to fire any job whose *creation snapshot* of
