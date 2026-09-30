@@ -45,6 +45,15 @@ mean **you** own the disposition.
    *"keeping this open, not scheduled"* means the issue's stated purpose is already
    fulfilled; there is nothing to dispatch. For a claim that a doc or code half
    shipped, check the artifact on the default branch (`git log -1 -- <path>`).
+   - **An ancestry claim is about the live checkout, not about the remote.** Read
+     tiers cut their worktree at the checkout's `HEAD` (`createReadWorktree` in
+     sideclaw's `dispatch-git.ts`; the implement tier fetches and cuts from
+     `origin/<default>` instead), so a high-confidence *"X is not on master"* can be
+     true only of a checkout that lags `origin/master`. Before acting on any
+     `git merge-base --is-ancestor <sha> master` / `git ls-tree -r master` evidence,
+     run `git -C <repo> fetch origin` and re-check against `origin/<default>`; the
+     tell is a `dispatch.worktree` line in `~/Library/Logs/sideclaw.jsonl` with
+     `baseRef=HEAD` and a base OID older than the remote tip.
 3. **Decide the disposition, then write it.**
 
    | Verdict / situation | Disposition |
@@ -73,6 +82,16 @@ mean **you** own the disposition.
 
 ## Pitfalls
 
+- **A stale live checkout makes a verdict confidently wrong, and the re-dispatch
+  inherits it.** When the checkout lags, every read tier during that window reads
+  the lag — the same wrong base produces the same wrong verdict, however many times
+  you re-file it. Fast-forward the checkout first (`git -C <repo> merge --ff-only
+  origin/<default>` — a clean tree refuses the merge rather than conflicting), then
+  file, then verify the new episode's base OID in the job's `dispatch.worktree` log
+  line. Repos whose work is pushed from agent/dispatch worktrees (weatherorb) lag
+  routinely; repos worked in place (sideclaw, warden) do not. A `close --why`
+  written on the stale premise is append-only and cannot be rewritten — correct the
+  record on the GitHub issue and say in the report that the item's note is superseded.
 - **`env -u CLAUDECODE` is not optional from inside a session.** The CLI refuses
   to run nested inside a Claude Code session; without the unset it exits on a
   recursion guard instead of doing the work.
@@ -95,6 +114,7 @@ mean **you** own the disposition.
   implement` at `confidence: high`, so reuse its recommendation in the new brief).
   Do not try to un-stick the old item in place: `needs_human` is not a state
   `maybe_auto_implement()` reads.
+- **A `merge_blocked` step-7 card can be blocked by warden's own policy file, not by the validation finding.** `lifecycle/merge.py`'s `merge_gate_check()` refuses any repo with no `autoMergePaths` in `config/triage-policy.json` ("no autoMergePaths declared for 'X' — path scope is the primary merge gate now"), and that fires *before* the validation status is even read. So a repo absent from that file can never merge, however clean its step-7 review was — every item on it piles up in `merge_blocked` with a note naming a code defect that is real but not the reason it is stuck. Confirm the gate directly with `merge <job-id> --why probe --dry-run` (read-only, prints the refusal) before treating the validation finding as the blocker, and report both: the defect the review found, and the policy gap that would stop it landing anyway. Adding `autoMergePaths` is a policy decision with real blast radius (it auto-merges agent PRs into that repo) — name it, do not write it.
 - **The fix often lives in a different repo than the issue.** An issue filed on
   repo A can be a defect *in* repo B (a renderer reading a probe's JSON that repo
   A emits). The item's `repo` is A, so A's ceiling gates it — and when A is capped
@@ -112,6 +132,15 @@ mean **you** own the disposition.
 - **Closing is not dismissing and not resolving.** `closed` means a human decided
   the item needs no further action; it is not a claim the defect is fixed. Say
   which one you mean.
+- **A failed implement episode disqualifies the item from auto-implement for good.**
+  `maybe_auto_implement()`'s eligibility query requires `implement_job IS NULL`, and a
+  pre-flight death — e.g. the repo had no `origin` remote at the time, so the episode
+  never started — leaves `implement_job` set on the row. The item then sits in `verdict`
+  with nothing polling it and decays to `needs_human` on its 24 h deadline, where the card
+  reads like a fresh ask for hand work. The stale `implement_job` is the tell, not the
+  verdict text. Do not hand-fix the code to work around it: re-file the fix as a fresh
+  `run <repo> --tier implement` item carrying the verdict's recommendation as the brief,
+  and `close` the old one naming the new item.
 - **Do not close an item whose episode is still running.** `close` refuses, and
   that refusal is correct. `abort` cancels the episode *and* closes the item.
 - **`nextAction: issue` on an already-open issue is the common shape.** These repos
