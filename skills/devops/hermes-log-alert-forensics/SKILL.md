@@ -124,7 +124,16 @@ real; escalate.
   out". **Treat the traceback as noise, not as severity** — read the retry, not
   the log level. A fix belongs as a `patches/*.patch` entry in hermes-agent
   (add the two openai classes to the transient set), never as a
-  `request_timeout_seconds` override in `config.yaml`.
+  `request_timeout_seconds` override in `config.yaml` — and that patch has since LANDED
+  (`patches/stream-error-transient-openai-classes.patch`, `make patch-check` green), so the live
+  handler already classifies both openai classes as transient. Triage consequence: an ERROR-level
+  `Streaming failed before delivery` can no longer come from the running code — compare the line
+  against the current process start and expect the producer to be a process that booted before the
+  patch. The usual trigger is a host reboot: the network stack tears down during shutdown, outbound
+  name lookups fail (`httpcore.ConnectError: [Errno 8] nodename nor servname provided`), the
+  in-flight stream dies with it, and the dying process's ERROR is what the poller reads. Cheap
+  cross-check that the box really rebooted: `last reboot` shows a shutdown/reboot pair and
+  `kern.boottime` sits minutes before the current gateway start.
 - **`tools.checkpoint_manager: Git command failed: git add -A (rc=128)` is a data defect
   in the shadow store, not a code-only bug — repair the data first, then the code.**
   The store is `~/.hermes/checkpoints/store` (one bare repo, per-project index at
@@ -198,7 +207,10 @@ real; escalate.
   a DIFFERENT mechanism from the `×N` double-count below (which assumes byte-identical lines):
   here the two files' lines genuinely differ. Discharge both members as one event; the keying
   fix belongs to warden, and re-keying existing rows churns cards, so report it — do not land
-  it unasked.
+  it unasked. Discharge the pair with ONE `abort <event-id> --why …` on either member: the CLI
+  is cluster-aware and closes every sibling sharing the `dispatch_job` in the same call (it
+  reports them under `discharged`), so no second verb is needed. Two `close` calls work only
+  when no episode is in flight — `close` refuses an in-flight state by design.
 
 ## Discharge or escalate
 
