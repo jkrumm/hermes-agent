@@ -186,6 +186,20 @@ real; escalate.
   and is the verb for step 5; a verb table that omits it will leave items
   stranded on their deadline.
 
+- **A `hermes_log` card can be a WARNING line keyed off the RAW text, which is how ONE physical
+  event mints TWO signatures.** `LOG_LEVEL_RE` (`watchdog-poll.py`) matches the bare substring
+  ` ERROR `, and a `… WARNING …: {"output": "… ERROR …"}` diagnostic line carries it inside its
+  own JSON payload — so the line is ingested. But `LOG_PARSE_RE` is anchored at the level and
+  accepts only `ERROR|CRITICAL`, so no parse happens and `sig_text` falls back to `line[:160]`
+  instead of the parsed `module: msg[:120]` path that strips the leading `[session-id]`.
+  `errors.log` writes that token, `gateway.error.log` does not, so the fallback key differs by
+  both the token and the truncation point → the same event lands twice (a token-bearing
+  signature and a token-less sibling, e.g. `…-output-a` vs `…-output-any-503-after-…`). This is
+  a DIFFERENT mechanism from the `×N` double-count below (which assumes byte-identical lines):
+  here the two files' lines genuinely differ. Discharge both members as one event; the keying
+  fix belongs to warden, and re-keying existing rows churns cards, so report it — do not land
+  it unasked.
+
 ## Discharge or escalate
 
 - **Transient, self-healed, one occurrence** → close it, with the mechanism in
