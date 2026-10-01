@@ -156,6 +156,18 @@ real; escalate.
   `restart-hermes-gateway`; the other two are UptimeKuma `uk:` signatures. A
   provider-side timeout is not that signature, and restarting the gateway is a
   human action regardless.
+- **The Requesty 503 family (`[Requesty-Global StatusCode: ServiceUnavailable|InternalServerError]`)
+  is an UPSTREAM router blip on the IU leg, and a `Fallback activated: <brain> → gpt-6-luna`
+  line after it is the ladder WORKING, not a hermes-agent defect.** Read forward:
+  `API call failed (attempt 1/3)` → `Retrying API call in …s` → `(attempt 2/3)` → `Fallback
+  activated` → `API call #1: model=gpt-6-luna … latency=…` — the turn was served; the only cost
+  is that it ran with no reasoning effort while tools were attached (the accepted 503-avoidance
+  tradeoff, see `hermes-gateway`). So "fallback activated → real" does not mean "escalate"
+  here: there is no code change to dispatch (the repo's own ceiling is `investigate`, a verdict
+  can only restate the log) and no issue worth filing. Discharge with `abort <event-id> --why`
+  naming the upstream leg. Two adjacent signatures (`ServiceUnavailable`, `InternalServerError`)
+  are ONE incident split into two cards by Warden's signature keying — expect a pair, not one
+  firing, and check the sibling's state before treating the second as new.
 - **A `hermes_log` signature re-fires on a 24h cooldown, not per occurrence.**
   `upsert_grouped` is called with `flap_threshold=1` and
   `cooldown_hours=REM_HOURS["hermes_log"]` (24). So one card does not mean one
