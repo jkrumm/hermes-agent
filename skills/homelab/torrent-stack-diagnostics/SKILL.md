@@ -86,6 +86,21 @@ writer flattens it back onto the root so readers keep asking for `.unsat.count` 
 - `torrent-app`'s reader is `adapters/mam_account.py` (`blind` = missing/malformed/
   stale, `STALE_AFTER` = 1h); verify a fix with it rather than by eye:
   `docker exec -i torrent-app python -` reading `mam_account.read()`.
+- **The cookie store is Prowlarr indexer 11 first, 1Password as the fallback**, and a
+  rotation is persisted back into that indexer (`scripts/lib.sh`: `mam_id()` reads
+  Prowlarr's `mamId` then `op read`; `mam_prowlarr()` PUTs it). So a recovered session
+  propagates to every client by itself — never hand a human a manual Prowlarr step, and
+  do not conclude "no write-back" from a grep of `mam-seedbox-sync.sh`/`mam-account-sync.sh`
+  alone (the helper lives in `lib.sh`).
+- **A 403 / `session_dead` is a dead cookie — not an ASN or exit-IP problem, and retrying
+  never clears it.** `make mam-sync force=1` fails identically, and MAM's search path fails
+  with it (Prowlarr logs `you are not signed in`), so the incident is *acquire* + monitoring,
+  not monitoring only. Only a human can recreate/renew the session (`MAM_DEAD_SESSION_HINT`,
+  `lib.sh`).
+- **Prove the session live instead of waiting for the next cron tick**: take the URL from
+  `scripts/mam-account-sync.sh`, read the cookie, and call it from the VPN namespace —
+  `docker exec gluetun wget -O- --timeout=15 --header="Cookie: mam_id=$V" "$URL"`. A 403
+  there is the same fact the log would report 30 minutes later.
 - The file is bind-mounted, so a host-side write is visible in the container at once —
   no restart or rebuild is needed for a writer-only fix.
 
