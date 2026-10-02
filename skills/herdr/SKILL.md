@@ -151,6 +151,25 @@ herdr agent prompt w1E:p4 "$(cat /tmp/hermes-prompt.txt)"
 `agent prompt` refuses with `agent_blocked` if the agent sits at an approval
 dialog — read the pane, tell Johannes what it is asking, and let him decide.
 
+### A draft in the input line is not yours to send
+
+Panes regularly show a **non-empty input line** at the bottom — text someone typed
+that never got submitted (`weiter, commit und push wenn der Trip durch ist`). It is
+almost always Johannes's, typed while the agent worked, with his Enter swallowed.
+
+- **Never hit Enter on it and never re-send it through `agent prompt`.** You cannot
+tell his draft from a stale artifact, and acting on a guess puts words in his
+mouth at an agent that is about to write to a repo.
+- **Name it and ask**, in one clause, at the end of your report — *"in der Pane
+  steht ein ungesendeter Entwurf: <text> — von dir?"*
+- **The work must not stall while you wait.** If his draft states the obvious next
+  step and that step is already authorized, send that same instruction **in your
+own words** via `agent prompt`. That is relaying, not submitting his text: `agent
+  prompt` submits reliably (verified) while his typing path does not.
+- Three of these in one afternoon means the pane's submit path is broken, not that
+  he changed his mind. Say so once, name the workaround (`sag mir, was der Agent tun
+  soll`), and move on.
+
 **Do not use `--wait` on a long turn.** Your terminal tool times out at 180 s, so a
 wait above ~150000 ms kills the call, not the agent. Prompt without waiting, tell
 him it is running, and poll instead:
@@ -163,11 +182,99 @@ herdr agent read w1E:p4 --source recent-unwrapped --lines 150
 Steering an existing agent is the same two verbs: `agent prompt` for text,
 `agent send-keys` for `esc` (interrupt) or `ctrl+c` (stop).
 
+## The `rd` lane — placing durable work on the mini
+
+`rd` is not on Hermes' PATH; it is `~/SourceRoot/dotfiles/scripts/remote-dev.sh`.
+It spawns *through* a herdr pane so the Max keychain credential is reachable (a
+bare `ssh mini 'claude …'` comes up `Not logged in` and silently bills the API).
+
+| Verb | What it starts |
+|-|-|
+| `rd bg <repo> '<prompt>'` | a durable `claude --bg` daemon — survives ssh, herdr and lid-close. It is **not** a pane, so there is no pane id to `rd say` to: give it another report channel. |
+| `rd wave <repo> '<prompt>'` | a fresh herdr tab labelled `wave <n>` running one bounded wave |
+| `rd agents` / `rd read` / `rd say <pane>` | track, read, steer |
+
+Models are env vars, not flags: **`RD_BG_MODEL`** (default `sonnet`) and
+**`RD_WAVE_MODEL`** (default `sonnet`). `RD_BG_MODEL=opus rd bg …` is how a
+mother/lead chain is put on Opus. `rd bg` creates a throwaway workspace
+(`bg:<repo>`) and closes it once the daemon exists; the daemon shows up in
+`claude agents --json` with `kind: "background"`, and its transcript is
+`~/.claude/projects/<slugged-cwd>/<session-id>.jsonl` (`message.model` there is
+the real proof of which model is running).
+
+A long prompt is safe: the script base64s it and stages it in a temp file,
+because a pane's canonical input stops at 1024 bytes — never inline a brief
+longer than ~700 bytes by hand.
+
+## Integrations — the difference between a pane and an agent
+
+`herdr integration status` lists every agent herdr 0.9.1 knows; `herdr integration
+install <name>` wires one. Two kinds, and the difference decides what a pane can do:
+
+- **Lifecycle authority** (Pi, OMP, Kimi Code CLI, OpenCode, Kilo Code, MastraCode) —
+  hook/plugin events author `idle`/`working`/`blocked`, with no screen-manifest fallback.
+- **Session identity** (Claude Code, Codex, Copilot, Devin, Droid, Qoder, Qwen, Letta,
+  Cursor, Hermes Agent, Antigravity, Grok) — a session reference for restore
+  (`claude --resume <id>`, `opencode --session <id>`); state still comes from the screen.
+
+Without its integration a pane still works, but state is screen-read and the agent
+**cannot be resumed after a herdr restart**. A stale one is silent: status prints
+`outdated (v8 < v10)` — re-run the install after a herdr upgrade, since the version
+lives in the hook/plugin file. Traps: Claude's install rewrites only
+`~/.claude/hooks/herdr-agent-state.sh` (the SessionStart entry lives in dotfiles'
+settings template — leave it alone); Codex additionally needs `[features] hooks = true`
+in `~/.codex/config.toml`, which belongs in `config/codex/config.toml.tpl` or
+`make setup` drops it; the **Hermes** integration writes `~/.hermes/config.yaml`, so it
+is a human's call, never this skill's.
+
 ## Always report where it is
 
-Every answer about a pane names the ids, so he can find it: workspace label, tab
-id, pane id, and what is running in it. "Started" without a pane id is not an
-answer.
+Every answer about a pane names **what the tab is for and what is running in it** —
+that is what he can act on. Johannes does not read `w1Y:tA` / `w1Y:pA`; a bare id is
+noise in a chat message and unusable in a voice memo.
+
+- Say: *"der Validierungs-Tab im email-gateway (läuft gerade die Prüfung durch)"*,
+  *"der Wave-3-Tab, Agent `email-gateway-w3`, arbeitet an den Jobs"*.
+- Give the raw ids only when he asks for them, or when he needs them to find the
+  thing in the TUI right now — then in a trailing parenthesis, never as the subject.
+- Same rule in a spoken/TTS summary: name the tab by its purpose, never by id.
+- "Started" without saying which tab and what it does is not an answer.
+
+## After you finish steering a pane agent
+
+A pane agent works in the checkout it was started in — there is no worktree isolation.
+In a repo whose files are **symlinked live** (dotfiles, hermes-agent) that means its
+branch is the running configuration. Always close the loop:
+
+```bash
+git -C <repo> branch --show-current   # back on main? if not: git -C <repo> switch main
+git -C <repo> status --short
+```
+
+Leaving dotfiles on a `fix/...` branch makes the live config the unmerged branch — a
+one-line botched edit pages the dev host. Restore the default branch as soon as the
+agent reports done; the branch is pushed, so nothing is lost.
+
+## Watching a pane agent to an outcome
+
+A watcher that keys on `agent_status` **ends early**: a Claude pane that started a
+backgroundshell, a monitor or a subagent goes `done` or `idle` at the end of each
+turn while the work is still running, then resumes itself when that shell reports.
+An `idle` pane is therefore not a finished pane.
+
+Watch the **artifact or the external effect** instead, and treat status as colour:
+
+| Signal | Use |
+|-|-|
+| the report file the brief asked for (`-s /tmp/<x>-report.md`) | primary |
+| the real-world result it claims (PR state, master head, `/health`, the commit) | primary |
+| `agent_status` | colour only — never a terminal condition |
+| identical line N times in a row | real stall detection |
+
+Poll every 60–90 s, log one line per tick so a timeout is diagnosable, and exit with
+a distinct code per outcome (report / external-effect / stalled / timeout). A watcher
+that exits `4 idle_no_report` four times in a row is not four findings — it is one
+bad condition; fix the watcher before reporting again.
 
 ## Rules
 

@@ -137,6 +137,26 @@ BRIEF
 
 ## Pitfalls
 
+- **A `merge_blocked` note reading `step-7 validation (blocked)` can be a `needs-human` review folded
+  into a revisable block.** `triage.py`'s fold tests `elif blocking:` *before*
+  `elif outcome == "needs-human":` (~5816-5843), so a review whose own verdict says `needs-human` —
+  an incomplete review, e.g. a reviewer session that failed or never read the diff — still lands
+  `validation_status='blocked'` and spends a revision on findings the review itself did not stand
+  behind. Read the review job's `dispatches.verdict_json` and check `outcome` before treating the
+  note's findings as a diff defect or promising another fix round; the fix is a loop change, not a
+  revision. Same read before re-dispatching any `revisions-exhausted-*` self-alert item.
+- **A `revisions-exhausted-<id>` self-alert whose item sits in `needs_human` is the
+  *correct* fold, not the bug above — and it is an owner-adjudication park, not a work
+  order.** A third review whose `verdict_json` says `outcome: needs-human` spends no
+  revision, so the item parks with `revision_count == revisionMaxAttempts` and
+  `self_audit_findings()` fires the alert on the revision-count-plus-parked-state rule
+  alone. Warden's own investigation of that alert concludes `verdict_only` /
+  `nextAction: human` ("there is no warden defect here") and parks the self-alert in
+  `needs_human` too, so re-dispatching buys nothing. Adjudicate the three options it
+  names — hand-fix on the carrier's head, re-derive from master, close the PR — then
+  discharge the self-alert with `close <id> --why` (it is already `needs_human`, so
+  `close` is the right verb, not `abort`) and leave the *underlying* item open as the
+  owner's merge tracker.
 - **`merge` refuses outright on a repo with no `autoMergePaths` entry** in
   `~/SourceRoot/warden/config/triage-policy.json` (`no autoMergePaths declared for
   '<repo>' — path scope is the primary merge gate now`, exit 4). Every PR on such

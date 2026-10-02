@@ -43,7 +43,12 @@ itself `background-work-watch` — this skill owns the intake step and the caden
 4. **Confirm the job started at the executor** before repeating "running":
    `curl -s http://127.0.0.1:7705/api/jobs/<id>`. The card's "Investigation
    running — job …" line is rendered from the item's columns, not the job's
-   status, and is true for a job still `pending`.
+   status, and is true for a job still `pending`. **Pass the full job uuid** —
+   the executor resolves by exact id, so the 8-char prefix everything else in
+   this loop prints answers `{"ok":false,"error":"job not found"}` for a job
+   that is very much alive. A "not found" on a short id is not liveness evidence:
+   re-read `dispatch_job` / `dispatches[].job_id` from `/items/<event_id>` and
+   retry with the whole uuid before reporting anything about the job.
 
 ## Answer the card, not the card's ask
 
@@ -76,7 +81,10 @@ not move it.
 | api | `com.jkrumm.warden-api` | long-running | `/health`, `/board`, `/items/<id>` |
 
 `GET http://127.0.0.1:7735/health`'s `pollers.<name>.last_run` / `age_minutes`
-against that interval is the ETA — one read, no guessing.
+against that interval is the ETA — one read, no guessing. `GET /health` also
+carries `self_audit.findings` (`revisions-exhausted-<id>` names a card whose
+revision budget is spent — the one place that failure is visible before the card
+reaches the thread).
 
 - **A state younger than one tick is normal, not stuck.** A `verdict` row waiting
   for its `implementing` transition, or an `implementing` row whose job has not
@@ -119,6 +127,18 @@ against that interval is the ETA — one read, no guessing.
   not the duplicate `concurrent-card-dedup` warns about — and the loop opens the
   implement episode itself on its next tick, once the new item's own investigate
   verdict folds.
+- **A medium-confidence `implement` verdict is a parked card, not a failed one.**
+  `maybe_auto_implement()` and `lifecycle/policy.py`'s `require_auto_from_item`
+  both require `confidence == "high"`, so `nextAction: implement` at `medium`
+  folds to `verdict` with nothing scheduled to touch it again: 24h later
+  `sweep_deadlines()` expires it to `needs_human` (`STATE_DEADLINES`). Re-filing
+  the same ask does not raise the confidence — what does is a brief that
+  *pre-specifies the remedy* ("the design is already settled by item N …
+  implement it; do not re-open the design question"), which lets the new
+  investigate episode answer `high` and the loop chain on by itself. Discharge
+  the parked row once it folds (`close`, allowed in `verdict`) naming the
+  replacement; re-read `/board` first — a sibling lane usually filed the
+  replacement within minutes and its own `close` may already be mid-procedure.
 
 ## Report shape
 

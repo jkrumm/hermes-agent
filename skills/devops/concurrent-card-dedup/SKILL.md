@@ -162,10 +162,16 @@ Read the tell before opening anything, because a dispatch is blind to it:
 
 - **`git status` / `git log -1` in the live checkout.** A dirty tree, or a
   commit newer than the item's `created_at` whose message or `docs/history`
-  entry names the same signature/item, means the fix is already landing. The
-  live checkout is what the loop's own LaunchAgents execute, so an uncommitted
-  edit is a change that is *live but invisible to the episode's base* — the
-  episode is cut from the committed default branch and will re-derive it.
+  entry names the same signature/item, means the fix is already landing. **Grep the repo's
+ own progress ledger, not just `git log`** — weatherorb files a dated
+ `_(2026-10-01 (watchdog fix #2, by hand): …)_` entry in `PROGRESS.md` per hand
+ change, so an entry newer than the item's `created_at` names the duplicate even
+ while the tree is still dirty. Re-read `git log`/`git status` immediately before
+ you act, too: the sibling often commits within the same minute you spend
+ reasoning, and your `--why` then needs the *committed* sha, not a dirty tree. The
+ live checkout is what the loop's own LaunchAgents execute, so an uncommitted
+ edit is a change that is *live but invisible to the episode's base* — the
+ episode is cut from the committed default branch and will re-derive it.
 - **`session_search` is how a live-checkout edit is attributed.** A sibling
   Hermes session's `write_file`/`patch`/`terminal` arguments are indexed, so
   the card's own distinctive text (a test name, a `--why` string, a verdict

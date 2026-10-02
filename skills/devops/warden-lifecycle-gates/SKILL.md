@@ -67,6 +67,33 @@ Consequences to hold onto:
   reload refuses while jobs run (`FORCE=1` discards them), so land them in the
   same pass or not at all.
 
+## A step-7 verdict saying "findings were NOT lost" may carry none
+
+A step-7 card whose note reads *"Review ran N reviewers but synthesis failed to serialize a
+structured verdict … Findings were NOT lost — see the discussions entry for the raw synthesizer
+text. Treat as needs-human."* usually has **no findings at all**. Read the review job
+(`GET http://127.0.0.1:7705/api/jobs/<validation_job>`) and its `result.discussions[].message`: the
+review tier synthesises on `claude-sonnet-5` over the **Max** backend, so a Claude weekly-limit
+refusal lands there as the entire "raw synthesizer text" (`You've hit your weekly limit · resets 6pm
+(Europe/Berlin)`) and the fold hands the owner a card as if a review had happened.
+
+- **Re-run the gate once the quota is back** — `sideclaw review --pr <N> --repo <R> --no-wait --json`
+  then poll (~3 min, all angles + synthesis). Read-only, cheap, and the only way to get the verdict
+  that never existed; both items parked this way came back with a real blocking finding.
+- **The loop cannot re-validate a `needs_human` item.** `validation_status` stays `needs_human`, the
+  merge gate refuses on `validation != 'confirmed'` *even for `owner:argo`*, and
+  `/board.awaiting_owner`'s `availableActions` carry no `merge`. A fresh out-of-band review cannot
+  land the PR either — the remedies are a replacement `run`, a hand-merge, or the 168 h dismiss.
+- **Report a rate-limited synthesis as an infrastructure failure, never as the card's finding.**
+
+## `verdict` auto-implements only at `confidence: high`
+
+`maybe_auto_implement()` skips any verdict whose `nextAction != implement` **or** whose `confidence !=
+high`; the row then sits in `verdict` until its own 24 h deadline flips it to `needs_human`. A
+replacement `run --tier implement` whose brief *asks an open design question* therefore comes back
+medium and stalls on a human. Pre-specify the design in the brief ("implement exactly this, or
+refute it with evidence") when the loop is meant to carry it without a click.
+
 ## `needs_human` is terminal until its deadline
 
 `reopen_if_needed()` covers `fixed`/`quiet`/`closed`/`dismissed` only. A
@@ -129,6 +156,32 @@ Either way the merge still needs the owner: a repo with no `autoMergePaths` can
 never be landed by `merge`, so "PR is open and verified, awaiting your merge" is
 the finished report.
 
+## The `implementing` deadline is a wall clock, not a liveness check
+
+`triage.py`'s `_DeadlineRule("poll_implement_jobs", 2, STATE_MERGE_BLOCKED, …)` fires
+on **state age**, so a healthy implement episode that runs past 2 h gets its item
+flipped to `merge_blocked` while the job is still working (observed: 169 turns,
+last activity seconds before the flip, PR opened 5 min *after* it).
+
+Consequences, in order:
+
+- **Before relaying that card, read the job** (`GET /api/jobs/<id>` → `status`,
+  `progress.lastActivityAt`, `progress.turns`). A running job with fresh activity
+  means the note is a clock artifact, not a decision — say so.
+- **Nothing re-adopts the PR.** `poll_implement_jobs` only polls `implementing`
+  items, so the branch is pushed and the PR opened *outside* the lifecycle. There
+  is no verb that re-attaches it; `close <event-id>` by hand, naming the PR in the
+  `--why`.
+- **The step-7 review is then missing**, which is the real loss — that gate is
+  what finds defects. Reproduce it cheaply as its own `run <repo> --tier
+  investigate`-shaped item whose brief says *act as the missing review*: name the
+  PR head, say why no gate ran, hand it the already-verified facts so it goes
+  past them, and require a reproduction for every claim. A verdict-only item with
+  `nextAction: none` costs one read-only episode; the loop's auto-implement stage
+  then only opens if the review actually found a hole.
+- **Do not hand-append the reviewer's optional follow-ups to the branch.** New
+  commits move the head and void the verdict that covers it.
+
 ## Verifying a branch an episode pushed (no PR)
 
 Fetch by full refspec, cut a detached worktree, give it what the repo resolves
@@ -151,6 +204,13 @@ bun test && bun run typecheck && fallow audit
   environment gap and say which step passed.
 
 ## Finding who else is editing the repo
+
+A second Hermes lane watches the same Warden cards. Tell-tales: an item you filed is already
+`closed` when you return to it, and a worktree on the very branch you were about to hand-fix is
+sitting under `~/.hermes/cache/scratch/` (`git worktree list` in the repo). **Do not duplicate that
+fix** — two writers on one pushed branch is the failure mode, not the fix. Read its `git status`:
+edited-but-uncommitted means it is in flight; verify the PR's commit list before reporting the
+correction as landed.
 
 Concurrent Claude Code sessions are the usual cause of a mid-flight surprise
 above. `GET http://127.0.0.1:7705/api/agents` lists every agent by project with

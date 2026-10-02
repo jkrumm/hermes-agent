@@ -183,20 +183,37 @@ Three sections, and each means something different:
   open. When intake looks short, diff `search_issues()`'s count against
   `gh search issues --owner <owner> --state open`.
 
+- **A `note` row whose *event re-fires* returns to the digest even after the
+  policy learns to map it.** `_fetch_note_rows()` filters on `events.resolved_at
+  IS NULL`, and a `slack_alert` signature that recurs clears `resolved_at` back
+  to NULL — so a pre-§76 frozen row re-enters "Unstructured notes" on every new
+  crossing, while `reopen_if_needed()` skips `note` and `classify()` only ever
+  touches `new`. The row is therefore stale *and* immune to the rule that would
+  now route it. `scripts/reset-frozen-notes.py` is the remedy and is **re-runnable,
+  not one-time** (its docstring still claims "a second run reports zero" — it is
+  now the standing repair after any re-fire). Verify the outcome on a throwaway
+  copy before trusting it: `cp` the ledger + its `-wal`, then
+  `triage._apply_db_override(['--db', copy])` and call `classify()` by hand — an
+  `ignore`-listed signature lands `ignored`, a `rules`-mapped one lands `repo`-set.
 - **`_fetch_note_rows()` has no age filter, so the notes section is a standing
   reprint, not a daily finding.** Every UTC day the digest re-lists every
   `state='note'` row it can find; a family routed there on day one prints daily
   until someone moves the row by hand. Check `created_at` before reading a line
   as new — a line that is days old is a reprint, and the finding is the
   mechanism, not the line.
-- **`note` rows are `propose_mappings()` candidates, so the loop auto-appends
-  rules for them daily — and those rules can never fire.** `classify()` only
-  ever touches rows still in `state='new'`, and `_write_policy_additions()`
-  appends without deduplicating, so the same handful of signatures is
-  re-proposed and auto-committed every 24h. Measure it by unique *match* values,
-  never entry count: `ignore` was 49 entries / 12 unique, `rules` 151 / 61, ~25
-  new lines per day. Report the growth rate and that the fix is a dedupe (or a
-  candidate exclusion) in `propose_mappings()`, not a policy edit.
+- **`note` rows are `propose_mappings()` candidates, but the pass no longer
+  re-appends what the policy already covers.** `_propose_mapping_candidates()`
+  drops any signature already matched by a `rules` OR `ignore` entry — through
+  the same `_match_targets()`/`_fnmatch_any()` pair `classify()` uses — before
+  the age/occurrence floor, so the dedupe the old growth implied is already
+  implemented; `_write_policy_additions()` itself still appends blindly and is
+  not where it lives. Measured 2026-09-26: 165 `rules` / 75 unique, 52 `ignore` /
+  15 — §77's leftover accumulation, inert under first-match-wins, and the last
+  four auto-propose commits each added 0-9 *new* unique matches (2, 3, 9, 2).
+  Measure growth by diffing two commits on unique *match* values, never on entry
+  count, and don't propose a dedupe that already exists. What remains is
+  per-row, not per-policy: `classify()` only ever touches `state='new'`, so a
+  `note` row frozen before its entry landed still needs `reset-frozen-notes.py`.
 - **`ignore` wins over `rules`, and both run before the prose filter**, so either
   entry rescues a future occurrence of an un-prefixed `slack_alert` — and an
   `ignore` entry makes a rule for the same target unreachable. Neither touches

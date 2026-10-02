@@ -110,6 +110,15 @@ command runner.
 - **Never drain from the mini.** The MacBook-side script deliberately refuses
   the dev-host backend, because present-human work relies on the person's local
   TTY and credentials.
+- **Check the MacBook is reachable before you promise a drain.** The walk needs
+  `iumac`'s TTY: `tailscale status | grep iumac` showing `offline, last seen …`
+  (or an ssh/nc ConnectTimeout on :2222) means the request cannot move — the mini
+  refuses the drain by design (`on_dev_host` → exit 1). Report the item as still
+  pending; never write the `.res` yourself to "finish" it.
+- **A `cmd: null` request is a decision, not a command.** The walk's options for
+  it are `a` (already done, with a note) or `d` (denied, with a reason) — so the
+  human still has to give the answer before either is honest. Do the read-only
+  analysis that makes the answer one word, ask for that word, and only then drain.
 - **Never batch keystrokes through prompts.** A request may ask for a second
   confirmation or a note, so sending a stack of answers can apply the wrong
   action to the next request.
