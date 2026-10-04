@@ -2,18 +2,22 @@ HERMES_REPO   := $(shell pwd)
 HERMES_DIR    := $(HOME)/.hermes
 # Upstream Hermes checkout the patches/ dir is applied to (see `make patch-check`).
 HERMES_SRC    := $(HERMES_DIR)/hermes-agent
-# Standalone skills symlinked into ~/.hermes/skills/. The former infrastructure,
-# schedule, slack, tasks, weather, garmin-health and strength skills were
-# consolidated into argo-api/references/*.md (commit 3087645) — they are no longer
-# separate dirs, so listing them here only created dead symlinks.
-HERMES_SKILLS := capture argo-api work karakeep obsidian reading wildrift research-gateway image-delivery homelab-ops homelab hermes-gateway briefing-tts claude-dispatch rollhook-deploys hyperdx podcast agents human-queue warden herdr
+# Skills symlinked into ~/.hermes/skills/ — the curated set, 20 dirs (agent-platform Wave 2,
+# 2026-10-04; was 126). Retired siblings were folded into `<skill>/references/*.md` or deleted;
+# git history is the archive. `skills/work/iu-*/` is gitignored (employer-internal) and rides
+# inside the `work` symlink.
+HERMES_SKILLS := capture argo-api work karakeep obsidian reading wildrift research-gateway image-delivery podcast briefing-tts hyperdx homelab homelab-ops hermes-gateway human-queue dispatch warden herdr verify
 
-# Gateway plugins symlinked into ~/.hermes/plugins/. Same durability argument as the
-# skills: a plugin that lives only under ~/.hermes/ is one `hermes update` away from
-# being unreviewable state. dispatch-approval holds the Ed25519 key that makes the
-# dispatch bridge's --confirm an artifact rather than an instruction — it must also be
-# enabled once, with `hermes plugins enable dispatch-approval`.
-HERMES_PLUGINS := dispatch-approval
+# Skill links this repo no longer installs — removed by `make setup` so a retired skill
+# cannot linger live. `agents` folded into warden/references, `claude-dispatch` renamed
+# `dispatch`, `rollhook-deploys` folded into homelab-ops/references.
+HERMES_SKILLS_RETIRED := agents claude-dispatch rollhook-deploys
+
+# Gateway plugins symlinked into ~/.hermes/plugins/ (none today — `dispatch-approval`, the
+# Ed25519 signer, was removed 2026-10-04 once warden Wave 1 deleted the approval stack it
+# fed). A plugin that lives only under ~/.hermes/ is one `hermes update` from unreviewable
+# state, so a new one belongs here and must also be enabled once (`hermes plugins enable`).
+HERMES_PLUGINS :=
 
 # Scheduled jobs run as user LaunchAgents, not macOS crontab — see the Setup
 # banner below for why. Templates live in launchd/, rendered into ~/Library/LaunchAgents.
@@ -116,6 +120,10 @@ _symlinks:
 		$(MAKE) --no-print-directory _link \
 			SRC="$(HERMES_REPO)/skills/$$skill" \
 			DST="$(HERMES_DIR)/skills/$$skill"; \
+	done
+	@for skill in $(HERMES_SKILLS_RETIRED); do \
+		LINK="$(HERMES_DIR)/skills/$$skill"; \
+		if [ -L "$$LINK" ]; then rm -f "$$LINK"; echo "  → removed retired skill link $$skill"; fi; \
 	done
 	@$(MAKE) --no-print-directory _copy \
 		SRC="$(HERMES_REPO)/USER.md" \

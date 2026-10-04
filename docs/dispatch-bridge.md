@@ -8,13 +8,12 @@ scenarios). `scripts/hermes-cc.sh` in this repo (= `~/.hermes/scripts/hermes-cc.
 is now a 6-line exec shim into `warden/scripts/warden`, kept because its
 exact path is the one every other doc and script here references.
 
-What genuinely stays Hermes-side is the door a Slack turn opens through, and
-the artifact that makes an `implement` click mean something.
+What genuinely stays Hermes-side is the door a Slack turn opens through.
 
 ## The door: a Slack turn opens a dispatch
 
 Hermes reads its world through **argo** and decides whether a dispatch is
-worth opening (`skills/claude-dispatch/SKILL.md` carries the tier judgment
+worth opening (`skills/dispatch/SKILL.md` carries the brief rules
 and the hard rule that infra mutation is `homelab-ops`, never this). Opening
 one shells into `warden` via `scripts/hermes-cc.sh`; everything after that —
 the record, the episode, the verdict — is warden's.
@@ -41,50 +40,15 @@ is hostile *content* relayed by a trusted sender, which is why
 `briefing-coverage.py` marks non-`jkrumm` GitHub items as third-party rather
 than authenticating the messenger.
 
-## The signed approval artifact (`plugins/dispatch-approval/`)
+## Removed: the signed approval artifact
 
-`implement` needs a Slack-signed approval, and the signature is minted here,
-not in warden. A flag on the same invocation, set by the same agent it
-constrains, is not a bound — `dispatch` carries no `--confirm` at all. The
-plan branch posts **Approve/Deny buttons** into the origin channel; the
-click lands in the gateway, which signs it with an **Ed25519 key minted at
-startup, held in RAM only** (public half at `~/.hermes/dispatch-approval.pub`).
-`_record_decision()` spools the signed decision as an `approval_decision`
-intent and drains it **synchronously** through `warden/scripts/intents.py`,
-whose `drain()` calls `lifecycle/approvals.py`'s `execute_approved()` — the
-same verifier, the same budget/policy re-check, the same in-flight lock —
-the moment the decision lands, so the episode is already opening (or already
-refused) by the time the click handler's own call returns. This plugin's own
-`execute_approved()` then only reads the row back (`spent_job_id` /
-`spend_error`) and posts the outcome — it runs nothing itself. The point is
-not "who clicked" — it is that a click is not text: injected prose cannot
-mint a signature or cause a Slack interaction payload to exist.
-
-Bound to `verb|repo|tier|brief|why|context`, single-use, 30-min TTL, **fails
-closed** on no plugin / no key / no gateway / expired / spent / hash
-mismatch; a gateway restart voids pending approvals.
-
-**The one bug this has had:** `register()` runs in every process that
-discovers plugins — a CLI call, a cron subprocess — and the first build
-published the public key unconditionally, so a non-gateway process could
-overwrite it with a key nothing would ever sign with. Symptom: a visible
-Approve click, a validly signed row, and the CLI still refusing as *"has not
-been clicked yet"*. Two properties close it: publish only when argv says
-`gateway run`, and republish on the way to signing whenever the file on disk
-is not ours. Tell: `grep 'published public key'` vs `Wired 2 plugin action
-handler` in `~/.hermes/logs/agent.log` — a publish with no matching wire line
-means a non-gateway process overwrote the key. Enable once with `hermes
-plugins enable dispatch-approval`.
-
-**`merge` is deliberately NOT gated on this approval** — see warden's
-`DESIGN.md` for why (the implement approval covers the change, not the
-diff, and a second click per PR trains the rubber stamp this design already
-warns about).
+`plugins/dispatch-approval/` (Ed25519 key minted at gateway startup, Approve/Deny buttons, the
+`approval_decision` intent) is gone as of 2026-10-04: warden Wave 1 deleted the approval stack it
+fed, and the agent-platform spec keeps only quality gates. Trust comes from Tailscale and sideclaw's
+repo policy. Git history holds the design and its one bug (the public key overwritten by a
+non-gateway process) if it is ever needed again.
 
 ## Tests (this repo)
 
-The signed-approval gate has its own suite in
-`~/SourceRoot/warden/tests/test_dispatch_approval.py` (moved with the rest of
-the bridge); everything else (tiers, worktree isolation, the merge verb, the
-ledger, repo policy) is tested in `~/SourceRoot/warden/tests/` and
+Everything (worktree isolation, the merge train, the ledger, repo policy) is tested in `~/SourceRoot/warden/tests/` and
 `sideclaw/tests/` — not restated here since it already drifted once.

@@ -57,7 +57,11 @@ agent:
   gateway_notify_interval: 180
   gateway_auto_continue_freshness: 3600
   image_input_mode: auto
-  disabled_toolsets: []
+  # kanban + delegation: off (agent-platform Wave 2). Repo work goes through `dispatch`
+  # (warden), long visible work through herdr/`rd` — never a Hermes child agent or board.
+  disabled_toolsets:
+    - kanban
+    - delegation
   # max: DeepSeek's documented setting for complex agent work and the one its published agent
   # benchmarks use. On this route (Requesty -> Fireworks) none..max measured flat in thinking
   # length and latency (2026-09-13/14), so max costs nothing extra and wins if it ever bites.
@@ -551,12 +555,8 @@ command_allowlist:
   - script execution via -e/-c flag
   - shell command via -c/-lc flag
 plugins:
-  enabled:
-    - dispatch-approval
+  enabled: []
   disabled: []
-  entries:
-    dispatch-approval:
-      allow_tool_override: false
 hooks_auto_accept: true
 security:
   # Writes to SOUL.md/AGENTS.md/CLAUDE.md-style instruction files otherwise raise
@@ -676,9 +676,7 @@ platform_toolsets:
     - code_execution
     - connections
     - cronjob
-    - delegation
     - file
-    - kanban
     - memory
     - session_search
     - skills
@@ -693,9 +691,7 @@ platform_toolsets:
     - code_execution
     - connections
     - cronjob
-    - delegation
     - file
-    - kanban
     - memory
     - session_search
     - skills

@@ -37,9 +37,9 @@ the first pass.
 |-|-|-|
 | `config.yaml`, `.env.tpl`, `SOUL.md` | `~/.hermes/…` | edit here, live immediately; `.env.tpl` is the one list of `KEY=op://…` refs |
 | `cron/`, `scripts/`, `hooks/` | `~/.hermes/…` | Hermes-driven cron + pre-run scripts (must live under `HERMES_HOME/scripts/`) + host-level shell scripts |
-| `plugins/{name}/` | `~/.hermes/plugins/{name}/` | **`HERMES_PLUGINS`** is the source of truth. Today `dispatch-approval` (the Ed25519 signer). Must **also** be enabled once — `hermes plugins enable <name>`; the symlink alone is inert. |
+| `plugins/{name}/` | `~/.hermes/plugins/{name}/` | **`HERMES_PLUGINS`** is the source of truth. **None today** — `dispatch-approval` was removed 2026-10-04 (warden Wave 1 deleted the approval stack). A new one must **also** be enabled once — `hermes plugins enable <name>`; the symlink alone is inert. |
 | `config/` | `~/.hermes/config/` | **empty** since 2026-09-10 — `dispatch-repos.json` (root, `deny`, `defaultTier`, per-repo ceilings) moved to `~/SourceRoot/warden/config/`, warden's own defence-in-depth copy |
-| `skills/{name}/` | `~/.hermes/skills/{name}/` | **`HERMES_SKILLS` in the Makefile is the source of truth** — 21 dirs (roster + `homelab` category-dir note: docs). |
+| `skills/{name}/` | `~/.hermes/skills/{name}/` | **`HERMES_SKILLS` in the Makefile is the source of truth** — 20 dirs (agent-platform Wave 2, 2026-10-04; was 126). Retired skills live on as `<skill>/references/*.md` or in git history; roster: docs. |
 | `USER.md` | `~/.hermes/memories/USER.md` | **copied** — Hermes writes to it |
 
 **Autonomous skill creation is off** (`skills.creation_nudge_interval: 0`); `skills.create_dir` points at `~/.hermes/skills-quarantine`, outside `external_dirs`, so anything Hermes writes anyway is neither live nor tracked until the owner promotes it here. Needs a gateway restart.
@@ -70,61 +70,26 @@ Disk Access and hangs forever on the headless mini. Done 2026-08-02 — no herme
 (test routing, fix SOUL.md / SKILL.md) · `/hermes-update` (pull upstream, re-apply patches,
 restart gateway).
 
-## Dispatch Bridge — handing repo work to Claude Code
+## Dispatch Bridge — handing repo work to Warden
 
 Hermes observes well and reads repos badly — an LLM with a `terminal` tool cannot use a
-repo's `AGENTS.md`/`CLAUDE.md`, `.claude/rules/` or `.claude/skills/`. `warden` (the CLI) is the bounded
-client that hands the episode to Claude Code (sideclaw's `dispatch` job tool) instead — it
-lives at `warden/scripts/warden` (a Python CLI; the original bash `hermes-cc.sh` was retired
-2026-09-10); `scripts/hermes-cc.sh` here (= `~/.hermes/scripts/hermes-cc.sh`) is a 6-line exec
-shim into it — the path skills document. Design +
-why each bound is shaped this way: `~/SourceRoot/warden/DESIGN.md`. The door and
-the signed-approval artifact, which stay Hermes-side: **`docs/dispatch-bridge.md`**.
+repo's `AGENTS.md`/`CLAUDE.md`, `.claude/rules/` or `.claude/skills/`. So repo work is **filed,
+not done**: `scripts/hermes-cc.sh` here (= `~/.hermes/scripts/hermes-cc.sh`) is a 6-line exec shim
+into `~/SourceRoot/warden/scripts/warden`, and the `dispatch` skill documents the one verb Hermes
+uses — **`hermes-cc.sh run <repo>`** (brief on stdin, quoted heredoc, never argv). `run` opens a
+Warden item that rides its own lifecycle (investigate → implement → review → merge → deploy →
+verify). Hermes does not land PRs, `gh pr merge`, pick a tier, or start a `claude` session.
+Reading an item back (`/board`, `/items/:id` on warden's loopback API) is the read-only `warden`
+skill — never the ledger file, never a guess. Design: `~/SourceRoot/warden/DESIGN.md`;
+the door: **`docs/dispatch-bridge.md`**.
 
-**Verbs:** `run <repo>` · `dispatch <repo>` · `status <job-id>` · `list [open|today|all]` ·
-`merge <job-id>` · `abort <event-id>` · `revert <event-id>` — there is no `cancel` any more
-(sideclaw grew a real cancel endpoint; `abort` calls it and closes the triage item). `run`
-opens a triage **item** that rides warden's own lifecycle (investigate → verdict →
-conditionally implement → validate → merge → deploy); `dispatch` opens a bare episode with no
-item, still the only door for `author` tier or a Slack-approved `implement`. Prefer `run`.
-Reading an item's state back (`/board`, `/items/:id` on warden's loopback API) is the
-read-only **`warden`** skill, not this one — never guess an item's progress.
+**One door per verb:** repo work → `hermes-cc.sh run`; status → `warden` skill (HTTP API); panes /
+long visible work → `herdr` + `rd` (`rd wave`, never `claude --bg` / `claude -p`); issues → `capture`.
 
-| Invariant | Detail |
-|-|-|
-| No verb takes a path, command or URL | a dispatch names a **repo**, resolved under the single `root` in warden's `config/dispatch-repos.json` (`~/SourceRoot/warden/config/`). `.`/`..`/dotted names refused; the resolved checkout's parent must **be** the resolved root. |
-| `deny` list | `dotfiles-private`, `homelab-private`. Both also carry `sensitive: true` — the one carve-out of `deny`, opening `investigate` only, `"sensitive": true` on the submitted body, sideclaw's own scan withholding a matched verdict rather than leaking it. `author`/`implement` stay refused. `brain` is **not** denied: `tiers.investigate` (read-only, worktree-isolated) since 2026-08-15. |
-| Brief is data, never argv | stdin (`<<'BRIEF'` quoted heredoc) or `--brief-file`. **No `--brief`** — as argv it would be shell-expanded before the script ran. |
-| Tiers | `investigate` (read-only → verdict) · `author` (+ one GitHub issue) · `implement` (`dispatch/…` branch + **draft** PR). **Every tier runs in its own throwaway worktree**, read tiers included — `readOnly` removes Edit/Write, not Bash. |
-| Ceilings | `defaultTier: implement`, `investigate` floor for `dotfiles`/`brain`/`hermes-agent` (`vps` and `homelab` came off it 2026-09-08 — deployment surfaces, not the rules that bound the agents) — the last is this repo's own control plane (`config.yaml`, `scripts/`, `hooks/`, `skills/` are symlinked live into `~/.hermes/`), a different reason than `dotfiles`' — see warden's `config/dispatch-repos.json`'s comment block. Above-ceiling/denied/outside-root refuses exit 4; a misspelled name is exit 64. No `implement` allowlist, deliberately. |
-| `implement` gate | `--why` **required**; there is no `--confirm` on `dispatch` any more (`warden` refuses it by name: "the Approve button in Slack runs an approved implement"). Without a signed approval it mints one, posts Approve/Deny buttons, and prints the plan + `wouldNeverDo` — exits **0**, nothing runs. `--auto-from-item <event_id>` is a second, narrower door for warden's `triage.py` only — every precondition re-checked from `~/.warden/warden.db`, no Slack click needed once it passes; see *Alert triage* below. |
-| Secret scan | refuses (never redacts) a brief carrying credentials, scans the diff's **added lines** too — handler-side. |
-| Budgets | 20 dispatches/UTC day, ≤5 `implement`, ≤3 `merge`, 170s `--wait` cap. `WARDEN_{DAILY,IMPLEMENT,MERGE}_BUDGET` to raise — never raise a ceiling casually. |
-
-**A Slack click is a signed approval artifact, not an instruction.** Approve/Deny buttons post
-into the origin channel; the click is signed by an **Ed25519 key minted at gateway startup, RAM
-only** (`plugins/dispatch-approval/`), spooled as an `approval_decision` intent, and drained
-**synchronously** through `warden/scripts/intents.py` — the drain itself calls
-`lifecycle/approvals.py`'s `execute_approved()`, which verifies the signature and opens the
-episode, all before the click handler returns. Bound to `verb|repo|tier|brief|why|context`,
-single-use, 30-min TTL, fails closed. Enable once: `hermes plugins enable dispatch-approval`.
-*Tell for the one bug this has had:* a refusal saying **"has not been clicked yet"** despite a
-visible Approve → `grep 'published public key'` vs `Wired 2 plugin action handler` in
-`~/.hermes/logs/agent.log`; no matching wire line means a non-gateway process overwrote the
-public key. Full evolution: **`docs/dispatch-bridge.md`**.
-
-**`merge <job-id>` lands the draft PR with no human on GitHub** (owner decision) — a job id never
-a PR number, eligibility derived from `dotfiles/config/pr-required-repos.json`, every bound
-re-checked against the **current** head with the head SHA pinned. **Primary gate re-keyed
-2026-09-08**: `~/SourceRoot/warden/config/triage-policy.json`'s per-repo `autoMergePaths` (every changed path must
-match, or refuse) and `noCiRequired` (a repo with zero CI check-runs on the head commit and no
-acknowledgement now FAILS — `mergeable_state: clean` used to read as "CI passed" even with
-nothing run), plus the step-7 validation (`dispatches.validation_status == 'confirmed'`); the old
-40-file/2000-line ceilings are a backstop, not primary, now. Deliberately **not** gated on
-the signed approval (reverted after an hour — see docs). GitHub credential on stdin, never argv.
-`op://mini/github/token` needs **three grants** — `Contents: write` plus `Issues: write` and
-`Pull requests: write`; with only the first, the last step fails as "Resource not accessible by
-personal access token".
+**No signed approval.** Warden Wave 1 (2026-10-04) deleted the approval stack, so the
+`dispatch-approval` plugin (Ed25519 signer, Approve/Deny buttons) was removed here. sideclaw's repo
+policy is the only boundary; budgets and the brief secret scan (refuses, never redacts) remain.
+Config of `plugins:` is empty; `HERMES_PLUGINS` in the Makefile is empty.
 
 **`slack.allow_bots: all` is deliberate — do not "fix" it.** The trust boundary is the
 workspace, not human-vs-bot: HomeLab/VPS/Argo post from inside the tailnet and live `#alerts`
@@ -133,9 +98,8 @@ channels; in `#agents` Hermes answers only when mentioned, so it never replies t
 
 **Tests** (`~/.hermes/hermes-agent/venv/bin/python3`): `test_cron_allowlist.py`. `test_hermes_cc.py` moved to
 `warden/tests/test_warden_cli.py` (black-box against the real `warden` CLI, stubbed sideclaw +
-GitHub + Slack) with `hermes-cc.sh` itself (2026-09-10); `test_dispatch_approval.py` moved with
-it and still loads this plugin by path. Run both with warden's own venv (`make test` from
-`warden/`). The other
+GitHub + Slack) with `hermes-cc.sh` itself (2026-09-10); run it with warden's own venv (`make test`
+from `warden/`). The other
 half is `sideclaw/tests/` (`bun test`, mutation-verified — worktree isolation, the
 diff-refusal ladder, the secret scan, the nonce fence around the brief).
 
@@ -177,11 +141,7 @@ agent — prompt without waiting, then poll `agent get`.
 `com.jkrumm.warden-loop`, 10 min) is the deterministic act-loop over
 `~/.warden/warden.db` that turns deduplicated watchdog events into Slack cards
 and, once eligible, `implement` dispatches. It reaches back into this repo
-through `scripts/hermes-cc.sh dispatch --auto-from-item` (an exec shim into
-`warden dispatch --auto-from-item`; every precondition re-checked from
-`~/.warden/warden.db`, no Slack click needed) and the
-`dispatches`/`dispatch_approvals` tables `warden` and
-`plugins/dispatch-approval/` still own at that same ledger path — see
+through `scripts/hermes-cc.sh` (an exec shim into the `warden` CLI) — see
 *Dispatch Bridge* above. Full state machine, the policy contract
 (`config/triage-policy.json`, now at `~/SourceRoot/warden/config/`), and why
 the loop is a LaunchAgent rather than a `hermes cron` job:
@@ -305,9 +265,9 @@ no native tool for this pipeline.
 ## Agents overview (agents)
 
 Read-only cross-project Claude Code/herdr status via sideclaw's `/api/overview` —
-conversational skill (`skills/agents/SKILL.md`) and a morning-briefing feed
+conversational skill (`skills/warden/references/agents.md`) and a morning-briefing feed
 (`scripts/agents-overview.py`). Never dispatches, never steers a pane — that's
-`claude-dispatch`. **`docs/agents-overview.md`**.
+`dispatch`. **`docs/agents-overview.md`**.
 
 ## Project narratives (project-narratives)
 
