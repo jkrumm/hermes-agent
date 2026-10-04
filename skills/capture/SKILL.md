@@ -270,3 +270,10 @@ If you asked first and the user confirmed, no need to repeat the title — just 
 
 **Ambiguous:** "Look at the morning briefing"
 → Default to TickTick `🏠Personal` (exploration), dueDate = today + 7d. If the user later says "actually make the prompt shorter," that follow-up is a GitHub `dotfiles` issue.
+
+## More references
+
+Read the matching file when the situation fits:
+
+- `references/voice-memo-briefs.md` — Use when a voice memo must become a brief or prompt
+- `references/voice-memo-intake.md` — Use when an audio file or voice memo must become text

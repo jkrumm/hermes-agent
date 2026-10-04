@@ -10,7 +10,7 @@ summary through read-only surfaces — nothing here ever steers an agent.
 
 | Surface | What | Where |
 |-|-|-|
-| Conversational | "what are my agents doing", "wo steht `<project>`" | `skills/agents/SKILL.md` — reads `/api/overview.txt`, refreshes on request |
+| Conversational | "what are my agents doing", "wo steht `<project>`" | `skills/warden/references/agents.md` — reads `/api/overview.txt`, refreshes on request |
 | Morning briefing | an "Agenten & Projekte" section, ≤ 6 lines, German | `scripts/agents-overview.py --briefing`, called from `scripts/briefing-context.py`, rendered per `cron/morning-briefing.prompt.txt` |
 | On-demand Slack post | "post the overview to #agents" (or a screenshot request) | `scripts/agents-overview.py --post-full`, posts Block Kit via `chat.postMessage`, no schedule, no state |
 
@@ -58,7 +58,7 @@ This feature never sends keys to a herdr pane and never opens a dispatch — it
 only calls sideclaw's `GET /api/overview[.txt]` and, when the cached overview
 is stale, `POST /api/jobs {"tool":"overview"}` to trigger a fresh
 summarization pass. Steering an agent (answering it, nudging it, opening a
-new episode) stays `claude-dispatch`'s job. `scripts/agents-overview.py`'s
+new episode) stays `dispatch`'s job. `scripts/agents-overview.py`'s
 render functions are pure given an overview snapshot — `fetch`/`refresh` are
 the only network calls, everything else (`render_briefing`,
 `render_slack_blocks`) is unit-tested in `tests/test_agents_overview.py` with

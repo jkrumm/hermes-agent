@@ -5,7 +5,7 @@ version: 1.0.0
 metadata:
   hermes:
     tags: [agents, human-needed, queue, macbook, mini]
-    related_skills: [agents, claude-dispatch]
+    related_skills: [warden, dispatch]
 ---
 
 # Present-human queue
@@ -156,3 +156,9 @@ command runner.
   compare the value by hash across the first two, then exercise the real door
   (`curl -u … https://<app>.${DOMAIN}/<route>`) and report the status codes. A
   field that exists in 1Password is not a feature that works.
+
+## More references
+
+Read the matching file when the situation fits:
+
+- `references/human-approval-handoff.md` — Use when a present human must approve or run something

@@ -3,7 +3,7 @@
 sideclaw is tracking, for the morning briefing and an on-demand Slack post.
 
 Talks to sideclaw's overview endpoints (`http://localhost:7705`, a local
-LaunchAgent — see `skills/agents/SKILL.md`):
+LaunchAgent — see `skills/warden/references/agents.md`):
 
   GET  /api/overview          -> {ok, data: {generatedAt, summary, projects[], overview, ...}}
   POST /api/jobs {"tool":"overview"} -> {ok, job:{id, status, ...}}   -- triggers

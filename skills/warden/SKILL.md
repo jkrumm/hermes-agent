@@ -5,19 +5,20 @@ version: 1.0.0
 metadata:
   hermes:
     tags: [warden, triage, ledger, board, control-plane]
-    related_skills: [claude-dispatch, agents]
+    related_skills: [dispatch, verify]
 ---
 
 # Warden — read-only status over the control plane
 
 Warden (`~/SourceRoot/warden`) is the deterministic control plane: it ingests
 signals, decides, dispatches Claude Code episodes through sideclaw, and owns
-the only ledger (`~/.warden/warden.db`) — five LaunchAgents, no LLM call
-anywhere in the loop. Handing it work is **`claude-dispatch`**'s `run` verb;
-this skill only reads what it's doing back, over its loopback HTTP API.
+the only ledger — five LaunchAgents. Handing it work is **`dispatch`**'s `run`
+verb; this skill only reads what it's doing back, over its loopback HTTP API.
+**Never open the ledger file** (no sqlite, no `warden.db`) — the API is the interface.
 
-**This skill is READ-ONLY**, same shape as `agents`. It never opens an item,
-merges a PR, or aborts a run — that's `claude-dispatch`.
+**This skill is READ-ONLY.** It never opens an item, merges a PR, or aborts a
+run — filing is `dispatch`. The cross-project agent overview (sideclaw's
+`/api/overview`) is `references/agents.md`.
 
 ## Always `127.0.0.1`, never `localhost`
 
@@ -115,7 +116,7 @@ that", not `/board`'s one-line summary.
 - **A stale poller in `/health` is a finding — name it.** Don't just relay
   the top-level `ok` boolean.
 - **Never write.** Nothing here opens, merges, aborts, or notes anything —
-  that's `claude-dispatch`. Warden's API has no write endpoint at all: the
+  that's `dispatch`. Warden's API has no write endpoint at all: the
   owner's clicks (implement/merge/dismiss/reinvestigate/note) go into Argo's
   action queue, and warden's loop pulls and applies them itself.
 - **What waits on Johannes is `/board.awaiting_owner`** — parked items with

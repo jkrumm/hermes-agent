@@ -199,3 +199,19 @@ the exact command — do not reach for raw shell.
 **Escalation shape** — when you land here, give Johannes four things and stop:
 what you observed (with the verb output), which failure class it is, the exact
 command or change you recommend, and what you have already ruled out.
+
+## More references
+
+Read the matching file when the situation fits:
+
+- `references/alert-liveness-forensics.md` — Use when deciding whether an alert is still live
+- `references/headless-secrets.md` — Use when verifying or changing a secret on this estate
+- `references/host-metric-alert-triage.md` — Use when a host metric alert fires (temp, CPU, disk, load)
+- `references/keepalive-hot-loop-triage.md` — Use when a supervised service loops while it is up
+- `references/macos-hang-triage.md` — Use when a macOS path hangs or a daemon is wedged
+- `references/onepassword-cli-forensics.md` — Use when an `op` call fails or is rate-limited
+- `references/rate-limit-storm-triage.md` — Use when an app storms 429s: self-inflicted or upstream?
+- `references/restart-window-prep.md` — Use when handing a reboot or OS-update window to the owner
+- `references/rollhook-deploys.md` — Diagnose RollHook VPS deploy failures — IMAGETAG validation rejections, unhealthy-container rollbacks, dangling imports, and health-probe 404s during a rollout. Use for a "#alerts" Deployment failed message, a stale image after a push, or a transient 404 during a rollout
+- `references/sudo-handoff.md` — Use when a change needs root the agent cannot sudo
+- `references/upstream-feed-outage-triage.md` — Use when an ingest feed reports stale or missing data

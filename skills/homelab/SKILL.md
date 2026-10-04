@@ -132,3 +132,12 @@ because it embeds the brief downtime window.
   filesystem operations. The container only has its internal volume view.
 - **1Password must be authenticated on the homelab** for the DUFS password
   read. Verify with `ssh homelab "op account get"`.
+
+## More references
+
+Read the matching file when the situation fits:
+
+- `references/media-library-import.md` — Use when media downloads are missing from Jellyfin
+- `references/personal-file-storage.md` — Use when a file must land in the user's own archive
+- `references/tailscale-diagnostics.md` — Diagnose Tailscale device reachability (serve, ACL, tags)
+- `references/torrent-stack-diagnostics.md` — Diagnose idle torrents, VPN/API health, and stack updates

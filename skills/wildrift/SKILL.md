@@ -220,7 +220,7 @@ your own `git push`; the helper (and the sync LaunchAgent) own that.
 
 ## You cannot dispatch a Claude Code episode at the vault
 
-`brain` is on the **deny** list in `config/dispatch-repos.json`. `claude-dispatch`
+`brain` is on the **deny** list in `config/dispatch-repos.json`. `dispatch`
 refuses it at every tier — do not offer to "add it".
 
 Claude Code genuinely is better at vault writes than you are: it loads the

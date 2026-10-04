@@ -206,7 +206,7 @@ Hermes may not restart its own gateway: a `hermes gateway restart` issued from a
 terminal call inside that gateway would terminate the process running the command,
 and it is blocked. That refusal is correct — do not look for a way around it.
 
-Nor is it a `claude-dispatch` job. Dispatch hands a *repo* episode to Claude Code in
+Nor is it a `dispatch` job. Dispatch hands a *repo* episode to Claude Code in
 an isolated worktree; it has no lifecycle authority over this machine's launchd, and
 `hermes-ops.sh` excludes `ai.hermes.gateway` for the same reason. Asking Claude Code
 to run it would be improvising an infrastructure mutation through a tool built for
@@ -244,3 +244,12 @@ Do not report a fix until all of these hold:
 - one real tool-using turn completes without a `Fallback activated` line
 
 See `references/model-routing.md` for the 2026-08-14 incident in full.
+
+## More references
+
+Read the matching file when the situation fits:
+
+- `references/checkpoint-store-forensics.md` — Use when a checkpointmanager ERROR or store alert fires
+- `references/hermes-log-alert-forensics.md` — Use when a Hermes log ERROR line reaches Warden or #alerts
+- `references/hermes-model-audit.md` — Use when auditing Hermes's own brain model performance
+- `references/supervised-restart-forensics.md` — Diagnose supervised restarts: kill deadline vs drain

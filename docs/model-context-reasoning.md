@@ -51,7 +51,7 @@ fell off, which is what a `hermes update` does.
 > route rather than describing the log (`_detect_api_mode_for_url`,
 > `resolve_reasoning_config`). It also carries the restart boundary — Hermes
 > may not restart its own gateway, `hermes-ops.sh` excludes `ai.hermes.gateway`
-> for the same reason, and `claude-dispatch` is not a workaround since it has
+> for the same reason, and `dispatch` is not a workaround since it has
 > no lifecycle authority over launchd.
 
 **The key is `agent.reasoning_effort`, not `model.reasoning_effort`.** `resolve_reasoning_config()` (`hermes_constants.py`) reads `agent.reasoning_overrides` then `agent.reasoning_effort`, and nothing reads the `model` section's copy. `model.reasoning_effort` has been removed from `config.yaml` entirely (2026-09-13) rather than kept as a synced-but-dead mirror — it carried `medium` for months while `resolve_reasoning_config(live config) → None` read the real, live key instead, i.e. no future reader can act on a value nothing consults. Per-model overrides go in `agent.reasoning_overrides`.

@@ -277,3 +277,9 @@ curl -s -X POST -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: ap
 - **Request body fields** are snake_case where the schema says so (`exercise_id`, `weight_kg`, `set_number`, `set_type`, `birth_date`, `height_cm`, `goal_weight_kg`); response field naming is unchanged from each endpoint's source.
 - **Trailing slashes** are tolerated but not preferred — use `/workouts`, not `/workouts/`.
 - This skill is auto-regenerated from the live OpenAPI spec (`https://argo.jkrumm.com/api/openapi/json`) — run `/docs` in the homelab project after API route changes. The regen pass rewrites this file using the **14-tag taxonomy** above: keep the personal / work / not-agent-facing split (don't fold M365/Atlassian/GitLab in here — they're the `work` skill — and never add `/hermes/*` or `/ai/v1/*`).
+
+## More references
+
+Read the matching file when the situation fits:
+
+- `references/personal-finance.md` — Use when a personal money question needs a number

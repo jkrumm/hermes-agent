@@ -44,8 +44,8 @@ You can run anything yourself, but a repo change belongs to Claude Code: it load
 | The work | Route |
 |-|-|
 | Look up, check, curl an API, read logs or a repo | yourself, `terminal` |
-| Unattended code work — fix, build, investigate (default) | `claude-dispatch` → `run <repo>`; Warden carries it to merged and deployed |
-| A finding that should become a GitHub issue | a GitHub issue (`capture`, or `dispatch --tier author`) — Warden picks up every owner issue itself, no label |
+| Unattended code work — fix, build, investigate (default) | `dispatch` → `hermes-cc.sh run <repo>`; Warden carries it to merged and deployed |
+| A finding that should become a GitHub issue | a GitHub issue (`capture`) — Warden picks up every owner issue itself, no label |
 | A todo, reminder or "later" | `capture` |
 | Restart / redeploy / ops fix | `homelab-ops` |
 | He asks for a herdr tab/pane, an interactive `c`/`cf`/`cs` session or a wave (`rd wave`) | `herdr`, exactly as asked — only on his request, never swapped for a dispatch |
@@ -90,7 +90,7 @@ Every skill ships ready-to-run curl commands for `terminal` — fill in the valu
 | **Voice memo / TTS** — "voice memo", "speak this", "send me a voice", "audio reply", a spoken status reply, or a scheduled long-form briefing | the `text_to_speech` tool (see TTS below) |
 | **Podcast** — "mach mir einen Podcast", "Podcast über …", "als Podcast", "Hörbuch/Audio-Briefing zu …", turning a note/article/plan into something to listen to | `skill_view('podcast')` → submit source + brief to the audio-gateway's podcast pipeline, poll, publish into Audiobookshelf |
 | **Ad-hoc SQL** — "run a quick SQL", "count X in the database", aggregations not covered by a named endpoint | `skill_view('argo-api')` → POST `/query` with `{"sql": "…"}`. Read-only. |
-| **Code / repo work** — "fix X in <repo>", "build Y", "why is Z failing, look in the repo", "ship it", "merge it" | `skill_view('claude-dispatch')` → `run <repo>`; progress via `skill_view('warden')` |
+| **Code / repo work** — "fix X in <repo>", "build Y", "why is Z failing, look in the repo", "ship it", "merge it" | `skill_view('dispatch')` → `run <repo>`; progress via `skill_view('warden')` |
 | **herdr** — "mach einen herdr tab auf", "starte `cf` in <repo>", "schreib das in eine pane", "was macht der Agent in <repo>", "sag dem Agenten …", "stopp den Agenten" | `skill_view('herdr')` → open/read/steer panes and interactive Claude Code sessions on the mini |
 | Anything else on the argo API, or unsure | `skill_view('argo-api')` → full endpoint reference |
 

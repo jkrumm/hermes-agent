@@ -11,7 +11,7 @@ auto-loaded.** The live job carries its own copy of the prompt in `~/.hermes/cro
 |-|-|
 | Job id | `8fe7be4985d9` (registered 2026-08-16) |
 | Schedule | `0 9 * * 6` (Saturday 09:00, Europe/Berlin) |
-| Skills | `claude-dispatch`, `obsidian` |
+| Skills | `dispatch`, `obsidian` |
 | Pre-run script | none — the agent runs the whole turn |
 | Deliver | `slack:C0ASRULFTSS` (#watchdog) |
 | Name | `Brain drift audit` |
@@ -48,6 +48,6 @@ again; leaving it unpinned means it stops and asks rather than re-routing.
 
 ```bash
 hermes cron edit 8fe7be4985d9 --prompt "$(cat ~/SourceRoot/hermes-agent/cron/brain-drift-audit.prompt.txt)"
-hermes cron edit 8fe7be4985d9 --skill claude-dispatch --skill obsidian   # replaces the set
+hermes cron edit 8fe7be4985d9 --skill dispatch --skill obsidian   # replaces the set
 hermes cron edit 8fe7be4985d9 --provider custom --model deepseek-v4.1-flash   # re-pin if the brain moves
 ```

@@ -5,7 +5,7 @@ version: 1.0.0
 metadata:
   hermes:
     tags: [herdr, pane, panes, tab, tabs, workspace, terminal, multiplexer, agent, claude, claude-code, cf, cs, interactive, steer, mini]
-    related_skills: [agents, claude-dispatch, warden]
+    related_skills: [dispatch, warden, verify]
 ---
 
 # herdr — Johannes's visible terminal workspace
@@ -19,8 +19,8 @@ may use every verb it has.
 
 | He asks for | Lane |
 |-|-|
-| "look into the repo and tell me why X" · "fix it" · anything **unattended, tracked, to an outcome** | `claude-dispatch` → Warden. Ledger, budgets, tiers, draft PR. |
-| "what are my agents doing", a cross-project status read | `agents` (sideclaw overview, read-only) |
+| "look into the repo and tell me why X" · "fix it" · anything **unattended, tracked, to an outcome** | `dispatch` → Warden (`hermes-cc.sh run`). Tracked to a merged, verified fix. |
+| "what are my agents doing", a cross-project status read | `warden` skill → `references/agents.md` (sideclaw overview, read-only) |
 | **"open a herdr pane/tab"**, "start `cf` in warden", "write that into a pane", "tell the agent in <repo> …", "stop that agent" | **this skill** |
 
 The difference is not safety, it is **who owns the work**. A Warden dispatch is
@@ -136,7 +136,7 @@ summarize it, do not "clean it up", do not strip the rambling — the agent has 
 full repo, the rules and the domain context you don't, and it is better at
 extracting the real task from his phrasing than you are at guessing it. Your
 reformatting silently deletes signal. This holds for briefs to any agent lane
-(herdr pane, `claude-dispatch`), not just this one.
+(herdr pane, `dispatch`), not just this one.
 
 A long or multi-line prompt goes through a file — never try to inline it, quoting
 will bite you:
@@ -190,17 +190,10 @@ bare `ssh mini 'claude …'` comes up `Not logged in` and silently bills the API
 
 | Verb | What it starts |
 |-|-|
-| `rd bg <repo> '<prompt>'` | a durable `claude --bg` daemon — survives ssh, herdr and lid-close. It is **not** a pane, so there is no pane id to `rd say` to: give it another report channel. |
 | `rd wave <repo> '<prompt>'` | a fresh herdr tab labelled `wave <n>` running one bounded wave |
 | `rd agents` / `rd read` / `rd say <pane>` | track, read, steer |
 
-Models are env vars, not flags: **`RD_BG_MODEL`** (default `sonnet`) and
-**`RD_WAVE_MODEL`** (default `sonnet`). `RD_BG_MODEL=opus rd bg …` is how a
-mother/lead chain is put on Opus. `rd bg` creates a throwaway workspace
-(`bg:<repo>`) and closes it once the daemon exists; the daemon shows up in
-`claude agents --json` with `kind: "background"`, and its transcript is
-`~/.claude/projects/<slugged-cwd>/<session-id>.jsonl` (`message.model` there is
-the real proof of which model is running).
+The model is an env var, not a flag: **`RD_WAVE_MODEL`** (default `sonnet`). `rd` is the only way to place work on the mini — never a raw `claude --bg` / `claude -p`, which loses the keychain credential and the house flags.
 
 A long prompt is safe: the script base64s it and stages it in a temp file,
 because a pane's canonical input stops at 1024 bytes — never inline a brief

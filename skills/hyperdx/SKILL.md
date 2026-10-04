@@ -5,7 +5,7 @@ version: 1.1.0
 metadata:
   hermes:
     tags: [hyperdx, clickstack, clickhouse, otel, opentelemetry, observability, traces, tracing, logs, metrics, 5xx, latency, p95, error-rate, edge, traefik]
-    related_skills: [homelab-ops, claude-dispatch, capture, argo-api]
+    related_skills: [homelab-ops, dispatch, capture, argo-api]
 ---
 
 # HyperDX / ClickStack — observability triage
@@ -41,7 +41,7 @@ browser session. Use the MCP API below instead.
 - Container/monitor health, restarts, deploy state → `homelab-ops` first. Only reach for
   HyperDX once ops says the containers themselves look fine (the common case — a 5xx spike
   is application-level, not a crash) or once you need the specific failing route/trace.
-- Anything code-shaped ("what changed", "read the source") → `claude-dispatch` once you have
+- Anything code-shaped ("what changed", "read the source") → `dispatch` once you have
   a service name and a symptom from here.
 
 ---
@@ -177,8 +177,8 @@ returns nothing for the alert's own window — always run it before concluding t
 | Finding | Action |
 |-|-|
 | Transient, self-resolved, evidence shows a brief spike with no pattern | Report it — no escalation needed. Name the window and the numbers. |
-| Recurring / ongoing, root cause is app code (a specific service, route, error message) | `claude-dispatch` into that service's own repo, `--tier author` to file the issue with your evidence, or `--tier implement` only after Johannes confirms a fix. |
-| Root cause is Traefik/ClickStack/compose config itself | `claude-dispatch dispatch vps --tier investigate` (the ceiling there — read-only). For a filed issue or a fix, use `capture` → `gh issue create` on `vps` directly, or report to Johannes; the dispatch bridge cannot author/implement on `vps`. |
+| Recurring / ongoing, root cause is app code (a specific service, route, error message) | `dispatch` (`hermes-cc.sh run <repo>`) into that service's own repo, evidence in the brief — Warden investigates and carries the fix. |
+| Root cause is Traefik/ClickStack/compose config itself | `dispatch` into `vps` with the evidence in the brief; sideclaw's repo policy decides what it may do there. A refusal is final — fall back to `capture` → GitHub issue, or report to Johannes. |
 | You cannot tell which service owns the failing route | `clickstack_sql` group-by above already answers this — don't guess or escalate before running it. |
 
 **ServiceName → repo**, current mapping (services seen in `otel_traces.ServiceName`):
@@ -216,3 +216,9 @@ managed as code in `vps/observability/{dashboards,alerts}/*.json` via `make hype
 `https://hyperdx.jkrumm.com/dashboards/<id>?from=<epoch-ms>&to=<epoch-ms>&kiosk=true` — give
 Johannes a direct link to the relevant dashboard/window when reporting a finding, so he can
 look without you re-explaining every number in Slack.
+
+## More references
+
+Read the matching file when the situation fits:
+
+- `references/hyperdx-alert-as-code.md` — Use when changing a HyperDX alert or dashboard as code
