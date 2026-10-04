@@ -11,7 +11,7 @@ symlinked into `~/.hermes/` — edit at either end, git sees it here.
 **Warden (`~/SourceRoot/warden`) is the control plane this repo hands work to and reads
 from.** It ingests signals, decides, dispatches Claude Code episodes through sideclaw, and
 owns the only ledger (`~/.warden/warden.db`) — five LaunchAgents, no LLM call anywhere in its
-loop. Hermes narrates and answers; it never dispatches or decides on its own. See *Dispatch
+loop. Hermes has one role — **narrate, answer, route** (spec: `dotfiles/docs/agent-platform.md` §Hermes): it reports one line per item, answers questions, and files work through `warden run` or a GitHub issue; herdr tabs / `rd wave` only when the owner asks. It never dispatches on its own, lands PRs, or authors skills unattended. The reporting contract lives in `SOUL.md` and nowhere else — no per-skill report formats. See *Dispatch
 Bridge* below for how Hermes hands it work, and the read-only `warden` skill for how Hermes
 reads it back.
 
@@ -41,6 +41,8 @@ the first pass.
 | `config/` | `~/.hermes/config/` | **empty** since 2026-09-10 — `dispatch-repos.json` (root, `deny`, `defaultTier`, per-repo ceilings) moved to `~/SourceRoot/warden/config/`, warden's own defence-in-depth copy |
 | `skills/{name}/` | `~/.hermes/skills/{name}/` | **`HERMES_SKILLS` in the Makefile is the source of truth** — 21 dirs (roster + `homelab` category-dir note: docs). |
 | `USER.md` | `~/.hermes/memories/USER.md` | **copied** — Hermes writes to it |
+
+**Autonomous skill creation is off** (`skills.creation_nudge_interval: 0`); `skills.create_dir` points at `~/.hermes/skills-quarantine`, outside `external_dirs`, so anything Hermes writes anyway is neither live nor tracked until the owner promotes it here. Needs a gateway restart.
 
 **A skill is durable only if symlinked from this repo.** `skills.external_dirs` satisfies the
 v0.16.0+ skill-trust check **and** protects a skill from the background self-improvement
@@ -126,8 +128,8 @@ personal access token".
 
 **`slack.allow_bots: all` is deliberate — do not "fix" it.** The trust boundary is the
 workspace, not human-vs-bot: HomeLab/VPS/Argo post from inside the tailnet and live `#alerts`
-auto-triage depends on it. `require_mention_channels` silences `#media`/`#updates` (pure-echo
-channels) — inbound-only, `hermes send`/cron/dispatch verdicts still post there.
+auto-triage depends on it. `require_mention_channels` silences `#media`/`#updates`/`#alerts`/`#agents` (pure-echo
+channels; in `#agents` Hermes answers only when mentioned, so it never replies to warden's posts) — inbound-only, `hermes send`/cron/dispatch verdicts still post there.
 
 **Tests** (`~/.hermes/hermes-agent/venv/bin/python3`): `test_cron_allowlist.py`. `test_hermes_cc.py` moved to
 `warden/tests/test_warden_cli.py` (black-box against the real `warden` CLI, stubbed sideclaw +

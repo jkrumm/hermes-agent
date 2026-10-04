@@ -74,7 +74,7 @@ terminal:
   timeout: 180
   env_passthrough: []
   shell_init_files: []
-  auto_source_bashrc: true
+  auto_source_bashrc: false
   docker_image: nikolaik/python-nodejs:python3.11-nodejs20
   docker_forward_env: []
   singularity_image: docker://nikolaik/python-nodejs:python3.11-nodejs20
@@ -259,7 +259,7 @@ auxiliary:
     timeout: 600
 display:
   compact: false
-  personality: kawaii
+  personality: ''
   resume_display: full
   resume_exchanges: 10
   resume_max_user_chars: 300
@@ -287,7 +287,7 @@ display:
   user_message_preview:
     first_lines: 2
     last_lines: 2
-  interim_assistant_messages: true
+  interim_assistant_messages: false
   tool_progress_command: false
   tool_preview_length: 0
   ephemeral_system_ttl: 0
@@ -425,12 +425,11 @@ goals:
 skills:
   external_dirs:
     - ~/SourceRoot/hermes-agent/skills
-  # Agent-created skills land in the git repo, not under ~/.hermes/skills/.
-  # Because this path is also in external_dirs, the background curator refuses
-  # every autonomous mutation on it (is_external_skill_path), so a new skill is
-  # durable and reviewable by construction instead of being detected after the
-  # fact by warden's watchdog-poll.py stray_skill source.
-  create_dir: ~/SourceRoot/hermes-agent/skills
+  # Agent-created skills land in a quarantine dir OUTSIDE external_dirs: nothing Hermes writes
+  # unattended is live or tracked until the owner promotes it into this repo. Background
+  # creation is off too (creation_nudge_interval: 0); this is the belt to that brace.
+  creation_nudge_interval: 0
+  create_dir: ~/.hermes/skills-quarantine
   template_vars: true
   inline_shell: false
   inline_shell_timeout: 10
@@ -460,6 +459,7 @@ slack:
   # tool for a firehose Hermes doesn't need to read live.
   #   C0AS5GUH5U4 = #media    (podcast/image completions — Hermes is the producer)
   #   C0ARZJD824W = #updates  (also polled out-of-band by warden's watchdog-poll.py as slack_update)
+  #   C0BVDE5R562 = #agents   (warden/agents digests — mention-only, never answers a bot post)
   #   C0AS1LAUQ3C = #alerts   (see below — replaced by warden's triage.py)
   # Silencing is inbound-only: `hermes send`, cron delivery and dispatch verdicts still
   # post here, and the dispatch nudge targets origin_channel, never these three.
@@ -480,7 +480,7 @@ slack:
   require_mention: false
   free_response_channels: ''
   allowed_channels: ''
-  require_mention_channels: C0AS5GUH5U4,C0ARZJD824W,C0AS1LAUQ3C
+  require_mention_channels: C0AS5GUH5U4,C0ARZJD824W,C0AS1LAUQ3C,C0BVDE5R562
   enabled: true
   bot_token: ${SLACK_BOT_TOKEN}
   app_token: ${SLACK_APP_TOKEN}
