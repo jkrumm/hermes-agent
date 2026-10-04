@@ -17,8 +17,13 @@ apply_and_restart() {
 
 verify_with_retry() {
   # Slack + the API server need a while after boot to report connected.
+  # A restart first drains in-flight agent turns (gateway_state=draining) for as long as
+  # they run — a drain is not a failure, so wait it out before the bounded retries.
   local n
   sleep 10
+  while make --no-print-directory verify 2>/dev/null | grep -q 'gateway_state=draining'; do
+    sleep 10
+  done
   for n in 1 2 3 4 5 6; do
     make --no-print-directory verify >/dev/null 2>&1 && return 0
     sleep 8
