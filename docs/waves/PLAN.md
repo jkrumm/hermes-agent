@@ -28,14 +28,21 @@ churn, no replies to warden's own posts.
 - Commits: `d888f9c` (behaviour), `01e3767` (skill report-format removal). `make patch-check` 15/15 green.
 
 
-## Wave 2 — 126 skills → ~20            <!-- status: active -->
-- [ ] Target set: capture, argo-api, work, karakeep, obsidian, reading, wildrift, research-gateway, image-delivery, podcast, briefing-tts, hyperdx, homelab, homelab-ops, hermes-gateway, human-queue, `dispatch` (filing work), `warden` (read-only via its HTTP API, never sqlite), `herdr` (tabs + `rd`), `verify` (one checklist). Fold useful facts from the duplicates into these as reference files; delete the rest. Delete the "Hermes lands PRs by hand" cluster outright (blocked-agent-pr-handfix, warden-hand-fixes, carrier-*, …).
-- [ ] Update `HERMES_SKILLS` in the Makefile to the target set; commit the decision for every untracked Hermes-authored dir (fold or delete) so the tree is clean.
-- [ ] One door per verb: `hermes-cc.sh run` (drop direct `warden` script calls and `gh pr merge`), `rd` for panes (drop raw `claude --bg` / `claude -p`). Disable the kanban and delegation toolsets.
-- [ ] Remove `plugins/dispatch-approval` **only if** warden Wave 1 is done (check `~/SourceRoot/warden/docs/waves/PLAN.md`); otherwise leave a note in Left behind.
+## Wave 2 — 126 skills → ~20            <!-- status: done -->
+- [x] Target set: capture, argo-api, work, karakeep, obsidian, reading, wildrift, research-gateway, image-delivery, podcast, briefing-tts, hyperdx, homelab, homelab-ops, hermes-gateway, human-queue, `dispatch` (filing work), `warden` (read-only via its HTTP API, never sqlite), `herdr` (tabs + `rd`), `verify` (one checklist). Fold useful facts from the duplicates into these as reference files; delete the rest. Delete the "Hermes lands PRs by hand" cluster outright (blocked-agent-pr-handfix, warden-hand-fixes, carrier-*, …).
+- [x] Update `HERMES_SKILLS` in the Makefile to the target set; commit the decision for every untracked Hermes-authored dir (fold or delete) so the tree is clean.
+- [x] One door per verb: `hermes-cc.sh run` (drop direct `warden` script calls and `gh pr merge`), `rd` for panes (drop raw `claude --bg` / `claude -p`). Disable the kanban and delegation toolsets.
+- [x] Remove `plugins/dispatch-approval` **only if** warden Wave 1 is done (check `~/SourceRoot/warden/docs/waves/PLAN.md`); otherwise leave a note in Left behind.
 **Left behind:**
+- Commits `69dcf44` (skills 126 → 20) and `705846e` (plugin, toolsets, Makefile, docs). Tree clean; `make patch-check` 15/15, `make status` no failures.
+- **Gateway restart pending (orchestrator's)** — now covers Wave 1 + Wave 2: `config.yaml` (`agent.disabled_toolsets: [kanban, delegation]`, `platform_toolsets` without them, `plugins.enabled: []`) and the new skills index. Not live until `launchctl kickstart -k gui/$(id -u)/ai.hermes.gateway`. The `/hermes-validate` 3-message smoke is therefore **not run**; do it after the restart (include a "fix X in <repo>" message — it must go through `dispatch` → `hermes-cc.sh run`).
+- **Review:** sideclaw `/review` synthesis failed again (Max-leg OAuth expired; the 3 angles ran, no structured output). Diff read by hand; re-run `/review` on `e71d0dd..HEAD` after re-auth if wanted.
+- Live side effects already applied: removed `~/.hermes/plugins/dispatch-approval` symlink and the `agents` / `claude-dispatch` / `rollhook-deploys` skill links; cron job `8fe7be4985d9` (Brain drift audit) re-pointed to `dispatch` and its prompt re-pushed. `make setup` now unlinks `HERMES_SKILLS_RETIRED`.
+- Folded as `references/*.md` (frontmatter stripped, description kept as italic line): verify (9), homelab-ops (11), hermes-gateway (4), homelab (4), capture (2), argo-api, hyperdx, human-queue, warden (`agents.md`). Everything else deleted — git history is the archive. `skills/work/iu-epos-ops/` is gitignored and stays on disk inside `work`.
+- Known stale, not touched: `skills/wildrift/SKILL.md` still says `brain` is on a deny list in `dispatch-repos.json` (it is investigate-only, file gone); `docs/agents-overview.md` and `docs/scheduled-jobs.md` otherwise unchanged apart from renames. `~/.hermes/skills/` still holds bundled upstream category dirs and `.curator*` state — not this repo's.
+- Hermes-side leftovers for Wave 3: `scripts/warden-live-sync.sh` + its cron (job `e9e72d028dc5`) — warden Wave 4 not checked here.
 
-## Wave 3 — repo contract and cleanup            <!-- status: pending -->
+## Wave 3 — repo contract and cleanup            <!-- status: active -->
 - [ ] Make targets `check`, `deploy` (restart gateway, health check, roll back to the previous commit on failure), `verify`, `logs`; AGENTS.md sections `## Validate`, `## Deploy`, `## Verify & Monitor`, `## Gotchas`.
 - [ ] Remove `scripts/warden-live-sync.sh` and its cron **only if** warden Wave 4 is done (warden deploys itself via `make deploy`); otherwise note it.
 - [ ] Replace ad-hoc watcher crons / `/tmp/watch-*.sh` patterns in skills with `herdr agent wait --until done` (single blocking call) or warden item status.
