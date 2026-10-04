@@ -87,9 +87,3 @@ executor check. This skill is the transport: how the wait is run here.
   `pgrep -f <pat>` needs a bracket-search (`[h]ermes`) or it matches its own shell.
 - **Batch independent reads into one call** — several unrelated checks in one turn
   cost one round-trip.
-
-## Report shape
-
-Verdict first, German: what is true right now, what the watcher is waiting for,
-nothing else. Then silence until the outcome — no poll-by-poll narration, no
-"soll ich …?" for work already in flight.

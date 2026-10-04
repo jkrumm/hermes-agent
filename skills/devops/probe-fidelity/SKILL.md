@@ -89,16 +89,3 @@ third possibility both of them assume away: **the producer is the fault.**
   discharge an open item: a resolved signal and a closed card are different rows,
   and the probe's consumer keeps re-sending the card. Fixing the probe ends the
   *signal*, not the item — check the item's own state and close it separately.
-
-## Report shape
-
-Verdict first, and say **which of the two** is at fault: the subject, or the
-probe. Lead with the subject's own state when it is green, then name the probe's
-environment gap in one clause, then the cost number, then the sites fixed. Where
-changing a repo needs the owner's confirmation, say so and stop at the
-recommendation — do not open an episode unasked.
-
-If the probe was the fault, say plainly that the alert text was a **true
-statement about the probe and a false one about the subject**. That distinction is
-the whole finding; collapsing it sends the next reader hunting a fault that is not
-there.

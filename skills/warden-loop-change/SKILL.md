@@ -88,10 +88,3 @@ commit, and the evidence is a count — not a green suite.
 - **Keep a record of the deviation.** When the delivered change is narrower than the
   ask, say so in the commit body, the § entry and the reply: the narrower scope plus its
   measurement is the deliverable.
-
-## Report shape
-
-German, verdict first, a few lines: what the loop now does differently, the test count,
-the live number the predicate produced, the commit hash, the tick it went live on, and
-which part of the ask was deliberately not landed and why. No narration of the calls
-made, no closing question about work already finished.

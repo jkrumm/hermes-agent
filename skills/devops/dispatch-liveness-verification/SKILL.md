@@ -71,10 +71,3 @@ state.
 - **A dispatch with no verdict is not a verdict.** A terminal job that returned
   no result folds to `needs_human` carrying `dispatches.error` — read the error,
   not the state name.
-
-## Report shape
-
-Verdict first, in German, one line per finding: what the job is doing, what is
-ahead of it, how long the oldest has waited, and — only if it changes his next
-move — the stale `note` or the cap that produced it. No PID dumps, no
-step-by-step narration of the calls you made.

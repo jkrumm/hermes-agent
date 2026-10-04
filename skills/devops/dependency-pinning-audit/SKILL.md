@@ -105,9 +105,3 @@ the dependency-specific technique both use.
 - **Read the lockfile with python, not the `sqlite3`/`jq` habit.** It is JSONC-ish
   text; a regex over the resolved map is more robust than trying to parse it as
   strict JSON.
-
-## Report shape
-
-Verdict first: how many offenders, how many of the proposed pins are text-only,
-and which single change alters the resolved tree. One line per finding. Then the
-severity correction (local risk vs build defect) and what you did **not** run.

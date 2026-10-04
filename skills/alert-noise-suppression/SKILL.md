@@ -104,10 +104,3 @@ to do when the answer is "it is live, it is benign, and it will fire again".
 - **A single-firing calibration is still a live monitor.** After applying, confirm the
   alert's own `state` on the API (it should read `OK`) and leave the discharge reason
   carrying the measured numbers — the next session cannot re-derive them from a card.
-
-## Report shape
-
-Verdict first: benign, discharged, and where the family was cut. Then one line per
-finding — the mechanism, the layer chosen (and why not the others), the real count
-against the card's. Close with the rest-state of the gate in one line (health, poller
-ages, suites green). No PID dumps, no step-by-step narration.

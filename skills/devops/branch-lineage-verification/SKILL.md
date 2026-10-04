@@ -75,11 +75,3 @@ verified statement until you have checked the lineage.
   its next tick (Warden's loop interval is 600 s) and the PR can be up minutes
   later. Poll the item (`/items/<id>` → `implement_job`, `pr_url`) rather than
   re-dispatching or announcing the outcome before the PR exists.
-
-## Report shape
-
-Verdict first, then one line per finding: the file the PR patches, the file the
-live line runs and whether the guard exists there, the divergence with what the
-deploy verb does to it, and the sequencing recommendation — push the line first,
-then land the fix against the post-move file. Name what you deliberately did not
-touch (the occupied checkout) and why. No step-by-step narration of the commands.

@@ -82,9 +82,3 @@ each verdict names; do not replay twelve transcripts.
 - **Do not re-poll, restart or re-dispatch to "unstick" a caller whose jobs are all
   terminal.** Check the jobs first: if every one is `done`, the work is finished and
   only the collection was broken — re-running it duplicates the episodes.
-
-## Report shape
-
-Verdict first: the caller, the exit code, and how many times it failed. Then one line
-for what it was supposed to collect and now does (or the batch you recovered), one
-line for what you stopped, and one line of rest-state. Do not narrate the walk.

@@ -139,11 +139,3 @@ reaches the thread).
   the parked row once it folds (`close`, allowed in `verdict`) naming the
   replacement; re-read `/board` first — a sibling lane usually filed the
   replacement within minutes and its own `close` may already be mid-procedure.
-
-## Report shape
-
-Verdict first, German, 3–6 lines: what the card claims, what is true now, which
-poller tick moves it next, and the one thing that changes his next move (usually
-nothing). Name the mechanism — the tick, the gate, the repo lock — not the state
-name. No step-by-step narration of the calls you made, and no closing question
-about work the loop already owns.

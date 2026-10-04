@@ -86,10 +86,3 @@ received — read it when a card's truncated title is all you have.
 - **Do not grep the JSON.** `params` and `result` are single-line blobs; load them
   with `json.loads` and filter in Python, or the job id you are matching on is
   lost in the noise.
-
-## Report shape
-
-Verdict first: what the job actually reported, and whether the claim you were
-checking holds. Then the evidence line — job id, tool, per-step results, and
-`result.summary` verbatim. Then, only if it changes the next move, what could not
-be verified and why (worktree gone, no matching row). No narration of the queries.

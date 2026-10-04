@@ -124,12 +124,3 @@ cd ~/SourceRoot/warden && ./scripts/warden close <event-id> --why "<what the blo
   filename there and fails the same way.
 - **`triage_items` has no `title` column** — the title lives on `events`; join
   `events.id = triage_items.event_id`.
-
-## Report shape
-
-Verdict first: *item N is closed — the blocker was gone and the work shipped as
-PR #M, now ready for review.* Then the mechanism in one line (which gate wrote the
-note and why it no longer applies), then the verification numbers (tests /
-typecheck / lint), then what is still the owner's. Name what you did **not** do —
-no merge past a missing scope, no re-dispatch, no cleanup of the reminder reply —
-and stop there.

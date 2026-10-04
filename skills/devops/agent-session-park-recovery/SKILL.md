@@ -90,10 +90,3 @@ outstanding; the remaining quota.
 - **A quota ceiling is a planning input, not a surprise.** A chain that burns ~1 %/hour
   of the weekly window exhausts a week in about four days; read the quota before
   opening a long chain, and keep the worker tier on the off-Max lanes.
-
-## Report shape
-
-Verdict first, in the owner's language: **which park it was** (quota / dead waiter /
-blocked / parked by design), since when, what you did, and what was structurally
-missing. One line per finding, no narration of the diagnosis. If a decision is now
-his, it goes to his queue with the question, not into the reply as an open question.

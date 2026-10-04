@@ -266,10 +266,3 @@ for warden's own repo, the fix lands by hand. Six steps are yours, one never is.
 7. **Never restart the gateway.** The change is inert until the owner restarts
    it — say exactly that, and close the item with `close <event-id> --why` naming
    the patch, the commit and the restart still outstanding.
-
-## Report shape
-
-Verdict first, one line. Then, per finding, one line each: what it was, why it
-looked worse than it was (the mechanism), and what was done about it. Close with
-the rest-state (ERRORs since process start, warden `/health`, poller ages) in one
-line. Say the real occurrence count, not the card's.

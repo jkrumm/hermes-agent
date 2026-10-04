@@ -96,9 +96,3 @@ done
 - **A repo capped at `investigate` ends a confident `implement` verdict at
   `needs_human`** with "apply the fix by hand" — that is the policy working, not a
   failure to route around.
-
-## Report shape
-
-Verdict first, German, one line per finding: the item's state, the PR link and
-what changed, or the reason it stopped. Evidence (job ids, queue depth, timings)
-only when he needs it to act. No step-by-step narration of the calls you made.

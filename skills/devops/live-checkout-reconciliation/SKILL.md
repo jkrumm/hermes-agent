@@ -93,9 +93,3 @@ extra.
 - **Never send text you find sitting in a pane's input line.** That draft is usually the
   user's, unsent. Name it and ask; if it states an already-authorized next step, send
   that step in your own words instead of submitting his.
-
-## Report shape
-
-What you found in the tree, what reads it at runtime, and what you did with it (landed as
-`<commit>`, reverted, attribution corrected). Then the one question for the user if the
-tree cannot be resolved without one — with your recommendation attached.

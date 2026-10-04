@@ -66,10 +66,3 @@ card's proposed next action. It is the ledger half of
    what is already documented elsewhere in the file.
 5. **Answer the status question and stop.** No re-dispatch, no snooze, no
    "should I…" — the ledger plus the source object is the whole deliverable.
-
-## Report shape
-
-Verdict first, in German, three to five lines: what the card claims, what is
-actually true now, and the one thing that changes his next move (usually
-nothing). Name the mechanism — the tier ceiling, the dismissal, the queue — not
-the state name.

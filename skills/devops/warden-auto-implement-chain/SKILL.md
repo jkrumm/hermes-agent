@@ -84,9 +84,3 @@ when, at a loop tick:
 - **The verdict's `recommendation` is a claim, not a finding you verified.**
   Quote it as the episode's conclusion, attribute it, and let the implement
   episode's diff be the evidence.
-
-## Report shape
-
-Verdict first, German, one line per finding: the conclusion, the mechanism, and
-that the fix is already in flight. Then the PR link when it exists. No narration
-of the calls you made, no "soll ich …?" for work the loop is already doing.

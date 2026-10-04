@@ -174,15 +174,3 @@ the dispatch bridge rather than improvised shell:
 - A parked fix can arrive as a conflicting draft PR, and a merge can be refused
   outright for a repo with no declared auto-merge path. Both are owner decisions by
   design — report the refusal and the exact step it needs, never work around it.
-
-## Report shape
-
-Verdict first, then one line per finding, each stating the class before the cause:
-
-- what the signature actually is, and whether it is live **now**;
-- the mechanism — which producer, which artefact, which numbers;
-- the class — deploy window / telemetry / dependency / the service itself;
-- what you did, and what you deliberately did **not** do, and why (no restart, no
-  policy write, no dispatch past a ceiling);
-- anything you could not determine, labelled as inferred — an inferred mechanism
-  marked as inferred is worth more than a confident guess.

@@ -80,8 +80,3 @@ health body for the upstream status code, and check the dependency directly
 the service's own verdict about itself. When the two disagree, the misclassification
 is a code defect for the repo — not an ops condition, and not a reason to restart or
 re-authenticate anything.
-
-## Report shape
-
-One line: the fact, the version it came from, and the command if he will re-run it.
-No narration of how you reached the host.

@@ -107,12 +107,3 @@ already carry this change?**
   returns a needs-human verdict with an empty blocking list, the pipeline broke, not
   the diff — verify the branch yourself and file the pipeline defect instead of
   acting on findings that are not there.
-
-## Report shape
-
-Verdict first: *item N is closed — superseded by PR #M, which carries the change and
-fixes both findings.* Then one line per finding: what the block was, the mechanism
-(which branch re-derived it, which gate refused), what you did. Then the verification
-numbers (tests / typecheck) and the one thing that is still the owner's (the review
-and merge). Name what you did **not** do — no re-dispatch, no merge past a missing
-scope.

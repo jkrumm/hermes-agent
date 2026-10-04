@@ -120,11 +120,3 @@ no poller retries it — so after the proof above, end it yourself:
 - **Do not re-dispatch or re-open the Warden item** to make the card agree with
   reality. Close it with the evidence; a re-dispatch spends an episode against a
   wall that has already fallen.
-
-## Report shape
-
-German, verdict first, 5–7 lines: the card's claim, the cause in one clause, the
-proof as concrete pairs (pull rc, mtime vs merge time, process start, probe
-results), then which rows were closed, then what is *not* yours (no merge, no
-dispatch, no service restarts). Name the mechanism — the missing retry path, the
-diverged checkout — not the state name. No step-by-step narration of the calls.

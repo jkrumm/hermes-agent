@@ -172,10 +172,3 @@ flag the owner can run himself.
 - **Leave the tree you were not asked to touch alone.** A scratch worktree, a venv symlink
   and a probe copy are not part of the change; remove them (or let the repo's own
   worktree-prune reclaim them) before the merge.
-
-## Report shape
-
-German, verdict first, 3–6 lines: what the round changed in one clause, the test count,
-any measured number, the read-back (`MERGEABLE`/`CLEAN` on which sha), the one command the
-owner runs, and the post-review caveat in a clause. Name the mechanism (the moved base,
-the shared predicate, the per-pass bound), not the state name. No narration of the calls.

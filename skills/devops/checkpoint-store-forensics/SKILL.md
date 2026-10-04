@@ -301,18 +301,3 @@ blocked too when its arguments contain the phrase. Hand over the one command; do
 way around the guard. Until the restart, the pre-fix behaviour continues (the gateway re-adds
 `claude-501/` to the `/tmp` ref on its next snapshot — a CLI snapshot drops it again, so the store
 oscillates rather than degrades).
-
-## Report shape
-
-Verdict first, one line: real-or-transient and whether anything is still broken. Then
-one line per finding — what it was, the mechanism, what was done. Name the store state
-(ref floor, store size vs cap, gc frequency), not just the log line. Close with the
-rest-state: ERRORs since the slice point, `git fsck` result, a live `ensure_checkpoint`
-verdict, Warden `/health`. Say the real occurrence count, not the card's.
-
-**A transient failure that is now fixed in code is still worth reporting as fixed, not
-as noise.** The three shapes above each have a patch; say which one fired, that the
-retry/lock handled it, and that the store needs nothing. `git fsck` reporting
-`dangling blob` entries is **normal** after a ref rewrite (`_prune` / `_shrink_store_to_cap`
-drop commits, so their blobs dangle until the next gc) — it is not corruption and not a
-finding; only a `missing`/`broken` line is.

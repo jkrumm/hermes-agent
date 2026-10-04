@@ -94,9 +94,3 @@ be changed at all is `alert-noise-suppression`; **how** the change is made is th
 - **Export round-trips are asymmetric for server-owned fields** (`containers: []` and friends
   vanish), so a one-line diff on a dashboard you never touched is the server normalizing, not a
   defect you introduced.
-
-## Report shape
-
-Verdict first: what the alert now requires and that prod confirms it. Then the value and the
-measurement that justifies it, the one path left open on purpose, and nothing about the calls
-in between. German, no PID/log dumps.

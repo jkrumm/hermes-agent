@@ -114,10 +114,3 @@ actually progressing, and if not, whose defect is it?*
   in it — and the command still exits 0 with a URL. Write the body to a file
   (`write_file`) and pass `--body-file`, then read it back with
   `gh issue view <n> --json body` to confirm what actually landed.
-
-## Report shape
-
-Verdict first: **pacing, not a wedge** (name the cap and the number) or **wedge**
-(name the refusal). Then one line per finding: what it is, the mechanism, what you
-filed or changed. Do not enumerate everything you checked and found healthy — say
-"rest green".

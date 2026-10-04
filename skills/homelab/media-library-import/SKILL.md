@@ -56,18 +56,6 @@ The evidence chain below doubles as the failure matrix: each step names the tran
 - **Current queue empty:** never conclude “nothing downloaded” without checking source files and persistent history.
 - **No notification:** supporting evidence only; notifications can fail independently.
 
-## Reporting format
-
-Use a compact evidence-first report:
-
-- **Found:** concrete title(s), file count, completion/mtime window, source path.
-- **Missing transition:** e.g. “source → library copy absent” or “library → Jellyfin inventory absent.”
-- **Correlated failures:** exact qBittorrent/Jellyfin errors and whether their timestamps overlap.
-- **Conclusion:** confirmed fact followed by a clearly labelled likely cause.
-- **Action boundary:** state whether anything was changed; default is “nothing moved or deleted.”
-
-Do not bury the answer beneath a running narrative of every probe or speculative explanations.
-
 ## Relationship to other skills
 
 - `homelab/torrent-stack-diagnostics` owns qBittorrent, torrent-app, VPN, and stack-health diagnosis.

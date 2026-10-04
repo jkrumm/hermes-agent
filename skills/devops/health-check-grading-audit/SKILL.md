@@ -91,10 +91,3 @@ order at file:line, the gate's configured default, the rendered line, and the
 measurement that rules out the naive fix (a reinstated cumulative threshold would page
 forever) into it. The implement tier re-reads the investigate *verdict*, not the brief,
 so the remedy has to survive that hop.
-
-## Report shape
-
-Verdict first, German, one line per finding: which component, which gate and its
-configured value, what fired versus what passed, the class (grading defect / tuning
-decision / real trend), and the one thing that is the owner's to decide. Name the
-mechanism, not the state name.

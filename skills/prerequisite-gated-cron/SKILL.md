@@ -75,9 +75,3 @@ the wording are already known.
 - **Never hand-edit `cron/jobs.json`.** It is gitignored runtime state carrying its own
   copy of the prompt; create/edit through `cronjob_manage` (or `hermes cron`), and edit
   the registry doc separately.
-
-## Report shape
-
-One line, verdict first, delivered exactly once: what resolved, the status/exit, and the
-probe result. Add a second line only when the probe contradicts the status. No per-tick
-narration, no explanation of the markers — the job's silence is the design.

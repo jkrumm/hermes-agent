@@ -107,10 +107,3 @@ Reading an item's state is `warden`; mapping a `note` to the gate that wrote it 
 - **A green CI check is not the acceptance criterion the brief named.** The brief's
   criterion is usually a specific local command's own numbers; quote both, and say
   which one you did not re-run.
-
-## Report shape
-
-Verdict first in one line — PR ready / blocked / still running. Then the URL, the
-check states, and the gate. Then, only if it changes his next move, the caveat (a
-stale card, a generated file in the diff, a suite not re-run locally). No narration of
-which endpoints you polled.

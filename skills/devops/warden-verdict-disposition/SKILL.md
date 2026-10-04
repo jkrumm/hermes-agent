@@ -147,10 +147,3 @@ mean **you** own the disposition.
   are public and the owner files his own issues, so an episode re-deriving an
   existing issue's content is a duplicate, not a finding. Check the tracker first
   and say plainly that the issue already exists.
-
-## Report shape
-
-Verdict first in one line: what the verdict concluded and what you did with the
-item. Then, only if it changes his next move, the disposition and why — already
-tracked, already shipped, or deferred by the maintainer. Name the item id and its
-new state. Do not narrate the calls you made to get there.

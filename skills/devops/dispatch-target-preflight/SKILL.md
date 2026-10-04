@@ -119,11 +119,3 @@ expensive wrong dispatch.
   reporting its finding as an outstanding defect.
 - **Do not re-dispatch to unstick anything.** Every gate here reproduces the same
   refusal against the same wall and spends another episode.
-
-## Report shape
-
-Verdict first: whether the change can land, and why not. Then the repo-state
-facts that change his next move — unpushed commits, the branch the finding lives
-on, whether the repo can merge — one line each. Name what you did with the item
-(closed, left in `needs_human`) and what you did not do (no re-dispatch, no PR).
-Do not narrate the commands.

@@ -134,9 +134,3 @@ actually changes his next move:
   lane's file/test counts — and the residual risk the episode itself flagged.
 - **An unmerged PR means the underlying break is still live on the default branch.**
   Say so: until it lands, every episode in that repo reproduces the same failure.
-
-## Report shape
-
-Verdict first in one line — what is true and what he must do. Then the artifact URL
-and the numbers you produced. Then, only if it changes his next move, the residual
-risk. No narration of the calls you made, no restating the card's note.

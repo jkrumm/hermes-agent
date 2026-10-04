@@ -101,11 +101,3 @@ his next move. Re-posting the card's own prose is the failure mode.
   it as the default and proceed; ask only when the readings lead to different work.
 - **Never end on "Soll ich …?".** Close with the contingent action: what you will do
   on his word, and what stays his.
-
-## Report shape
-
-German, verdict first: what the card claims, what is true now, the mechanism (base
-moved, hunk superseded, resolver self-resolves), one line per open question with the
-recommended option inline, and the single contingent action — e.g. *"bei Ja zu (a)
-und (b) schicke ich `run <repo> --tier implement` mit genau diesem Brief; der Merge
-bleibt bei dir."* No PID/log dumps, no step-by-step narration of the calls.

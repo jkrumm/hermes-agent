@@ -66,7 +66,3 @@ Any of these symptoms is the same defect, and none of them is a tooling problem:
 - **A raw byte vs. an escape is visible in a Python `repr` of the source line.** `b"...}\x00..."` is a literal NUL byte in the file; `b"...}\u0000..."` (double backslash in the repr) is the escape *text* written in the source. Check which form a file actually uses before telling anyone it is fixed.
 - **A raw NUL in a commit message kills `git commit`** (`must be a string without null bytes`) *after* the work is done — the episode loses its branch and the diff survives only as a salvage bundle. Never echo a raw byte into a commit message or a shell argument; describe it in words.
 - **Judge the blast radius before calling it a blocker.** A binary-rendered file means reviewers cannot read that diff, not that the change is wrong — the merge gate reads changed *paths*, so it still passes. Separate the two claims.
-
-## Report shape
-
-Verdict first: which file, which byte, which line, and what it costs the reader. Then one line for the fix (the escape to use) and one for the verification output. If the fix belongs on a base branch rather than the branch under review, that is the single decision to surface.

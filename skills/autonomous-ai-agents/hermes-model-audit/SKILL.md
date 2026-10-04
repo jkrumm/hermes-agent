@@ -224,19 +224,6 @@ cost ≈ uncached_input/1e6 * input_rate
 
 Cache writes carry no surcharge on this route.
 
-## Report shape
-
-Verdict first, then the numbers, then what got worse. In German unless asked otherwise.
-
-- Lead with the answer to the question asked, not with methodology.
-- **Numbers over adjectives**, every claim carrying its measurement.
-- **State what is worse, unprompted.** An audit that only lists improvements is not an audit;
-  the honest cost of the current model (per-turn price against the previous one, an effort knob
-  that does nothing, a smaller effective window) belongs in the same answer.
-- Distinguish *measured* from *not measurable here*. If the effort ladder produced no signal,
-  say that rather than implying a tuned configuration.
-- Keep it scannable: short bullets, a small comparison table, bold lead-ins.
-
 ## Running the audit without burning half an hour
 
 Diagnostic work here is many small reads, and the *transport* of those reads is the bottleneck.

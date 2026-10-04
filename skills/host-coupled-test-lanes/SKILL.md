@@ -100,10 +100,3 @@ A locally verified fix is only useful to an episode if the brief carries all of 
   teardown never ran, so the next attempt meets a stale network and a port still
   bound. Clean containers and the network before re-running, and expect the compose
   warning about a network it did not create.
-
-## Report shape
-
-Verdict first in one line: is the lane host-coupled, and what the verified fix is.
-Then one line per blocker — the mechanism, and the file plus the change. Then the
-verification numbers (files/tests/exit) and what the brief now carries. Name the
-environment caveats only when they change what the episode must do.

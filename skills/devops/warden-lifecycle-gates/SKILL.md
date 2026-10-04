@@ -230,10 +230,3 @@ now rather than inferring it from a diff. `GET /api/jobs/health` gives
 - **A `queued:` note survives the claim into `investigating`.** The CAS claim
   passes no `note`, so a row can read `waiting for a free slot` while its episode
   is already running. Check `dispatch_job` first; the Slack card hides this.
-
-## Report shape
-
-Verdict first, then name the gate — not the state. "PR #N is open and verified;
-item N sits in `needs_human` on a stale schema-pin note that no longer applies"
-is the useful sentence. Group items that share one gate into one line, and say
-plainly what you did not do (no merge past a missing scope, no re-dispatch).

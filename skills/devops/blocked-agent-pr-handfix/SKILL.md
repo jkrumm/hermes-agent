@@ -94,15 +94,6 @@ already made the edit — redo neither the commit nor the reproduction; the tail
 above (merge, rollout, live proof, close) is the whole remaining job, and the
 card keeps re-rendering its stale note because nothing syncs it to the branch.
 
-## Reporting
-
-Say plainly that the commit lands **post-review**: the stored verdict covers the
-old head, so the owner is merging something no reviewer saw. Name the PR, what
-changed, the test that covers it, and — separately — every non-blocking finding
-from the same review that is still open, because those are the ones the owner
-cannot see in the diff. Then stop: the item stays `merge_blocked` until the merge
-lands, and Warden's own reminder is the tracker for that.
-
 ## Pitfalls
 
 - **The loop may already be revising — check `transitions` before you touch the

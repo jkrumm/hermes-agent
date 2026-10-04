@@ -74,9 +74,3 @@ maintenance paths), never for a tool module.
 - **When the only exit from a stuck state is a clock, read the deadline before
   scheduling anything to act on it.** A cleanup scheduled to run before the
   deadline fires is a silent no-op, and the state may resolve itself first.
-
-## Report shape
-
-One line: stale or live, plus the evidence. "Gateway PID N (started HH:MM) still
-runs the pre-fix module — a fresh interpreter emits `<marker>`, the process's own
-line does not. Restart needed." Then the rest-state: errors since process start.

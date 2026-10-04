@@ -103,10 +103,3 @@ owner has not made.
   (`maybe_auto_implement()` requires `implement_job IS NULL`). The stale
   `implement_job` is the tell, not the verdict text — re-file as a new item rather
   than trying to un-stick the old one.
-
-## Report shape
-
-Verdict first, one line: what the episode concluded and what you did with it —
-"confirmed, semantics decided in favour of its recommendation, re-filed as item N
-(job X, running), old item closed". Then only the disposition and the one thing that
-changes his next move. Name item ids and the new state. Do not narrate the calls.

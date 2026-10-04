@@ -220,16 +220,3 @@ Three sections, and each means something different:
   existing rows (`classify()` only touches `new`), so a policy entry added today
   still needs the one-time reset of rows already in `note`. Pick `ignore` for a
   recovery notice (`*-below-threshold`) and `rules` for a real alert.
-
-## Report shape
-
-Lead with the count and the split, then one block per real finding:
-
-- what the signature/event actually is, and whether it is currently live;
-- the mechanism, not just the symptom (which rule or filter produced this state);
-- whether it is already covered by policy, and if not, the exact rule you would add;
-- what you did **not** do, and why (no policy write, no dispatch past a ceiling).
-
-Group lines that share one root cause instead of writing one block per signature —
-a family of unmapped signatures from one producer is one finding, and saying so is
-more useful than eleven.

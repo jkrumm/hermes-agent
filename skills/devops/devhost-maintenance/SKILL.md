@@ -99,10 +99,3 @@ curl -s http://127.0.0.1:7735/items/<event-id>      # warden item state
   the harness's command wrapping, so backticked fragments in the body are executed
   as shell — a stray applier has been launched mid-report that way. Use
   `write_file` for the body and pass `--body-file <path>`.
-
-## Report shape
-
-Verdict first, in German: which line was actually paging, what shipped, and what
-is still the owner's. One line per finding, evidence only where it changes his
-next move. Name what you did **not** do — the push you left to him, the restart
-that needs a human — and stop there.

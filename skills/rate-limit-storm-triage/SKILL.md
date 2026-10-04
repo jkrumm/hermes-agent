@@ -136,10 +136,3 @@ One call, never a loop; print status and body only. Read the answer:
 - **The storm's shape includes the deadline.** Rows already at max-1 attempts go
   terminal on their next rung whether or not the question is settled; report that
   before the recommendation, so the answer does not read as academic.
-
-## Report shape
-
-Verdict first, in German: which side owns it, plus the one mechanism that proves it
-(the entitlement message, the concurrency guard, the ladder bound). Then the verified
-numbers, the terminal deadline if any, and the recommendation. If a Warden card is
-involved, one line for its real state — never let queue state stand in for the answer.

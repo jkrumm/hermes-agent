@@ -72,10 +72,3 @@ consume a *brief* (a todo, a vault note, work you do yourself), not for agent la
 - **Never invent scope when routing.** A memo that asks for a check does not
   authorise a fix; put anything beyond it in your reply as a suggestion, not in the
   agent's brief.
-
-## Reporting
-
-One line for the handoff (workspace/tab/pane id, repo, what is running in it), one
-compact block for whatever you checked yourself. He dictated the memo, so the
-information worth reporting is what you *changed* about its routing — not a recap
-of what he said.

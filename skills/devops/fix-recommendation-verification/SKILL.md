@@ -98,10 +98,3 @@ released away weeks ago, in a shape the project cannot apply.
   dependency's own changelog first**, not a licence to write a vendor patch. Vendor
   patches are the most expensive shape: they break every upgrade and nobody owns
   them.
-
-## Report shape
-
-Verdict first, one line: whether the recommended fix stands, is superseded
-upstream, or is the wrong shape — and what you did with the item. Then one line
-per finding: the mechanism (released where, reachable how, gated by what). End
-with the single next action and where it is tracked. Do not narrate the commands.

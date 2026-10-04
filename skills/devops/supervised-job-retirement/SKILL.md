@@ -105,10 +105,3 @@ reversibly, with evidence that it stayed stopped.
   (a `brew` upgrade, a setup script) may write the plist back and re-enable it. Say so in
   the report when the client was installed by a package manager, so a recurrence is not
   mistaken for the fix having failed.
-
-## Report shape
-
-Verdict first: what the job is, what it was talking to, and that the dependency is gone
-(with the decommission commit). Then one line each for the log volume and rate, the
-retirement action taken, and the log-growth delta that proves it. Close with the undo
-command and anything you deliberately left in place.

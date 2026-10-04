@@ -90,11 +90,3 @@ job half done, and the omission is invisible in the plan itself.
 - **A listed item that is already correct is not a finding.** A plan that lists
   a row for something already pinned, or a package no longer depended on, has
   drifted from the tree; that is a plan-quality note, not work.
-
-## Report shape
-
-Verdict first in one line: is the plan implementable as written, and what does it
-miss. Then one line per finding — the omission with the concrete rows it should
-have carried, the stale row, the one target that changes behaviour. Then what you
-did **not** do (no second dispatch, no issue edit) and why. German by default,
-one line per finding, no narration of the calls you made.

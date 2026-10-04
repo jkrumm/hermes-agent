@@ -67,11 +67,3 @@ homelab). Read it before answering any temperature/thermal question.
 - **Remediation is `homelab-ops` territory**: its bounded verbs and its
   `references/alert-patterns.md` (alert string → root cause → verb) own the fix.
   This skill owns the diagnosis and the numbers.
-
-## Report shape
-
-Verdict first, German, 3–6 lines: what actually fired and when, the real numbers
-(threshold, peak, current, baseline), the class of finding, and the one thing that
-is the user's to decide. Name the mechanism, not the state name. Route any physical
-check as a task (`capture` → TickTick) with the measurements in the body, and leave
-an already-correct open triage item open.

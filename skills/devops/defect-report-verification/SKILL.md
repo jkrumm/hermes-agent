@@ -102,10 +102,3 @@ applies to any defect report, not just Warden's.
   into `~/.hermes/`), the deliverable is a `patches/*.patch` entry plus its row in
   the repo's own patch documentation, handed over as work the owner can apply.
   Offer it; do not route around the ceiling on your own initiative.
-
-## Report shape
-
-Verdict first in one line: is the defect real, and did the proposed fix survive
-verification. Then one line per finding — the mechanism, the correction to the
-claim (if any), the live state of the affected artifact. Then the ceiling line:
-what can and cannot land it. Close with what you did **not** do and why.

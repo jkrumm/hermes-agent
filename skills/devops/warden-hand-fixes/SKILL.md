@@ -121,10 +121,3 @@ and moving them is a separate decision with its own audit trail.
   from a past state of it; when one asserts an ordering, a filter or a default,
 check it against the code before building a conclusion on it (step 1 exists for
 exactly this). Correct the skill rather than working around a wrong claim.
-
-## Report shape
-
-German, verdict first, 3–6 lines: what was actually wrong, the change in one
-clause ("one predicate"), the test count, the live number, and the tick it went
-live on. Name the mechanism, not the state name. No narration of the calls made,
-no closing question about work already finished.

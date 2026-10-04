@@ -103,11 +103,3 @@ a hand-back to the owner (the button refuses).
   hours later, arm a one-shot `no_agent` watchdog gated on a marker only the merged form
   carries (`git show origin/master:<path> | grep -q <symbol>`), per `prerequisite-gated-cron`
   — and do not close the item: his gate discharges it, not you.
-
-## Report shape
-
-German, verdict first, 4-6 lines: the card's ask was not executable and why (draft and/or
-conflicting, with how far master moved), what you did (rebase, what actually conflicted, the
-suite result), the read-back (`MERGEABLE`/`CLEAN`, new head sha), the post-review caveat,
-and the one line left for him — the merge click, or the fast-forward if the repo has no
-deploy step.

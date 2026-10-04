@@ -98,9 +98,3 @@ gh pr view <n> --repo <owner>/<repo> --json state -q .state || echo UNKNOWN
   local file nobody can reconstruct.
 - **Say the deadline.** When the motive is an expiring card, one clause on when it dies
   (`state_deadline`) is what tells the owner why this exists at all.
-
-## Report shape
-
-German, verdict first: the decision answered (one line, with the recommendation), what is
-now parked behind what, the cron job id, and the one thing that stays his — usually just
-the merge. No cron-prompt dumps, no narration of the calls.

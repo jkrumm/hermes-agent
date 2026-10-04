@@ -117,18 +117,3 @@ One call settles a "new incident" line:
   deduplicated, so count *unique* match values as well as entries before reading a
   policy file as a rule set, and report the duplication rather than quietly
   working around it.
-
-## Report shape
-
-Lead with the count and the split, then one block per family, each stating
-liveness before mechanism:
-
-- **still live** / **last fired <time>, cleared <time>** / **answered 200**;
-- the producer shape or filter that routed it to the surface it reached;
-- for anything genuinely open, the concrete number (disk %, free space, GB
-  reclaimable) — that is what decides an action;
-- what was **not** done, and why (no policy write, no dispatch past a ceiling, no
-  restart).
-
-Group lines that share one producer into a single block. Eleven signatures from
-one scraper is one finding.

@@ -155,13 +155,3 @@ Sending SIGKILL.` (the deadline hit); `exited due to SIGKILL | sent by launchd` 
   about one subsystem can all describe adjacent symptoms while missing the variant you
   found. Search, then state which mechanism is already covered and which is the gap —
   do not cite the family as "known" and stop.
-
-## Report shape
-
-Lead with the mechanism in one sentence, then:
-
-- what the supervisor did, with the two timestamps (signal, kill) and the two clocks;
-- which process was actually killed, and what survived it;
-- the counter-case that rules out the competing explanation;
-- current state, verified independently of the app's own log;
-- what you did **not** do, and why (no dispatch past a ceiling, no policy write).

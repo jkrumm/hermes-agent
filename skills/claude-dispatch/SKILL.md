@@ -225,22 +225,17 @@ lifecycle above, and only `/items/<eventId>` shows all of them together.
 questions are `investigate`. Reach past it only when the artifact is the point.
 
 Every repo also carries a ceiling, and the ceiling always wins over the request.
-Warden's own copy, `~/SourceRoot/warden/config/dispatch-repos.json`, sets them
-(this repo's `config/` is empty — the policy file moved there 2026-09-10), and
-there are only two kinds of exception:
-`dotfiles`, `brain` and `hermes-agent` are capped at
-`investigate` (the machine's control plane and the vault; `vps` and `homelab` came off
-the floor 2026-09-08), and two repos
-(`dotfiles-private`, `homelab-private`) are **denied outright** and cannot be
-dispatched to at any tier. `sideclaw` and `warden` allow `implement` but carry no
-`autoMergePaths` in `config/triage-policy.json`, so an implement episode there ends
-in a draft PR Warden never merges itself (a loop that could merge into its own
-executor has no outside) — read the ceiling off `dispatch --dry-run`'s
-`repoMaxTier` rather than from this list, which went stale once before.
-Everything else permits every
-tier, up to `implement`. A denial is deliberate, not an oversight — do not offer
-to "add it", say it is not dispatchable. Same for a tier above a repo's ceiling:
-report the refusal, do not look for another way to do it.
+Warden's own copy is gone (agent-platform Wave 1, 2026-10-04, removed warden's
+repo/tier policy): **the live list is sideclaw's, not warden's.** Read it from
+`curl -s http://127.0.0.1:7705/api/dispatch-policy` and trust nothing else —
+`dispatch --dry-run` no longer prints `repoMaxTier` (verified 2026-10-04), and
+this paragraph has gone stale twice. Live on 2026-10-04: `dotfiles-private` and
+`homelab-private` carry `ceiling: investigate` + `sensitive: true` (investigate
+only; the verdict is withheld rather than leaked), `brain` and `hermes-agent`
+`investigate`. **`dotfiles` carries no ceiling — `implement` is allowed there**
+(its draft PRs come from implement episodes), and any repo absent from `rules`
+has none. A refusal is deliberate, not an oversight — do not offer to "add it";
+report it and stop.
 
 **A high ceiling is not a reason to reach for a high tier.** `implement` being
 permitted nearly everywhere is what makes the rule above matter more, not less:
