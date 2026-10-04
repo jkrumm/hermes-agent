@@ -43,6 +43,7 @@ churn, no replies to warden's own posts.
 - Hermes-side leftovers for Wave 3: `scripts/warden-live-sync.sh` + its cron (job `e9e72d028dc5`) — warden Wave 4 not checked here.
 
 ## Wave 3 — repo contract and cleanup            <!-- status: active -->
+- [ ] First: the gateway was restarted with W1+W2 live (orchestrator, 2026-10-04). Run the `/hermes-validate` 3-message smoke (incl. one "fix X in <repo>" that must route through `dispatch` → `hermes-cc.sh run`, and one status question that must answer in the one-line format). Fix SOUL.md/skills on any miss.
 - [ ] Make targets `check`, `deploy` (restart gateway, health check, roll back to the previous commit on failure), `verify`, `logs`; AGENTS.md sections `## Validate`, `## Deploy`, `## Verify & Monitor`, `## Gotchas`.
 - [ ] Remove `scripts/warden-live-sync.sh` and its cron **only if** warden Wave 4 is done (warden deploys itself via `make deploy`); otherwise note it.
 - [ ] Replace ad-hoc watcher crons / `/tmp/watch-*.sh` patterns in skills with `herdr agent wait --until done` (single blocking call) or warden item status.
