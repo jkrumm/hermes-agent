@@ -486,3 +486,50 @@ rename.
 **Adding a CC slash command:** create `.claude/skills/{name}/SKILL.md` — auto-loaded here, no
 symlink or Makefile change. **Patches:** save the diff under `patches/`, add a table row in
 *Local Modifications*, put per-file detail in `docs/patches.md`.
+
+## Validate
+
+`make check` — shell syntax (`scripts/*.sh`), `compileall`, `make patch-check`, and every
+`tests/test_*.py` run as a script under the Hermes venv (they are standalone, not pytest).
+No side effects; non-zero on failure. `tests/test_checkpoint_store_excludes.py` is **not** in
+it — its gc / cross-process-lock cases fail intermittently on a clean tree (timing); run it
+with `make test-checkpoint` and read the failures before blaming a change.
+
+## Deploy
+
+`make deploy` — the checkout *is* the live config (symlinked into `~/.hermes`), so deploy =
+`make setup` + `launchctl kickstart -k gui/$(id -u)/ai.hermes.gateway` + `make verify`
+(retried ~1 min while Slack reconnects). On failure it rolls back to `HEAD~1` (detached,
+clean tree only), repeats, and exits non-zero either way; return with `git switch master`.
+It restarts the gateway, which drops in-flight turns — and **Hermes itself may never run
+it** (it may not restart its own gateway). Edits to `SOUL.md` and skills need no deploy
+beyond the skills-index restart noted in *Editing Rules*.
+
+## Verify & Monitor
+
+- **`make verify`** — gateway pid alive, `gateway_state.json` slack + api_server
+  `connected`, API `/health` 200 on the tailnet bind (`op://hermes/gateway/host`), all patches
+  applied. Exit 0 = healthy.
+- **Heartbeat:** `hermes-liveness.sh` (300 s LaunchAgent) pushes the Uptime Kuma push monitor
+  at `op://hermes/uptime-kuma/agent-push-url`; the backup job has its own
+  (`backup-push-url`). A red heartbeat means the gateway, Slack or the secret cache is down.
+- **OTel:** none — Hermes emits no traces; `service.name` does not apply.
+- **`make logs`** — bounded tail of `gateway.error.log`, `errors.log`, `agent.log`
+  (`~/.hermes/logs/`). Slice `agent.log` at the current process start (see *Model, context
+  window and reasoning effort*).
+
+## Gotchas
+
+- **Gateway restart is the owner's** (and `make deploy`'s). Changes to `config.yaml`,
+  patched upstream files or `SOUL.md`'s cached prompt are not live until it.
+- **API sessions are keyed by the first message.** Re-sending an identical test prompt to
+  `/v1/chat/completions` resumes the previous session (and its still-running turn) — reword it.
+  A smoke that files real work (`hermes-cc.sh run`) opens a real Warden item; close it with
+  `warden close <id> --why … --reason ignored`.
+- **Repo work goes through `dispatch`, never the repo** — a model told only "you can run
+  anything" debugged a flaky sideclaw test in the live checkout itself (Wave 3 smoke,
+  2026-10-04). The routing table in `SOUL.md` is the control; fix wording there, not with a gate.
+- **`warden-live-sync.sh`** (cron `e9e72d028dc5`) stays until warden's own `make deploy` lands
+  (warden Wave 4); then delete the script and the job.
+- Gotchas with their own incident write-up live in the sections above (SIGPIPE under
+  `pipefail`, `cron/jobs.json` carrying its own prompt copy, `slack.allow_bots: all`).

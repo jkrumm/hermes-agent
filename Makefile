@@ -425,6 +425,48 @@ patch-check:
 	fi
 
 # ============================================================================
+# Repo contract (agent-platform): check / deploy / verify / logs
+# ============================================================================
+
+# Local validation, no side effects. Excludes test_checkpoint_store_excludes.py: its
+# gc/cross-process-lock cases are timing-dependent and fail intermittently on a clean tree
+# (run it by hand: `make test-checkpoint`).
+HERMES_PY := $(HERMES_SRC)/venv/bin/python3
+
+.PHONY: check
+check:
+	@fail=0; \
+	for f in scripts/*.sh hooks/*.sh; do [ -e "$$f" ] || continue; bash -n "$$f" 2>/dev/null || zsh -n "$$f" || { echo "  ✗ syntax: $$f"; fail=1; }; done; \
+	$(HERMES_PY) -m compileall -q scripts tests >/dev/null || { echo "  ✗ compileall"; fail=1; }; \
+	$(MAKE) --no-print-directory patch-check | tee /dev/stderr | grep -q '✗' && fail=1; \
+	for t in tests/test_*.py; do \
+		[ "$$t" = tests/test_checkpoint_store_excludes.py ] && continue; \
+		$(HERMES_PY) "$$t" >/tmp/hermes-check.out 2>&1 && echo "  ✓ $$t" || { echo "  ✗ $$t"; tail -15 /tmp/hermes-check.out; fail=1; }; \
+	done; \
+	exit $$fail
+
+.PHONY: test-checkpoint
+test-checkpoint:
+	$(HERMES_PY) tests/test_checkpoint_store_excludes.py
+
+# Ships the checked-out HEAD: setup + gateway restart + verify; rolls back to HEAD~1 on failure.
+.PHONY: deploy
+deploy:
+	@./scripts/deploy.sh
+
+# Probes the live gateway (process, Slack, API server, /health, patches). Exit 0 = healthy.
+.PHONY: verify
+verify:
+	@./scripts/verify.sh
+
+# Bounded tail of the gateway logs, then exits.
+.PHONY: logs
+logs:
+	@echo "== gateway.error.log (last 30) =="; tail -n 30 "$(HERMES_DIR)/logs/gateway.error.log"
+	@echo "== errors.log (last 30) =="; tail -n 30 "$(HERMES_DIR)/logs/errors.log"
+	@echo "== agent.log (last 60) =="; tail -n 60 "$(HERMES_DIR)/logs/agent.log"
+
+# ============================================================================
 # Helpers (lifted from dotfiles Makefile)
 # ============================================================================
 
@@ -473,6 +515,10 @@ help:
 	@echo ""
 	@echo "  make setup           Mac Mini-only — config symlinks, LaunchAgents, CC skills"
 	@echo "  make status          Verify symlinks, audio-gateway, LaunchAgents (graded), cron registry, CC skills"
+	@echo "  make check           Syntax + unit tests + patch-check (no side effects)"
+	@echo "  make deploy          Setup + restart gateway + verify; roll back to HEAD~1 on failure"
+	@echo "  make verify          Probe the live gateway (exit 0 = healthy)"
+	@echo "  make logs            Bounded tail of gateway logs"
 	@echo "  make patch-check     Assert every patches/*.patch is applied to the live checkout"
 	@echo "  make cron-migrate    One-time — drop the superseded crontab entries"
 	@echo "  make agents-teardown Unload + remove the liveness/backup LaunchAgents"

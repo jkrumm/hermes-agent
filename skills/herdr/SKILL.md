@@ -250,24 +250,22 @@ agent reports done; the branch is pushed, so nothing is lost.
 
 ## Watching a pane agent to an outcome
 
-A watcher that keys on `agent_status` **ends early**: a Claude pane that started a
-backgroundshell, a monitor or a subagent goes `done` or `idle` at the end of each
-turn while the work is still running, then resumes itself when that shell reports.
-An `idle` pane is therefore not a finished pane.
+**One blocking call, never a watcher script** (no `/tmp/watch-*.sh`, no `sleep` loop, no
+ad-hoc cron):
 
-Watch the **artifact or the external effect** instead, and treat status as colour:
+```bash
+herdr agent wait <agent> --until done --timeout 150000   # exit 0 = done; non-zero = timeout/blocked
+```
 
-| Signal | Use |
-|-|-|
-| the report file the brief asked for (`-s /tmp/<x>-report.md`) | primary |
-| the real-world result it claims (PR state, master head, `/health`, the commit) | primary |
-| `agent_status` | colour only — never a terminal condition |
-| identical line N times in a row | real stall detection |
+The terminal tool dies at 180 s, so keep `--timeout` ≤ 150000 and, on a timeout, re-issue
+the same call once or twice, then stop and tell him it is still running. `--until blocked`
+means the agent asks him something — report that, never answer for him.
 
-Poll every 60–90 s, log one line per tick so a timeout is diagnosable, and exit with
-a distinct code per outcome (report / external-effect / stalled / timeout). A watcher
-that exits `4 idle_no_report` four times in a row is not four findings — it is one
-bad condition; fix the watcher before reporting again.
+`done` ends a *turn*: an agent that parked a background shell goes `done` and resumes later.
+Before reporting an outcome, confirm the **external effect** the brief asked for (PR state,
+the commit on master, `/health`, the report file). For anything that must survive past this
+conversation, do not wait at all — file it through `dispatch` and read the item with the
+`warden` skill.
 
 ## Rules
 
