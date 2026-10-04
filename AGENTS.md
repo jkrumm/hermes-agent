@@ -529,7 +529,5 @@ beyond the skills-index restart noted in *Editing Rules*.
 - **Repo work goes through `dispatch`, never the repo** — a model told only "you can run
   anything" debugged a flaky sideclaw test in the live checkout itself (Wave 3 smoke,
   2026-10-04). The routing table in `SOUL.md` is the control; fix wording there, not with a gate.
-- **`warden-live-sync.sh`** (cron `e9e72d028dc5`) stays until warden's own `make deploy` lands
-  (warden Wave 4); then delete the script and the job.
 - Gotchas with their own incident write-up live in the sections above (SIGPIPE under
   `pipefail`, `cron/jobs.json` carrying its own prompt copy, `slack.allow_bots: all`).

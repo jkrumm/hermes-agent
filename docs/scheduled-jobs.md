@@ -20,18 +20,6 @@ state must match the live job's — `make status` asserts it.
 | `8fe7be4985d9` | Brain drift audit | `0 9 * * 6` | agent | `cron/brain-drift-audit.prompt.txt` | `dispatch`, `obsidian` | `slack:C0ASRULFTSS` #watchdog | live |
 | `9909f808fe17` | Project narratives | `30 6 * * *` | no-agent | `narratives-cron.py` → `project-narratives.py --run` | — | `slack:C0ASRUD7K1U` #hermes | live |
 | `91800bba0031` | Human-queue push retry (MAM session refresh) | `every 15m` | no-agent | `human-queue-push-retry.sh` | — | `origin` #agents | live |
-| `e9e72d028dc5` | Warden live checkout sync (uk-proposer) | `every 15m` | no-agent | `warden-live-sync.sh` | — | `origin` #agents | live |
-
-**`e9e72d028dc5` exists because the control plane has no deploy step.** The alert-triage
-loop runs `scripts/triage.py` from `~/SourceRoot/warden` on `master` (`com.jkrumm.warden-loop`),
-and warden's merge path only pulls a checkout for a repo with a declared deploy key — `warden`
-has none, so a merged PR is *merged*, not *live*. The watchdog waits for one specific merged
-commit (the §116 `uk`-proposer filter, marker `OPAQUE_MONITOR_SOURCE` in `scripts/triage.py`),
-fast-forwards the checkout to `origin/master` — or, because the checkout is deliberately ahead of
-it with the loop's own unpushed `auto-propose` policy commits (`triage.py`: "never `git push`"),
-merges `origin/master` in — verifies the marker in the working file, prints one line and never
-speaks again; before the merge, and after the marker is present, its stdout is empty by
-construction, and a conflicted merge is aborted so a refusal changes nothing.
 
 **Unpinned jobs stop, they don't re-route, when the global model moves.** `cron.model_drift_guard`
 (on unless `cron.model_drift_guard: false`) refuses to fire any job whose *creation snapshot* of
