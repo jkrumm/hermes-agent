@@ -16,7 +16,7 @@ to do).
 dispatches a new episode — it only reads sideclaw's overview. Steering a live
 agent in a pane (prompting it, nudging it, interrupting it, opening a new
 pane) is the `herdr` skill's job; opening a new *tracked, unattended* episode
-is `claude-dispatch`'s. Neither is this one.
+is `dispatch`'s. Neither is this one.
 
 ## Quick read (no refresh, ~instant)
 

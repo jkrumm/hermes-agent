@@ -1,6 +1,6 @@
 ---
 name: hyperdx
-description: Triage OpenTelemetry traces/logs/metrics in ClickStack/HyperDX (VPS-only) via its authenticated REST + MCP API — never the browser UI, which needs an interactive login you cannot provide. Use when a HyperDX-authored alert lands in #alerts ("VPS edge 5xx rate > 5%", "VPS edge p95 > 3s", "VPS error logs >= 20"), or when asked "why are requests failing/slow on the VPS", "what's causing 5xx on <app>", "show me recent errors for <service>". Ends in a diagnosis you either report directly or escalate via claude-dispatch / capture.
+description: Triage OpenTelemetry traces/logs/metrics in ClickStack/HyperDX (VPS-only) via its authenticated REST + MCP API — never the browser UI, which needs an interactive login you cannot provide. Use when a HyperDX-authored alert lands in #alerts ("VPS edge 5xx rate > 5%", "VPS edge p95 > 3s", "VPS error logs >= 20"), or when asked "why are requests failing/slow on the VPS", "what's causing 5xx on <app>", "show me recent errors for <service>". Ends in a diagnosis you either report directly or escalate via dispatch / capture.
 version: 1.1.0
 metadata:
   hermes:

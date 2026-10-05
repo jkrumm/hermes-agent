@@ -44,7 +44,7 @@ minor or already solved. If he raised it, it goes in.
 | The memo asks for | Where it goes |
 |-|-|
 | An interactive agent in a visible pane ("neuer tab", "mit cf") | `herdr` — write the brief to a file, then `herdr agent prompt <pane> "$(cat file)"` |
-| A tracked, unattended episode that reaches an outcome | `claude-dispatch` → `run <repo>` with the brief on stdin |
+| A tracked, unattended episode that reaches an outcome | `dispatch` → `run <repo>` with the brief on stdin |
 | A todo / reminder / issue | `capture` (TickTick or GitHub) — one line per item, his action, not his prose |
 | A durable idea to develop | `obsidian` — his thinking, structured, in his vault |
 | Something to listen to | `podcast` |
