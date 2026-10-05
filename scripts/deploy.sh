@@ -7,6 +7,8 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
+STATE="$HOME/.hermes/gateway_state.json"
+
 prev=$(git rev-parse --verify --quiet HEAD~1) || prev=""
 head=$(git rev-parse --short HEAD)
 
@@ -18,11 +20,15 @@ apply_and_restart() {
 verify_with_retry() {
   # Slack + the API server need a while after boot to report connected.
   # A restart first drains in-flight agent turns (gateway_state=draining) for as long as
-  # they run — a drain is not a failure, so wait it out before the bounded retries.
-  local n
+  # they run — a drain is not a failure, so wait it out before the bounded retries. No cap:
+  # a drain waits on agent turns (agent-limits rule); each poll is logged so a stuck one shows.
+  local n state
   sleep 10
-  while make --no-print-directory verify 2>/dev/null | grep -q 'gateway_state=draining'; do
+  state=$(jq -r '.gateway_state // ""' "$STATE" 2>/dev/null)
+  while [ "$state" = draining ]; do
+    echo "  … gateway draining in-flight turns, waiting"
     sleep 10
+    state=$(jq -r '.gateway_state // ""' "$STATE" 2>/dev/null)
   done
   for n in 1 2 3 4 5 6; do
     make --no-print-directory verify >/dev/null 2>&1 && return 0

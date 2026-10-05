@@ -19,7 +19,7 @@ state=$(jq -r '.gateway_state // ""' "$STATE")
 slack=$(jq -r '.platforms.slack.state // ""' "$STATE")
 api=$(jq -r '.platforms.api_server.state // ""' "$STATE")
 
-if [[ "$state" == "running" ]] && kill -0 "$pid" 2>/dev/null; then ok "gateway running (pid alive)"; else bad "gateway_state=$state pid=$pid"; fi
+if [[ "$state" == "running" && "$pid" =~ ^[0-9]+$ && "$pid" -gt 0 ]] && kill -0 "$pid" 2>/dev/null; then ok "gateway running (pid alive)"; else bad "gateway_state=$state pid=$pid"; fi
 if [[ "$slack" == "connected" ]]; then ok "slack connected"; else bad "slack=$slack"; fi
 if [[ "$api" == "connected" ]]; then ok "api_server connected"; else bad "api_server=$api"; fi
 
@@ -33,5 +33,8 @@ fi
 
 patches=$(make --no-print-directory patch-check 2>&1)
 if grep -q '✗' <<<"$patches"; then bad "local patches"; echo "$patches"; else ok "local patches applied"; fi
+
+cronskills=$(make --no-print-directory cron-skills-check 2>&1)
+if grep -q '✗' <<<"$cronskills"; then bad "cron job skills"; echo "$cronskills"; else ok "cron job skills resolve"; fi
 
 exit "$fail"

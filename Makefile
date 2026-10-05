@@ -19,6 +19,10 @@ HERMES_SKILLS_RETIRED := agents claude-dispatch rollhook-deploys
 # state, so a new one belongs here and must also be enabled once (`hermes plugins enable`).
 HERMES_PLUGINS :=
 
+# Plugin links this repo no longer installs — removed by `make setup` so a retired plugin
+# cannot linger live (a dangling link otherwise).
+HERMES_PLUGINS_RETIRED := dispatch-approval
+
 # Scheduled jobs run as user LaunchAgents, not macOS crontab — see the Setup
 # banner below for why. Templates live in launchd/, rendered into ~/Library/LaunchAgents.
 LAUNCHD_DIR   := $(HERMES_REPO)/launchd
@@ -115,6 +119,10 @@ _symlinks:
 		$(MAKE) --no-print-directory _link \
 			SRC="$(HERMES_REPO)/plugins/$$plugin" \
 			DST="$(HERMES_DIR)/plugins/$$plugin"; \
+	done
+	@for plugin in $(HERMES_PLUGINS_RETIRED); do \
+		LINK="$(HERMES_DIR)/plugins/$$plugin"; \
+		if [ -L "$$LINK" ]; then rm -f "$$LINK"; echo "  → removed retired plugin link $$plugin"; fi; \
 	done
 	@for skill in $(HERMES_SKILLS); do \
 		$(MAKE) --no-print-directory _link \
@@ -325,19 +333,7 @@ bad=[k for k,v in (("mode","off"),("cron_mode","approve"),("single_query_mode","
 s=c.get("security") or {};bad+=[k for k in ("protected_instruction_files","tirith_enabled") if s.get(k) is not False];\
 print("    ✓ approvals + guards off (no prompts)") if not bad else print("    ✗ approval prompts re-enabled [%s]" % ", ".join(bad))' 2>/dev/null \
 		|| echo "    ✗ approvals check [could not parse config.yaml]"
-	@# Every skill a cron job preloads must actually resolve. The scheduler only
-	@# logs a WARNING and runs anyway when one doesn't (cron/scheduler.py: "skill
-	@# not found, skipping"), and the watchdog matches ERROR|CRITICAL only — so a
-	@# renamed skill rots here invisibly. It did: the 2026-06 consolidation into
-	@# argo-api/references/ left 7 dead names in the briefings for weeks.
-	@python3 -c 'import json,os,sys;\
-p=os.path.expanduser("$(HERMES_DIR)/cron/jobs.json");\
-sys.exit(0) if not os.path.exists(p) else None;\
-d=json.load(open(p));\
-bad=sorted({(j.get("name"),s) for j in d.get("jobs",[]) for s in (j.get("skills") or []) if not os.path.exists(os.path.expanduser("$(HERMES_DIR)/skills/"+s))});\
-[print("    ✗ cron skill \"%s\" missing [job: %s]" % (s,n)) for n,s in bad];\
-print("    ✓ cron job skills resolve") if not bad else None' 2>/dev/null \
-		|| echo "    ✗ cron job skills [could not read jobs.json]"
+	@$(MAKE) --no-print-directory cron-skills-check
 	@# The Hermes cron REGISTRY. jobs.json is gitignored runtime state, so the
 	@# git-tracked list of what should be registered is the table in
 	@# docs/scheduled-jobs.md, keyed by its State column (live | paused (<reason>)
@@ -453,6 +449,22 @@ test-checkpoint:
 .PHONY: deploy
 deploy:
 	@./scripts/deploy.sh
+
+# Every skill a cron job preloads must actually resolve. The scheduler only
+# logs a WARNING and runs anyway when one doesn't (cron/scheduler.py: "skill
+# not found, skipping"), and the watchdog matches ERROR|CRITICAL only — so a
+# renamed skill rots here invisibly. It did: the 2026-06 consolidation into
+# argo-api/references/ left 7 dead names in the briefings for weeks.
+.PHONY: cron-skills-check
+cron-skills-check:
+	@python3 -c 'import json,os,sys;\
+p=os.path.expanduser("$(HERMES_DIR)/cron/jobs.json");\
+sys.exit(0) if not os.path.exists(p) else None;\
+d=json.load(open(p));\
+bad=sorted({(j.get("name"),s) for j in d.get("jobs",[]) for s in (j.get("skills") or []) if not os.path.exists(os.path.expanduser("$(HERMES_DIR)/skills/"+s))});\
+[print("    ✗ cron skill \"%s\" missing [job: %s]" % (s,n)) for n,s in bad];\
+print("    ✓ cron job skills resolve") if not bad else None' 2>/dev/null \
+		|| echo "    ✗ cron job skills [could not read jobs.json]"
 
 # Probes the live gateway (process, Slack, API server, /health, patches). Exit 0 = healthy.
 .PHONY: verify
