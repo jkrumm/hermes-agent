@@ -1,5 +1,5 @@
 diff --git a/tools/checkpoint_manager.py b/tools/checkpoint_manager.py
-index ef9cfc9318..01980bf276 100644
+index ef9cfc9318..a09d4ea5bf 100644
 --- a/tools/checkpoint_manager.py
 +++ b/tools/checkpoint_manager.py
 @@ -10,6 +10,7 @@ repo with per-project ``refs/hermes/<hash16>``, ``indexes/<hash16>``, ``projects
@@ -394,7 +394,7 @@ index ef9cfc9318..01980bf276 100644
      results = [_run_git(args, p.store, p.abs_dir, index_file=p.index_file) for args in diff_args]
      _run_git(["read-tree", p.ref], p.store, p.abs_dir, index_file=p.index_file, allowed_returncodes={128})
      return results
-@@ -854,7 +1138,21 @@ class CheckpointManager:
+@@ -854,8 +1138,32 @@ class CheckpointManager:
      # --- internal ---
  
      def _take(self, working_dir: str, reason: str) -> bool:
@@ -415,9 +415,20 @@ index ef9cfc9318..01980bf276 100644
 +
 +    def _take_locked(self, working_dir: str, reason: str) -> bool:
          p = _project_refs(working_dir)
++        # LOCAL MODIFICATION (patches/checkpoint-store-integrity.patch): a working directory that no
++        # longer exists (Claude Code deleting its own scratch — ~/.hermes/cache/scratch/probe*, /tmp —
++        # as an episode ends) makes every git call below skip with 'working directory not found': one
++        # ERROR line per command for a project that is simply gone, which the watchdog then files as
++        # an alert.  Skip the whole snapshot before the first git call so a deleted project costs one
++        # DEBUG line instead of a handful of ERRORs.  `_run_git` keeps its own ERROR for callers that
++        # legitimately probe a workdir that may be an unmounted volume.
++        if not Path(p.abs_dir).is_dir():
++            logger.debug("Checkpoint skipped: working directory gone (%s)", p.abs_dir)
++            return False
          err = _init_store(p.store, working_dir)
          if err:
-@@ -865,9 +1163,18 @@ class CheckpointManager:
+             return _step_failed("store init", err)
+@@ -865,9 +1173,18 @@ class CheckpointManager:
              return False
          ref_commit = _ref_tip(p.store, working_dir, p.ref)
          _seed_project_index(p, ref_commit)
