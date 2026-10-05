@@ -22,8 +22,7 @@ and retired 2026-09-11. Its code (`render_slack()`, the `fetch_agents()`/
 unreachable warning, the state file) was removed from the script 2026-09-12
 once nothing referenced it any more — see `docs/scheduled-jobs.md` for the
 retirement history and how to recreate it from git if ever needed. Replaced
-by Warden's card board in `#agents` (one deduplicated `chat.update`d card per
-item), the same sideclaw snapshot in the herdr overview pane, this file's
+by warden's one Slack line per `fixed`/`needs_decision` item in `#agents` (the queue is Argo `/warden`), the same sideclaw snapshot in the herdr overview pane, this file's
 morning-briefing surface, and Argo's `/agents` page and Warden board. The
 morning briefing (`render_briefing()`) re-surfaces every non-quiet
 recommendation daily, which is what keeps a forgotten standing question from

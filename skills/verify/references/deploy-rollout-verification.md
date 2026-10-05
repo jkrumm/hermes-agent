@@ -74,9 +74,9 @@ Read the app's own health file (its `ok` flag **and** its push-heartbeat field �
 (`pollers.*.ok`). A merge that reached the checkout while a periodic job stayed
 dead is still a failed rollout.
 
-## Discharging the parked card
+## Discharging the parked item
 
-A `needs_human`/`merge_blocked` row is terminal until its own multi-day deadline —
+A `needs_decision`/`failed` row never expires —
 no poller retries it — so after the proof above, end it yourself:
 
 ```bash
@@ -84,13 +84,13 @@ no poller retries it — so after the proof above, end it yourself:
 ```
 
 - `close` writes the `closed by hand: ` prefix itself — never put that phrase in `--why`.
-- It refuses from `investigating`; `abort <event-id> --why` is the verb there.
+- It refuses an in-flight item (`working`/`merging`/`verifying`); `abort <event-id> --why` is the verb there.
 - `--why` carries the **real defect**, not the symptom: the rollout has no retry
   path, so the row never learned the deploy had completed. Name the evidence
   (pull rc, artifact mtime, process start time, probe results).
-- Confirm: `curl -s http://127.0.0.1:7735/items/<id>` → `state: closed`. The Slack
-  card re-renders on the next loop tick (600s); a card still showing the old state
-  minutes later is expected, not a second finding.
+- Confirm: `curl -s http://127.0.0.1:7735/items/<id>` → `state: closed`. Argo
+  `/warden` updates on the next loop tick; a stale Slack line is a snapshot, not a
+  second finding.
 - One cause files one row per merged PR. Close the siblings in the same pass.
 
 ## Pitfalls

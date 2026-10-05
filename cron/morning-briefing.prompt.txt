@@ -88,7 +88,7 @@ Use this exact structure, in this order. Each section starts with an emoji short
 - Homelab Docker: <running>/<total> Container, <unhealthy summary or "alle gesund">
 - VPS Docker: <running>/<total> Container, <unhealthy summary or "alle gesund">
 - Watchdog: <if WATCHDOG_OPEN=[…] non-empty: "<N> offen — <top 3 titles, comma-separated, truncate each at 60 chars>"; if empty: "alles ruhig"; omit bullet entirely if WATCHDOG_AVAILABLE=false>
-- Warden: <counts by state from call 10's `/board` response, comma-separated, e.g. "2 investigating, 1 implementing"; "nichts offen" if `items` is empty>. If any item has `state` `needs_human` or `merge_blocked`, add one sub-bullet per item: `  - <repo>: <note>`. On a failed/unreachable call: "Board nicht erreichbar" — never invent counts.
+- Warden: <counts by state from call 10's `/board` response, comma-separated, e.g. "2 working, 1 merging, 1 verifying"; "nichts offen" if `items` is empty>. If any item has `state` `needs_decision`, add one sub-bullet per item: `  - <repo>: <note>`. On a failed/unreachable call: "Board nicht erreichbar" — never invent counts.
 
 :rotating_light: Aktuelle Warnungen (letzte 24h)
 - <distinct alert text from #alerts messages, deduplicated, max 5>

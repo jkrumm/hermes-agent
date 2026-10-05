@@ -164,8 +164,8 @@ real; escalate.
   activated` → `API call #1: model=gpt-6-luna … latency=…` — the turn was served; the only cost
   is that it ran with no reasoning effort while tools were attached (the accepted 503-avoidance
   tradeoff, see `hermes-gateway`). So "fallback activated → real" does not mean "escalate"
-  here: there is no code change to dispatch (the repo's own ceiling is `investigate`, a verdict
-  can only restate the log) and no issue worth filing. Discharge with `abort <event-id> --why`
+  here: there is no code change to dispatch (sideclaw's dispatch policy caps `hermes-agent` at
+  `investigate`, a verdict can only restate the log) and no issue worth filing. Discharge with `abort <event-id> --why`
   naming the upstream leg. Two adjacent signatures (`ServiceUnavailable`, `InternalServerError`)
   are ONE incident split into two cards by Warden's signature keying — expect a pair, not one
   firing, and check the sibling's state before treating the second as new.
@@ -174,10 +174,9 @@ real; escalate.
   `cooldown_hours=REM_HOURS["hermes_log"]` (24). So one card does not mean one
   event, and a quiet week does not mean the signature is gone — check
   `events.last_reminder_at` / `resolved_at` before calling it fixed.
-- **A verdict-only item still needs discharging.** `nextAction: issue` lands the
-  item in state `verdict`, which carries a 24h deadline to `needs_human`
-  (`STATE_DEADLINES`). Left alone it manufactures a "needs a human" card for work
-  nobody intends to do. `warden close <event-id> --why "<reason>"` resolves it —
+- **A verdict-only item still needs discharging.** An item whose verdict names no change
+  worth landing can park in `needs_decision` (the only human exit; it never expires). Left
+  alone it manufactures a "needs a human" entry in Argo for work nobody intends to do. `warden close <event-id> --why "<reason>"` resolves it —
   and closing is not a one-way door: the loop's `reopen_if_needed()` compares an
   occurrence mark rather than `resolved_at`, and `closed` sits in that
   reopen-eligible set, so a genuinely new occurrence reopens the row. Closing a
@@ -216,21 +215,20 @@ real; escalate.
   plainly instead of offering a `run` that cannot land. For the
   `_handle_stream_error` classification gap, make the anchor a GitHub issue in
   `jkrumm/hermes-agent` (issues enabled, no label) — and then **hand-land the fix
-  rather than relaying the nag**: the card folds to `needs_human` ("apply the fix
-  by hand") and re-sends on the 24h/72h schedule until its 168h deadline, so
-  leaving it alone is the noise, not the work. Recipe: *Hand-landing the patch*
+  rather than relaying the nag**: the item parks in `needs_decision` and stays in
+  Argo's `/warden` until someone acts, so leaving it alone is the noise, not the work. Recipe: *Hand-landing the patch*
   below. Only the gateway restart stays the owner's.
-- **A defect in Warden's own poller** (the double-count above) is not fixable by
-  a dispatch either: `warden` is capped at `investigate` and has no GitHub remote.
-  Report it as a finding with the mechanism, and let the owner decide.
+- **A defect in Warden's own poller** (the double-count above) is a `warden` repo
+  change, not a `hermes-agent` one. Report it as a finding with the mechanism, and let
+  the owner decide.
 
 ## Hand-landing the patch
 
-The `investigate` ceiling bounds **dispatches** — unattended episodes whose briefs
-are attacker-influenceable, aimed at the repo that *is* the control plane. It is
-not a claim that the fix cannot be made: there is simply no episode lane
-(`run hermes-agent --tier implement` is refused and `maybe_auto_implement()`
-routes the item to `needs_human`), so the fix lands by hand. Six steps are yours, one never is.
+The `investigate` ceiling (sideclaw's dispatch policy) bounds **dispatches** — unattended
+episodes whose briefs are attacker-influenceable, aimed at the repo that *is* the control
+plane. It is not a claim that the fix cannot be made: there is simply no episode lane
+(sideclaw refuses an `implement` on `hermes-agent`, and the item ends `failed`), so the
+fix lands by hand. Six steps are yours, one never is.
 
 1. **Edit the live checkout** (`~/.hermes/hermes-agent/…` — the tree the gateway
    imports from), marking the hunk `# LOCAL MODIFICATION (patches/<name>.patch)`,

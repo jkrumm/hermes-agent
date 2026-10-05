@@ -218,10 +218,10 @@ fail-soft:
 Exit 3 = the lock was busy, nothing committed — retry in a minute. Don't compose
 your own `git push`; the helper (and the sync LaunchAgent) own that.
 
-## You cannot dispatch a Claude Code episode at the vault
+## You cannot dispatch a write episode at the vault
 
-`brain` is on the **deny** list in `config/dispatch-repos.json`. `dispatch`
-refuses it at every tier — do not offer to "add it".
+sideclaw's dispatch policy caps `brain` at `investigate` (read-only). A write
+(`implement`) is refused — do not offer to "add it".
 
 Claude Code genuinely is better at vault writes than you are: it loads the
 repo's rules, runs the lint, and can mirror icons to the CDN. So the refusal is

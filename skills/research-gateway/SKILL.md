@@ -11,7 +11,7 @@ metadata:
 # Research — cited, cross-verified answers
 
 A standalone agentic research service (`research.mini.jkrumm.com`, on the mini
-(native LaunchAgent; the VPS container is a fallback until retired), **tailnet-only**).
+(native LaunchAgent; the VPS instance was retired 2026-09-26 — mini only), **tailnet-only**).
 One research brain runs a multi-step
 tool loop (Tavily web search + page fetch + Context7 library docs), **cross-verifies
 claims**, and returns a **cited markdown report**. Runs on EU/IU models — off Max,

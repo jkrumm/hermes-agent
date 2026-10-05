@@ -476,11 +476,11 @@ slack:
   # time, without ever noticing a fix already existed. `~/SourceRoot/warden`'s
   # `scripts/watchdog-poll.py` already ingests this channel out-of-band (source
   # `slack_alert`, deduplicated by `normalize_title()` into a stable signature);
-  # its `scripts/triage.py` (own LaunchAgent, `com.jkrumm.warden-loop`, every
-  # 10 min) now turns that dedup into one durable, updated-in-place Slack card
-  # per problem, with a real sideclaw investigation attached once a signature repeats
-  # or stays open — no LLM call anywhere in that loop. Mentioning Hermes directly in
-  # #alerts still works for an ad-hoc question; see ~/SourceRoot/warden/docs/triage.md.
+  # its loop (own LaunchAgent, `com.jkrumm.warden-loop`) turns that dedup into one
+  # tracked item per problem (one Slack line on fixed / needs_decision), with a
+  # real sideclaw investigation attached once a signature repeats or stays open —
+  # no LLM call in the intake. Mentioning Hermes directly in
+  # #alerts still works for an ad-hoc question; see ~/SourceRoot/warden/DESIGN.md.
   require_mention: false
   free_response_channels: ''
   allowed_channels: ''

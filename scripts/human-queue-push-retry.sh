@@ -20,7 +20,7 @@ set -u
 # The parked request this job owns. Repointed 2026-09-30 from the resolved
 # Tailscale ACL grant (20260926T132306-28724) to the MAM session refresh: the
 # MacBook was unreachable at enqueue time (ssh rc=255), so the ask sits in the
-# queue with no dialog and nobody to push it. 843/845 stay needs_human until the
+# queue with no dialog and nobody to push it. 843/845 stay parked until the
 # session answers.
 DEFAULT_ID="${HUMAN_QUEUE_RETRY_ID:-20260929T204135-23770}"
 ID="${1:-$DEFAULT_ID}"

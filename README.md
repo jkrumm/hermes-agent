@@ -30,12 +30,12 @@ Mac Mini M2 Pro — Hermes Agent (always-on)
 |-|-|-|-|-|
 | `#hermes` | C0ASRUD7K1U | read + write | HomeLab bot | Main conversation, HomeLab-triggered checks, the project-narratives digest (cron `9909f808fe17`, moved here 2026-09-11) |
 | `#inbox` | C0AT6TB49HP | read + write | HomeLab bot | Johannes + HomeLab drops (voice memos, links, digests) → Hermes processes |
-| `#alerts` | C0AS1LAUQ3C | read only (`require_mention_channels`) | HomeLab bot, VPS app (A0BV9MG54TD), Argo app (A0BV9MFTM9R), external monitors | Silenced — no per-message LLM turn. `~/SourceRoot/warden`'s `watchdog-poll.py` still ingests it out-of-band; `triage.py` deduplicates and acts, cards land in `#agents` — `~/SourceRoot/warden/docs/triage.md`. Mentioning Hermes here directly still works |
+| `#alerts` | C0AS1LAUQ3C | read only (`require_mention_channels`) | HomeLab bot, VPS app (A0BV9MG54TD), Argo app (A0BV9MFTM9R), external monitors | Silenced — no per-message LLM turn. `~/SourceRoot/warden`'s `watchdog-poll.py` still ingests it out-of-band; warden's loop deduplicates and acts — `~/SourceRoot/warden/DESIGN.md`. Mentioning Hermes here directly still works |
 | `#updates` | C0ARZJD824W | read only (`require_mention_channels`) | HomeLab bot | Silenced — Hermes was echoing its own pipeline's posts; still polled out-of-band by warden's `watchdog-poll.py` |
 | `#media` | C0AS5GUH5U4 | read only (`require_mention_channels`) | — | Podcast/image completions — Hermes is the producer, not a conversant |
 | `#watchdog` | C0ASRULFTSS | write only | — | Hermes posts its own proactive monitoring results (`~/SourceRoot/warden`'s `com.jkrumm.warden-poll`/`warden-sweep` LaunchAgents, formerly cron `4b1faabda97d`/`4dd759917dd1`) |
 | `#briefings` | C0AT6TH404R | write only | — | Morning/evening audio reports (cron `cc7900c424a9`, `2d38c80e685c`) |
-| `#agents` | C0BVDE5R562 | write only | — | Warden's item cards only (`~/SourceRoot/warden`'s `triage.py`, its own LaunchAgent), updated when something moved; Hermes posts nothing here since 2026-09-11 — `~/SourceRoot/warden/docs/triage.md` |
+| `#agents` | C0BVDE5R562 | write only | — | Warden's one line per item that is `fixed` or `needs_decision` (`~/SourceRoot/warden`, its own LaunchAgent); Hermes posts nothing here — `~/SourceRoot/warden/DESIGN.md` |
 
 ### Trigger Matrix
 
@@ -166,7 +166,7 @@ tail -20 ~/.hermes/logs/gateway.log  # watch for successful Slack connection
 
 ### 9. Verify
 
-- [x] Send message in `#hermes` on Slack — get response via gpt-5.6-luna
+- [x] Send message in `#hermes` on Slack — get a response
 - [x] Send voice memo in Slack — get transcribed via audio-gateway (`gpt-4o-transcribe`)
 - [x] TTS audio generation — ElevenLabs (flash-v2.5 / v3, voice Mark) via audio-gateway, MP3 output
 - [x] Backup agent — daily 03:00 rsync to `homelab:/mnt/hdd/backups/hermes/`, pings UK
@@ -232,11 +232,12 @@ status` asserts the live set matches it. Watchdog and dispatch sweep moved to
 Hermes triages well but reads a repo badly — it has no access to a repo's `AGENTS.md`/`CLAUDE.md`,
 `.claude/rules/` or `.claude/skills/`. For anything that needs real repo context (a bug fix,
 an investigation, a PR), Hermes hands the episode to Claude Code via `warden`
-(sideclaw's `dispatch` job tool) instead of attempting it itself — three tiers from a read-only
-verdict up to a branch + draft PR, gated by a Slack-signed approval for anything that writes.
+(sideclaw's `dispatch` job tool) instead of attempting it itself — `hermes-cc.sh run <repo>` files a
+warden item that rides investigate → implement → merge → verify on its own; sideclaw's dispatch policy
+is the only boundary.
 The CLI itself lives at `warden/scripts/warden` (a Python CLI; the original bash
 `hermes-cc.sh` was retired 2026-09-10); this repo's own `scripts/hermes-cc.sh`
 (= `~/.hermes/scripts/hermes-cc.sh`) is a 6-line exec shim into it — the path stays
 because every other doc and script here references it.
 Full design and every bound: `~/SourceRoot/warden/DESIGN.md`. Hermes's own side —
-the Slack door and the signed-approval artifact: `docs/dispatch-bridge.md`.
+the Slack door: `docs/dispatch-bridge.md`.

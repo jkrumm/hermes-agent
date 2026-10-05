@@ -1,6 +1,6 @@
 ---
 name: warden
-description: Read-only status over Warden, the deterministic control plane that triages, decides and dispatches Claude Code episodes. Use for "what is warden doing", "what needs me", "what happened to item N", "is the loop healthy", "was macht warden gerade", "hängt was fest", or any question about the state of an item, a dispatch, or the loop's own liveness.
+description: Read-only status over Warden, the deterministic control plane that triages signals and drives each item through sideclaw jobs to fixed. Use for "what is warden doing", "what needs me", "what happened to item N", "is the loop healthy", "was macht warden gerade", "hängt was fest", or any question about the state of an item, a dispatch, or the loop's own liveness.
 version: 1.0.0
 metadata:
   hermes:
@@ -11,8 +11,8 @@ metadata:
 # Warden — read-only status over the control plane
 
 Warden (`~/SourceRoot/warden`) is the deterministic control plane: it ingests
-signals, decides, dispatches Claude Code episodes through sideclaw, and owns
-the only ledger — five LaunchAgents. Handing it work is **`dispatch`**'s `run`
+signals, decides, drives each item through sideclaw jobs, and owns the only
+ledger — five LaunchAgents. Handing it work is **`dispatch`**'s `run`
 verb; this skill only reads what it's doing back, over its loopback HTTP API.
 **Never open the ledger file** (no sqlite, no `warden.db`) — the API is the interface.
 
@@ -52,7 +52,7 @@ curl -s http://127.0.0.1:7735/metrics
 
 The six funnel numbers DESIGN.md defines as what "done" means for this
 system: verdicts reaching a recorded disposition, the fixed-vs-silent ratio,
-median time stuck in `needs_human`, unattended fixes per week, poller ages,
+median time from `needs_decision` to a decision, unattended fixes per week, poller ages,
 and reverts/reopens. Every leaf metric is `{"value": …, "unavailable": …}` —
 **`value: null` paired with a non-empty `unavailable` reason means "not
 measurable yet", never a measured zero.**
@@ -64,12 +64,15 @@ curl -s http://127.0.0.1:7735/board
 ```
 
 `{generated_at, schema_version, counts: {<state>: n}, items: [{event_id,
-origin, repo, state, state_deadline, max_tier, title, note, pr_url,
-dispatch_job, implement_job, validation_job, created_at, updated_at}],
-terminal_24h: n}` — every **non-terminal** item, newest first, plus how many
-finished in the last 24h. "What is warden doing" is `counts` by state;
-"what's blocked" is any item whose `state` is `needs_human` or
-`merge_blocked`.
+origin, repo, state, close_reason, strikes, retry_at, title, note, pr_url,
+dispatch_job, implement_job, validation_job, train_stage, created_at,
+updated_at, …}], terminal_24h: n, awaiting_owner: […]}` — every
+**non-terminal** item, plus how many finished in the last 24h. States:
+`new`, `triaged`, `working`, `merging`, `verifying`, `fixed`,
+`needs_decision`, `failed`; terminal `quiet` / `closed` carry a
+`close_reason`. "What is warden doing" is `counts` by state; "what's
+blocked" is `needs_decision` (a question for Johannes) or `failed` (retries
+exhausted — listed in Argo, never a page).
 
 ### `GET /items/<event_id>`
 
@@ -90,18 +93,18 @@ that", not `/board`'s one-line summary.
 ## How to answer
 
 - **"What is warden doing"** → `/board`, read `counts`, name any state with
-  items beyond `new`/`investigating`.
-- **"What needs me"** → `/board`, filter to `needs_human` and
-  `merge_blocked`, name each by `repo` + `note` — the `note` is why it's
-  stuck; lead with it, not the state name.
-- **A `needs_human` card may be stale by hours — verify before relaying it
-  as outstanding work.** `note: "…apply the fix by hand"` means the loop
-  *stopped trying*, not that the fix is still missing: the work can land
-  while the card is in flight, and the card is only re-synced on the next
+  items beyond `new`/`triaged`.
+- **"What needs me"** → quote `/board.awaiting_owner` (`needs_decision`
+  items carry the question, `failed` ones the reason) — name each by `repo` +
+  `reason`; the reason is why it's stuck, lead with it, not the state name.
+- **A `needs_decision` or `failed` item may be stale by hours — verify before
+  relaying it as outstanding work.** `reason: "…apply the fix by hand"`
+  means the loop *stopped trying*, not that the fix is still missing: the
+  work can land while the item waits, and it only re-syncs on the next
   state change. Before telling Johannes something needs him, check the
   repo's `git log` for a commit since `item.updated_at` and the live state
   of whatever the verdict named. If it landed, say so and lead with that,
-  not with the card's ask.
+  not with the item's ask.
 - **"What happened to item N" / "is that PR merged yet"** → `/items/N`.
   Relay `item.state`, the latest `dispatches[].verdict.summary` if there is
   one, and `pr_url` if it exists.
@@ -121,14 +124,15 @@ that", not `/board`'s one-line summary.
   action queue, and warden's loop pulls and applies them itself.
 - **What waits on Johannes is `/board.awaiting_owner`** — parked items with
   age and reason, plus PRs that outlived their item. Quote it; don't rebuild
-  it from `items`. `/health.self_audit` names any violated invariant.
+  it from `items`.
 - **Never guess an item's state.** If asked and you haven't called
   `/board` or `/items/:id` this turn, call it — a verdict the sweeper
   delivered earlier in the thread is a snapshot from when it was posted,
   not the item's current state.
 - **`operations` rows are the retry-loop signal.** Every failed row carries
   its refusal in `receipt_json`. A large count of the *same* failure with
-  `outcome: failed` means the loop is stuck against a wall (a tier ceiling,
-  a denied repo) — that is a finding worth naming, and it is invisible in
-  `item.state` alone, which just reads `verdict`.
+  `outcome: failed` means the loop is stuck against a wall (a sideclaw
+  dispatch-policy refusal, a denied repo — the ceilings live only in
+  sideclaw's policy) — that is a finding worth naming, and it is invisible
+  in `item.state` alone, which just reads `working`.
 - **`http://127.0.0.1:7735` only, never `localhost`.**

@@ -43,7 +43,7 @@ Reproduce any store operation by exporting exactly those three.
    and a skip logged as `working directory not found` is the workdir-teardown case,
    not a store defect.
 6. **Discharge or escalate** via `hermes-cc.sh close <event-id> --why "<mechanism>"`.
-   **If the item is in state `investigating`, `close` refuses** ("an episode or operation is in
+   **If the item is in state `working`, `close` refuses** ("an episode or operation is in
    flight; 'abort' is the verb for that") — because the triage loop already opened an
    `investigate` dispatch. When you have diagnosed and repaired the cause by hand, that episode
    is redundant: `hermes-cc.sh abort <event-id> --why "<mechanism + what you did>"` cancels the
@@ -53,10 +53,10 @@ Reproduce any store operation by exporting exactly those three.
    2026-09-22): every other row sharing that `dispatch_job` still in an episode state is closed
    with the same note, and an already-terminal job (sideclaw's 409) is tolerated rather than
    refused, so re-aborting a sibling is no longer a dead end. Before that, aborting the carrier
-   stranded the siblings in `investigating` with **no exit at all** — `close` refuses in-flight
+   stranded the siblings in an in-flight state with **no exit at all** — `close` refuses in-flight
    states, a second `abort` refused on the 409, and the sweep only reads rows with
-   `reported_at IS NULL`, the column the abort had just stamped — so they expired to a
-   `needs_human` card two hours later. The old CLI's `abort` also ignored `--dry-run` outright:
+   `reported_at IS NULL`, the column the abort had just stamped — so they surfaced as a
+   human-ask two hours later. The old CLI's `abort` also ignored `--dry-run` outright:
    the "preview" cancelled the job and closed the item for real (fixed in the same §).
    Confirm an item's state by reading `/items/<event-id>`, never by re-running a mutating verb
    under `--dry-run`.
@@ -134,7 +134,7 @@ Reproduce any store operation by exporting exactly those three.
   (verified in a scratch repo), so the retry could exclude a commitless boundary instead of
   re-running the identical add. That revises a *deliberate* report-only choice in
   `patches/checkpoint-store-integrity.patch` — and `hermes-agent` is `investigate`-capped in
-  `dispatch-repos.json`, so the loop cannot auto-implement it. Report it; do not dispatch it.
+  sideclaw's dispatch policy, so the loop cannot auto-implement it. Report it; do not dispatch it.
 - `Konnte Datei <store>/objects/<xx>/<sha> nicht schreiben: No such file or directory`
   → **gc race**. A concurrent `git gc --prune=now` removed the loose-object fanout dir
   between git's stat and its write. Tool calls run on a daemon thread pool, so two

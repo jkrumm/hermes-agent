@@ -38,7 +38,7 @@ the first pass.
 | `config.yaml`, `.env.tpl`, `SOUL.md` | `~/.hermes/…` | edit here, live immediately; `.env.tpl` is the one list of `KEY=op://…` refs |
 | `cron/`, `scripts/`, `hooks/` | `~/.hermes/…` | Hermes-driven cron + pre-run scripts (must live under `HERMES_HOME/scripts/`) + host-level shell scripts |
 | `plugins/{name}/` | `~/.hermes/plugins/{name}/` | **`HERMES_PLUGINS`** is the source of truth. **None today** — `dispatch-approval` was removed 2026-10-04 (warden Wave 1 deleted the approval stack). A new one must **also** be enabled once — `hermes plugins enable <name>`; the symlink alone is inert. |
-| `config/` | `~/.hermes/config/` | **empty** since 2026-09-10 — `dispatch-repos.json` (root, `deny`, `defaultTier`, per-repo ceilings) moved to `~/SourceRoot/warden/config/`, warden's own defence-in-depth copy |
+| `config/` | `~/.hermes/config/` | **empty** since 2026-09-10 — `dispatch-repos.json` is gone — the repo/tier policy is sideclaw's `server/lib/dispatch-policy.ts` (`GET /api/dispatch-policy`) |
 | `skills/{name}/` | `~/.hermes/skills/{name}/` | **`HERMES_SKILLS` in the Makefile is the source of truth** — 20 dirs (agent-platform Wave 2, 2026-10-04; was 126). Retired skills live on as `<skill>/references/*.md` or in git history; roster: docs. |
 | `USER.md` | `~/.hermes/memories/USER.md` | **copied** — Hermes writes to it |
 
@@ -139,12 +139,12 @@ agent — prompt without waiting, then poll `agent get`.
 
 **Moved to `~/SourceRoot/warden` 2026-09-09.** `triage.py` (LaunchAgent
 `com.jkrumm.warden-loop`, 10 min) is the deterministic act-loop over
-`~/.warden/warden.db` that turns deduplicated watchdog events into Slack cards
-and, once eligible, `implement` dispatches. It reaches back into this repo
+`~/.warden/warden.db` that turns deduplicated watchdog events into items and drives them to `fixed`
+(implement at any confidence; review is the gate), with one Slack line per
+`fixed`/`needs_decision` item. It reaches back into this repo
 through `scripts/hermes-cc.sh` (an exec shim into the `warden` CLI) — see
-*Dispatch Bridge* above. Full state machine, the policy contract
-(`config/triage-policy.json`, now at `~/SourceRoot/warden/config/`), and why
-the loop is a LaunchAgent rather than a `hermes cron` job:
+*Dispatch Bridge* above. Full state machine
+and why the loop is a LaunchAgent rather than a `hermes cron` job:
 `~/SourceRoot/warden/AGENTS.md`, `DESIGN.md`, `STATE.md`.
 
 ## Secrets — native `secrets.command` over the headless cache (v0.19.0+)

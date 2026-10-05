@@ -5,9 +5,8 @@ _Use when changing a HyperDX alert or dashboard as code._
 HyperDX alerts and dashboards are **declared state in the `vps` repo**, not UI state:
 `observability/alerts/*.json` and `observability/dashboards/*.json` are the source of
 truth, and `scripts/hyperdx-sync.sh` (through `make hyperdx-export` / `make hyperdx-apply`)
-is the only writer. Warden's `config/triage-policy.json` gives `vps`'s `observability/**`
-`autoMergePaths` with `deploy: hyperdx-apply` and `autoDeploy: true` — so a change confined
-to those paths is pre-approved and lands without an owner click. **Whether** a family should
+is the only writer. Warden has no per-path allowlist any more: a change to those paths rides the normal merge
+train, with review confirmed on the merged SHA as the gate. **Whether** a family should
 be changed at all is `alert-noise-suppression`; **how** the change is made is this skill.
 
 ## Procedure

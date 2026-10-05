@@ -92,19 +92,19 @@ The brain (`deepseek-v4.1-flash`) runs plain `api_mode: chat_completions` and ne
 Responses-API workaround: probed 2026-09-13, it accepts function tools **and** a top-level
 `reasoning_effort` in the same request, so `agent.reasoning_effort: high` reaches the wire on
 every turn without any 400/503 dance. The failure mode below is real, but it is
-**gpt-5.6-luna-only** — it fires only when Hermes has failed over to the fallback model:
+**fallback-only** — it fires only when Hermes has failed over to the fallback model (`gpt-6-luna`; gpt-5.x wording shown, the gpt-6 refusal is the same):
 
 > Function tools with reasoning_effort are not supported for gpt-5.6-luna in
 > `/v1/chat/completions`. To use function tools, use `/v1/responses` or set
 > reasoning_effort to 'none'.
 
-`patches/transport-iu-reasoning-effort.patch` avoids this 503 by dropping `reasoning_effort`
-whenever the model id starts with `gpt-5` **and** the request carries tools — DeepSeek and GLM
-are exempt (probed to accept both together), so only the fallback and `title_generation` lose
-their effort under tools, never the brain. Diagnosis tell in the log if the fallback is active:
-`Fallback activated: deepseek-v4.1-flash → gpt-5.6-luna` — expected under throttling, and the
-fallback then runs with **no** reasoning effort while tools are attached (the tradeoff, not a
-fault).
+`patches/transport-iu-reasoning-effort.patch` avoids this 503 whenever the request carries
+tools: gpt-5.x gets `reasoning_effort` dropped, the `gpt-6` family an explicit `none` (omitting the
+key 503s too) — DeepSeek is exempt (probed to accept both together), so only the fallback and
+`title_generation` lose their effort under tools, never the brain. Diagnosis tell in the log if the
+fallback is active: `Fallback activated: deepseek-v4.1-flash → gpt-6-luna` — expected under
+throttling, and the fallback then runs with **no** reasoning effort while tools are attached (the
+tradeoff, not a fault).
 
 **`patches/runtime-provider-iu-responses-api.patch` is dormant on the current config, not
 retired.** It forces the IU OpenAI leg onto `codex_responses` only when a slot has **no explicit
@@ -192,7 +192,7 @@ py-spy dump of it would have nothing to find.
   either older than that filter or a genuine 404 for the real brain model — check which model
   id the line names.
 - **The fallback entry uses `chat_completions`, same as the brain.** That is correct and
-  intentional — the fallback (`gpt-5.6-luna`) and the brain (`deepseek-v4.1-flash`) are both on
+  intentional — the fallback (`gpt-6-luna`) and the brain (`deepseek-v4.1-flash`) are both on
   the same IU OpenAI leg now; only the tools+effort strip differs between them by model family.
 - **`check_fn … returned False`** WARNINGs at every turn start (browser, computer-use,
   image-gen, kanban) are ordinary capability probes for tools this deployment does not

@@ -98,17 +98,17 @@ stack is 4–5 minutes. `grep -n "Test Files\|Tests \|EXIT=\|Error" <log>` is th
   eliminates pickup.** When a fix works by renaming a script out of the canonical
   `test`/`lint`/`typecheck` set, report it as a reduction. Claiming the lane can no
   longer be discovered is a claim the mechanism does not support.
-- **Re-read the item before answering a card.** Cards are projections rendered at
-  the last state change, and an escalation ("still waiting on you — 24 h in
-  `merge_blocked`") can arrive after the state already moved. `curl -s
+- **Re-read the item before answering a Slack line.** A line is a snapshot posted at a
+  state change ("fixed" / "needs a decision"), and the state can have moved since. `curl -s
   http://127.0.0.1:7735/items/<event_id>` first; the transitions are the history.
 
-## The `merge_blocked` handoff on a PR-required repo
+## A PR-required repo's PR waiting on the owner
 
-A repo listed in `~/.claude/pr-required-repos.json` can never be merged by the loop:
-the item lands `merge_blocked` with *"requires a human pull-request review … this verb
-will not merge there"*. **That is a handoff, not a defect and not a stuck gate** — the
-disposition is to say the PR is ready and let him merge it. Do not look for another
+A repo listed in `~/.claude/pr-required-repos.json` keeps its GitHub ruleset: warden's
+merge train squash-merges only what GitHub's own rules allow, and never routes around a
+required human review. **A review-confirmed PR that GitHub will not merge for the loop is
+a handoff, not a defect and not a stuck gate** — the disposition is to say the PR is
+ready and let him merge it. Do not look for another
 way to land it, and never merge on github.com.
 
 What that report must carry, in this order: the URL, the title, the file count, the
