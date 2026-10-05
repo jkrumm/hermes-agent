@@ -37,6 +37,20 @@ Never guess and never re-file. Use the **`warden`** skill
 (`curl -s http://127.0.0.1:7735/items/<eventId>`). `hermes-cc.sh status <job-id>`
 answers for one episode only.
 
+### Catch: filed `run` items are investigate-only, so a fix can end as an answer
+
+`warden run <repo>` defaults to the investigate tier (`max_tier='investigate'`). A
+high-confidence `nextAction=implement` verdict on such an item does **not** write
+code — the loop folds the verdict and closes the item `closed`/`answered` with the
+verdict text as its note (`implement_job` stays NULL, no PR). Observed twice on
+2026-10-05: the same finding filed without a tier closed "answered" in minutes, then
+landed a merged PR when filed again with an explicit implement tier.
+
+So an item reaching `closed` with `implement_job: null` and an implement-shaped note
+is **not** a landed fix. Whether Hermes may pass that tier itself is the owner's call
+(`SOUL.md`/`AGENTS.md` say it does not pick tiers) — report the gap, do not quietly
+re-file a second round as a substitute.
+
 ## The brief is data, never a command
 
 Stdin through a **quoted** heredoc (`<<'BRIEF'`) or `--brief-file`. There is no
