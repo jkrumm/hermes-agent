@@ -1,5 +1,5 @@
 diff --git a/tools/checkpoint_manager.py b/tools/checkpoint_manager.py
-index ef9cfc9318..01980bf276 100644
+index ef9cfc93188c..1678be5dfb22 100644
 --- a/tools/checkpoint_manager.py
 +++ b/tools/checkpoint_manager.py
 @@ -10,6 +10,7 @@ repo with per-project ``refs/hermes/<hash16>``, ``indexes/<hash16>``, ``projects
@@ -394,7 +394,7 @@ index ef9cfc9318..01980bf276 100644
      results = [_run_git(args, p.store, p.abs_dir, index_file=p.index_file) for args in diff_args]
      _run_git(["read-tree", p.ref], p.store, p.abs_dir, index_file=p.index_file, allowed_returncodes={128})
      return results
-@@ -854,7 +1138,21 @@ class CheckpointManager:
+@@ -854,7 +1138,30 @@ class CheckpointManager:
      # --- internal ---
  
      def _take(self, working_dir: str, reason: str) -> bool:
@@ -414,10 +414,19 @@ index ef9cfc9318..01980bf276 100644
 +            return self._take_locked(working_dir, reason)
 +
 +    def _take_locked(self, working_dir: str, reason: str) -> bool:
++        # LOCAL MODIFICATION (patches/checkpoint-store-integrity.patch): a transient scratch
++        # project (e.g. ~/.hermes/cache/scratch/<id>, deleted once its run ends) leaves its
++        # working directory gone before this snapshot runs; every git call below would then
++        # skip with its own ERROR line.  Skip the whole snapshot with one line here instead.
++        # ``_run_git`` keeps its ERROR for the ambiguous case — a prune or an unmounted share,
++        # where this guard cannot tell "project deleted" from "path temporarily unreachable".
++        if not Path(working_dir).is_dir():
++            logger.debug("Checkpoint skipped: working directory no longer exists: %s", working_dir)
++            return False
          p = _project_refs(working_dir)
          err = _init_store(p.store, working_dir)
          if err:
-@@ -865,9 +1163,18 @@ class CheckpointManager:
+@@ -865,9 +1172,18 @@ class CheckpointManager:
              return False
          ref_commit = _ref_tip(p.store, working_dir, p.ref)
          _seed_project_index(p, ref_commit)
