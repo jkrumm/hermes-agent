@@ -23,6 +23,11 @@ Two defects, one subsystem, both observed live on 2026-09-15:
    and a per-project index is not a gc reachability root, so a snapshot's staged-but-uncommitted
    blobs are prunable mid-flight.  Fix: one reentrant lock over every store-touching git call.
 
+4. **A deleted working directory spammed one ERROR per git call.**  A transient scratch project
+   (e.g. ``~/.hermes/cache/scratch/<id>``, removed as its run ends) can have its directory gone
+   before the snapshot runs; ``_run_git`` then skips rev-parse, ls-files and add -A with an ERROR
+   each.  Fix: skip the whole snapshot with one line when the working directory no longer exists.
+
 Run:  ~/.hermes/hermes-agent/venv/bin/python3 tests/test_checkpoint_store_excludes.py
 """
 import os
@@ -217,6 +222,39 @@ try:
     # Either the race did not land (add succeeded first try) or the retry recovered it.  Both are
     # acceptable; a False here would mean the retry is missing, which is the defect.
     check("a racing delete does not lose the snapshot", ok, True)
+finally:
+    f.close()
+
+
+
+# ---------------------------------------------------------------------------
+print("a deleted working directory skips the snapshot before any git call")
+f = Fixture()
+try:
+    (f.work / "top.txt").write_text("top\n")
+    check("first snapshot succeeds", f.snapshot("first"), True)
+
+    # The project directory is gone before the next snapshot — the live shape is a transient
+    # scratch project (~/.hermes/cache/scratch/<id>) removed as its run ends.  Before the fix,
+    # _take_locked ran rev-parse/ls-files/add against the missing dir, one ERROR line per git
+    # command; after it, the snapshot is skipped before the first git call.
+    shutil.rmtree(f.work)
+
+    calls = []
+    real_run = cm._run_git
+
+    def counting_run(*args, **kwargs):
+        calls.append(list(args[0])[0] if args else None)
+        return real_run(*args, **kwargs)
+
+    cm._run_git = counting_run
+    try:
+        f.mgr.new_turn()
+        ok = f.mgr.ensure_checkpoint(str(f.work), "after delete")
+    finally:
+        cm._run_git = real_run
+    check("a deleted project does not snapshot", ok, False)
+    check("no git call runs against the deleted project", len(calls), 0)
 finally:
     f.close()
 
