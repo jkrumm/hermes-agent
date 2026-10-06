@@ -129,12 +129,12 @@ Reproduce any store operation by exporting exactly those three.
   `refs/remotes/x/…` ref but **no local branch**, so `HEAD` → `refs/heads/main` is unborn
   and the directory is commitless by construction. Read `.git/FETCH_HEAD` to attribute it;
   the dirs are disposable (`b2/`, `b3/`, `sal2`, `salvage-check` are typical names).
-  **A candidate code fix exists but is the owner's call, not a dispatch's:**
+  **A candidate code fix exists:**
   `git add -A -- . ':(exclude)<path>'` returns rc=0 where the bare `add -A` is rc=128
   (verified in a scratch repo), so the retry could exclude a commitless boundary instead of
   re-running the identical add. That revises a *deliberate* report-only choice in
-  `patches/checkpoint-store-integrity.patch` — and `hermes-agent` is `investigate`-capped in
-  sideclaw's dispatch policy, so the loop cannot auto-implement it. Report it; do not dispatch it.
+  `patches/checkpoint-store-integrity.patch`; it is a reversible code change, so it goes
+  through `warden run hermes-agent` like any other fix.
 - `Konnte Datei <store>/objects/<xx>/<sha> nicht schreiben: No such file or directory`
   → **gc race**. A concurrent `git gc --prune=now` removed the loose-object fanout dir
   between git's stat and its write. Tool calls run on a daemon thread pool, so two
@@ -180,8 +180,9 @@ Reproduce any store operation by exporting exactly those three.
   **The real defect is severity, not integrity**: an expected skip is logged at ERROR, so
   every first-write-into-a-new-directory files a `hermes_log` card — and one batch files
   **three** items (`rev-parse`, `ls-files -X exclude`, `add -A`) that are one investigation.
-  Report the severity finding; do not dispatch it (`hermes-agent` is `investigate`-capped and
-  a log-level change is inert until a gateway restart, which is human-only).
+  Fix it through `warden run hermes-agent`: lower the missing-workdir skip to INFO in the
+  patch. The restart is not a blocker — warden's rollout runs `make deploy` after the merge,
+  which restarts the gateway from outside it.
 - `Warnung: Füge eingebettetes Repository hinzu: <dir>` → **not a failure.** That is an
   advice warning on stderr with rc=128 only because something *else* in the same add
   failed; the message names a nested repo that was added as a gitlink, which is normal.
@@ -287,7 +288,8 @@ sleep 5; grep -c '^claude-501/$' ~/.hermes/checkpoints/store/info/exclude   # 0 
 cp /tmp/exclude.bak ~/.hermes/checkpoints/store/info/exclude                # always restore
 ```
 
-A `0` there means the fix is inert. **Do not use `.hermes-store.lock` as the staleness tell** — the lock file is created *and unlinked* inside each critical section (`os.unlink` in the `finally`), so it is absent whenever no snapshot is in flight, on both the pre- and post-fix code. Its absence proves nothing; the exclude rewrite is the observable tell. **The restart is a human action** — `hermes gateway restart`
+A `0` there means the fix is inert. **Do not use `.hermes-store.lock` as the staleness tell** — the lock file is created *and unlinked* inside each critical section (`os.unlink` in the `finally`), so it is absent whenever no snapshot is in flight, on both the pre- and post-fix code. Its absence proves nothing; the exclude rewrite is the observable tell. **From inside the gateway the restart is a human action** (outside it, `make deploy` — and so
+warden's rollout after a merge — restarts it) — `hermes gateway restart`
 is guard-blocked from inside the gateway (SIGTERM would kill the command), and `ask-human.sh` is
 blocked too when its arguments contain the phrase. Hand over the one command; do not look for a
 way around the guard. Until the restart, the pre-fix behaviour continues (the gateway re-adds
