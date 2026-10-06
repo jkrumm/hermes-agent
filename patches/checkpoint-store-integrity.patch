@@ -1,5 +1,5 @@
 diff --git a/tools/checkpoint_manager.py b/tools/checkpoint_manager.py
-index ef9cfc9318..01980bf276 100644
+index ef9cfc9318..a1334f3eff 100644
 --- a/tools/checkpoint_manager.py
 +++ b/tools/checkpoint_manager.py
 @@ -10,6 +10,7 @@ repo with per-project ``refs/hermes/<hash16>``, ``indexes/<hash16>``, ``projects
@@ -163,7 +163,7 @@ index ef9cfc9318..01980bf276 100644
  def _repair_bare_repo_dirs(store: Path) -> None:
      """Recreate ``refs/heads`` and ``branches`` after ``git gc``: gc on a bare repo with only
      packed refs can remove them, yet git 2.34+ requires them — without them ``git add -A``
-@@ -240,7 +354,14 @@ def _repair_bare_repo_dirs(store: Path) -> None:
+@@ -240,13 +354,22 @@ def _repair_bare_repo_dirs(store: Path) -> None:
  def _run_git(args: List[str], store: Path, working_dir: str, timeout: int = _GIT_TIMEOUT,
               allowed_returncodes: Optional[Set[int]] = None, index_file: Optional[Path] = None) -> Tuple[bool, str, str]:
      """Run git against the shared store -> (ok, stdout, stderr).  ``allowed_returncodes`` suppresses
@@ -179,7 +179,16 @@ index ef9cfc9318..01980bf276 100644
      wd = _normalize_path(working_dir)
      cmd = ["git"] + list(args)
      if not wd.is_dir():
-@@ -272,10 +393,45 @@ def _run_git(args: List[str], store: Path, working_dir: str, timeout: int = _GIT
+         msg = (f"working directory not found: {wd}" if not wd.exists()
+                else f"working directory is not a directory: {wd}")
+-        logger.error("Git command skipped: %s (%s)", " ".join(cmd), msg)
++        # A vanished workdir (a finished or temporary session) is expected; anything else is not.
++        log = logger.info if not wd.exists() else logger.error
++        log("Git command skipped: %s (%s)", " ".join(cmd), msg)
+         return False, "", msg
+ 
+     try:
+@@ -272,10 +395,45 @@ def _run_git(args: List[str], store: Path, working_dir: str, timeout: int = _GIT
      stderr = result.stderr.strip()
      if not ok and result.returncode not in (allowed_returncodes or set()):
          logger.error("Git command failed: %s (rc=%d) stderr=%s",
@@ -226,7 +235,7 @@ index ef9cfc9318..01980bf276 100644
  def _git_out(args: List[str], store: Path, working_dir: str, rc: Optional[Set[int]] = None) -> str:
      """stdout of a successful git call, else ``""``."""
      ok, out, _ = _run_git(args, store, working_dir, allowed_returncodes=rc)
-@@ -420,6 +576,9 @@ def _init_store(store: Path, working_dir: str) -> Optional[str]:
+@@ -420,6 +578,9 @@ def _init_store(store: Path, working_dir: str) -> Optional[str]:
              return f"Could not create checkpoint base: {exc}"
          _migrate_legacy_store(base)
      if _store_has_head(store):
@@ -236,7 +245,7 @@ index ef9cfc9318..01980bf276 100644
          return None
      for d in (store, store / _INDEXES_DIRNAME, store / _PROJECTS_DIRNAME):
          d.mkdir(parents=True, exist_ok=True)
-@@ -434,11 +593,31 @@ def _init_store(store: Path, working_dir: str) -> Optional[str]:
+@@ -434,11 +595,31 @@ def _init_store(store: Path, working_dir: str) -> Optional[str]:
      for key, value in _STORE_GIT_CONFIG:
          _run_git(["config", key, value], store, str(base))
      (store / "info").mkdir(exist_ok=True)
@@ -269,7 +278,7 @@ index ef9cfc9318..01980bf276 100644
  def _volume_evidence(workdir: Path) -> Dict:
      """``(st_dev, st_ino)`` of ``workdir``'s parent, captured while reachable: identifies the
      *directory*, not the path (a mount point resolves to the underlay after unmount), so orphan
-@@ -560,15 +739,120 @@ def _locate(working_dir: str, commit_hash: str,
+@@ -560,15 +741,120 @@ def _locate(working_dir: str, commit_hash: str,
      return p, None if _store_has_head(p.store) else _no_store_result()
  
  
@@ -394,7 +403,7 @@ index ef9cfc9318..01980bf276 100644
      results = [_run_git(args, p.store, p.abs_dir, index_file=p.index_file) for args in diff_args]
      _run_git(["read-tree", p.ref], p.store, p.abs_dir, index_file=p.index_file, allowed_returncodes={128})
      return results
-@@ -854,7 +1138,21 @@ class CheckpointManager:
+@@ -854,7 +1140,21 @@ class CheckpointManager:
      # --- internal ---
  
      def _take(self, working_dir: str, reason: str) -> bool:
@@ -417,7 +426,7 @@ index ef9cfc9318..01980bf276 100644
          p = _project_refs(working_dir)
          err = _init_store(p.store, working_dir)
          if err:
-@@ -865,9 +1163,18 @@ class CheckpointManager:
+@@ -865,9 +1165,18 @@ class CheckpointManager:
              return False
          ref_commit = _ref_tip(p.store, working_dir, p.ref)
          _seed_project_index(p, ref_commit)
