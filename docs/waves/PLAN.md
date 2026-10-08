@@ -22,9 +22,9 @@ verified — without updating upstream Hermes (stay on `d3b25b52ad` / v0.21.4; f
   (default **medium**), `budget_tokens` → 400, non-default temperature → 400, assistant prefill → 400.
   Pricing doubles+ above 100k input tokens ($0.10/$0.50 → $0.50/$2.50 per MTok).
 
-## Wave 1 — patch, switch, verify            <!-- status: active -->
+## Wave 1 — patch, switch, verify            <!-- status: done -->
 
-- [ ] **Patch the haiku guard.** `~/.hermes/hermes-agent/agent/anthropic_adapter.py` `_thinking_kwargs()`
+- [x] **Patch the haiku guard.** `~/.hermes/hermes-agent/agent/anthropic_adapter.py` `_thinking_kwargs()`
       has `if "haiku" in model.lower(): return {}` — Haiku 5.5 would get NO effort and silently run at
       `medium`. Narrow it to legacy Haikus (3.x / 4.x) so `claude-haiku-5-5*` reaches the adaptive branch
       (`thinking: {type: adaptive, display: summarized}` + `output_config.effort`). Also check in the same
@@ -33,10 +33,10 @@ verified — without updating upstream Hermes (stay on `d3b25b52ad` / v0.21.4; f
       not an 8k/4k legacy substring match. Capture as a new `patches/anthropic-adapter-haiku-5.patch`
       (one patch file per upstream file — see `docs/patches.md`), `# LOCAL MODIFICATION` marker, and a
       `docs/patches.md` entry. `make patch-check` must list it applied.
-- [ ] **Check the third-party-endpoint path.** The adapter strips thinking signatures for third-party
+- [x] **Check the third-party-endpoint path.** The adapter strips thinking signatures for third-party
       `base_url`s. Confirm what that does to replayed thinking blocks in a tool loop on this gateway
       (dropped cleanly vs 400 vs silently degrading). Fix in the same patch only if it breaks.
-- [ ] **Switch config.yaml.** Brain → `claude-haiku-5-5-eu`, `api_mode: anthropic_messages`, base URL =
+- [x] **Switch config.yaml.** Brain → `claude-haiku-5-5-eu`, `api_mode: anthropic_messages`, base URL =
       the IU Anthropic route (same `${ANTHROPIC_BASE_URL}` / `${ANTHROPIC_API_KEY}` the `auxiliary.approval`
       slot already uses — keep `provider: custom` so nothing reaches for ~/.claude OAuth),
       `agent.reasoning_effort: high` (already high — confirm it maps), `context_length: 1000000`.
@@ -44,16 +44,23 @@ verified — without updating upstream Hermes (stay on `d3b25b52ad` / v0.21.4; f
       `api_mode` from the **named-provider block**, not top-level `model.api_mode` — set it where it is
       actually read. Delegation inherits the brain (`model: ''`) — confirm. Leave `fallback_providers`
       (gpt-6-luna), compression, title and approval slots unchanged.
-- [ ] **Restart and verify live** (`launchctl kickstart -k gui/$(id -u)/ai.hermes.gateway`, then
+- [x] **Restart and verify live** (`launchctl kickstart -k gui/$(id -u)/ai.hermes.gateway`, then
       `make status`). Prove, from gateway logs or a request trace — not from config — that a real brain
       turn: (1) hits `/anthropic/v1/messages` with model `claude-haiku-5-5-eu`, (2) carries
       `output_config.effort: "high"`, (3) runs a multi-turn tool loop (≥2 tool calls) end to end,
       (4) shows `cache_read_input_tokens > 0` on a later turn, and (5) did NOT silently fail over to
       gpt-6-luna. Any one missing = not done.
-- [ ] **Record and report.** Update AGENTS.md / `docs/model-context-reasoning.md` where they name the
+- [x] **Record and report.** Update AGENTS.md / `docs/model-context-reasoning.md` where they name the
       brain model. Report the 100k-input price cliff against the current compression trigger
       (240k) as a number for the owner to decide — do not change the threshold.
-**Left behind:**
+**Left behind:** Done and live (gateway restarted twice; final restart after the SOUL.md edit). Gate: `make check` exit 0, `make patch-check` 16/16, `make verify` green; `make status` shows one ✗ — the pre-existing dirty `skills/verify/references/agent-claim-verification.md`, left uncommitted as instructed.
+- Patch `patches/anthropic-adapter-haiku-5.patch`: only `_thinking_kwargs` needed it. `_supports_adaptive_thinking`/`_accepts_thinking_disable`/`_forbids_sampling_params` already right for 5.x; max output resolves to 128k (no key → default).
+- Third-party-endpoint path: replayed thinking is stripped cleanly; a 3-turn tool loop on the gateway ran with no 400 — no fix needed.
+- Config: `model` + `providers.custom` now Anthropic base/`anthropic_mode`; `agent.reasoning_effort` was `max` → `high`. Delegation is toolset-disabled anyway. `compression` stays pinned to deepseek (OpenAI leg) — unchanged per plan. Fallback gpt-6-luna unchanged.
+- Live proof (session `20261008_122217_14a838`, `HERMES_DUMP_REQUESTS=1`): request dumps show model `claude-haiku-5-5-eu`, `thinking: adaptive`, `output_config.effort: high`; 3 API calls / 2 tool turns; `cache=25728/25807 (100%)` on call 2; gateway probe: `cache=26214/38953` on call 2; no `Fallback activated` in `agent.log`; ids `msg_bdrk_*` (Bedrock). Dump URL is `…/anthropic/messages` (SDK appends `/v1`-less path) — worked, no 404.
+- **Owner decision:** input price is 5× above 100k tokens, compaction triggers at 240k → calls in 100k–240k bill at the high tier. Written up in `docs/model-context-reasoning.md`; threshold untouched. Pre-switch briefing sessions ran 46k→124k.
+- Warning in log: `model.context_length pins … 1,000,000 but provider advertises 200,000` — the pin wins by design; harmless. Orchestrator: update modelpick `src/db/deployments.ts`.
+
 
 ## Scope limits
 
