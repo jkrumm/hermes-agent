@@ -94,3 +94,8 @@ that live there (long Slack threads, briefings with tool dumps — the 2026-10-0
 ran 46k → 124k) pay 5× on the whole prompt. Prompt caching is working (live: `cache=26214/38953`,
 then 100% on later calls), which discounts reads but not the tier. **Not changed** — owner decision:
 lower `compression.threshold_tokens` to ~100k (accepting more frequent summaries), or accept the cliff.
+
+The startup warning `model.context_length pins … 1,000,000 but provider advertises 200,000` is
+stale metadata, not a real limit: a direct probe on 2026-10-08 sent `claude-haiku-5-5-eu` 599,017
+and 749,017 input tokens on the IU Anthropic route and both returned 200. The 1M pin is correct,
+and the 240k trigger fires well inside the window.
