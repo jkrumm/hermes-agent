@@ -1,0 +1,19 @@
+diff --git a/agent/anthropic_adapter.py b/agent/anthropic_adapter.py
+index 7137bce723..aefc24b27c 100644
+--- a/agent/anthropic_adapter.py
++++ b/agent/anthropic_adapter.py
+@@ -582,7 +582,13 @@ def _thinking_kwargs(reasoning_config: Dict[str, Any], model: str, effective_max
+         # silently keeps paying. Mandatory-thinking models 400 on the disable, so they keep the
+         # omission: a silently-ignored disable beats a dead turn.
+         return {"thinking": {"type": "disabled"}} if _accepts_thinking_disable(model) else {}
+-    if "haiku" in model.lower():
++    # LOCAL MODIFICATION (patches/anthropic-adapter-haiku-5.patch)
++    # Only legacy Haikus (3.x / 4.x) lack extended thinking. Haiku 5.5 is an adaptive-thinking
++    # model; returning {} for it sends no ``output_config.effort`` and the API silently runs at
++    # its default (medium).
++    if "haiku" in model.lower() and (
++        _model_matches(model, _LEGACY_MANUAL_THINKING_CLAUDE_SUBSTRINGS) or not _is_claude_model(model)
++    ):
+         return {}
+     effort = str(reasoning_config.get("effort", "medium")).lower()
+     if _supports_adaptive_thinking(model):

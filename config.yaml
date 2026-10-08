@@ -1,22 +1,23 @@
 model:
   provider: custom
-  default: deepseek-v4.1-flash
-  base_url: ${OPENAI_BASE_URL}
-  api_mode: chat_completions
-  # Explicit so model_tools/auxiliary lookups stop falling back to the hardcoded "deepseek"
-  # 128k catalog entry (they don't read custom_providers); the main agent already used 1M.
+  default: claude-haiku-5-5-eu
+  base_url: ${ANTHROPIC_BASE_URL}
+  api_key: ${ANTHROPIC_API_KEY}
+  api_mode: anthropic_messages
+  # Explicit so model_tools/auxiliary lookups don't fall back to a hardcoded catalog entry
+  # (they don't read custom_providers).
   context_length: 1000000
   tool_use_enforcement: true
-  key_env: HERMES_CUSTOM_CUSTOM_API_KEY
 providers:
   custom:
     name: Custom
-    base_url: https://unified-endpoint-main.app.iu-it.org/openai/v1
-    model: deepseek-v4.1-flash
+    base_url: ${ANTHROPIC_BASE_URL}
+    api_key: ${ANTHROPIC_API_KEY}
+    model: claude-haiku-5-5-eu
     discover_models: false
-    api_mode: chat_completions
+    api_mode: anthropic_messages
     models:
-      deepseek-v4.1-flash:
+      claude-haiku-5-5-eu:
         context_length: 1000000
       gpt-6-luna:
         context_length: 850000
@@ -62,10 +63,10 @@ agent:
   disabled_toolsets:
     - kanban
     - delegation
-  # max: DeepSeek's documented setting for complex agent work and the one its published agent
-  # benchmarks use. On this route (Requesty -> Fireworks) none..max measured flat in thinking
-  # length and latency (2026-09-13/14), so max costs nothing extra and wins if it ever bites.
-  reasoning_effort: max
+  # high: Haiku 5.5 EU on the native Anthropic leg — 15/15 on the bench at ~1.6 s median;
+  # medium dropped a task, xhigh/max think 50-100 s+ on long outputs (modelpick, 2026-10-08).
+  # Reaches the wire only through patches/anthropic-adapter-haiku-5.patch.
+  reasoning_effort: high
 terminal:
   backend: local
   modal_mode: auto
