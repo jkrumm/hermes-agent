@@ -88,10 +88,11 @@ the listener is reachable, never that the model route works.
 
 ## Model routing on the IU endpoint
 
-The brain (`deepseek-v4.1-flash`) runs plain `api_mode: chat_completions` and needs no
-Responses-API workaround: probed 2026-09-13, it accepts function tools **and** a top-level
-`reasoning_effort` in the same request, so `agent.reasoning_effort: high` reaches the wire on
-every turn without any 400/503 dance. The failure mode below is real, but it is
+The brain (`claude-haiku-5-5-eu`) runs `api_mode: anthropic_messages` on the native `/anthropic`
+leg (`${ANTHROPIC_BASE_URL}`) and needs no Responses-API workaround: `agent.reasoning_effort: high`
+reaches the wire as `output_config.effort` on every turn (via
+`patches/anthropic-adapter-haiku-5.patch` — upstream's `_thinking_kwargs` returns `{}` for any
+`haiku`). Prove it with `HERMES_DUMP_REQUESTS=1 hermes chat -q …` → `~/.hermes/sessions/request_dump_*.json`. The failure mode below is real, but it is
 **fallback-only** — it fires only when Hermes has failed over to the fallback model (`gpt-6-luna`; gpt-5.x wording shown, the gpt-6 refusal is the same):
 
 > Function tools with reasoning_effort are not supported for gpt-5.6-luna in
@@ -100,9 +101,9 @@ every turn without any 400/503 dance. The failure mode below is real, but it is
 
 `patches/transport-iu-reasoning-effort.patch` avoids this 503 whenever the request carries
 tools: gpt-5.x gets `reasoning_effort` dropped, the `gpt-6` family an explicit `none` (omitting the
-key 503s too) — DeepSeek is exempt (probed to accept both together), so only the fallback and
+key 503s too) — the Anthropic-leg brain never goes through that transport, so only the fallback and
 `title_generation` lose their effort under tools, never the brain. Diagnosis tell in the log if the
-fallback is active: `Fallback activated: deepseek-v4.1-flash → gpt-6-luna` — expected under
+fallback is active: `Fallback activated: claude-haiku-5-5-eu → gpt-6-luna` — expected under
 throttling, and the fallback then runs with **no** reasoning effort while tools are attached (the
 tradeoff, not a fault).
 
@@ -192,8 +193,8 @@ py-spy dump of it would have nothing to find.
   either older than that filter or a genuine 404 for the real brain model — check which model
   id the line names.
 - **The fallback entry uses `chat_completions`, same as the brain.** That is correct and
-  intentional — the fallback (`gpt-6-luna`) and the brain (`deepseek-v4.1-flash`) are both on
-  the same IU OpenAI leg now; only the tools+effort strip differs between them by model family.
+  intentional — the fallback (`gpt-6-luna`) is on the IU OpenAI leg; the brain (`claude-haiku-5-5-eu`)
+  is on the native Anthropic leg (`anthropic_messages`) since 2026-10-08.
 - **`check_fn … returned False`** WARNINGs at every turn start (browser, computer-use,
   image-gen, kanban) are ordinary capability probes for tools this deployment does not
   install. Noise.

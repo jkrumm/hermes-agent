@@ -4,13 +4,14 @@ Numbers here are **probed against the live IU endpoint**, not read off a model c
 
 | | Value | How it was established |
 |-|-|-|
-| Context, `deepseek-v4.1-flash` (brain) | **1,000,000** | probed 2026-09-13. `/chat/completions` 200; `/responses` **404** ("No suitable backend") despite `/models` listing Responses |
+| Brain, `claude-haiku-5-5-eu` (since 2026-10-08) | Bedrock **eu-west-1**, native `/anthropic` leg, `anthropic_messages` | modelpick 2026-10-08. Not in `/v1/models` — probe by name. `claude-haiku-5-5` (no suffix) is us-east-1: never. Adaptive thinking, `output_config.effort` honoured at every level; `high` 15/15 at ~1.6 s median, `medium` 14/15, `xhigh`/`max` think 50–100 s+ on long outputs. Output cap 128k (thinking counts toward `max_tokens`). Input price doubles+ above 100k tokens ($0.10/$0.50 → $0.50/$2.50 per MTok) |
+| Context, `deepseek-v4.1-flash` (former brain, compression) | **1,000,000** | probed 2026-09-13. `/chat/completions` 200; `/responses` **404** ("No suitable backend") despite `/models` listing Responses |
 | Input cap, `gpt-5.6-luna` (fallback + title_generation until 2026-09-23; not re-probed for `gpt-6-luna`) | **922,000 tokens** | 900k accepted; 1.1M → `context_length_exceeded`, "configured limit of 922000 tokens". Matches Microsoft's Foundry note that the 1.05M window is a *combined* input+reasoning+output budget. |
 | `/v1/models` metadata | `ContextSize: "105000"` | **Wrong** — 110k, 260k, 520k and 900k prompts all succeed. Don't configure from it. |
 | Published model card (gpt-5.6-luna) | 1,050,000 in / 128,000 out | OpenAI, OpenRouter, Bedrock, Azure all agree; the gateway's own limit is lower. |
 | Efforts, gpt-5.6 family | `none, low, medium, high, xhigh` | `max` refused by the endpoint although OpenAI's card lists it; `minimal` is not a gpt-5.6 value at all. |
 | Efforts, `gpt-6-luna` (fallback, title_generation since 2026-09-23) | `none, low, medium, high, xhigh` | probed 2026-09-23. `max` refused; only default `temperature`. With function tools it refuses **both** a real effort and an omitted key — only an explicit `reasoning_effort: none` passes, so the transport patch sets `none` for the `gpt-6` family instead of stripping. |
-| Efforts, `deepseek-v4.1-flash` | `low, high, xhigh, max` | accepts function tools **and** `reasoning_effort` in the same `/chat/completions` request — no strip needed, unlike gpt-5.x |
+| Efforts, `deepseek-v4.1-flash` (compression) | `low, high, xhigh, max` | accepts function tools **and** `reasoning_effort` in the same `/chat/completions` request — no strip needed, unlike gpt-5.x |
 | Efforts, `glm-5.3-flash` (OpenAI leg, reachable via this endpoint) | `low, high, max` | `medium` refused |
 | Efforts, Anthropic leg | `none, low, medium, high` | `xhigh` refused by LiteLLM. |
 
@@ -68,7 +69,7 @@ fell off, which is what a `hermes update` does.
 | `approval` | `claude-haiku-4-5`, **native `/anthropic` leg** (`${ANTHROPIC_BASE_URL}`, `api_mode: anthropic_messages`) | same 503 shape (`approval_smart.py` hardcodes `temperature=0`), and this gates every risky terminal command. Measured **0.9s native vs 3.0s** for the same model through the OpenAI-compat shim. `provider` stays `custom`, never `anthropic`, so the auxiliary client never reaches for `~/.claude` OAuth |
 | `vision` | `gemini-3.5-flash`, IU OpenAI leg | moved off Google AI Studio direct 2026-09-13 — no deliberate reason for the direct route was ever recorded here, and modelpick flagged it as two generations stale. See `modelpick/docs/decisions/vision-and-image.md` |
 
-`compression` stays on the brain (`deepseek-v4.1-flash`, `reasoning_effort: high`) — it needs the
+`compression` stays pinned to `deepseek-v4.1-flash` (`reasoning_effort: high`, OpenAI leg) — no longer the brain since 2026-10-08; — it needs the
 850k-token context, and DeepSeek's tools+effort behaviour is irrelevant here since compression
 calls carry no tools. `auxiliary.web_extract` and `auxiliary.session_search` were removed
 entirely (2026-09-13): upstream stopped reading either — `config_defaults.py` notes both "no
@@ -84,3 +85,12 @@ There is **no config key to drop `temperature` on its own** — `_fixed_temperat
 ## Core-tool deferral is on and wanted
 
 `tools.tool_search.enabled: auto`. 4 of 21 tools defer behind a 3-tool bridge — measured **−19.8% (~2,150 tokens) off the cached tool prefix every turn** on the real Slack toolset, not upstream's headline −49% (that is the desktop/GUI surface). It costs +1 turn when a deferred tool is actually needed. `threshold_pct: 10` in `config.yaml` is now a *listing budget*, not an activation gate. Deferral can never empty `tools`, so it does not interact with the reasoning-effort patches. Watch `cronjob_manage`: it is 69% of the deferred mass and upstream measured 16/18 discovery — if Hermes ever claims it can't schedule something, drop that one name from `tools.tool_search.defer` rather than disabling the feature.
+
+## Brain on Haiku 5.5 EU — the 100k price cliff vs the 240k compaction trigger
+
+Input is $0.10/MTok (output $0.50) up to 100k tokens and $0.50/$2.50 above it — 5×. Compaction
+triggers at 240k, so every API call between 100k and 240k is billed at the high tier; sessions
+that live there (long Slack threads, briefings with tool dumps — the 2026-10-08 06:30 briefing
+ran 46k → 124k) pay 5× on the whole prompt. Prompt caching is working (live: `cache=26214/38953`,
+then 100% on later calls), which discounts reads but not the tier. **Not changed** — owner decision:
+lower `compression.threshold_tokens` to ~100k (accepting more frequent summaries), or accept the cliff.

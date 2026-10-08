@@ -350,18 +350,18 @@ file they no longer touch — read the table's left column, not the patch name.
 | `gateway/run.py` | `gateway-start-predecessor-grace` | non-`--replace` startup (launchd KeepAlive) gets a 20s/1s poll grace for a still-dying predecessor PID before refusing — continues (clearing stale PID/lock like `--replace` does) if it exits, refuses as before if it doesn't. Never signals the target |
 | `tools/skill_manager_tool.py` | `skill-manager-colon-hint` | `_validate_frontmatter` stays fail-closed on a YAML `ScannerError`, but appends a hint when the message is "mapping values are not allowed here" — an unquoted `key: value: with-a-colon` description |
 | `tools/checkpoint_manager.py` | `checkpoint-store-integrity` | four fixes in the shared shadow store, one file: (1) `_take()`'s `git add -A` retries once on **any** transient failure — a stale gitlink (drop the dead gitlinks, `update-index --force-remove`) *and* a file deleted mid-walk by another process (`unable to stat …: No such file or directory`, the Claude Code scratch race); (2) `info/exclude` is rewritten from `DEFAULT_EXCLUDES` whenever it has moved on, and tracked paths the store's own exclude file matches are force-removed — a path committed *before* its pattern existed survives `_seed_project_index`'s read-tree forever otherwise (`claude-501/` sat at 1925 tracked paths / ~32 MB in the `/tmp` ref while nominally excluded); (3) one reentrant `_STORE_LOCK` over every store-touching git call **and** a cross-process file lock on the store, so a snapshot cannot be pruned by a concurrent `gc --prune=now` between `add -A` and `write-tree` (a per-project index is not a gc reachability root) and two *processes* snapshotting the same project cannot collide on git's own `indexes/<hash>.lock`; (4) the logged stderr keeps its first line verbatim (Warden's signature) but is summarized, and the retry quotes the real cause — `add -A` prints advice before the error, so a commitless nested repo was filed as an innocent `Füge eingebettetes Repository hinzu: …` |
+| `agent/anthropic_adapter.py` | `anthropic-adapter-haiku-5` | `_thinking_kwargs` returned `{}` for any id containing `haiku`, so `claude-haiku-5-5-eu` got no `output_config.effort` and silently ran at the API default (medium). Narrowed to legacy Haikus (3.x/4.x) + non-Claude ids; 5.x reaches the adaptive branch |
 | `agent/chat_completion_helpers.py` | `stream-error-transient-openai-classes` | `_StreamingCall._handle_stream_error` classified transients against raw httpx types only, so `openai.APITimeoutError`/`openai.APIConnectionError` missed the transient set and a blip the retry loop heals anyway logged at ERROR with a full traceback (the `hermes_log:*` card family; issue #4). Adds both classes to `_is_timeout`/`_is_conn_err` — the same classification `agent/error_classifier._TRANSPORT_ERROR_TYPES` and `agent/agent_runtime_helpers._TRANSIENT_TRANSPORT_ERRORS` already apply |
 
 Re-apply: `cd ~/.hermes/hermes-agent && git apply ~/SourceRoot/hermes-agent/patches/<name>.patch`.
 **Anything touching `cronjob_prompt_scan.py`, `runtime_provider.py`,
 `agent/transports/chat_completions.py`, `run_agent.py`, `agent/auxiliary_client.py`,
-`agent/chat_completion_helpers.py` or
+`agent/chat_completion_helpers.py`, `agent/anthropic_adapter.py` or
 `config.yaml` needs a gateway restart** (`launchctl kickstart -k gui/$(id -u)/ai.hermes.gateway`)
-— modules are imported once at startup and `config.yaml` is read at startup too. **The
-2026-09-13 model rollout (deepseek-v4.1-flash brain, the reworked reasoning-effort/
-max-completion-tokens patches, the auxiliary re-routing) is not live on the running gateway
-until it is restarted** — a running process still serves whatever model/patch state it started
-with, regardless of what `config.yaml` or these patched files say on disk.
+— modules are imported once at startup and `config.yaml` is read at startup too: a running
+process serves whatever model/patch state it started with, regardless of what `config.yaml` or
+these patched files say on disk. The 2026-10-08 brain switch (`claude-haiku-5-5-eu` on
+`anthropic_messages`) is live — gateway restarted that day.
 
 **No approval prompts, no command guards (owner decision 2026-09-14) — do not re-add either.**
 Hermes runs like Claude Code with `--dangerously-skip-permissions` and is steered by
@@ -390,22 +390,24 @@ published source disagrees in some direction. Re-probe after an endpoint change.
 
 | | Value | How established |
 |-|-|-|
-| Context, `deepseek-v4.1-flash` (brain) | **1,000,000** | probed 2026-09-13; `/responses` 404s ("No suitable backend") despite `/models` listing it — `chat_completions` is the only wire that works |
+| Brain, `claude-haiku-5-5-eu` (2026-10-08) | Bedrock eu-west-1, native `/anthropic` leg, `anthropic_messages`, `high` | modelpick bench: `high` 15/15 ~1.6 s; `medium` 14/15; `xhigh`/`max` think 50–100 s+. Not in `/v1/models`. Price doubles+ above 100k input (see `docs/model-context-reasoning.md`) |
+| Context, `deepseek-v4.1-flash` (former brain, compression) | **1,000,000** | probed 2026-09-13; `/responses` 404s ("No suitable backend") despite `/models` listing it — `chat_completions` is the only wire that works |
 | Input cap, `gpt-5.6-luna` (former fallback, title) | **922,000** | 900k ok; 1.1M → `context_length_exceeded` (a *combined* input+reasoning+output budget). **Not re-probed for `gpt-6-luna`** — config keeps 850,000 |
 | `/v1/models` metadata | `ContextSize: "105000"` | **Wrong** — 110k/260k/520k/900k all succeed. Never configure from it |
 | Efforts, gpt-5.6 family | `none, low, medium, high, xhigh` | `max` refused here; `minimal` isn't a gpt-5.6 value |
 | Efforts, `gpt-6-luna` (fallback, title) | `none, low, medium, high, xhigh` | probed 2026-09-23; `max` refused, only default `temperature` (1); with tools it needs an **explicit** `none` — omitting the key 503s too, unlike gpt-5.6 |
-| Efforts, deepseek-v4.1-flash | `low, high, xhigh, max` | accepts tools + effort together on `chat_completions` — unlike gpt-5.x, no strip needed |
+| Efforts, deepseek-v4.1-flash (compression) | `low, high, xhigh, max` | accepts tools + effort together on `chat_completions` — unlike gpt-5.x, no strip needed |
 | Efforts, Anthropic leg | `none, low, medium, high` | `xhigh` refused by the IU LiteLLM gateway |
 
-**DeepSeek runs `chat_completions` and gets its effort every turn — the Responses dance was a
-gpt-5.x-only problem.** `/v1/chat/completions` refuses any effort on gpt-5.x once the request
+**The brain runs `anthropic_messages` (Haiku 5.5 EU) and gets its effort every turn via
+`patches/anthropic-adapter-haiku-5.patch`; the Responses dance was a gpt-5.x-only problem
+(DeepSeek, now compression-only, never needed it).** `/v1/chat/completions` refuses any effort on gpt-5.x once the request
 carries function tools — and Hermes always sends tools — but DeepSeek takes tools and
 `reasoning_effort` together on the same wire with no such refusal (probed 2026-09-13). So the
 brain needs no Responses routing at all: `model.api_mode: chat_completions`,
 `patches/transport-iu-reasoning-effort.patch` strips the effort for a gpt-5.x model id and
 forces an explicit `none` for gpt-6.x (the fallback, `gpt-6-luna`), never touches DeepSeek's. **Tell if the fallback is active:**
-`Fallback activated: deepseek-v4.1-flash → gpt-6-luna` in `~/.hermes/logs/agent.log` — expected
+`Fallback activated: claude-haiku-5-5-eu → gpt-6-luna` in `~/.hermes/logs/agent.log` — expected
 under throttling, not a misconfiguration; the fallback runs with no reasoning effort while tools
 are attached (the 503-avoidance tradeoff), which is accepted, not a bug.
 
@@ -424,7 +426,7 @@ are attached (the 503-avoidance tradeoff), which is accepted, not a bug.
   governs). A window **under 512K** floors its threshold at **0.75**, and the auxiliary
   compression model's own `context_length` clamps the trigger to itself — hence
   `auxiliary.compression.context_length: 850000`, not the model's real 1,000,000 or the
-  default 200,000 (DeepSeek's lack of prompt caching is accepted, not chased here).
+  default 200,000 (compression stays on DeepSeek; the Haiku brain caches natively).
 
 **Auxiliary lanes are separately routed, not the brain** — `title_generation` (`gpt-6-luna`)
 and `approval` (`claude-haiku-4-5`) are pinned off non-brain models because both hardcode a
