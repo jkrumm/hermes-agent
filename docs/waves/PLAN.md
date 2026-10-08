@@ -1,56 +1,63 @@
-# Hermes — a quiet, sharp front door
+# Hermes brain → Claude Haiku 5.5 EU on the native Anthropic leg
 
-**Goal:** Hermes matches `~/SourceRoot/dotfiles/docs/agent-platform.md` §Hermes:
-answers, narrates in one line per item, files work through `warden run` or an
-issue, opens herdr tabs on request — ~20 curated skills, no self-authored skill
-churn, no replies to warden's own posts.
+**Goal:** the live Hermes gateway runs its brain (and, by inheritance, delegation) on
+`claude-haiku-5-5-eu` through the IU **Anthropic Messages** route at `reasoning_effort: high`,
+with the effort provably reaching the wire, prompt caching working, and a multi-turn tool loop
+verified — without updating upstream Hermes (stay on `d3b25b52ad` / v0.21.4; fix via a local patch).
+**Gate:** `make patch-check` + `make status` green, plus the live verification in Wave 1's last steps.
 
-**Gate:** `make patch-check` + `/hermes-validate` smoke (send 3 test messages, read the traces) + `/review` on each wave's diff.
+## Evidence this rests on (measured in modelpick 2026-10-08 — do not re-derive)
 
-**Spec:** `~/SourceRoot/dotfiles/docs/agent-platform.md` — read it first.
+- `claude-haiku-5-5-eu` → AWS Bedrock **eu-west-1** (gateway header `x-middleware-forwarded-server`).
+  Callable on `/anthropic/v1/messages` but **not listed in `/v1/models`** — probe by name.
+  `claude-haiku-5-5` (no suffix) is Bedrock **us-east-1** — never use it here.
+- Anthropic leg vs OpenAI-compat leg for Haiku 5.5: OpenAI leg is ~3× worse TTFT and ignores
+  `reasoning_effort: none`. Native leg honours every effort level.
+- Effort ladder (modelpick `bench-fast`, 5 graded tasks × 3 repeats, EU id): `high` 15/15 at
+  ~1.6 s median; `medium` 14/15; `xhigh` passes but long outputs think 50–100 s (and Anthropic
+  documents an xhigh multi-turn empty-reply bug); `max` exceeds 120 s on long outputs. → **high**.
+- Thinking counts toward `max_tokens`: below ~16k output budget, high-effort calls can starve
+  (HTTP 200, empty text, `stop_reason: max_tokens`). Haiku 5.5 output cap is 128k.
+- Haiku 5.5 API: adaptive thinking on by default, `output_config.effort` low|medium|high|xhigh|max
+  (default **medium**), `budget_tokens` → 400, non-default temperature → 400, assistant prefill → 400.
+  Pricing doubles+ above 100k input tokens ($0.10/$0.50 → $0.50/$2.50 per MTok).
 
-**Live system:** the gateway runs from this checkout and `~/.hermes`. Restarting the gateway is the orchestrator's — a wave stops before it and says so in **Left behind**.
+## Wave 1 — patch, switch, verify            <!-- status: active -->
 
-**Dirty tree at start:** ~84 untracked/modified skill dirs written by Hermes itself. Wave 2 decides their fate; Wave 1 must not commit them (path-limited commits only).
-
-## Wave 1 — stop the loop, one voice            <!-- status: done -->
-- [x] Stop autonomous skill creation: `skills.creation_nudge_interval: 0` and point `skills.create_dir` outside `external_dirs` (quarantine dir under `~/.hermes/skills-quarantine`). Delete the `curator-write-probe*` skills.
-- [x] #agents: Hermes replies only when mentioned (`require_mention_channels`) and never to warden's bot posts; stop appending raw Block Kit JSON to inbound bot messages if config allows. Turn off `display.interim_assistant_messages`, the `kawaii` personality; fix the `zle` shell-init noise (`terminal.auto_source_bashrc`).
-- [x] SOUL.md + AGENTS.md agree on one role: narrate, answer, route. Routes: `warden run` / GitHub issue for unattended work, `rd wave` / herdr tab only when the owner asks, `capture` for later. Delete the `warden:go` label instruction (warden picks up every owner issue).
-- [x] One reporting contract in SOUL.md (spec §Hermes format, max three lines + `Rest: …`, no ids/PIDs/mechanism unless asked). Remove every per-skill "Report shape" section that contradicts it.
+- [ ] **Patch the haiku guard.** `~/.hermes/hermes-agent/agent/anthropic_adapter.py` `_thinking_kwargs()`
+      has `if "haiku" in model.lower(): return {}` — Haiku 5.5 would get NO effort and silently run at
+      `medium`. Narrow it to legacy Haikus (3.x / 4.x) so `claude-haiku-5-5*` reaches the adaptive branch
+      (`thinking: {type: adaptive, display: summarized}` + `output_config.effort`). Also check in the same
+      file: `_supports_adaptive_thinking`, `_accepts_thinking_disable`, `_MANDATORY_THINKING_CLAUDE_SUBSTRINGS`,
+      and that `_get_anthropic_max_output()` resolves `claude-haiku-5-5-eu` to ≥16k (ideally 64k–128k),
+      not an 8k/4k legacy substring match. Capture as a new `patches/anthropic-adapter-haiku-5.patch`
+      (one patch file per upstream file — see `docs/patches.md`), `# LOCAL MODIFICATION` marker, and a
+      `docs/patches.md` entry. `make patch-check` must list it applied.
+- [ ] **Check the third-party-endpoint path.** The adapter strips thinking signatures for third-party
+      `base_url`s. Confirm what that does to replayed thinking blocks in a tool loop on this gateway
+      (dropped cleanly vs 400 vs silently degrading). Fix in the same patch only if it breaks.
+- [ ] **Switch config.yaml.** Brain → `claude-haiku-5-5-eu`, `api_mode: anthropic_messages`, base URL =
+      the IU Anthropic route (same `${ANTHROPIC_BASE_URL}` / `${ANTHROPIC_API_KEY}` the `auxiliary.approval`
+      slot already uses — keep `provider: custom` so nothing reaches for ~/.claude OAuth),
+      `agent.reasoning_effort: high` (already high — confirm it maps), `context_length: 1000000`.
+      Remember the load-bearing gotcha from the DeepSeek switch: `resolve_runtime_provider()` reads
+      `api_mode` from the **named-provider block**, not top-level `model.api_mode` — set it where it is
+      actually read. Delegation inherits the brain (`model: ''`) — confirm. Leave `fallback_providers`
+      (gpt-6-luna), compression, title and approval slots unchanged.
+- [ ] **Restart and verify live** (`launchctl kickstart -k gui/$(id -u)/ai.hermes.gateway`, then
+      `make status`). Prove, from gateway logs or a request trace — not from config — that a real brain
+      turn: (1) hits `/anthropic/v1/messages` with model `claude-haiku-5-5-eu`, (2) carries
+      `output_config.effort: "high"`, (3) runs a multi-turn tool loop (≥2 tool calls) end to end,
+      (4) shows `cache_read_input_tokens > 0` on a later turn, and (5) did NOT silently fail over to
+      gpt-6-luna. Any one missing = not done.
+- [ ] **Record and report.** Update AGENTS.md / `docs/model-context-reasoning.md` where they name the
+      brain model. Report the 100k-input price cliff against the current compression trigger
+      (240k) as a number for the owner to decide — do not change the threshold.
 **Left behind:**
-- **Gateway restart pending (orchestrator's):** `config.yaml` (creation nudge, quarantine dir, #agents mention-only, kawaii/interim off, `auto_source_bashrc`) and `SOUL.md` are not live until `launchctl kickstart -k gui/$(id -u)/ai.hermes.gateway`. `/hermes-validate` 3-message smoke therefore **not run** — do it after the restart.
-- **Block Kit JSON append not configurable:** `_append_block_text` in the Slack adapter always appends `_serialize_slack_blocks_for_agent`; no config key. Moot in #agents now (mention-gated); a patch is needed only if it still bites elsewhere.
-- **`zle` noise:** set `terminal.auto_source_bashrc: false`; confirm after restart.
-- **Review:** sideclaw `/review` synthesis failed (OAuth session expired on its Max leg) — diff read by hand instead; re-run `/review` on `d888f9c..01e3767` if wanted.
-- `skills/work/iu-epos-ops/SKILL.md` is gitignored — its `warden:go` mention was edited on disk only.
-- Per-skill "Report shape" sections removed from 51 skills plus three contradicting "Reporting" sections; other benign "Reporting" sections left for Wave 2's fold/delete.
-- Commits: `d888f9c` (behaviour), `01e3767` (skill report-format removal). `make patch-check` 15/15 green.
 
+## Scope limits
 
-## Wave 2 — 126 skills → ~20            <!-- status: done -->
-- [x] Target set: capture, argo-api, work, karakeep, obsidian, reading, wildrift, research-gateway, image-delivery, podcast, briefing-tts, hyperdx, homelab, homelab-ops, hermes-gateway, human-queue, `dispatch` (filing work), `warden` (read-only via its HTTP API, never sqlite), `herdr` (tabs + `rd`), `verify` (one checklist). Fold useful facts from the duplicates into these as reference files; delete the rest. Delete the "Hermes lands PRs by hand" cluster outright (blocked-agent-pr-handfix, warden-hand-fixes, carrier-*, …).
-- [x] Update `HERMES_SKILLS` in the Makefile to the target set; commit the decision for every untracked Hermes-authored dir (fold or delete) so the tree is clean.
-- [x] One door per verb: `hermes-cc.sh run` (drop direct `warden` script calls and `gh pr merge`), `rd` for panes (drop raw `claude --bg` / `claude -p`). Disable the kanban and delegation toolsets.
-- [x] Remove `plugins/dispatch-approval` **only if** warden Wave 1 is done (check `~/SourceRoot/warden/docs/waves/PLAN.md`); otherwise leave a note in Left behind.
-**Left behind:**
-- Commits `69dcf44` (skills 126 → 20) and `705846e` (plugin, toolsets, Makefile, docs). Tree clean; `make patch-check` 15/15, `make status` no failures.
-- **Gateway restart pending (orchestrator's)** — now covers Wave 1 + Wave 2: `config.yaml` (`agent.disabled_toolsets: [kanban, delegation]`, `platform_toolsets` without them, `plugins.enabled: []`) and the new skills index. Not live until `launchctl kickstart -k gui/$(id -u)/ai.hermes.gateway`. The `/hermes-validate` 3-message smoke is therefore **not run**; do it after the restart (include a "fix X in <repo>" message — it must go through `dispatch` → `hermes-cc.sh run`).
-- **Review:** sideclaw `/review` synthesis failed again (Max-leg OAuth expired; the 3 angles ran, no structured output). Diff read by hand; re-run `/review` on `e71d0dd..HEAD` after re-auth if wanted.
-- Live side effects already applied: removed `~/.hermes/plugins/dispatch-approval` symlink and the `agents` / `claude-dispatch` / `rollhook-deploys` skill links; cron job `8fe7be4985d9` (Brain drift audit) re-pointed to `dispatch` and its prompt re-pushed. `make setup` now unlinks `HERMES_SKILLS_RETIRED`.
-- Folded as `references/*.md` (frontmatter stripped, description kept as italic line): verify (9), homelab-ops (11), hermes-gateway (4), homelab (4), capture (2), argo-api, hyperdx, human-queue, warden (`agents.md`). Everything else deleted — git history is the archive. `skills/work/iu-epos-ops/` is gitignored and stays on disk inside `work`.
-- Known stale, not touched: `skills/wildrift/SKILL.md` still says `brain` is on a deny list in `dispatch-repos.json` (it is investigate-only, file gone); `docs/agents-overview.md` and `docs/scheduled-jobs.md` otherwise unchanged apart from renames. `~/.hermes/skills/` still holds bundled upstream category dirs and `.curator*` state — not this repo's.
-- Hermes-side leftovers for Wave 3: `scripts/warden-live-sync.sh` + its cron (job `e9e72d028dc5`) — warden Wave 4 not checked here.
-
-## Wave 3 — repo contract and cleanup            <!-- status: done -->
-- [x] First: the gateway was restarted with W1+W2 live (orchestrator, 2026-10-04). Run the `/hermes-validate` 3-message smoke (incl. one "fix X in <repo>" that must route through `dispatch` → `hermes-cc.sh run`, and one status question that must answer in the one-line format). Fix SOUL.md/skills on any miss.
-- [x] Make targets `check`, `deploy` (restart gateway, health check, roll back to the previous commit on failure), `verify`, `logs`; AGENTS.md sections `## Validate`, `## Deploy`, `## Verify & Monitor`, `## Gotchas`.
-- [x] Remove `scripts/warden-live-sync.sh` and its cron **only if** warden Wave 4 is done (warden deploys itself via `make deploy`); otherwise note it.
-- [x] Replace ad-hoc watcher crons / `/tmp/watch-*.sh` patterns in skills with `herdr agent wait --until done` (single blocking call) or warden item status.
-**Left behind:**
-- Commits `72e6c16` (SOUL.md routing) and `cbc4edc` (Make targets, `scripts/{deploy,verify}.sh`, AGENTS.md `## Validate/Deploy/Verify & Monitor/Gotchas`, herdr skill). `make check` and `make verify` green; `make deploy` **not run** (it restarts the gateway — orchestrator's).
-- **Smoke (via gateway API):** status question → correct one-line format (3 lines + `Rest:`; answered in German, as SOUL says). "Skills + routing" question → correct. **"Fix flaky test in sideclaw" → MISS:** viewed `dispatch`, then debugged in the sideclaw checkout itself (read tests, ran the suite ×25 in the live repo). Fixed by SOUL.md wording (*Routing work*: repo source is filed, never read); re-test with a reworded prompt on weatherorb routed correctly through `hermes-cc.sh run` (item 1419, synthetic — closed as ignored). SOUL.md is live without restart only if read per turn — **re-run one "fix X in <repo>" message after the next restart to confirm**. The original sideclaw session (`api-e4e63acc3f970a39`) may still be grinding test loops in `~/SourceRoot/sideclaw`; harmless, no edits seen.
-- **Pre-existing failure, untouched:** `tests/test_checkpoint_store_excludes.py` fails 1–2 cases intermittently (gc-while-locked, cross-process index-lock) on a clean tree. Kept out of `make check`, runnable via `make test-checkpoint`. Needs a look at `patches/checkpoint-store-integrity.patch`.
-- **Not done — warden Wave 4 is `pending`:** `scripts/warden-live-sync.sh` + cron `e9e72d028dc5` stay (noted in AGENTS.md *Gotchas*). Delete both once warden's `make deploy` lands.
-- Watcher patterns: the only agent-watch in skills was `herdr` → rewritten to a single `herdr agent wait --until done --timeout 150000`. The remaining `sleep` loops (research-gateway, podcast, agents overview) poll job APIs, bounded — left. No `/tmp/watch-*.sh` anywhere.
-- **Review:** sideclaw `/review` not run (Max-leg OAuth has been expired for W1/W2); diff read by hand. Kuma monitor name for the heartbeat isn't recorded anywhere in-repo — AGENTS.md cites the push-URL ref instead.
+- Do NOT run `hermes update` / pull upstream. Do NOT touch modelpick (the orchestrator updates
+  `src/db/deployments.ts` after this wave). Do NOT commit `skills/verify/references/agent-claim-verification.md`
+  — it was already dirty before this wave and is someone else's.
+- Do not spawn a next wave — the orchestrator tab reviews the close-out.
