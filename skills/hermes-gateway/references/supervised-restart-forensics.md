@@ -7,7 +7,7 @@ does not add up: a burst of "already running / refused to start" errors, a lifec
 ledger reporting an unclean exit, a service that came back after a gap, or a verdict
 that blames a hang.
 
-Applies to anything on this estate with a supervisor: the Hermes gateway, sideclaw,
+Applies to anything on this estate with a supervisor: the Hermes gateway, agent-gateway,
 Warden's five LaunchAgents, audio-gateway, weatherorb — launchd plists with `KeepAlive`, or
 systemd units.
 

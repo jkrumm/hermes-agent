@@ -127,7 +127,7 @@ VALID_CRONS=(vpn-watchdog auto-update garmin-auto-relogin koinsight-stats-push)
 # gateway restart is a deliberate human action. com.iu.* are work agents, out of
 # scope for this script.
 VALID_LAUNCHD=(
-  com.jkrumm.sideclaw
+  com.jkrumm.agent-gateway
   com.jkrumm.linewatch-collector
   com.jkrumm.linewatch-heartbeat
   com.jkrumm.linewatch-watchdog

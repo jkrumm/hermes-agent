@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Project narratives — daily project-status pages in the vault, written by
-sideclaw's `narrative` job (`POST /api/jobs {"tool":"narrative", ...}`, same
+agent-gateway's `narrative` job (`POST /api/jobs {"tool":"narrative", ...}`, same
 submit/poll shape agents-overview.py's `refresh()` uses against the same
 daemon, `http://localhost:7705`).
 
@@ -85,7 +85,7 @@ SECRETS_RUN = Path.home() / ".local" / "bin" / "secrets-run"
 ARGO_HTTP_TIMEOUT = 10
 
 DEFAULT_BASE = "http://localhost:7705"
-BASE_ENV = "HERMES_NARRATIVE_SIDECLAW_BASE"
+BASE_ENV = "HERMES_NARRATIVE_AGENT_GATEWAY_BASE"
 
 # Deny-listed projects: private-secrets repos, the disposable dispatch
 # target, and the vault itself (a narrative page ABOUT the vault, written
@@ -212,20 +212,20 @@ def _newest_transcript_mtime(project_dir: Path, claude_projects_dir: Path | None
     return newest
 
 
-# Sideclaw job statuses that end the wait without a result. "failed" was the only
+# agent-gateway job statuses that end the wait without a result. "failed" was the only
 # one this loop used to check; "interrupted"/"cancelled" are the same "no result
 # coming" case and were previously mis-treated as still-running.
 _TERMINAL_FAILURE_STATUSES = frozenset({"failed", "interrupted", "cancelled"})
 
 
-# --- sideclaw job client (the seam tests monkeypatch) -----------------------
+# --- agent-gateway job client (the seam tests monkeypatch) -----------------------
 
 def run_narrative_job(
     base: str, project: str, cwd: str, previous_page: str | None, since: str | None,
     *, poll_interval: int = 10,
 ) -> dict[str, Any] | None:
     """POST /api/jobs {tool:narrative,...}, poll GET /api/jobs/<id> until the job reaches a
-    terminal status. Sideclaw workers have no turn or wall-clock limit (2026-09-12 policy), so
+    terminal status. agent-gateway workers have no turn or wall-clock limit (2026-09-12 policy), so
     this polls indefinitely rather than giving up on a healthy job — only a transport failure or
     a genuinely terminal status (`failed`/`interrupted`/`cancelled`) ends the wait early. This
     runs under Hermes cron (narratives-cron.py, no_agent), whose only guard is the idle-output

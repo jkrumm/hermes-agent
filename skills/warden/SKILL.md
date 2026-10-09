@@ -1,6 +1,6 @@
 ---
 name: warden
-description: Read-only status over Warden, the deterministic control plane that triages signals and drives each item through sideclaw jobs to fixed. Use for "what is warden doing", "what needs me", "what happened to item N", "is the loop healthy", "was macht warden gerade", "hängt was fest", or any question about the state of an item, a dispatch, or the loop's own liveness.
+description: Read-only status over Warden, the deterministic control plane that triages signals and drives each item through agw jobs to fixed. Use for "what is warden doing", "what needs me", "what happened to item N", "is the loop healthy", "was macht warden gerade", "hängt was fest", or any question about the state of an item, a dispatch, or the loop's own liveness.
 version: 1.0.0
 metadata:
   hermes:
@@ -11,13 +11,13 @@ metadata:
 # Warden — read-only status over the control plane
 
 Warden (`~/SourceRoot/warden`) is the deterministic control plane: it ingests
-signals, decides, drives each item through sideclaw jobs, and owns the only
+signals, decides, drives each item through agw jobs, and owns the only
 ledger — five LaunchAgents. Handing it work is **`dispatch`**'s `run`
 verb; this skill only reads what it's doing back, over its loopback HTTP API.
 **Never open the ledger file** (no sqlite, no `warden.db`) — the API is the interface.
 
 **This skill is READ-ONLY.** It never opens an item, merges a PR, or aborts a
-run — filing is `dispatch`. The cross-project agent overview (sideclaw's
+run — filing is `dispatch`. The cross-project agent overview (agent-gateway's
 `/api/overview`) is `references/agents.md`.
 
 ## Always `127.0.0.1`, never `localhost`
@@ -131,8 +131,8 @@ that", not `/board`'s one-line summary.
   not the item's current state.
 - **`operations` rows are the retry-loop signal.** Every failed row carries
   its refusal in `receipt_json`. A large count of the *same* failure with
-  `outcome: failed` means the loop is stuck against a wall (a sideclaw
+  `outcome: failed` means the loop is stuck against a wall (an agent-gateway
   dispatch-policy refusal, a denied repo — the ceilings live only in
-  sideclaw's policy) — that is a finding worth naming, and it is invisible
+  agent-gateway's policy) — that is a finding worth naming, and it is invisible
   in `item.state` alone, which just reads `working`.
 - **`http://127.0.0.1:7735` only, never `localhost`.**

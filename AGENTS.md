@@ -9,7 +9,7 @@ VCS source of truth for Johannes's Hermes Agent setup, Mac Mini-only. Everything
 symlinked into `~/.hermes/` — edit at either end, git sees it here.
 
 **Warden (`~/SourceRoot/warden`) is the control plane this repo hands work to and reads
-from.** It ingests signals, decides, dispatches Claude Code episodes through sideclaw, and
+from.** It ingests signals, decides, dispatches Claude Code episodes through agent-gateway, and
 owns the only ledger (`~/.warden/warden.db`) — five LaunchAgents, no LLM call anywhere in its
 loop. Hermes has one role — **narrate, answer, route** (spec: `dotfiles/docs/agent-platform.md` §Hermes): it reports one line per item, answers questions, and files work through `warden run` or a GitHub issue; herdr tabs / `rd wave` only when the owner asks. It never dispatches on its own, lands PRs, or authors skills unattended. The reporting contract lives in `SOUL.md` and nowhere else — no per-skill report formats. See *Dispatch
 Bridge* below for how Hermes hands it work, and the read-only `warden` skill for how Hermes
@@ -38,7 +38,7 @@ the first pass.
 | `config.yaml`, `.env.tpl`, `SOUL.md` | `~/.hermes/…` | edit here, live immediately; `.env.tpl` is the one list of `KEY=op://…` refs |
 | `cron/`, `scripts/`, `hooks/` | `~/.hermes/…` | Hermes-driven cron + pre-run scripts (must live under `HERMES_HOME/scripts/`) + host-level shell scripts |
 | `plugins/{name}/` | `~/.hermes/plugins/{name}/` | **`HERMES_PLUGINS`** is the source of truth. **None today** — `dispatch-approval` was removed 2026-10-04 (warden Wave 1 deleted the approval stack). A new one must **also** be enabled once — `hermes plugins enable <name>`; the symlink alone is inert. |
-| `config/` | `~/.hermes/config/` | **empty** since 2026-09-10 — `dispatch-repos.json` is gone — the repo/tier policy is sideclaw's `server/lib/dispatch-policy.ts` (`GET /api/dispatch-policy`) |
+| `config/` | `~/.hermes/config/` | **empty** since 2026-09-10 — `dispatch-repos.json` is gone — the repo/tier policy is agent-gateway's `server/lib/dispatch-policy.ts` (`GET /api/dispatch-policy`) |
 | `skills/{name}/` | `~/.hermes/skills/{name}/` | **`HERMES_SKILLS` in the Makefile is the source of truth** — 20 dirs (agent-platform Wave 2, 2026-10-04; was 126). Retired skills live on as `<skill>/references/*.md` or in git history; roster: docs. |
 | `USER.md` | `~/.hermes/memories/USER.md` | **copied** — Hermes writes to it |
 
@@ -87,7 +87,7 @@ the door: **`docs/dispatch-bridge.md`**.
 long visible work → `herdr` + `rd` (`rd wave`, never `claude --bg` / `claude -p`); issues → `capture`.
 
 **No signed approval.** Warden Wave 1 (2026-10-04) deleted the approval stack, so the
-`dispatch-approval` plugin (Ed25519 signer, Approve/Deny buttons) was removed here. sideclaw's repo
+`dispatch-approval` plugin (Ed25519 signer, Approve/Deny buttons) was removed here. agent-gateway's repo
 policy is the only boundary; budgets and the brief secret scan (refuses, never redacts) remain.
 Config of `plugins:` is empty; `HERMES_PLUGINS` in the Makefile is empty.
 
@@ -97,10 +97,10 @@ auto-triage depends on it. `require_mention_channels` silences `#media`/`#update
 channels; in `#agents` Hermes answers only when mentioned, so it never replies to warden's posts) — inbound-only, `hermes send`/cron/dispatch verdicts still post there.
 
 **Tests** (`~/.hermes/hermes-agent/venv/bin/python3`): `test_cron_allowlist.py`. `test_hermes_cc.py` moved to
-`warden/tests/test_warden_cli.py` (black-box against the real `warden` CLI, stubbed sideclaw +
+`warden/tests/test_warden_cli.py` (black-box against the real `warden` CLI, stubbed agent-gateway +
 GitHub + Slack) with `hermes-cc.sh` itself (2026-09-10); run it with warden's own venv (`make test`
 from `warden/`). The other
-half is `sideclaw/tests/` (`bun test`, mutation-verified — worktree isolation, the
+half is `agent-gateway/tests/` (`bun test`, mutation-verified — worktree isolation, the
 diff-refusal ladder, the secret scan, the nonce fence around the brief).
 
 **Hermes cron pre-run scripts** (run by `hermes-agent` before each run, not launchd):
@@ -242,7 +242,7 @@ search, which stays for quick lookups. EU/IU models, off Max.
 
 `skills/hyperdx/SKILL.md` gives Hermes an authenticated path into ClickHouse instead of a browser
 login wall. HyperDX/ClickStack is **VPS-only** (`hyperdx.jkrumm.com`, Tailscale-only), exposing a
-stateless JSON-RPC/SSE MCP server at `/api/mcp` — the same server sideclaw's `otel` tool uses,
+stateless JSON-RPC/SSE MCP server at `/api/mcp` — the same server agent-gateway's `otel` tool uses,
 same credential (`HYPERDX_AGENT_ACCESS_KEY` ← `op://vps/clickstack/AGENT_ACCESS_KEY`). One
 verified curl template (`clickstack_sql` against `default.otel_traces`/`otel_logs`/
 `otel_metrics_*`) plus the SQL behind each of the three live alerts
@@ -264,14 +264,14 @@ no native tool for this pipeline.
 
 ## Agents overview (agents)
 
-Read-only cross-project Claude Code/herdr status via sideclaw's `/api/overview` —
+Read-only cross-project Claude Code/herdr status via agent-gateway's `/api/overview` —
 conversational skill (`skills/warden/references/agents.md`) and a morning-briefing feed
 (`scripts/agents-overview.py`). Never dispatches, never steers a pane — that's
 `dispatch`. **`docs/agents-overview.md`**.
 
 ## Project narratives (project-narratives)
 
-Daily vault pages, one per active repo, written by sideclaw's `narrative` job
+Daily vault pages, one per active repo, written by agent-gateway's `narrative` job
 (same daemon as `agents`) into `wiki/engineering/projects/<project>.md` — what
 a project is, where it stands, how it got there. Less is more: a project with
 no substantive change gets no revision and no mention, gated by a pure
@@ -528,7 +528,7 @@ beyond the skills-index restart noted in *Editing Rules*.
   A smoke that files real work (`hermes-cc.sh run`) opens a real Warden item; close it with
   `warden close <id> --why … --reason ignored`.
 - **Repo work goes through `dispatch`, never the repo** — a model told only "you can run
-  anything" debugged a flaky sideclaw test in the live checkout itself (Wave 3 smoke,
+  anything" debugged a flaky agent-gateway test in the live checkout itself (Wave 3 smoke,
   2026-10-04). The routing table in `SOUL.md` is the control; fix wording there, not with a gate.
 - Gotchas with their own incident write-up live in the sections above (SIGPIPE under
   `pipefail`, `cron/jobs.json` carrying its own prompt copy, `slack.allow_bots: all`).

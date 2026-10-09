@@ -85,7 +85,7 @@ RESEARCH_API_KEY=op://vps/research-gateway/API_SECRET
 # HyperDX/ClickStack (observability, Tailscale-only at hyperdx.jkrumm.com, on the
 # VPS). Bearer for the `hyperdx` skill's MCP + REST v2 calls — a dedicated read-only
 # HyperDX **user access key** (not the OTLP ingestion key), provisioned by
-# `make hyperdx-agent-setup` in the vps repo. Same credential the sideclaw `otel`
+# `make hyperdx-agent-setup` in the vps repo. Same credential the agent-gateway `otel`
 # MCP tool uses for Claude Code sessions. Base URL is hardcoded in the skill.
 HYPERDX_AGENT_ACCESS_KEY=op://vps/clickstack/AGENT_ACCESS_KEY
 

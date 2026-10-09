@@ -2,7 +2,7 @@
 
 `scripts/project-narratives.py` keeps one narrative page per active repo at
 `~/SourceRoot/brain/wiki/engineering/projects/<project>.md`: what the project
-is, where it stands, how it got there. Driven by sideclaw's `narrative` job
+is, where it stands, how it got there. Driven by agent-gateway's `narrative` job
 (same daemon `agents-overview.py` and the dispatch bridge use,
 `http://localhost:7705`) — see `docs/agents-overview.md` for the sibling
 job-submission pattern this one mirrors.
@@ -19,7 +19,7 @@ a degraded one. The gate is `needs_revision()`, pure and cheap:
   scheme Claude Code itself uses) is newer than `lastSessionMtime`.
 
 Neither condition firing means the project is skipped entirely — zero cost,
-every run, for an idle repo. Even when the job *does* run, sideclaw itself
+every run, for an idle repo. Even when the job *does* run, agent-gateway itself
 can report `changed: false` (no substantive narrative-worthy delta despite
 the commit/session activity); that also produces no page write, only a
 state-timestamp advance so the gate settles and doesn't re-fire on the same

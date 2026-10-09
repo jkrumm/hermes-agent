@@ -53,7 +53,7 @@ they're LaunchAgents in `~/SourceRoot/warden` now (`com.jkrumm.warden-poll`,
   `chat.postMessage`). Paused 2026-09-08 18:45 after reposting the same blocked pane ~35
   times in two days; retired 2026-09-11. Replaced by warden's one Slack line per `fixed`/`needs_decision` item in `#agents`
   (the queue itself is Argo `/warden`),
-  the same sideclaw snapshot in the herdr overview pane, the morning briefing
+  the same agent-gateway snapshot in the herdr overview pane, the morning briefing
   (`agents-overview.py --briefing`), and Argo's `/agents` page and Warden board.
   Its code (`render_slack()`, `agents-overview.py --slack-body`, the
   `fetch_agents()`/`fingerprint()`/`delta()` change-detection chain, the

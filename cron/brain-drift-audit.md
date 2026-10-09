@@ -22,7 +22,7 @@ auto-loaded.** The live job carries its own copy of the prompt in `~/.hermes/cro
 1. Reads its own previous verdict from `~/.hermes/cron/output/8fe7be4985d9/` (the most recent
    file's `## Response` section) so it can diff instead of restating standing findings.
 2. Files the investigation in the `brain` repo via `hermes-cc.sh run brain` (it never dispatches
-   itself; sideclaw's dispatch-policy caps `brain` below `implement`, so the episode is read-only —
+   itself; agent-gateway's dispatch-policy caps `brain` below `implement`, so the episode is read-only —
    the one path that loads the vault's own rule hierarchy). The episode runs `node .scripts/vault-lint.mjs --drift` and
    judges the curated surface (`Areas/`, `Projects/`) against `voice.md` and the
    "rewritten, not appended" rule in `AGENTS.md`.

@@ -4,7 +4,7 @@ description: File repo work with Warden — `hermes-cc.sh run <repo>` opens a tr
 version: 4.0.0
 metadata:
   hermes:
-    tags: [dispatch, warden, pr, claude-code, repo, source, investigate, triage, root-cause, verdict, fix, sideclaw]
+    tags: [dispatch, warden, pr, claude-code, repo, source, investigate, triage, root-cause, verdict, fix, agent-gateway]
     related_skills: [warden, capture, homelab-ops]
 ---
 
@@ -17,11 +17,11 @@ merge, deploy, verify. You hand it over and step back; narrate it that way and
 never imply you are driving the rest.
 
 There is no tier, no `--why`, no Approve button and no merge verb in your hands:
-Warden decides, sideclaw's repo policy is the only boundary. You never land a PR,
+Warden decides, agent-gateway's repo policy is the only boundary. You never land a PR,
 never `gh pr merge`, never open a `claude` session yourself.
 
 ```bash
-~/.hermes/scripts/hermes-cc.sh run sideclaw --json \
+~/.hermes/scripts/hermes-cc.sh run agent-gateway --json \
   --origin-channel "$SLACK_CHANNEL" --origin-thread "$SLACK_THREAD_TS" <<'BRIEF'
 The check job for the argo repo has failed three times since 14:00 with a
 typecheck error. What changed, and is it a real break or a flaky runner?
@@ -86,9 +86,9 @@ No marker = Johannes's own issue = ordinary work.
 | Exit | Meaning | Say |
 |-|-|-|
 | 64 | usage — misspelled repo, bad flag, empty brief | fix and retry once; the error lists the dispatchable repos |
-| 4 | policy refusal — repo or action sideclaw refuses, daily budget | do not retry; report the limit. Never offer to "add the repo" |
+| 4 | policy refusal — repo or action agent-gateway refuses, daily budget | do not retry; report the limit. Never offer to "add the repo" |
 | 2 | precondition — no checkout of that repo, ledger unreadable | infrastructure problem; report it |
-| 3 | sideclaw unreachable | the job server is down; say so |
+| 3 | agent-gateway unreachable | the job server is down; say so |
 
 A budget refusal is structural (something is looping) — relay the count and the
 env var that raises it, let Johannes decide. An item that completes with no

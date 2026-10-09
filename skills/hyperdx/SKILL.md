@@ -178,7 +178,7 @@ returns nothing for the alert's own window — always run it before concluding t
 |-|-|
 | Transient, self-resolved, evidence shows a brief spike with no pattern | Report it — no escalation needed. Name the window and the numbers. |
 | Recurring / ongoing, root cause is app code (a specific service, route, error message) | `dispatch` (`hermes-cc.sh run <repo>`) into that service's own repo, evidence in the brief — Warden investigates and carries the fix. |
-| Root cause is Traefik/ClickStack/compose config itself | `dispatch` into `vps` with the evidence in the brief; sideclaw's repo policy decides what it may do there. A refusal is final — fall back to `capture` → GitHub issue, or report to Johannes. |
+| Root cause is Traefik/ClickStack/compose config itself | `dispatch` into `vps` with the evidence in the brief; agent-gateway's repo policy decides what it may do there. A refusal is final — fall back to `capture` → GitHub issue, or report to Johannes. |
 | You cannot tell which service owns the failing route | `clickstack_sql` group-by above already answers this — don't guess or escalate before running it. |
 
 **ServiceName → repo**, current mapping (services seen in `otel_traces.ServiceName`):

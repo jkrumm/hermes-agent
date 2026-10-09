@@ -51,7 +51,7 @@ Reproduce any store operation by exporting exactly those three.
    second dispatch.
    **Abort the item that carries the job and the whole batch goes with it** (warden §82,
    2026-09-22): every other row sharing that `dispatch_job` still in an episode state is closed
-   with the same note, and an already-terminal job (sideclaw's 409) is tolerated rather than
+   with the same note, and an already-terminal job (agent-gateway's 409) is tolerated rather than
    refused, so re-aborting a sibling is no longer a dead end. Before that, aborting the carrier
    stranded the siblings in an in-flight state with **no exit at all** — `close` refuses in-flight
    states, a second `abort` refused on the 409, and the sweep only reads rows with
@@ -124,8 +124,8 @@ Reproduce any store operation by exporting exactly those three.
   `add -A` walks. Move it to `~/.hermes/quarantine/` (nothing is lost: the `.git` has no
   HEAD and no config), then re-run `add -A` and confirm rc=0 before closing.
   **Provenance of the `/private/tmp` offenders is usually an agent's own verification
-  scratch:** a `git init` + `git fetch <bundle>` against a sideclaw salvage bundle
-  (`~/.local/state/sideclaw/salvage/dispatch-*.bundle`) leaves `.git/FETCH_HEAD` and a
+  scratch:** a `git init` + `git fetch <bundle>` against an agent-gateway salvage bundle
+  (`~/.local/state/agent-gateway/salvage/dispatch-*.bundle`) leaves `.git/FETCH_HEAD` and a
   `refs/remotes/x/…` ref but **no local branch**, so `HEAD` → `refs/heads/main` is unborn
   and the directory is commitless by construction. Read `.git/FETCH_HEAD` to attribute it;
   the dirs are disposable (`b2/`, `b3/`, `sal2`, `salvage-check` are typical names).

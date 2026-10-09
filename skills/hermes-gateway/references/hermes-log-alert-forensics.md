@@ -164,7 +164,7 @@ real; escalate.
   activated` → `API call #1: model=gpt-6-luna … latency=…` — the turn was served; the only cost
   is that it ran with no reasoning effort while tools were attached (the accepted 503-avoidance
   tradeoff, see `hermes-gateway`). So "fallback activated → real" does not mean "escalate"
-  here: there is no code change to dispatch (sideclaw's dispatch policy caps `hermes-agent` at
+  here: there is no code change to dispatch (agent-gateway's dispatch policy caps `hermes-agent` at
   `investigate`, a verdict can only restate the log) and no issue worth filing. Discharge with `abort <event-id> --why`
   naming the upstream leg. Two adjacent signatures (`ServiceUnavailable`, `InternalServerError`)
   are ONE incident split into two cards by Warden's signature keying — expect a pair, not one
@@ -224,10 +224,10 @@ real; escalate.
 
 ## Hand-landing the patch
 
-The `investigate` ceiling (sideclaw's dispatch policy) bounds **dispatches** — unattended
+The `investigate` ceiling (agent-gateway's dispatch policy) bounds **dispatches** — unattended
 episodes whose briefs are attacker-influenceable, aimed at the repo that *is* the control
 plane. It is not a claim that the fix cannot be made: there is simply no episode lane
-(sideclaw refuses an `implement` on `hermes-agent`, and the item ends `failed`), so the
+(agent-gateway refuses an `implement` on `hermes-agent`, and the item ends `failed`), so the
 fix lands by hand. Six steps are yours, one never is.
 
 1. **Edit the live checkout** (`~/.hermes/hermes-agent/…` — the tree the gateway

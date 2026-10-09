@@ -76,7 +76,7 @@ If the repo identity is genuinely ambiguous between two candidates, ask.
 | `basalt-ui-playground` | TanStack Start boilerplate using basalt-ui |
 | `watchdog` | Self-healing infrastructure agent + React SPA |
 | `rollhook` / `rollhook-action` | Zero-downtime Docker rolling deploys + GitHub Action |
-| `sideclaw` | MCP tooling used by skills |
+| `agent-gateway` | MCP tooling used by skills |
 | `jkrumm.dev` | Personal site |
 | `home` | Home dashboard |
 | `Auto-Claude` | Autonomous multi-session AI coding |

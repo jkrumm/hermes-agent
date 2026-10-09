@@ -151,7 +151,7 @@ FAKE_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.jkrumm.sideclaw</string>
+  <string>com.jkrumm.agent-gateway</string>
 </dict>
 </plist>
 """
@@ -193,7 +193,7 @@ class Harness:
         # the one allowlisted label this suite dry-runs.
         launch_agents = self.home / "Library" / "LaunchAgents"
         launch_agents.mkdir(parents=True)
-        (launch_agents / "com.jkrumm.sideclaw.plist").write_text(FAKE_PLIST)
+        (launch_agents / "com.jkrumm.agent-gateway.plist").write_text(FAKE_PLIST)
 
         self.backend_file = self.root / "backend"
         self.backend_file.write_text("cache\n")
@@ -276,8 +276,8 @@ ARG_SLOTS = [
          newline="vpn-watchdog\nrm -rf /tmp/x", curl_on_unknown=False),
     dict(name="launchd-repair:label",
          build=lambda p: ["launchd-repair", p, "--why", "test"],
-         shell_meta="com.jkrumm.sideclaw; whoami",
-         newline="com.jkrumm.sideclaw\nwhoami", curl_on_unknown=False),
+         shell_meta="com.jkrumm.agent-gateway; whoami",
+         newline="com.jkrumm.agent-gateway\nwhoami", curl_on_unknown=False),
     dict(name="kuma-db:preset", build=lambda p: ["kuma-db", p],
          shell_meta="monitor-config; DROP TABLE monitor",
          newline="monitor-config\nDROP TABLE monitor", curl_on_unknown=False),
@@ -396,8 +396,8 @@ TIER_B_VERBS = [
     dict(name="devhost-health", no_why=["devhost-health"],
          why_args=["devhost-health"], mutating_substr="devhost-health-check.sh"),
     dict(name="launchd-repair",
-         no_why=["launchd-repair", "com.jkrumm.sideclaw"],
-         why_args=["launchd-repair", "com.jkrumm.sideclaw"],
+         no_why=["launchd-repair", "com.jkrumm.agent-gateway"],
+         why_args=["launchd-repair", "com.jkrumm.agent-gateway"],
          mutating_substr="launchctl bootstrap"),
 ]
 

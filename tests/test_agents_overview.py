@@ -6,7 +6,7 @@ Block Kit rendering (header/footer, ordering, escaping, the 50-block cap) for
 the on-demand `--post-full` overview, and the unavailable-degrades-gracefully
 path for `--briefing`.
 
-No network, no sideclaw, no state file — every case builds its fixtures
+No network, no agent-gateway, no state file — every case builds its fixtures
 in-memory and calls the module's functions directly (or monkeypatches
 fetch/refresh for the CLI-level unavailable case).
 
@@ -97,9 +97,9 @@ check_true("overflow marker present", any(line.startswith("…") for line in lin
 
 # --- unavailable path (CLI level) -----------------------------------------
 
-print("\n13. main(['--briefing']) degrades to one line when sideclaw is unreachable")
+print("\n13. main(['--briefing']) degrades to one line when agent-gateway is unreachable")
 def _boom(base, timeout_s=10):
-    raise ConnectionRefusedError("sideclaw down")
+    raise ConnectionRefusedError("agent-gateway down")
 
 _orig_fetch = ao.fetch
 ao.fetch = _boom

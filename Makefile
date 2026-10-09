@@ -278,8 +278,8 @@ status:
 		echo "    ✗ hermes-cc.sh → warden [shim at $(HERMES_REPO)/scripts/hermes-cc.sh or exec target $$target missing/not executable]"; \
 	fi
 	@curl -fsS --max-time 5 http://localhost:7705/health >/dev/null 2>&1 \
-		&& echo "    ✓ sideclaw job server (:7705, dispatch backend)" \
-		|| echo "    ✗ sideclaw job server [:7705 unreachable — dispatch would fail with exit 3]"
+		&& echo "    ✓ agent-gateway job server (:7705, dispatch backend)" \
+		|| echo "    ✗ agent-gateway job server [:7705 unreachable — dispatch would fail with exit 3]"
 	@# Secrets resolve natively via config.yaml `secrets.command` -> the dotfiles
 	@# secrets-run cache. There is deliberately no ~/.hermes/.env any more, so this
 	@# asserts the helper actually renders refs rather than checking for a file.

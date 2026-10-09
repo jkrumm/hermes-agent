@@ -220,7 +220,7 @@ your own `git push`; the helper (and the sync LaunchAgent) own that.
 
 ## You cannot dispatch a write episode at the vault
 
-sideclaw's dispatch policy caps `brain` at `investigate` (read-only). A write
+agent-gateway's dispatch policy caps `brain` at `investigate` (read-only). A write
 (`implement`) is refused — do not offer to "add it".
 
 Claude Code genuinely is better at vault writes than you are: it loads the

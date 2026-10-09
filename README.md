@@ -233,8 +233,8 @@ status` asserts the live set matches it. Watchdog and dispatch sweep moved to
 Hermes triages well but reads a repo badly — it has no access to a repo's `AGENTS.md`/`CLAUDE.md`,
 `.claude/rules/` or `.claude/skills/`. For anything that needs real repo context (a bug fix,
 an investigation, a PR), Hermes hands the episode to Claude Code via `warden`
-(sideclaw's `dispatch` job tool) instead of attempting it itself — `hermes-cc.sh run <repo>` files a
-warden item that rides investigate → implement → merge → verify on its own; sideclaw's dispatch policy
+(agent-gateway's `dispatch` job tool) instead of attempting it itself — `hermes-cc.sh run <repo>` files a
+warden item that rides investigate → implement → merge → verify on its own; agent-gateway's dispatch policy
 is the only boundary.
 The CLI itself lives at `warden/scripts/warden` (a Python CLI; the original bash
 `hermes-cc.sh` was retired 2026-09-10); this repo's own `scripts/hermes-cc.sh`

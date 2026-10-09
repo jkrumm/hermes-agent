@@ -30,12 +30,12 @@ The script also appends a coverage block — full backlog snapshot beyond what `
 If `COVERAGE_AVAILABLE=false` or the blocks are absent, fall back to /summary + watchdog data only.
 
 The script also appends a read-only agents-overview block — every Claude Code /
-herdr agent sideclaw is tracking across every project, not just this repo. Unlike
+herdr agent agent-gateway is tracking across every project, not just this repo. Unlike
 the blocks above it is plain text, not key=value: a first line of counts
 (`agents: N needs_you · N working · N idle · N stale · N done · N dispatch`),
 then zero or more lines shaped `<project> · <recommendation> · <title> ·
 <standing> · <blocker>` for every agent whose recommendation is not `watch` or
-`close` (i.e. everything worth a human glance). If sideclaw was unreachable this
+`close` (i.e. everything worth a human glance). If agent-gateway was unreachable this
 run, the line reads `agents overview unavailable` instead — treat that as "no
 data", never as "no agents". This feeds the Agenten & Projekte section (Step 2).
 

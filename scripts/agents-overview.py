@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """Agents overview — read-only summary of every Claude Code / herdr agent
-sideclaw is tracking, for the morning briefing and an on-demand Slack post.
+agent-gateway is tracking, for the morning briefing and an on-demand Slack post.
 
-Talks to sideclaw's overview endpoints (`http://localhost:7705`, a local
+Talks to agent-gateway's overview endpoints (`http://localhost:7705`, a local
 LaunchAgent — see `skills/warden/references/agents.md`):
 
   GET  /api/overview          -> {ok, data: {generatedAt, summary, projects[], overview, ...}}
   POST /api/jobs {"tool":"overview"} -> {ok, job:{id, status, ...}}   -- triggers
        a fresh LLM pass; poll GET /api/jobs/<id> until status is terminal
        (done|failed|interrupted|cancelled), then re-GET /api/overview for the
-       merged result on `done`. No wall-clock give-up — sideclaw workers have
+       merged result on `done`. No wall-clock give-up — agent-gateway workers have
        no turn or time limit (2026-09-12 policy).
 
 Refresh is consumer-driven, not clock-driven: `--briefing` only refreshes
@@ -17,7 +17,7 @@ when the cached overview is missing or older than
 `HERMES_AGENTS_BRIEFING_MAX_AGE_S` (default 7200s) — an idle night produces
 zero model calls.
 
-`data.humanQueue` (sideclaw, 2026-09-07) is the mini's ask-human queue —
+`data.humanQueue` (agent-gateway, 2026-09-07) is the mini's ask-human queue —
 `[{id, askedAt, question, cmd?}]`, work that needs a PRESENT human (a
 biometric `op`, an ACL push). It renders as a "Needs you" section at the
 top of the briefing and the `--post-full` overview.
@@ -71,7 +71,7 @@ SECRETS_RUN = Path.home() / ".local" / "bin" / "secrets-run"
 SLACK_TOKEN_REF = "op://hermes/slack/bot-token"
 
 # Emoji map for the Block Kit overview — plain_text/mrkdwn render emoji
-# shortcodes, not unicode glyphs (those are sideclaw's own .txt rendering).
+# shortcodes, not unicode glyphs (those are agent-gateway's own .txt rendering).
 RECOMMENDATION_EMOJI = {
     "answer": ":rotating_light:",
     "ship": ":package:",
@@ -99,7 +99,7 @@ BLOCKER_MAX = 100
 
 
 def _base_url() -> str:
-    return os.environ.get("HERMES_AGENTS_SIDECLAW_BASE", DEFAULT_BASE)
+    return os.environ.get("HERMES_AGENTS_AGENT_GATEWAY_BASE", DEFAULT_BASE)
 
 
 def _channel() -> str:
@@ -148,7 +148,7 @@ def fetch(base: str, timeout_s: int = 10) -> dict[str, Any]:
 
 def _human_queue(data: dict[str, Any] | None) -> list[dict[str, Any]]:
     """`data.humanQueue` as a list of dicts, tolerant of the key being absent
-    (an older sideclaw) or malformed — never raises."""
+    (an older agent-gateway) or malformed — never raises."""
     if not data:
         return []
     raw = data.get("humanQueue")
@@ -191,13 +191,13 @@ def _fmt_age_ms(ms: int | None) -> str:
     return f"{int(secs / 86400)}d"
 
 
-# Sideclaw job statuses that end the wait without a result. "failed" was the only one this
+# agent-gateway job statuses that end the wait without a result. "failed" was the only one this
 # loop used to check; "interrupted"/"cancelled" are the same "no result coming" case.
 _TERMINAL_FAILURE_STATUSES = frozenset({"failed", "interrupted", "cancelled"})
 
 
 def refresh(base: str, poll_interval: int = 20) -> dict[str, Any] | None:
-    """Trigger a fresh overview pass and wait for it. Sideclaw workers have no turn or
+    """Trigger a fresh overview pass and wait for it. agent-gateway workers have no turn or
     wall-clock limit (2026-09-12 policy), so this polls until the job reaches a terminal
     status rather than giving up on a healthy job — only a transport failure or a terminal
     status of `failed`/`interrupted`/`cancelled` ends the wait early; `done` re-fetches the

@@ -1,8 +1,8 @@
 # Agents overview — read-only status across every tracked project
 
-_Report on the Claude Code / herdr agents sideclaw is tracking across every project — what needs Johannes, what's working, what's stale, what shipped. Use for "what are my agents doing", "which agent needs me", "project status", "was machen die Agenten", "wo steht <project>", "gibt es was zu tun", "refresh the agent overview", or any question about the state of a background coding agent or a project's open work._
+_Report on the Claude Code / herdr agents agent-gateway is tracking across every project — what needs Johannes, what's working, what's stale, what shipped. Use for "what are my agents doing", "which agent needs me", "project status", "was machen die Agenten", "wo steht <project>", "gibt es was zu tun", "refresh the agent overview", or any question about the state of a background coding agent or a project's open work._
 
-sideclaw (a local daemon on this mini, `http://localhost:7705`, the same
+agent-gateway (a local daemon on this mini, `http://localhost:7705`, the same
 service `warden` reaches through the `scripts/hermes-cc.sh` exec shim for the
 dispatch bridge) keeps a live
 overview of every Claude Code / herdr agent running across every project:
@@ -13,7 +13,7 @@ ready, `close` = finished, `stale` = abandoned, `watch` = working, nothing
 to do).
 
 **This skill is READ-ONLY.** It never sends keys to a herdr pane and never
-dispatches a new episode — it only reads sideclaw's overview. Steering a live
+dispatches a new episode — it only reads agent-gateway's overview. Steering a live
 agent in a pane (prompting it, nudging it, interrupting it, opening a new
 pane) is the `herdr` skill's job; opening a new *tracked, unattended* episode
 is `dispatch`'s. Neither is this one.
@@ -58,7 +58,7 @@ The header's `overview <age>` tells you how old the last LLM pass is. If
 it's stale and Johannes is asking a real question (not just skimming),
 trigger a fresh one — bounded, since the `terminal` tool caps at 180s and a
 pass runs a summarization over every agent on the cheap gateway model
-(`sideclaw routing` → `overview`; Haiku on Max is its reverse lane; usually 30–60s):
+(`agw routing` → `overview`; Haiku on Max is its reverse lane; usually 30–60s):
 
 ```bash
 JOB=$(curl -s -X POST localhost:7705/api/jobs \
@@ -117,7 +117,7 @@ python3 ~/SourceRoot/hermes-agent/scripts/agents-overview.py --post-full
 
 A separate script, `scripts/project-narratives.py`, keeps a daily status page
 per project at `~/SourceRoot/brain/wiki/engineering/projects/<project>.md` —
-written by sideclaw's `narrative` job (the same daemon this skill reads).
+written by agent-gateway's `narrative` job (the same daemon this skill reads).
 **Reading** a project's narrative is just reading that vault page (the
 `obsidian` skill). **"Update the narrative for X"** means running it, not
 dispatching an episode or editing the page by hand:

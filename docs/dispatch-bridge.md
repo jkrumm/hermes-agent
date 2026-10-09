@@ -1,6 +1,6 @@
 # Dispatch Bridge — Hermes's own side
 
-The dispatch bridge itself (tiers, the sideclaw `dispatch` job tool, the
+The dispatch bridge itself (tiers, the agent-gateway `dispatch` job tool, the
 worktree isolation, the `merge` verb, the ledger schema, repo policy) moved
 to `~/SourceRoot/warden` on 2026-09-10 — see its `DESIGN.md` (authoritative
 design), `AGENTS.md` (developer notes) and `FLOWS.md` (six end-to-end
@@ -44,11 +44,11 @@ than authenticating the messenger.
 
 `plugins/dispatch-approval/` (Ed25519 key minted at gateway startup, Approve/Deny buttons, the
 `approval_decision` intent) is gone as of 2026-10-04: warden Wave 1 deleted the approval stack it
-fed, and the agent-platform spec keeps only quality gates. Trust comes from Tailscale and sideclaw's
+fed, and the agent-platform spec keeps only quality gates. Trust comes from Tailscale and agent-gateway's
 repo policy. Git history holds the design and its one bug (the public key overwritten by a
 non-gateway process) if it is ever needed again.
 
 ## Tests (this repo)
 
 Everything (worktree isolation, the merge train, the ledger, repo policy) is tested in `~/SourceRoot/warden/tests/` and
-`sideclaw/tests/` — not restated here since it already drifted once.
+`agent-gateway/tests/` — not restated here since it already drifted once.

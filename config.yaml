@@ -482,7 +482,7 @@ slack:
   # `slack_alert`, deduplicated by `normalize_title()` into a stable signature);
   # its loop (own LaunchAgent, `com.jkrumm.warden-loop`) turns that dedup into one
   # tracked item per problem (one Slack line on fixed / needs_decision), with a
-  # real sideclaw investigation attached once a signature repeats or stays open —
+  # real agent-gateway investigation attached once a signature repeats or stays open —
   # no LLM call in the intake. Mentioning Hermes directly in
   # #alerts still works for an ad-hoc question; see ~/SourceRoot/warden/DESIGN.md.
   require_mention: false
