@@ -187,9 +187,9 @@ auxiliary:
   compression:
     # timeout is a hang guard, not a budget (~/.claude/rules/agent-limits.md): the aux client
     # applies it as an absolute ceiling on top of the stream idle check, and a high-effort
-    # DeepSeek summary of a long thread can legitimately think past 120s.
+    # gpt-6-luna summary of a long thread can legitimately think past 120s.
     provider: custom
-    model: deepseek-v4.1-flash
+    model: gpt-6-luna
     base_url: ${OPENAI_BASE_URL}
     api_key: ${OPENAI_API_KEY}
     timeout: 1800
@@ -711,11 +711,9 @@ custom_providers:
   - name: Unified-endpoint-main.app.iu-it.org
     base_url: https://unified-endpoint-main.app.iu-it.org/openai/v1
     key_env: HERMES_CUSTOM_UNIFIED_ENDPOINT_MAIN_APP_IU_IT_ORG_API_KEY
-    model: deepseek-v4.1-flash
+    model: gpt-6-luna
     api_mode: chat_completions
     models:
-      deepseek-v4.1-flash:
-        context_length: 1000000
       gpt-6-luna:
         context_length: 850000
 

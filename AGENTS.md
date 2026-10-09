@@ -390,17 +390,17 @@ published source disagrees in some direction. Re-probe after an endpoint change.
 | | Value | How established |
 |-|-|-|
 | Brain, `claude-haiku-5-5-eu` (2026-10-08) | Bedrock eu-west-1, native `/anthropic` leg, `anthropic_messages`, `high` | modelpick bench: `high` 15/15 ~1.6 s; `medium` 14/15; `xhigh`/`max` think 50–100 s+. Not in `/v1/models`. Price doubles+ above 100k input (see `docs/model-context-reasoning.md`) |
-| Context, `deepseek-v4.1-flash` (former brain, compression) | **1,000,000** | probed 2026-09-13; `/responses` 404s ("No suitable backend") despite `/models` listing it — `chat_completions` is the only wire that works |
+| Context, `deepseek-v4.1-flash` (former brain and compression; no longer routed) | **1,000,000** | probed 2026-09-13; `/responses` 404s ("No suitable backend") despite `/models` listing it — `chat_completions` is the only wire that works |
 | Input cap, `gpt-5.6-luna` (former fallback, title) | **922,000** | 900k ok; 1.1M → `context_length_exceeded` (a *combined* input+reasoning+output budget). **Not re-probed for `gpt-6-luna`** — config keeps 850,000 |
 | `/v1/models` metadata | `ContextSize: "105000"` | **Wrong** — 110k/260k/520k/900k all succeed. Never configure from it |
 | Efforts, gpt-5.6 family | `none, low, medium, high, xhigh` | `max` refused here; `minimal` isn't a gpt-5.6 value |
 | Efforts, `gpt-6-luna` (fallback, title) | `none, low, medium, high, xhigh` | probed 2026-09-23; `max` refused, only default `temperature` (1); with tools it needs an **explicit** `none` — omitting the key 503s too, unlike gpt-5.6 |
-| Efforts, deepseek-v4.1-flash (compression) | `low, high, xhigh, max` | accepts tools + effort together on `chat_completions` — unlike gpt-5.x, no strip needed |
+| Efforts, deepseek-v4.1-flash (no longer routed) | `low, high, xhigh, max` | accepts tools + effort together on `chat_completions` — unlike gpt-5.x, no strip needed |
 | Efforts, Anthropic leg | `none, low, medium, high` | `xhigh` refused by the IU LiteLLM gateway |
 
 **The brain runs `anthropic_messages` (Haiku 5.5 EU) and gets its effort every turn via
 `patches/anthropic-adapter-haiku-5.patch`; the Responses dance was a gpt-5.x-only problem
-(DeepSeek, now compression-only, never needed it).** `/v1/chat/completions` refuses any effort on gpt-5.x once the request
+(DeepSeek, no longer routed anywhere, never needed it).** `/v1/chat/completions` refuses any effort on gpt-5.x once the request
 carries function tools — and Hermes always sends tools — but DeepSeek takes tools and
 `reasoning_effort` together on the same wire with no such refusal (probed 2026-09-13). So the
 brain needs no Responses routing at all: `model.api_mode: chat_completions`,
@@ -425,7 +425,7 @@ are attached (the 503-avoidance tradeoff), which is accepted, not a bug.
   governs). A window **under 512K** floors its threshold at **0.75**, and the auxiliary
   compression model's own `context_length` clamps the trigger to itself — hence
   `auxiliary.compression.context_length: 850000`, not the model's real 1,000,000 or the
-  default 200,000 (compression stays on DeepSeek; the Haiku brain caches natively).
+  default 200,000 (compression is gpt-6-luna; the Haiku brain caches natively).
 
 **Auxiliary lanes are separately routed, not the brain** — `title_generation` (`gpt-6-luna`)
 and `approval` (`claude-haiku-5-5-eu`) are pinned off non-brain models because both hardcode a
