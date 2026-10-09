@@ -37,7 +37,6 @@ Files touched (all are `.patch` files applied with `git apply` — no full-file 
 |-|-|-|
 | `plugins/platforms/slack/adapter.py` | `patches/slack-cannot-reply-to-message.patch` | mrkdwn normalization + `cannot_reply_to_message` retry (3 hunks; the synthetic-thread guard was **retired at v0.19.0**) |
 | `gateway/platforms/base.py` | `patches/slack-media-inline-reply-anchor.patch` | pass text reply anchor to media senders so attachments don't thread |
-| `agent/client_lifecycle.py` | `patches/run-agent-third-party-endpoint-token-refresh.patch` | broaden third-party endpoint skip to all non-anthropic.com hosts |
 | `tools/cronjob_prompt_scan.py` | `patches/cronjob-tools-allowlist-argo-bearer.patch` | allowlist argo bearer curls past the cron-prompt scanner |
 | `hermes_cli/runtime_provider.py` | `patches/runtime-provider-iu-responses-api.patch` | route the IU endpoint's `/openai/v1` leg onto `codex_responses` for a gpt-5.x model with no explicit `api_mode` — dormant on the current config, every live slot pins `api_mode` explicitly |
 | `agent/transports/chat_completions.py` | `patches/transport-iu-reasoning-effort.patch` | clamp/strip the top-level `reasoning_effort` for the **main-loop model only** (brain + fallback), per model family — does not cover the auxiliaries |
@@ -163,7 +162,7 @@ git diff HEAD --name-only        # must be exactly the patched files
 grep -n "_rename_with_title"          tools/tts_tool.py
 grep -n "x-audio-title"               tools/tts_tool_openai.py
 grep -n "cannot_reply_to_message"     plugins/platforms/slack/adapter.py
-grep -n "_is_third_party_anthropic_endpoint" agent/client_lifecycle.py
+grep -n "HAIKU\|haiku" agent/anthropic_adapter.py   # LOCAL MODIFICATION marker present
 grep -n "_sanitize_trusted_api_fence" tools/cronjob_prompt_scan.py
 grep -n "_apply_iu_reasoning_effort"  agent/transports/chat_completions.py
 grep -n "_SPEAK_SUMMARY"              hermes_cli/web_routers/audio.py
