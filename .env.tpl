@@ -41,7 +41,7 @@ OPENAI_BASE_URL=https://unified-endpoint-main.app.iu-it.org/openai/v1
 HERMES_CUSTOM_CUSTOM_API_KEY=op://common/anthropic/API_KEY
 HERMES_CUSTOM_UNIFIED_ENDPOINT_MAIN_APP_IU_IT_ORG_API_KEY=op://common/anthropic/API_KEY
 
-# Anthropic — the approval classifier only (auxiliary.approval: claude-haiku-4-5,
+# Anthropic — the approval classifier only (auxiliary.approval: claude-haiku-5-5-eu,
 # native /anthropic leg). Every other auxiliary (compression, title_generation,
 # vision) is on the IU OpenAI leg above; Google AI Studio direct (GEMINI_API_KEY)
 # was retired 2026-09-13 — vision now runs gemini-3.5-flash through the same

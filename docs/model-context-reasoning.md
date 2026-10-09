@@ -66,7 +66,7 @@ fell off, which is what a `hermes update` does.
 | Lane | Model | Why not the brain |
 |-|-|-|
 | `title_generation` | `gpt-6-luna`, OpenAI leg, `reasoning_effort: low` | `title_generator.py:268` hardcodes `temperature=0.3`; gpt-5.x 503s on any non-default temperature — upstream's `_is_openai_default_temperature_only` omits it for gpt-5.x, `patches/auxiliary-client-iu-openai-leg-quirks.patch` extends that to gpt-6.x (gpt-6-luna refuses 0.3, probed 2026-09-23) |
-| `approval` | `claude-haiku-4-5`, **native `/anthropic` leg** (`${ANTHROPIC_BASE_URL}`, `api_mode: anthropic_messages`) | same 503 shape (`approval_smart.py` hardcodes `temperature=0`), and this gates every risky terminal command. Measured **0.9s native vs 3.0s** for the same model through the OpenAI-compat shim. `provider` stays `custom`, never `anthropic`, so the auxiliary client never reaches for `~/.claude` OAuth |
+| `approval` | `claude-haiku-5-5-eu` (was `claude-haiku-4-5` until 2026-10-08, which approved `rm -rf ~/SourceRoot` in a probe), **native `/anthropic` leg** (`${ANTHROPIC_BASE_URL}`, `api_mode: anthropic_messages`) | same 503 shape (`approval_smart.py` hardcodes `temperature=0`), and this gates every risky terminal command. Measured **0.9s native vs 3.0s** for the same model through the OpenAI-compat shim. `provider` stays `custom`, never `anthropic`, so the auxiliary client never reaches for `~/.claude` OAuth |
 | `vision` | `gemini-3.5-flash`, IU OpenAI leg | moved off Google AI Studio direct 2026-09-13 — no deliberate reason for the direct route was ever recorded here, and modelpick flagged it as two generations stale. See `modelpick/docs/decisions/vision-and-image.md` |
 
 `compression` stays pinned to `deepseek-v4.1-flash` (`reasoning_effort: high`, OpenAI leg) — no longer the brain since 2026-10-08; — it needs the
@@ -86,14 +86,14 @@ There is **no config key to drop `temperature` on its own** — `_fixed_temperat
 
 `tools.tool_search.enabled: auto`. 4 of 21 tools defer behind a 3-tool bridge — measured **−19.8% (~2,150 tokens) off the cached tool prefix every turn** on the real Slack toolset, not upstream's headline −49% (that is the desktop/GUI surface). It costs +1 turn when a deferred tool is actually needed. `threshold_pct: 10` in `config.yaml` is now a *listing budget*, not an activation gate. Deferral can never empty `tools`, so it does not interact with the reasoning-effort patches. Watch `cronjob_manage`: it is 69% of the deferred mass and upstream measured 16/18 discovery — if Hermes ever claims it can't schedule something, drop that one name from `tools.tool_search.defer` rather than disabling the feature.
 
-## Brain on Haiku 5.5 EU — the 100k price cliff vs the 240k compaction trigger
+## Brain on Haiku 5.5 EU — the 100k price cliff vs the 240k compaction trigger (accepted)
 
 Input is $0.10/MTok (output $0.50) up to 100k tokens and $0.50/$2.50 above it — 5×. Compaction
 triggers at 240k, so every API call between 100k and 240k is billed at the high tier; sessions
 that live there (long Slack threads, briefings with tool dumps — the 2026-10-08 06:30 briefing
 ran 46k → 124k) pay 5× on the whole prompt. Prompt caching is working (live: `cache=26214/38953`,
-then 100% on later calls), which discounts reads but not the tier. **Not changed** — owner decision:
-lower `compression.threshold_tokens` to ~100k (accepting more frequent summaries), or accept the cliff.
+then 100% on later calls), which discounts reads but not the tier. **Owner decision 2026-10-09: accept the cliff** —
+the 240k trigger stays; the extra cost of long threads is fine.
 
 The startup warning `model.context_length pins … 1,000,000 but provider advertises 200,000` is
 stale metadata, not a real limit: a direct probe on 2026-10-08 sent `claude-haiku-5-5-eu` 599,017

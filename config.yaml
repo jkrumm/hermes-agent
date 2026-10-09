@@ -212,13 +212,16 @@ auxiliary:
     # so the auxiliary client never reaches for ~/.claude OAuth credentials — the
     # key is supplied explicitly. Idle while approvals.mode is 'off' — kept routed
     # so flipping back to smart doesn't regress to the 503 path.
+    # claude-haiku-5-5-eu since 2026-10-08: haiku-4-5 APPROVED `rm -rf ~/SourceRoot`
+    # in a probe; 5.5 denied it. The adapter strips temperature=0 for 5.x, and the
+    # 16-token verdict did not starve under default adaptive thinking.
     provider: custom
-    model: claude-haiku-4-5
+    model: claude-haiku-5-5-eu
     base_url: ${ANTHROPIC_BASE_URL}
     api_key: ${ANTHROPIC_API_KEY}
     timeout: 30
     api_mode: anthropic_messages
-    context_length: 200000
+    context_length: 1000000
   mcp:
     provider: auto
     model: ''

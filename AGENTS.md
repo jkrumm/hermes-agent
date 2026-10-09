@@ -429,7 +429,7 @@ are attached (the 503-avoidance tradeoff), which is accepted, not a bug.
   default 200,000 (compression stays on DeepSeek; the Haiku brain caches natively).
 
 **Auxiliary lanes are separately routed, not the brain** — `title_generation` (`gpt-6-luna`)
-and `approval` (`claude-haiku-4-5`) are pinned off non-brain models because both hardcode a
+and `approval` (`claude-haiku-5-5-eu`) are pinned off non-brain models because both hardcode a
 `temperature` the flagship rejects; upstream's `_is_openai_default_temperature_only` (v0.21.4)
 omits `temperature` for any gpt-5.x/o-series id on every endpoint, and the aux patch extends it to gpt-6.x. `approval`
 runs the **native `/anthropic` leg**, 0.9s vs 3.0s through the OpenAI-compat shim, `provider`
