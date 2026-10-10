@@ -74,6 +74,27 @@ cd ~/SourceRoot/<repo> && git worktree remove --force ~/SourceRoot/.hermes-wt/<r
 Run it as a **background** terminal and poll the log — a full docker-compose e2e
 stack is 4–5 minutes. `grep -n "Test Files\|Tests \|EXIT=\|Error" <log>` is the read.
 
+### The pytest / live-store variant (weatherorb)
+
+`tests/store/` needs the mini's own store and the live `:8080`/`:8081`, and a fresh
+worktree has neither the gitignored `data/`, `var/`, `products/` **nor a `.venv`** — the
+store tests then `pytest.skip("no local data/ store present")` and the run goes green
+while proving nothing. Symlink the live stores in and drive the live checkout's venv
+python from inside the worktree:
+
+```bash
+cd ~/SourceRoot/weatherorb
+git fetch origin 'refs/heads/<branch>:refs/remotes/origin/tmp'
+git worktree add --detach "$WT" origin/tmp
+cd "$WT" && ln -sfn ~/SourceRoot/weatherorb/{data,var,products} .
+~/SourceRoot/weatherorb/.venv/bin/python -m pytest tests/store -q -rs
+```
+
+The venv's editable `weatherorb` still points at the live `src/`, which is correct
+exactly when the branch changes tests only — check `gh pr diff <n> --name-only` first.
+Report pass **and** skip counts (`-rs` names every skip): a skipped store test is
+unproven, not green.
+
 ## Pitfalls
 
 - **Cut the worktree under `$HOME`, never `/tmp`.** Colima mounts only the home
@@ -122,5 +143,13 @@ actually changes his next move:
   Two open PRs carrying the same change is the trap this prevents.
 - **Name what you verified yourself** — the check job's step results, the standalone
   lane's file/test counts — and the residual risk the episode itself flagged.
+- **A `needs_decision` card that asks for live verification is not a decision.** The
+  loop parks an item whose implement/revision verdict said `nextAction=human` — often
+  with the reason "live proof needs the mini / I could not run the services here" —
+  and in that shape the parked PR skips the merge-train handoff, so Argo offers no
+  `merge`, only `implement`/`dismiss`/`reinvestigate`/`note`. Run the lane yourself and
+  report the numbers; **do not** click `implement`/`reinvestigate` to clear the card:
+  each dispatches a fresh master-based episode, which opens another PR and supersedes
+  the one you were verifying.
 - **An unmerged PR means the underlying break is still live on the default branch.**
   Say so: until it lands, every episode in that repo reproduces the same failure.
