@@ -2,7 +2,7 @@
 
 _Use when relaying a dispatched agent's claimed result._
 
-The class: an episode (Warden item, sideclaw `dispatch`/`check`/`review` job) reports
+The class: an episode (Warden item, agent-gateway `dispatch`/`check`/`review` job) reports
 an outcome — a verdict, a green suite, a PR — and you must relay it or act on it.
 **The claim and the artifact are different things, and only one of them is evidence.**
 A card's note, a brief's asserted measurement and a PR body are all prose written by
@@ -17,7 +17,7 @@ This is the step before acting: deciding whether the thing you were handed is tr
 
    ```python
    import sqlite3, os, json
-   con = sqlite3.connect(f"file:{os.path.expanduser('~/.local/share/sideclaw/jobs.db')}?mode=ro", uri=True)
+   con = sqlite3.connect(f"file:{os.path.expanduser('~/.local/share/agent-gateway/jobs.db')}?mode=ro", uri=True)
    con.row_factory = sqlite3.Row
    for r in con.execute("select * from jobs where id like ?", (job_prefix + '%',)):
        d = dict(r)          # params, status, result (JSON), error, progress, created_at, finished_at
