@@ -35,6 +35,15 @@ written into the vault, is a confusing loop) — minus anything listed in
 `HERMES_NARRATIVE_SKIP` (comma-separated). `--projects a,b` restricts
 discovery to exactly that set, in any CLI mode.
 
+## Who writes the prose
+
+The narrator prompt is agent-gateway's `server/skills/narrative.md`, not a file in
+this repo. It tells the narrator to describe the system as it is now: a term from
+a deleted mechanism (warden's merge-approval gate, removed 2026-10-02) belongs in
+`howItGotHere` as removed, never in `whereItStands`. A stale phrase in a page
+survives because the previous page is the narrator's input, so fix the page and
+the prompt together.
+
 ## Per-project pipeline (`--run`)
 
 Sequential, oldest-revised first (never-revised projects first), capped at
