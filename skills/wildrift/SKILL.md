@@ -75,67 +75,15 @@ damage, so an AP draft kills his offence and defence together; Hecarim is an AD
 champion with no resistances who merely isn't punished the same way. The full
 argument is in `Draft Guide.md` — read it rather than reciting this paragraph.
 
-## Data reality — read this before quoting a number
+## Data reality — core rules
 
-- **China-server only.** Riot publishes **no** Wild Rift API — not for stats,
-  not for matches, not for anything. CN Diamond+ aggregate data is the only
-  objective source that exists, and every third-party site resells it. Never
-  claim a "global" win rate; there isn't one.
-- **Know which layer a claim comes from.** Win/pick/ban rates are **measured**;
-  item stats and costs are **factual**; build order, situational buys and
-  matchup reads are **editorial** — somebody's judgement. Say so if asked where
-  a build comes from. `Sourcing.md` has the full table and the exceptions.
-- **Rank tiers, from Tencent's own page:** `钻石以上` Diamond+, `大师以上`
-  Master+, `王者` Sovereign, `峡谷之巅` Rift Summit. The notes quote **Master+**
-  by default. A fifth bucket exists in the API and is discarded by Riot's own
-  frontend — never quote it.
-- **There is no low-elo data at all.** The floor is Diamond. If asked how a
-  champion does below that, say plainly that nobody measures it.
-- **Rank still changes the answer.** Hecarim runs ~48% at Diamond+ and ~51% at
-  Rift Summit, with ban rate 8.4% → 35.7%. Shyvana runs the other way, 51.9%
-  down to 49.9%. Qualify advice by tier.
-- **A missing row is a publication threshold, not a zero.** Gragas jungle
-  appears only at Rift Summit; Dr. Mundo jungle stops at Master+. Neither is
-  unplayed — both are below the cut. Say "not enough games to publish", never
-  "no games".
-- **The top two tiers are noisy day to day.** Sovereign and Rift Summit moved
-  1.8–2.6 points between two consecutive daily snapshots with no patch in
-  between, while Diamond+ and Master+ barely twitched. Quote those tiers as a
-  direction, not a number.
-- **`strengthLevel` is Tencent's grade, lower is better**, and it blends win
-  rate with play rate. Rammus at grade 4 on a 55% win rate is the proof — it's
-  punishing his low pick rate, not his strength. Don't quote it as power.
-- **The snapshot in the notes is dated.** Each champion note carries the date
-  its stats were taken. If Johannes asks for current numbers and the snapshot
-  is older than the current patch, say so and offer a refresh.
+Full detail, rank tiers, the missing-row rule and the research-gateway incident: `references/data-reality.md` — read it before quoting a number.
 
-> [!warning] Check the roster before repeating a counter
-> Research about "League" leaks **League PC** champions into Wild Rift answers,
-> and they look plausible. **Trundle** and **Sylas** have both arrived this way
-> and neither exists in Wild Rift. If a research result names a champion that is
-> not in the 141-champion roster, drop it — do not write it into a note.
-
-## Reaching the open web
-
-Only through the **`research-gateway`** skill. **Never curl a Tencent endpoint,
-a Riot page, or a build site directly** — those hosts aren't cross-verified or
-cited, and results from them have been wrong before (see below). Route the
-question through `research-gateway` and let it fetch.
-
-Good research queries for this domain: the current Wild Rift patch number and
-date; what a named patch changed for a specific champion; the current core
-build for a champion on a named patch. Ask for the patch version explicitly —
-it's the thing that decides whether a note is stale.
-
-> [!danger] A research run's negative claim about a source is not evidence
-> On 2026-08-06 a `depth=deep` run returned, at high confidence, that the
-> Tencent `lrlib` CDN "serves a card/hero collection game, not Wild Rift" and
-> that `mlol.qt.qq.com` is "geo-restricted to mainland China". **Both are
-> false** — those endpoints are where the champion roster, the stats and every
-> champion portrait come from. The run had reasoned from failed fetches.
->
-> `Sourcing.md` records the working URLs. If a research result contradicts
-> something `Sourcing.md` states as tested, the note wins.
+- **China-server only.** Riot publishes no Wild Rift API; never claim a "global" win rate.
+- **Qualify every rate by rank tier** (notes quote Master+ by default). No low-elo data exists.
+- **The snapshot is dated** — if it's older than the current patch, say so and offer a refresh.
+- **Check the roster** before repeating a counter: League PC champions (Trundle, Sylas) leak into research and don't exist in Wild Rift. Not in the 141-champion roster → drop it.
+- **Web only through the `research-gateway` skill.** Never curl a Tencent endpoint, a Riot page or a build site directly. If research contradicts something `Sourcing.md` states as tested, the note wins.
 
 ## Item and rune data — where to look it up
 
@@ -146,167 +94,23 @@ a direct fetch.
 
 ## Writing to the vault
 
-Follow the **`obsidian`** skill's access model exactly: **CLI first**
-(`obsidian version` is the liveness gate), filesystem fallback only when
-Obsidian.app is down. Load `skills/obsidian/SKILL.md` before writing.
+Rules, lint, pipe/table traps, icons, the four-places stats update and the commit helper (`~/.hermes/scripts/brain-commit.sh`): `references/vault-writing.md` — read it before any write. Follow the `obsidian` skill's access model (CLI first); pull before writing; lint must end at 0 errors; commit through the helper.
 
-**Pull before writing** — `git -C ~/SourceRoot/brain pull`. The MacBook writes
-to this vault too.
+## When a refresh is too big for you
 
-**These are curated pages, so lint is light** — dead links only, no forced
-`type`/`description`. **One exception applies here:** every champion note
-declares `type: champion`, and the lint enforces that any note declaring it
-keeps `patch`, `statDate` and `heroId`. Those are the keys you read; dropping
-one on a refresh is an error, not a warning. Preserve the whole frontmatter
-block when rewriting a section.
-
-**Two opposite pipe rules — both bite silently.** A `|` inside a table cell is a
-column separator, so:
-
-| Construct | In a table cell | Why |
-|-|-|-|
-| Aliased wikilink | **Don't use it.** `[[note\|Alias]]` | Even escaped, it fails the vault linter's wikilink parser. Use a plain bold name and link outside the table |
-| Sized image | **Must escape:** `![\|28](url)` | Unescaped `![\|28]` splits the cell — the image vanishes and the table silently gains a phantom column |
-
-Both failures are invisible in the diff and only show up when the note renders.
-Check a table by rendering it, not by reading it.
-
-**Stats live in four places — update all of them.** Each champion note carries
-its numbers in frontmatter (`winRate`, `pickRate`, `banRate`, `statDate`) *and*
-in its per-rank table; the summary row is in `Wild Rift.md`; the pool table is
-in `Draft Guide.md`. Miss one and the pages disagree with each other. (A
-Dataview block would remove this quadruple-write, but it was deliberately not
-used — it doesn't render outside Obsidian, which matters for phone read-access.)
-
-**Keep one snapshot date across the whole pool.** The comparison tables in
-`Wild Rift.md` and `Draft Guide.md` are only honest if every row was pulled the
-same day. If you refresh one champion's numbers, either refresh all of them or
-leave the comparison tables alone and say the note is now ahead of them.
-
-**Validate — 0 errors required:**
-```bash
-node ~/SourceRoot/brain/.scripts/vault-lint.mjs
-```
-
-**Icons are remote, never local.** Item, rune, spell and champion art live at
-`https://img.jkrumm.com/blog/wildrift/{items,runes,spells,champions}/<slug>.webp`
-(champion art is `.png`). The slug is the name lowercased with all non-letters
-stripped — `Dead Man's Plate` → `deadmansplate`. Use the full name:
-`tearofthegoddess`, not `tear`.
-
-Request **one rendition per icon** and size in Obsidian, rather than minting a
-CDN variant per display size:
-
-```
-![\|28](https://img.jkrumm.com/rs:fit:96/f:png/blog/wildrift/items/thornmail.webp)
-```
-
-`rs:fit:96` for icons, `rs:fit:144` for champion art. **`f:png` is required** —
-the CDN defaults to JPEG, which turns icon transparency into a black box.
-**Never download an image into the vault.** If a build gains an item with no
-mirrored icon, write the item name as plain text and say so in the reply — do
-not invent a URL, it will 404 silently. Adding a new icon to the CDN is a
-Claude Code job, not yours.
-
-**Commit after writing, through the helper.** It takes brain-sync's lock (so the
-commit never races the 5-minute sync for `.git/index.lock`), commits naming the
-vault (so the commit is unambiguous among the repos on this box) — and pushes,
-fail-soft:
-```bash
-~/.hermes/scripts/brain-commit.sh "wildrift: refresh Hecarim build (patch 7.2b)" "Areas/Gaming/Wild Rift"
-```
-Exit 3 = the lock was busy, nothing committed — retry in a minute. Don't compose
-your own `git push`; the helper (and the sync LaunchAgent) own that.
-
-## You cannot dispatch a write episode at the vault
-
-agent-gateway's dispatch policy caps `brain` at `investigate` (read-only). A write
-(`implement`) is refused — do not offer to "add it".
-
-Claude Code genuinely is better at vault writes than you are: it loads the
-repo's rules, runs the lint, and can mirror icons to the CDN. So the refusal is
-not about capability, and saying it is would be wrong. It is about two things:
-
-- **`implement` ends in a draft PR.** The vault is direct-to-master with a
-  five-minute sync LaunchAgent, so the artifact is the wrong shape here — the
-  tier doesn't fit the repo even setting trust aside.
-- **A bad vault write is quiet.** In a code repo a wrong change shows up in a
-  diff, a PR and CI. Here it becomes a sentence in a note that you later read
-  back and quote as fact, with nothing to contradict it.
-
-**What to do instead when a refresh is too big for you:** say so, and say what
-it needs. A patch that moves most of the pool wants Johannes's own Claude Code
-session in `brain`, where the `wildrift-refresh` skill carries the procedure.
-Telling him "7.3 landed, eleven notes are stale, this needs a session" is a
-useful answer, not a failure.
+A patch that moves most of the pool (or changes the item system the way 7.2 did) wants Johannes's own Claude Code session in `brain`, where the `wildrift-refresh` skill carries the procedure. Say so and say what it needs ("7.3 landed, eleven notes are stale, this needs a session") — that's a useful answer, not a failure. Vault writes are direct via `obsidian` (SOUL.md); don't offer to dispatch one.
 
 ## Workflows
 
-### "what should I ban?" / "was soll ich bannen"
+Detail for each in `references/workflows.md`. All vault-first, in this order:
 
-Read-only, answer from the vault. **`Draft Guide.md` has the ban table** — read
-that first; it maps pick → ban with the reason. The per-champion notes carry the
-same ban in their own ban note.
+- **"what should I ban?" / "was soll ich bannen"** — `Draft Guide.md` ban table; ask which champion he's planning to play if not obvious.
+- **"what do I pick into X?" / "was picke ich gegen AP"** — `Draft Guide.md` decision chain per role; give the pick and a one-line reason.
+- **"how do I play X into Y?" / "wie spiele ich X gegen Y"** — the matchup table row in the champion note; quote its *read*. `research-gateway` only if no row exists, and say so.
+- **"refresh my `<champ>` build" / "baue mir den X build neu"** — read note, check the patch via `research-gateway`, rewrite only the build/rune section if it moved, lint, commit, reply with the delta.
+- **"did the new patch change my builds?" / "hat das Update meine Builds beeinflusst"** — same across the pool; write only to notes that moved.
 
-The short version, which you should still verify against the guide rather than
-reciting from here: Morgana covers three of the four supports, Olaf covers both
-Rammus and Nunu, Poppy is the Hecarim ban, Lee Sin the Shyvana/Gragas ban, Yasuo
-the mid ban for both Ahri and Galio.
-
-Ask which champion he's planning to play if it isn't obvious — the ban depends
-on the pick.
-
-### "what do I pick into X?" / "was picke ich gegen AP"
-
-**`Draft Guide.md`** is built for this. It has a decision chain per role and a
-"when they're banned" table. Read the chain, give the pick and the one-line
-reason, and don't recite the whole guide.
-
-### "how do I play X into Y?" / "wie spiele ich X gegen Y"
-
-Vault-first. Read the matchup table in the relevant champion note. Each row
-carries a *read* — the actual instruction, not just a verdict. Quote that.
-
-Only reach for `research-gateway` if the note has no row for that matchup, and
-say plainly that you're going outside the notes.
-
-### "refresh my `<champ>` build" / "baue mir den X build neu"
-
-1. Read the note: `obsidian read path="Areas/Gaming/Wild Rift/<Champ>.md"`. Note
-   its `patch:` frontmatter field.
-2. Establish the current patch via `research-gateway`. If it matches the note,
-   say so and stop — don't churn the vault for nothing.
-3. If the patch moved, research what changed for that champion and what the
-   current core build is.
-4. Rewrite only the build/rune section. Update the `patch:` and `timestamp:`
-   frontmatter. Don't blow away matchup tables — those are hand-written
-   judgment and rarely move with a balance patch.
-5. Lint (0 errors), then commit naming the vault.
-6. Reply with the delta: what changed and why. If nothing material changed, say
-   that instead of manufacturing a diff.
-
-### "did the new patch change my builds?" / "hat das Update meine Builds beeinflusst"
-
-Same as above but across the pool. Read each note's `patch:` field, ask
-`research-gateway` for the current patch and its champion changes, and report
-which champions are actually affected. Only write to notes that genuinely moved
-— a balance patch usually touches one or two, not eleven.
-
-**Eleven notes is past the size of a comfortable in-conversation refresh.** If
-the patch moved most of the pool, or changed the item system the way 7.2 did,
-say so and tell Johannes it wants a Claude Code session in `brain` rather than
-grinding it out yourself. Doing two or three notes and reporting honestly beats
-half-updating eleven.
-
-## Future — live stats via Argo
-
-**Not deployed. Do not call these.** An Argo endpoint group
-(`GET /wildrift/champions`, `/bans`, `/diff`, `POST /wildrift/sync`) is built
-but not shipped; it would replace the dated snapshot in the notes with a daily
-CN feed and make "what changed since date X" a real diff instead of a research
-call. Until it is live, everything above is vault-and-research only. When it
-ships, note that its win/pick/ban rates are **percents** (`50.75`), not
-decimals.
+Argo `/wildrift/*` is built but not deployed; do not call it.
 
 ## Notes
 

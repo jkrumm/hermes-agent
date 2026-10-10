@@ -31,28 +31,13 @@ tooling — recommending and remembering books is this skill.
 
 ---
 
-## Read this first — what Johannes actually wants
+## Taste in one breath
 
-- **He reads to escape, and that spans more than fantasy.** Leisure reading =
-  immersive **fantasy / adventure** fiction, **thrillers**, and **true-adventure
-  narrative — travel, surf, survival** (e.g. *Bad Karma*, a surf-trip survival
-  memoir). **Educational** nonfiction (AI / engineering / markets / science) is
-  his self-education — do NOT recommend it for pleasure unless he asks;
-  *narrative* / adventure nonfiction is fair game.
-- **This is escape reading.** When he wants to "switch off from coding," his
-  *tech interests are noise* — do not mine work/daily notes for themes and do
-  not pick books because they're about AI/engineering/markets. Lean on the
-  shelf + the Reading Profile, not the second brain's tech threads.
-- **He reads in German for comfort** (his English is fine, but German is lower
-  friction = more relaxing). Default to recommending books that exist in German
-  and **always present the German edition** unless he says otherwise.
-- **Taste shape** (see the Profile for the live version): immersive,
-  character-driven fantasy/adventure with a great world; fast propulsive
-  thrillers; travel / surf / survival adventure. *Not* romance-forward /
-  "romantasy" / "for-women" (a hard dislike), *not* dense/slow literary prose.
-  He's a software engineer (likes clean, rule-based magic systems) but **not a
-  gamer** — don't pitch books as "for gamers". Accessible and propulsive wins;
-  he is not a heavy reader, so page count and series-commitment matter.
+- **Escape reading** — immersive fantasy / adventure, thrillers, travel / surf / survival narrative. Educational nonfiction (AI / engineering / markets) only if he asks; his tech interests are noise.
+- **German edition always** — recommend books that exist in German and present the German edition unless he says otherwise.
+- **Hard dislikes** — romance-forward / "romantasy", dense slow literary prose. Not a gamer, not a heavy reader (page count and series-commitment matter).
+
+Full taste profile, award palette, communities and German publisher catalogs: `references/taste-and-sources.md` — read it before step 3.
 
 ---
 
@@ -66,29 +51,9 @@ curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" \
   https://argo.jkrumm.com/api/reading | python3 -m json.tool
 ```
 
-Response shape:
-```jsonc
-{
-  "summary": { "total","wantToRead","currentlyReading","read","paused",
-               "dnf","ratedCount","avgRating" },
-  "shelf": [ {
-      "hardcoverBookId",          // stable Hardcover id — use for dedup / linking
-      "title","subtitle","slug",  // slug → hardcover.app/books/<slug>
-      "authors":[],"genres":[],
-      "pages","releaseYear","coverUrl",
-      "communityRating","ratingsCount",
-      "statusId",   // 1=Want to Read 2=Currently Reading 3=Read 4=Paused 5=DNF
-      "status","rating","hasReview",
-      "startedDate","readDate","lastReadDate","dateAdded",
-      "stats": null // reading time/pace telemetry, populated only once matched
-  } ]
-}
-```
-
-> **Stale shelf?** The shelf is cached from Hardcover. If Johannes just rated or
-> shelved something and it's missing, trigger a one-shot resync before reading:
-> `curl -s -X POST -H "Authorization: Bearer $HOMELAB_API_KEY" https://argo.jkrumm.com/api/reading/sync`,
-> then re-`GET /api/reading`. Don't do this on every run — only when freshness matters.
+Response shape (`summary`, `shelf[]` fields, `statusId` codes), the stale-shelf resync and the want-to-read
+write: `references/argo-reading-api.md`. Resync only when freshness matters (Johannes just rated or
+shelved something and it's missing), then re-`GET /api/reading`.
 
 Extract:
 - **Liked** — `status=Read` with high `rating` (4–5) → strongest signal.
@@ -114,10 +79,11 @@ and anything marked "passed" as a learned dislike.
 > alone is a weak, ambiguous signal** — finishing something *fine* ≠ loving it.
 > Don't infer strong taste from "currently reading"; ask if it matters.
 
-### Step 2 — Calibrate (ask, don't assume)
+### Step 2 — Calibrate (act, don't ask)
 
-The shelf is still small, so a question or two beats guessing. If the request
-doesn't already pin these down, ask 1–3 of:
+The shelf is still small, so a clarifier can beat guessing — but ask **at most one question**, only
+if the request leaves the answer genuinely open, and proceed on the defaults below if it doesn't
+(act, don't ask — SOUL.md). Pick the one that changes the picks most:
 - **Mood** — chill/cozy escape, or dive-deep into a big world?
 - **Language** — German (default) or English this time?
 - **Length / density** — quick & light, or ready for a doorstopper?
@@ -125,13 +91,13 @@ doesn't already pin these down, ask 1–3 of:
   start a series? (He dislikes being stuck waiting on *unfinished* series.)
 - **Romance tolerance** — default: keep it low / not romance-forward.
 
-Skip questions the request already answers. Don't interrogate — one good
-clarifier is better than five.
+Skip anything the request already answers. Don't interrogate — one good clarifier is better than five.
 
 ### Step 3 — Discover (research-driven — the real work)
 
 Generate candidates at the intersection of **shelf taste** + **Profile** +
-**this session's calibration**. Use the web as a first-class discovery engine:
+**this session's calibration**. Use the **`research-gateway` skill** for substantive web
+research (cited, cross-verified) as the discovery engine:
 
 - **Adjacents to what he liked** — search "books similar to <liked title>", "if
   you liked <author>", "readers who enjoyed <title>". (This is the "similar
@@ -139,21 +105,8 @@ Generate candidates at the intersection of **shelf taste** + **Profile** +
 - **By genre, well-filtered** — "best <subgenre> fantasy", curated "if you only
   read one" lists, award shortlists matched to the genre.
 
-**Source palette — fiction-weighted (this reader skews SF/F + adventure +
-thriller + travel/surf):**
-- **Awards, by lane** — SF/F: Hugo, Nebula, Locus; thrillers: Edgar, CWA Dagger;
-  travel/adventure: Banff & adventure-writing shortlists; plus the Goodreads
-  Choice genre categories for crossover. Match the award to the genre.
-- **Community quality filter** — Goodreads, StoryGraph, and the `communityRating`
-  + `ratingsCount` already in `GET /api/reading`. Prefer well-rated titles with
-  enough ratings; use this to deflate hype.
-- **Genre communities** — r/Fantasy and r/printSF recommendation threads,
-  curated "books like X" lists. Treat BookTok lists with skepticism (they skew
-  hard to romantasy — his dislike).
-- **German availability** — publisher catalogs are the ground truth for the
-  German edition: **Heyne / Piper** (Sanderson, much SF/F), **dtv** (Maas,
-  Sapkowski/Witcher, Baldree), **Knaur** (Bardugo), **FISCHER Tor**, **cbj**
-  (YA / dragon-rider), **Klett-Cotta** (Hobbit Presse).
+Source palette (awards by lane, community quality filters, genre communities, German publisher
+catalogs): `references/taste-and-sources.md`.
 
 **Hard rule — verify the German edition before it reaches the list.** For every
 pick, confirm the German title + publisher + that it's actually in print (web
@@ -190,18 +143,10 @@ not just a menu (he's not a heavy reader; choice overload loses him).
   ```
 - **Update the Profile** when he reveals a durable new like/dislike (not a
   one-off mood) — append to `Areas/Reading/Reading Profile.md`.
-- **Mark Want to Read on Hardcover** — `POST /api/reading/want-to-read` is live.
-  Offer to queue an accepted pick straight onto the Hardcover shelf so it shows up
-  and feeds the next run. Body is `{title, author?}` — pass the **English** title +
-  author (Hardcover matches its own catalog), even when you presented the German edition.
-  ```bash
-  curl -s -X POST -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: application/json" \
-    -d '{"title":"Tress of the Emerald Sea","author":"Brandon Sanderson"}' \
-    "https://argo.jkrumm.com/api/reading/want-to-read"
-  ```
-  Offer, don't auto-add — confirm the pick first, then queue it. The new entry may
-  land unmatched briefly (`GET /api/reading/unmatched` lists pending matches; Argo's
-  reconcile confirms them) — that's why a just-added book's `stats` start null.
+- **Mark Want to Read on Hardcover** — `POST /api/reading/want-to-read` is live. Offer, don't
+  auto-add — confirm the pick first, then queue it. Body is `{title, author?}` with the **English**
+  title + author, even when you presented the German edition. Body example, `unmatched` behavior:
+  `references/argo-reading-api.md`.
 
 ---
 
@@ -210,8 +155,6 @@ not just a menu (he's not a heavy reader; choice overload loses him).
 - **Auth** — `Authorization: Bearer $HOMELAB_API_KEY` (same `op://common/api/SECRET`
   value, already in the environment — resolved at gateway startup). Never run `op` at
   runtime; never print the bearer.
-- **Argo is the read-model only.** All recommending happens here via web research
-  — Hardcover has no recommendations API to proxy.
 - **Acquisition is out of scope** — recommend and remember; Johannes acquires the
   book himself. Don't describe or name his acquisition pipeline.
 - **The skill doesn't rewrite itself.** It improves through DATA: every Hardcover

@@ -107,17 +107,15 @@ the move.
 ## Container Recovery (VPN Stack)
 
 The VPN stack (`gluetun` + dependents: `qbittorrent`, `prowlarr`,
-`flaresolverr`, `torrent-app`, `shelfmark`) can go down after Watchtower's
-nightly update run and stay down.
+`flaresolverr`, `torrent-app`, `shelfmark`) can go down overnight (the 04:00 host reboot; the stack's own watchdog normally recreates it by ~04:10, and Watchtower is excluded) and stay down.
 
 **Verb-first:** `homelab-ops`' `redeploy homelab homelab --why "..."
 --confirm` is the sanctioned recovery path — see
-`homelab-ops/references/alert-patterns.md` → "VPN stack down after
-Watchtower" for how to tell this apart from the (much more common) Docker
+`homelab-ops/references/alert-patterns.md` → "VPN stack down
+overnight" for how to tell this apart from the (much more common) Docker
 bridge-IP cascade, which needs a UptimeKuma restart instead, not a redeploy.
 
-**Transient alerts:** Watchtower sometimes restarts the stack cleanly and it
-recovers on its own. If a monitor alert fired but the six containers all show
+**Transient alerts:** the stack usually recovers on its own after the overnight reboot. If a monitor alert fired but the six containers all show
 as running, it was transient — no action needed. The UptimeKuma group
 monitor can stay red for the rest of the day even after leaf recovery,
 because it embeds the brief downtime window.

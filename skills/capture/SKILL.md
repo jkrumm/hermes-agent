@@ -59,88 +59,12 @@ Walk top to bottom. First match wins.
 
 A capture maps to a repo when it:
 - **Names the repo explicitly** ("homelab", "dotfiles", "basalt-ui").
-- **Names a service/domain owned by that repo** — e.g. "the watchdog cron" → `homelab` (or `watchdog` repo, check both); "the slack patch" → `dotfiles`; "the morning briefing prompt" → `dotfiles`; "rollhook deploy logs" → `rollhook`.
+- **Names a service/domain owned by that repo** — e.g. "the watchdog cron" → `warden`; "the slack patch" or "the morning briefing prompt" → `hermes-agent`; "rollhook deploy logs" → `rollhook`.
 - **Names a file/path** that lives in a known repo.
 
 If the repo identity is genuinely ambiguous between two candidates, ask.
 
-### Common repo → domain hints
-
-| Repo | Owns |
-|-|-|
-| `homelab` | Docker stack, 25+ containers, infra services on home network |
-| `homelab-private` | Private homelab services (homelab API, secrets) |
-| `vps` | VPS Docker stack, Traefik, RollHook, Postgres, Valkey |
-| `dotfiles` | Claude Code config, Hermes skills/cron/SOUL/scripts, statusline, hooks, dotfiles |
-| `basalt-ui` | NPM-published Tailwind v4 design system |
-| `basalt-ui-playground` | TanStack Start boilerplate using basalt-ui |
-| `watchdog` | Self-healing infrastructure agent + React SPA |
-| `rollhook` / `rollhook-action` | Zero-downtime Docker rolling deploys + GitHub Action |
-| `agent-gateway` | MCP tooling used by skills |
-| `jkrumm.dev` | Personal site |
-| `home` | Home dashboard |
-| `Auto-Claude` | Autonomous multi-session AI coding |
-| `homebrew-tap` | Homebrew formulas for jkrumm tools |
-
-This list is a hint, not exhaustive. The live cache (see below) is the source of truth.
-
----
-
-## State Cache
-
-**File:** `~/.hermes/skills/capture/state.json` (gitignored, seeded from `state.example.json` on first `make setup`)
-
-```json
-{
-  "repos": [
-    {"name": "homelab", "description": "...", "visibility": "PUBLIC"},
-    ...
-  ],
-  "repos_last_refresh": "2026-04-30T12:00:00Z",
-  "ticktick_projects": [
-    {"id": "69a32ea26de7515d72e6c664", "name": "🏠Personal"},
-    {"id": "69a32ea26df1515d72e6c668", "name": "💼Work"},
-    {"id": "69a32ea26dc8115d72e6c66c", "name": "📦Shopping"}
-  ],
-  "ticktick_last_refresh": "2026-04-30T12:00:00Z"
-}
-```
-
-**Refresh policy:** never expire. Refresh **on miss only** — if the user mentions a repo or TickTick project not in the cache, refresh that cache once and try again.
-
-### Read cache
-
-```bash
-cat ~/.hermes/skills/capture/state.json | jq '.repos[].name'
-cat ~/.hermes/skills/capture/state.json | jq '.ticktick_projects'
-```
-
-### Refresh repos cache (run on miss)
-
-```bash
-TMP=$(mktemp)
-gh repo list jkrumm --limit 200 --json name,description,visibility,isArchived \
-  | jq '[.[] | select(.isArchived==false) | {name, description, visibility}]' > "$TMP"
-jq --slurpfile repos "$TMP" \
-  '.repos = $repos[0] | .repos_last_refresh = (now | strftime("%Y-%m-%dT%H:%M:%SZ"))' \
-  ~/.hermes/skills/capture/state.json > "$TMP.merged"
-mv "$TMP.merged" ~/.hermes/skills/capture/state.json
-rm -f "$TMP"
-```
-
-### Refresh TickTick projects cache (run on miss)
-
-```bash
-TMP=$(mktemp)
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" \
-  "https://argo.jkrumm.com/api/ticktick/projects" \
-  | jq '[.data[] | select(.closed != true) | {id, name}]' > "$TMP"
-jq --slurpfile projects "$TMP" \
-  '.ticktick_projects = $projects[0] | .ticktick_last_refresh = (now | strftime("%Y-%m-%dT%H:%M:%SZ"))' \
-  ~/.hermes/skills/capture/state.json > "$TMP.merged"
-mv "$TMP.merged" ~/.hermes/skills/capture/state.json
-rm -f "$TMP"
-```
+The repo → domain hint table is in `references/repo-hints.md`; it is a hint, not exhaustive. The live cache (`references/state-cache.md`) is the source of truth.
 
 ---
 
@@ -196,84 +120,30 @@ EOF
 
 ---
 
-## Confirmation Format (Slack)
+## Confirmation
 
-After writing, reply with **one line** containing:
-- The destination (icon + project/repo)
-- The title
-- A clickable link
-
-```
-:white_check_mark: TickTick 💼Work — "Renew Tailscale cert" → https://ticktick.com/...
-:white_check_mark: GitHub `homelab` — "Patch slack cannot_reply_to_message edge case" → https://github.com/jkrumm/homelab/issues/123
-```
-
-If you asked first and the user confirmed, no need to repeat the title — just the link.
+After writing, report per SOUL.md.
 
 ---
 
 ## Edge Cases & Failure Modes
 
-- **Repo cache miss:** user mentions a repo not in cache → refresh repos once → if still missing, ask ("I don't see `<name>` in your repos — did you mean `<closest match>`?").
-- **TickTick project miss:** new project added in TickTick → refresh once, retry.
+- **Repo cache miss:** user mentions a repo not in cache → refresh repos once (`references/state-cache.md`) → if still missing, ask ("I don't see `<name>` in your repos — did you mean `<closest match>`?").
+- **TickTick project miss:** new project added in TickTick → refresh once (`references/state-cache.md`), retry.
 - **`gh` not authenticated:** if `gh issue create` fails with auth error, surface the error verbatim and tell Johannes to run `gh auth status` on the Mac Mini.
-- **Cross-cutting items:** never create both. If the item is repo work *and* something Johannes needs to remember, GitHub wins (the watchdog/briefing reads issues anyway).
+- **Cross-cutting items:** never create both. If the item is repo work *and* something Johannes needs to remember, GitHub wins (warden and the briefing read issues anyway).
 - **Multiple items in one message** ("remind me to X and also open an issue for Y"): split, route each independently, return one confirmation line per item.
 - **Social media link capture** (Instagram, TikTok, etc.): the user is asking for the thing *behind* the link, not the link itself. Extract full content before writing the item. For Instagram: the caption is visible even behind the login wall — extract the entity name from the snapshot, then web-search for the canonical source (e.g. `filmsimrecipes.com` for Fujifilm recipes). See `references/social-media-extraction.md` for the full escalation path.
 - **Not a capture:** if the message is a question or status check, don't capture — route normally.
 
 ---
 
-## Examples
-
-**"Remind me to renew the Tailscale cert next month"**
-→ TickTick `🏠Personal`, dueDate = today + 30d.
-
-**"I need to fix the slack patch breaking on long threads"**
-→ GitHub `dotfiles` (concrete code change).
-
-**"Buy oat milk"**
-→ TickTick `📦Shopping`, dueDate = today + 7d (vague urgency).
-
-**"EP-1234 — finish the enrolment form validation"**
-→ TickTick `💼Work` (IU ticket → never GitHub).
-
-**"The watchdog cron prompt could be tighter"**
-→ GitHub `dotfiles` (concrete code change to `hermes/cron/watchdog.prompt.txt`).
-
-**"Cancel the Spotify family subscription"**
-→ TickTick `🏠Personal`, dueDate = today + 7d.
-
-**"Refactor BasaltUI Button to use the new tokens"**
-→ GitHub `basalt-ui` (concrete refactor a coding agent can execute).
-
-**"Checkout imgproxy and Backblaze for image hosting"**
-→ TickTick `😇Dev` (or `🏠Personal` if Dev project not used) — *research* + *evaluation* is human work, not coding-agent work, even though the topic is technical. dueDate = today + 14d (typical research lead time).
-
-**"Look into the morning briefing prompt — it's getting long"**
-→ TickTick `🏠Personal` — *look into* = exploration, not a code change. (If after reviewing the user wants to *trim* it, that follow-up becomes a GitHub `dotfiles` issue.)
-
-**"Compare Tailscale vs Cloudflare Tunnel for the homelab"**
-→ TickTick `🏛HomeLab` (or `🏠Personal`) — comparison + decision is human judgment.
-
-**"Evaluate moving from Postgres to SQLite for the small VPS apps"**
-→ TickTick `😇Dev` — evaluation/decision, dueDate = today + 14d.
-
-**"Doctor's appointment Thursday at 3pm"**
-→ TickTick `🏠Personal`, dueDate = next Thursday. (Calendar events are a separate concern — capture only stores the reminder.)
-
-**"Release v0.4 of basalt-ui"**
-→ TickTick `🏠Personal`, dueDate = today + 3d. ("Release X" = pressing publish, human action.)
-
-**"Add OG tags to jkrumm.dev"**
-→ GitHub `jkrumm.dev` (concrete code addition).
-
-**Ambiguous:** "Look at the morning briefing"
-→ Default to TickTick `🏠Personal` (exploration), dueDate = today + 7d. If the user later says "actually make the prompt shorter," that follow-up is a GitHub `dotfiles` issue.
-
 ## More references
 
 Read the matching file when the situation fits:
 
+- `references/examples.md` — Use when a capture's routing is unclear and a worked example would help
+- `references/repo-hints.md` — Use when mapping a capture to a GitHub repo
+- `references/state-cache.md` — Use when reading or refreshing the repo / TickTick project cache (`state.json`)
 - `references/voice-memo-briefs.md` — Use when a voice memo must become a brief or prompt
 - `references/voice-memo-intake.md` — Use when an audio file or voice memo must become text

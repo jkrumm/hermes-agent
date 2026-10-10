@@ -119,8 +119,7 @@ JOB=$(curl -s -X POST "http://localhost:7719/v1/podcasts" \
 there is and what Johannes asked for ("kurz" → 5-10, "ausführlich" → 30-45).
 
 **Reply immediately** with the job id and the honest estimate: **15–25 minutes**
-(the script alone is a writers' room — Opus 5 plans, Opus 4.6 writes, Gemini and
-GPT review, Opus 4.6 revises — then ~120 turns of synthesis, mastering, cover,
+(the script alone is a multi-model writers' room — plan, write, review, revise; the roster lives in the audio-gateway config, never restate it here — then ~120 turns of synthesis, mastering, cover,
 publish). Don't make Johannes wait in silence.
 
 ### 3. Poll — in short chunks

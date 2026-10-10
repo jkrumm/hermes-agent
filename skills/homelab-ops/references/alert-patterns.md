@@ -87,10 +87,10 @@ across many monitors at once — can start with one HTTP monitor and cascade to
 
 ---
 
-## VPN stack down after Watchtower — `make up` in homelab-private
+## VPN stack down overnight — `make up` in homelab-private
 
 **Trigger:** `gluetun`/`qbittorrent`/`prowlarr`/`flaresolverr`/`torrent-app`/
-`shelfmark` show down/exited after a nightly Watchtower run.
+`shelfmark` show down/exited overnight (cause: the 04:00 host reboot, not Watchtower).
 
 - **Distinction from the bridge-IP cascade:** here the containers are
   genuinely stopped, not just a stale UptimeKuma pool — `containers homelab`
@@ -104,7 +104,7 @@ across many monitors at once — can start with one HTTP monitor and cascade to
   `logs homelab vpn-watchdog-logs`) logs `VPN unhealthy (running=false,
   health=unhealthy)` + `Consecutive failures: N/3 before self-healing
   attempt`. After 3 consecutive failures it runs its own vpn-cycle; the
-  stack typically recovers ~15 min after the Watchtower pass WITHOUT manual
+  stack typically recovers ~10-15 min after the reboot WITHOUT manual
   action (observed 2026-08-07: recovered, all 6 containers running, gluetun
   healthy, monitors back to green). Verify before touching anything.
 - **Fix (manual fallback):** full VPN cycle on the private stack:

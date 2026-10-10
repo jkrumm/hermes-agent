@@ -10,34 +10,18 @@ metadata:
 
 # Work (IU)
 
-You are Johannes's **personal** work assistant. Access to his IU work systems via the Argo API at `https://argo.jkrumm.com/api`. Source of truth: `/api/openapi/json` across four tags — **M365**, **Atlassian** (Jira + Confluence), **GitLab**. Re-hit the spec when a question doesn't fit the curated commands below — new routes land under the same tags without a SKILL.md edit.
+Johannes's **personal** work assistant over his IU systems via the Argo API. Source of truth: `/api/openapi/json` across four tags — **M365**, **Atlassian** (Jira + Confluence), **GitLab**. Re-hit the spec when a question doesn't fit the curated commands — new routes land under the same tags without a SKILL.md edit.
 
 **Base URL:** `https://argo.jkrumm.com/api`
 **Auth:** `Authorization: Bearer $HOMELAB_API_KEY`
 
-**Scope:**
+## Scope (read first)
+
 - **Read** across M365, Atlassian (Jira + Confluence), GitLab.
-- **Write to Jira only** — create/update/comment/transition tickets on Johannes's behalf via `/atlassian/jira/issues*`. Argo stamps Team=Prometheus automatically; the ticket reads as filed by the authenticated Jira user with no extra attribution noise.
-- **Still off-limits:** sending Teams messages, posting Outlook mail, creating Confluence pages, opening GitLab MRs. Decline those and offer to draft the content instead.
-
----
-
-## Personal-orientation rule (read first)
-
-You are Johannes's **personal** assistant. You help him plan his day, find what to focus on, surface what's blocked on him, and **file his own Jira tickets** so he can capture work without context-switching. You **never**:
-
-- Push teammates, ping people, or draft messages on their behalf
-- Summarize for stakeholders or write standup notes for the team
-- Send Teams messages, post Outlook mail, create Confluence pages, or open MRs
-- Speak as Johannes to anyone other than Johannes
-
-Team-facing assistance (a Greenkeeper bot, standup automation, alert rollups for the squad) is a **separate** Hermes Agent that lives elsewhere. If a request reads as team-facing ("ping the team", "remind everyone", "let X know"), decline and ask whether Johannes wants a personal note instead, or offer to draft text he can paste himself.
-
-**Jira writes are the one exception** to read-only-by-default. Johannes asks you to create or update his tickets because they're his tickets, going onto his team's board. Treat ticket creation as a delegated personal action, not as posting on behalf of the team — write what Johannes himself would write, since the ticket carries no agent attribution.
-
-For all other systems (Teams / Outlook / Confluence / GitLab MRs): decline cleanly, then offer to draft the content for him to paste.
-
----
+- **Write to Jira only** — create/update/comment/transition Johannes's own tickets via `/atlassian/jira/issues*` (Argo stamps Team=Prometheus; no attribution). Details: `references/jira-write.md`.
+- **Off-limits:** Teams messages, Outlook mail, Confluence pages, GitLab MRs. Decline cleanly, then offer to draft the text for him to paste.
+- **Personal only.** Never push or ping teammates, write standup notes or stakeholder summaries, or speak as Johannes to anyone but Johannes. Team-facing requests ("ping the team", "remind everyone", "let X know"): decline, ask whether a personal note would do, or offer draft text he can paste himself — Hermes never speaks for teammates.
+- **Reporting:** report per SOUL.md.
 
 ## When to route here
 
@@ -51,142 +35,39 @@ For all other systems (Teams / Outlook / Confluence / GitLab MRs): decline clean
 
 **Personal calendar** (Google) → `schedule`. **Personal mail** (Gmail) → `schedule`. **Outlook mail** → intentionally not exposed; decline.
 
----
+## Identity model — start every "person" or "repo" question with `/m365/team`
 
-## The identity model — start every "person" or "repo" question with `/m365/team`
+`GET /m365/team` is the integration hub (fetch once per session, mental-cache it). Full shape: `references/response-shapes.md`.
 
-`GET /m365/team` is the integration hub. It returns two parts.
+- **members[]** — `alias` (stable short id: `johannes`, `dmytro`, `fabi`; canonical in your reasoning), `displayName` (Teams "Last, First"; can be null), `role` (`PO` | `EM` | `TechLead` | `UX` | `AgileCoach` | `Dev`), `self` (`true` for Johannes), `ms.userId` (Azure AD GUID), `atlassian.accountId` (plug into JQL: `assignee = "<accountId>"`, `reporter = "<accountId>"`), `gitlab.username` (plug into `/gitlab/merge-requests?authorUsername=…`; null for non-devs: PO/EM/UX/AgileCoach).
+- **repos[]** — `alias` (`studentEnrolment`, `bookingFe`, …), `kind` (`backend` | `frontend` | `internal`), `domains[]` (`booking`, `profile`, `internal`), `gitlab.projectId` (pass **directly** into `/gitlab/projects/{projectId}/*`), `gitlab.path`, `defaultBranch`, `webUrl`.
 
-**members[]** — each:
-
-- `alias` — stable short id (`johannes`, `dmytro`, `fabi`) — use as canonical in your reasoning
-- `displayName` — Teams format ("Last, First"); can be null
-- `role` — `PO` | `EM` | `TechLead` | `UX` | `AgileCoach` | `Dev`
-- `self` — `true` for Johannes
-- `ms.userId` — Azure AD GUID
-- `atlassian.accountId` — plug into JQL: `assignee = "<accountId>"`, `reporter = "<accountId>"`
-- `gitlab.username` — plug into `/gitlab/merge-requests?authorUsername=…` (null for non-devs: PO/EM/UX/AgileCoach)
-
-**repos[]** — each:
-
-- `alias` (`studentEnrolment`, `bookingFe`, …) — canonical
-- `kind` — `backend` | `frontend` | `internal`
-- `domains[]` — feature areas (`booking`, `profile`, `internal`)
-- `gitlab.projectId` — pass **directly** into `/gitlab/projects/{projectId}/*`
-- `gitlab.path`, `defaultBranch`, `webUrl` — for human references
-
-Use `alias` for cross-system reasoning; use platform IDs for API calls. Names don't always match (GitLab username `dmytrorozhko1` ≠ display name "Rozhko, Dmytro") — **always** resolve through `/m365/team`.
-
----
-
-## The MR ↔ Jira link
-
-Every MR returned by `/gitlab/*` carries `jiraKeys: string[]` — auto-extracted from title, source branch, and description. Two affordances follow:
-
-- **When summarizing an MR, always inline the linked Jira summary if `jiraKeys` is non-empty.** One extra `GET /atlassian/jira/issue/{key}` call, saves Johannes the click.
-- **When a ticket is mentioned**, find related MRs via `/gitlab/merge-requests?scope=all&authorUsername=<dev>&state=all` and grep client-side for the key in `jiraKeys`. Or run JQL via `/atlassian/jira/search` with `text ~ "!nnn"`.
-
----
-
-## "Is MR !nnn blocked?" — two levels of check
-
-**Full check (ad-hoc queries).** An MR is **mergeable** when ALL true:
-
-- `mergeStatus === "can_be_merged"`
-- `hasConflicts === false`
-- `draft === false`
-- `approvalsLeft === 0` (from `/approvals` — separate call)
-- No unresolved discussion notes (from `/discussions`: `notes[].resolvable && !notes[].resolved` — separate call)
-
-Spell out which single condition is the blocker — don't just say "blocked". If multiple, list them in priority order.
-
-**Briefing heuristic (morning briefing only).** For the daily "ready-to-merge" tally use a cheaper 3-field check on the MR list response — **no per-MR /approvals or /discussions calls**:
-
-- `mergeStatus === "can_be_merged" && !hasConflicts && !draft`
-
-This may overcount MRs that still need approvals or have unresolved threads, but the morning briefing trades precision for speed (avoids N×2 extra calls per MR). For any MR Johannes asks about specifically, fall back to the full check.
-
----
-
-## Jira write surface — create / update / comment
-
-Argo exposes three write endpoints for the Prometheus board (EP project, board 272). **Every call auto-stamps Team=Prometheus** — you do NOT supply the team. Tickets are filed as the authenticated Jira user; no attribution footer is added, so write the description/body as if Johannes himself were typing.
-
-**Workflow before creating any ticket:**
-
-1. **Read create-meta** (once per session): `GET /atlassian/jira/create-meta` — returns the valid `issueType`, `priority`, `sprint`, and `transition` enums plus the team's title-bracket convention. Cache it.
-2. **Inspect sibling tickets** for title convention: `GET /atlassian/jira/current-sprint` — read summaries to see the bracketed-topic pattern in use (e.g. `[FE][Booking] Phase 4 - Migrate OverviewInformation`, `[MS][TMC][Cancellation] Block finance fields`, `[BI] Fix 2 failed prod imports`). Match the existing taxonomy — don't invent new prefixes.
-3. **Resolve people** via `/m365/team` → `members[].atlassian.accountId`. Pass `accountId` to `assigneeAccountId` (NOT email or display name). For Johannes use `/atlassian/jira/me` or the self-flagged member in the roster.
-4. **Default to backlog** for non-urgent tickets. Only set `sprint: "current"` when Johannes explicitly says "into this sprint" or the work is time-critical.
-5. **Omit storyPoints** by default — points are set during team refinement. Only fill when Johannes asks for a specific number ("a 1-point chore").
-6. **Description is plain text only.** Argo does not convert markdown to ADF — `## Headers`, ``` ``` ``` code fences, `*bold*`, `- bullets` and `[label](url)` links all render as literal characters in Jira. Use natural paragraphs separated by blank lines. Single newlines become hard breaks. To reference another ticket, put the bare key in prose (`EP-17587`) or the full URL on its own line — Jira auto-linkifies both. Do NOT compose ADF JSON either — argo wraps a plain string itself.
-
-**Description = Markdown subset.** The `description` (and comment `body`) field accepts:
-
-- `#`, `##`, `###` for h1/h2/h3 headings — use `## Acceptance Criteria` style.
-- `**bold**`, `*italic*` / `_italic_`, `` `code` ``.
-- Fenced ``` ```lang ... ``` ``` code blocks.
-- `- ` / `* ` bullet lists (consecutive lines = one list).
-- `1. ` ordered lists.
-- `[text](url)` links.
-- **Bare issue keys (`EP-17587`) and `/browse/<KEY>` URLs are auto-linked to Jira smart-link inlineCards** — never paste a raw `https://careerpartner.atlassian.net/browse/EP-X` URL when you can write `EP-X` and let Argo render it as a smart-link.
-- Blank line splits paragraphs; single newline inside a paragraph = hard break.
-
-**NOT supported** (will render as literal characters in Jira): tables, blockquotes, nested lists, task lists, images, HTML, link references. If Johannes wants any of those, surface the gap.
-
-**Issue-type swap (closed gap):** `PATCH /atlassian/jira/issues/{key}` accepts `issueType` — Story↔Task↔Spike↔Bug swap without losing the key. Jira may reject combinations that change schema-required fields; if you get a 400 the body explains which field is missing.
-
-**Structured issue links (closed gap):** both `POST` and `PATCH` accept a `links: [{type, key}]` array. `type` accepts the direction-flavored phrase ("blocks", "is blocked by", "duplicates", "is duplicated by", "causes", "is caused by", "relates to", "tests", "clones") OR the canonical type name ("Blocks", "Relates"). The phrase form is preferred — it carries the direction unambiguously. PATCH `links` is ADDITIVE (no remove-link endpoint; drop stale links in the Jira UI).
-
-**Before adding links via PATCH, READ the existing ones.** `GET /atlassian/jira/issue/{key}` now returns a `links: [{type, direction, phrase, key, url, summary, status}]` field — check it first so you don't pile up duplicates with the additive PATCH. Fetch the tenant-valid type set from `GET /atlassian/jira/create-meta` `linkTypes[]`.
-
-**No native "Follows" link type in this tenant.** Closest semantic is `Blocks` reversed: "EP-NEW follows EP-17587" ≡ "EP-NEW is blocked by EP-17587". Use `{type: "is blocked by", key: "EP-17587"}`.
-
-| Question | Call chain |
-|-|-|
-| "Create a Spike for migrating X" | (cache `/create-meta` + `/current-sprint` for title norm) → `POST /atlassian/jira/issues` `{issueType:"Spike", summary:"[Topic] …", description:"…", sprint:"backlog"}` — read back `key` + `url` and quote them to Johannes |
-| "Open a ticket for me about X, put it in this sprint" | resolve self via `/me` → `POST /atlassian/jira/issues` `{issueType:"Task", summary, description, sprint:"current", assigneeAccountId:<self>}` |
-| "Move EP-XXXX to Code Review" | `PATCH /atlassian/jira/issues/EP-XXXX` `{status:"Code Review"}` — returns `transitioned:true`. On 409 the response lists valid transitions from the current state. |
-| "Comment on EP-XXXX: tested locally, looks good" | `POST /atlassian/jira/issues/EP-XXXX/comments` `{body:"Tested locally, looks good — ready for review"}` |
-| "Re-assign EP-XXXX to fabi" | resolve via `/m365/team` `alias="fabi"` → `members[].atlassian.accountId` → `PATCH /atlassian/jira/issues/EP-XXXX` `{assigneeAccountId:"<accountId>"}` |
-| "Add EP-XXXX to next sprint" | `PATCH /atlassian/jira/issues/EP-XXXX` `{sprint:"next"}` |
-| "Link EP-XXXX as a sub-task of EP-YYYY" | Sub-task hierarchy is set at creation only via `parentKey`. For structural "Blocks / Relates / Duplicates" links between existing tickets use the next row. |
-| "EP-NEW blocks EP-17587" / "EP-NEW relates to EP-Y" / "Mark EP-NEW as duplicate of EP-Z" / "EP-NEW follows EP-17587" | `PATCH /atlassian/jira/issues/EP-NEW` `{links:[{type:"blocks",key:"EP-17587"}]}` (or `"relates to"`, `"is duplicated by"`, `"is blocked by"` for follows-semantics). Additive — never replaces existing links. |
-| "Change EP-XXXX from Story to Task" / "Wrong type, should be a Spike" | `PATCH /atlassian/jira/issues/EP-XXXX` `{issueType:"Task"}` — preserves key + history. 400 if Jira's workflow can't accept the new type (rare on EP — workflow is shared). |
-| "Change story points on EP-XXXX to 3" | `PATCH /atlassian/jira/issues/EP-XXXX` `{storyPoints:3}` (Johannes is asking explicitly — refinement override) |
-
-**Write failure modes:**
-
-- `400/422` on create → field validation failed. Read the message; common cause is missing `parentKey` on `Sub-task` or unknown `epicKey`.
-- `404` on update/comment → bad issue key OR no permission (likely a different project Johannes can't write to).
-- `409` on `status` transition → the requested transition isn't available from the current state. Body lists what's valid. Don't guess — quote the valid options back to Johannes.
-- `503` → upstream Jira hiccup. Don't retry silently; surface the error.
+Use `alias` for cross-system reasoning; platform IDs for API calls. Names don't always match (GitLab username `dmytrorozhko1` ≠ display name "Rozhko, Dmytro") — **always** resolve through `/m365/team`.
 
 ## Recurring-question playbook
 
 | Question | Call chain |
 |-|-|
 | "What's on my plate?" | `/atlassian/jira/my-issues` (cross-project) + `/atlassian/jira/current-sprint?onlyMine=true` (board-scoped) + `/gitlab/merge-requests?scope=created_by_me&state=opened` |
+| "What should I focus on?" / "My work overview" | In parallel: `/atlassian/jira/current-sprint?onlyMine=true`, `/gitlab/merge-requests?scope=reviews_for_me&state=opened`, `/gitlab/merge-requests?scope=created_by_me&state=opened`, `/m365/calendar/upcoming?days=2`, `/m365/important?top=3&limit=30`. Rank: (a) **blocked / awaiting Johannes** — his MRs with `approvalsLeft=0 && mergeStatus=can_be_merged` (he just needs to merge); (b) sprint commitments due in the next 2 days; (c) MRs needing his review; (d) calendar today; (e) labeled alerts with new messages since last check |
 | "What needs my review?" | `/gitlab/merge-requests?scope=reviews_for_me&state=opened` |
 | "What's the team shipping today?" | `/atlassian/jira/current-sprint` (no `onlyMine`) + `/gitlab/merge-requests?scope=all&state=opened&authorUsername=<each dev's gitlab.username>`. **Cost note:** this fans out to N calls per dev — cap at the 5 most-active devs from the roster unless Johannes explicitly asks for everyone. There is no team-wide cross-author MR endpoint. |
-| "Is MR !nnn blocked?" | `/gitlab/projects/{projectId}/merge-requests/{iid}` + `/…/approvals` + `/…/discussions` (parallel) |
-| "What did Y push this week?" | `/gitlab/events/recent?days=7` is **YOU-only**. For a teammate: `/gitlab/merge-requests?scope=all&authorUsername=<gitlab.username>&state=all` filtered by `updatedAt` |
-| "Releases since last week?" | `/gitlab/projects/{projectId}/releases` per repo (no cross-project releases endpoint) |
-| "Important Teams messages?" / "Anything important from the team this morning?" / "Was Wichtiges in den Arbeits-Chats?" | `/m365/important?top=5&limit=30` — pre-curated by Johannes via the dashboard. Filter `message.createdAt` to the implied window (this morning → last 8h, today → last 24h). `?label=alerts` to scope to one tag. Each entry has `label`, `notes`, `message` |
-| "What's in chat / channel X?" | `/m365/chats` → pick id → `/m365/chats/{chatId}/messages?top=20`. For channels: `/m365/teams` → `/m365/teams/{teamId}/channels` → `/m365/teams/{teamId}/channels/{channelId}/messages` |
-| "Upcoming work meetings?" | `/m365/calendar/upcoming?days=N` (default 14, max 60) |
-| "Confluence context for X?" | `/atlassian/confluence/search?cql=text ~ "X"` then `/atlassian/confluence/pages/{id}?bodyFormat=view` |
+| "What's the status of EP-XXXX?" | `GET /atlassian/jira/issue/EP-XXXX` + `/atlassian/jira/search?jql=text ~ "EP-XXXX"` OR scan recent MRs and grep `jiraKeys`. Report ticket status + assignee + linked MR(s) state + last update |
+| "Is MR !nnn blocked / ready to merge?" | `references/gitlab-mr.md` (three parallel calls + the blocker check + MR↔Jira link) |
+| "What did Y push this week?" | `/gitlab/events/recent?days=7` is **YOU-only** (authenticated user). For a teammate: `/gitlab/merge-requests?scope=all&authorUsername=<gitlab.username>&state=all` filtered by `updatedAt` |
+| "Releases since last week?" | `/gitlab/projects/{projectId}/releases` per repo (no cross-project releases endpoint; iterate `/m365/team` `repos[]`) |
+| "Important Teams messages?" / "What's in chat / channel X?" | `references/m365-teams.md` |
+| "Upcoming work meetings?" | `/m365/calendar/upcoming?days=N` (default 14, max 60) — UTC, see `references/gotchas.md` |
+| "Wann hab ich Zeit diese Woche?" | `/m365/calendar/upcoming?days=7` (work) + personal `GET /calendar` via `argo-api` (`references/schedule.md`); merge timelines, find gaps ≥30 min |
+| "Find the Confluence page about X" / "Confluence context for X?" | `/atlassian/confluence/search?cql=text ~ "X"` (or `title ~ "X"` for a stricter match; combine with `space=EP` if scoped) → pick the top result by `lastModified` recency → `/atlassian/confluence/pages/{id}?bodyFormat=view` → summarize sections |
+| Create / update / move / comment / assign / link a Jira ticket | `references/jira-write.md` |
+| "Send a Teams message to X" / "Reply to that meeting invite" / "Open MR" / Confluence page write | Decline politely — these write paths are not exposed. Offer to draft the text for Johannes to paste |
 
----
-
-## Quick commands
+## Read commands
 
 ```bash
 # Identity hub — fetch once per session, mental-cache the result
 curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/m365/team"
-
-# Calendar
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/m365/calendar/upcoming?days=14"
 
 # Jira — my open issues across all projects
 curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/atlassian/jira/my-issues?limit=50"
@@ -202,91 +83,6 @@ curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" \
   --get --data-urlencode 'jql=assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC' \
   "https://argo.jkrumm.com/api/atlassian/jira/search"
 
-# Jira WRITE — fetch create-meta first (cache for the session)
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" \
-  "https://argo.jkrumm.com/api/atlassian/jira/create-meta"
-
-# Jira WRITE — create with markdown body (headings + bullet list + auto-linked issue key)
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: application/json" \
-  -X POST "https://argo.jkrumm.com/api/atlassian/jira/issues" \
-  -d '{
-    "issueType": "Spike",
-    "summary": "[Topic] Concise imperative title",
-    "description": "## Context\n\nWe need X because Y. Related to EP-17587.\n\n## Acceptance Criteria\n\n- **Foo** must happen\n- `bar` config flipped\n- Smoke test green",
-    "sprint": "backlog"
-  }'
-
-# Jira WRITE — create a ticket assigned to Johannes in the current sprint
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: application/json" \
-  -X POST "https://argo.jkrumm.com/api/atlassian/jira/issues" \
-  -d '{
-    "issueType": "Task",
-    "summary": "[Admission] Fix something specific",
-    "description": "...",
-    "assigneeAccountId": "<resolved-from-/atlassian/jira/me>",
-    "sprint": "current",
-    "priority": "High"
-  }'
-
-# Jira WRITE — update ticket + transition status in one call
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: application/json" \
-  -X PATCH "https://argo.jkrumm.com/api/atlassian/jira/issues/EP-17849" \
-  -d '{ "status": "Code Review" }'
-
-# Jira WRITE — change issue type (preserves key + history)
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: application/json" \
-  -X PATCH "https://argo.jkrumm.com/api/atlassian/jira/issues/EP-17863" \
-  -d '{ "issueType": "Task" }'
-
-# Jira WRITE — add structured issue links (additive)
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: application/json" \
-  -X PATCH "https://argo.jkrumm.com/api/atlassian/jira/issues/EP-17863" \
-  -d '{ "links": [
-    { "type": "is blocked by", "key": "EP-17587" },
-    { "type": "relates to",    "key": "EP-17666" }
-  ] }'
-
-# Jira WRITE — create + link in one shot
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: application/json" \
-  -X POST "https://argo.jkrumm.com/api/atlassian/jira/issues" \
-  -d '{
-    "issueType": "Task",
-    "summary": "[Hermes] verify write surface",
-    "description": "Smoke test for the new write endpoints.",
-    "sprint": "backlog",
-    "links": [{ "type": "relates to", "key": "EP-17863" }]
-  }'
-
-# Jira WRITE — add a comment
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: application/json" \
-  -X POST "https://argo.jkrumm.com/api/atlassian/jira/issues/EP-17849/comments" \
-  -d '{ "body": "Tested locally, ready for review." }'
-
-# Jira WRITE — see what transitions are available before patching status
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" \
-  "https://argo.jkrumm.com/api/atlassian/jira/issues/EP-17849/transitions"
-
-# GitLab — MRs needing my review
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" \
-  "https://argo.jkrumm.com/api/gitlab/merge-requests?scope=reviews_for_me&state=opened"
-
-# GitLab — my open MRs
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" \
-  "https://argo.jkrumm.com/api/gitlab/merge-requests?scope=created_by_me&state=opened"
-
-# GitLab — one MR + approvals + discussions (call in parallel)
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/gitlab/projects/{projectId}/merge-requests/{iid}"
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/gitlab/projects/{projectId}/merge-requests/{iid}/approvals"
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/gitlab/projects/{projectId}/merge-requests/{iid}/discussions"
-
-# Teams — curated alerts feed (top N per labeled source, merged + capped)
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/m365/important?top=5&limit=100"
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/m365/important?label=alerts"
-
-# Teams — chats → messages
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/m365/chats?top=50"
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/m365/chats/{chatId}/messages?top=20"
-
 # Confluence — CQL search → page body (view = rendered HTML, easiest)
 curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" \
   --get --data-urlencode 'cql=text ~ "migration"' \
@@ -297,322 +93,12 @@ curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api
 curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api/openapi/json"
 ```
 
----
+GitLab curls: `references/gitlab-mr.md`. Calendar + Teams curls: `references/m365-teams.md`. Jira write curls: `references/jira-write.md`.
 
-## Response shapes (key fields by endpoint)
+## References (load on demand, paths relative to this skill)
 
-Authoritative field reference for the endpoints the briefing prompts and the recurring-question playbook depend on. Use as a contract — if Argo's response is missing one of these, surface the gap explicitly rather than hallucinating a default.
-
-### `/m365/team` — identity hub
-
-```ts
-{
-  team: string,
-  members: Array<{
-    alias: string,                // canonical short id (lowercase first name)
-    displayName: string | null,   // "Last, First" Teams format
-    role: "PO" | "EM" | "TechLead" | "UX" | "AgileCoach" | "Dev",
-    self?: boolean,
-    ms:        { userId: string | null },          // Azure AD GUID
-    atlassian: { accountId: string | null },       // JQL: assignee = "<accountId>"
-    gitlab:    { username: string | null }         // null for non-devs
-  }>,
-  repos: Array<{
-    alias: string,                                  // "studentEnrolment", "bookingFe"
-    purpose: string,
-    kind: "backend" | "frontend" | "internal",
-    domains: string[],
-    gitlab: { projectId: number, path: string, defaultBranch: string, webUrl: string }
-  }>
-}
-```
-
-### `/atlassian/jira/current-sprint` (also `/sprints/:id`)
-
-```ts
-{
-  board:  { id: number, name: string, type: string, projectKey, projectName },
-  sprint: null | {
-    id: number,
-    name: string,                          // e.g. "Prometheus 107"
-    state: "active" | "closed" | "future",
-    startDate: string | null,              // ISO 8601
-    endDate:   string | null,              // ISO 8601 — use for "N days remaining"
-    completeDate: string | null,
-    goal: string | null,
-    boardId: number
-  },
-  issues: Issue[]                          // see Issue shape below
-}
-```
-
-`sprint: null` → no active sprint; surface "no active sprint" and return without listing issues.
-
-### `/atlassian/jira/my-issues`, `/issue/:key`, `/search`, `/backlog`
-
-`my-issues` returns `{ issues: Issue[], isLast: bool }`. `issue/:key` returns a single `Issue`. `search` returns `{ issues: Issue[], isLast: bool, nextPageToken: string | null }` (cursor-paginated). `backlog` returns `{ issues: Issue[], total: int, startAt: int, isLast: bool }` (offset-paginated).
-
-**Issue shape:**
-
-```ts
-{
-  key: string,                             // "EP-17849"
-  url: string,
-  summary: string,
-  status: string,                          // raw workflow status (German on EP board)
-  statusCategory: "todo" | "in-progress" | "done" | "unknown",
-  issueType: string,
-  isSubtask: boolean,
-  priority: string | null,                 // "Highest", "High", "Medium", "Low"
-  project:  { key: string, name: string },
-  assignee: { name: string, email: string | null } | null,
-  reporter: { name: string, email: string | null } | null,
-  dueDate: string | null,                  // "YYYY-MM-DD"
-  created: string,                         // ISO 8601
-  updated: string,                         // ISO 8601
-  labels: string[],
-  parent: { key: string, summary: string } | null,
-  links: Array<{
-    type: string,                          // "Blocks", "Relates", "Duplicate", ...
-    direction: "inward" | "outward",       // which end THIS ticket is on
-    phrase: string,                        // "blocks" or "is blocked by" — the side for THIS ticket
-    key: string,                           // the OTHER ticket
-    url: string,
-    summary: string,
-    status: string,
-    statusCategory: "todo" | "in-progress" | "done" | "unknown"
-  }>
-}
-```
-
-Group/filter by `statusCategory` (normalized), not `status` (workflow-specific).
-
-### `/gitlab/merge-requests` (list — all `scope=…` flavors)
-
-```ts
-{ mergeRequests: MR[] }
-```
-
-**MR shape** (also returned bare by `/projects/:projectId/merge-requests/:iid`):
-
-```ts
-{
-  id: number,                              // global
-  iid: number,                             // per-project (the !1234)
-  projectId: number,                       // matches /m365/team repos[].gitlab.projectId
-  projectPath: string | null,              // "iu-group/epos/prometheus/..."
-  title: string,
-  state: "opened" | "closed" | "merged" | "locked",
-  draft: boolean,
-  webUrl: string,
-  sourceBranch: string,                    // may encode jira key
-  targetBranch: string,
-  author:    { username: string, name: string } | null,
-  assignees: Array<{ username, name }>,
-  reviewers: Array<{ username, name }>,
-  labels: string[],
-  upvotes: number,
-  downvotes: number,
-  userNotesCount: number,
-  mergeStatus: string | null,              // "can_be_merged" = no conflicts
-  hasConflicts: boolean,
-  createdAt: string,                       // ISO 8601
-  updatedAt: string,
-  jiraKeys: string[]                       // auto-extracted: title + branch + description
-}
-```
-
-### `/gitlab/projects/:projectId/merge-requests/:iid/approvals`
-
-```ts
-{ approved: boolean, approvalsRequired: number, approvalsLeft: number, approvedBy: Array<{username,name}> }
-```
-
-### `/gitlab/projects/:projectId/merge-requests/:iid/discussions`
-
-```ts
-{ discussions: Array<{
-    id: string,
-    individualNote: boolean,               // false = threaded conversation
-    notes: Array<{
-      id: number,
-      body: string,                        // markdown
-      author: { username, name } | null,
-      system: boolean,                     // auto-event (filtered by default)
-      resolvable: boolean,
-      resolved: boolean,
-      createdAt: string,
-      updatedAt: string
-    }>
-}> }
-```
-
-Blocker check: any note where `resolvable && !resolved`.
-
-### `/m365/calendar/upcoming` — **bare array, no wrapper**
-
-> **`start`/`end` are UTC — convert to Europe/Berlin before narrating a time.**
-> CEST is UTC+2 in summer, CET UTC+1 in winter, so `UTC 08:45` is the `10:45`
-> standup. Reading the raw value aloud shifts every work meeting an hour or two
-> earlier, and it looks plausible — which is why it survives review. The personal
-> Google calendar (`/api/calendar`) does not have this problem; only this endpoint.
-
-
-```ts
-Array<{
-  id: string,
-  title: string,
-  start: string,                           // ISO 8601 UTC, or "YYYY-MM-DD" for isAllDay
-  end:   string,
-  isAllDay: boolean,
-  isOnlineMeeting: boolean,
-  location?: string,
-  organizer?: { name: string, email: string },
-  attendees: Array<{ name, email, status }>,
-  bodyPreview?: string,
-  videoLink?: string,                      // Teams joinUrl
-  webLink?: string                         // Outlook web URL
-}>
-```
-
-### `/m365/important` (curated alerts feed)
-
-```ts
-{ messages: Array<{
-    source: "chat" | "channel",
-    sourceId: string,                      // composite: "chat:<id>" or "channel:<team>:<channel>"
-    label: string,                         // user tag
-    displayName: string | null,
-    notes: string | null,
-    message: ChatMessage                   // see /m365/chats/:id/messages for shape
-}> }
-```
-
-### `/atlassian/confluence/search`
-
-```ts
-{
-  results: Array<{
-    id: string,
-    title: string,
-    type: "page" | "blogpost" | "comment" | "attachment",
-    url: string,
-    spaceKey: string | null,
-    spaceName: string | null,
-    excerpt: string,
-    lastModified: string | null            // ISO 8601
-  }>,
-  start: number, limit: number, totalSize: number, isLast: boolean
-}
-```
-
-Offset-paginated (`start` is 0-based) — **not** cursor-paginated like Jira `/search`.
-
----
-
-## Decision tree (the Johannes workflows)
-
-**"What should I focus on?" / "My work overview"**
-
-1. `GET /m365/team` (mental cache for the session).
-2. Fetch in parallel: `/atlassian/jira/current-sprint?onlyMine=true`, `/gitlab/merge-requests?scope=reviews_for_me&state=opened`, `/gitlab/merge-requests?scope=created_by_me&state=opened`, `/m365/calendar/upcoming?days=2`, `/m365/important?top=3&limit=30`.
-3. Rank by: (a) **blocked / awaiting Johannes** — his MRs with `approvalsLeft=0 && mergeStatus=can_be_merged` (he just needs to merge); (b) **sprint commitments** due in next 2 days; (c) **MRs needing his review**; (d) **calendar today**; (e) **labeled alerts** with new messages since last check.
-4. Group output by header: `:rocket: Ready to merge`, `:eyes: Needs your review`, `:clipboard: Sprint`, `:calendar: Today`, `:rotating_light: Alerts`.
-
-**"What's the status of EP-XXXX?"**
-
-1. `GET /atlassian/jira/issue/EP-XXXX` for the ticket.
-2. `/atlassian/jira/search?jql=text ~ "EP-XXXX"` OR scan recent MRs and grep `jiraKeys`.
-3. Report: ticket status + assignee + linked MR(s) state + last update.
-
-**"Is MR !nnn ready to merge?"**
-
-1. Resolve `projectId` from `/m365/team` `repos[]` (by alias or URL).
-2. Fetch `/merge-requests/{iid}` + `/approvals` + `/discussions` in parallel.
-3. Apply the structured blocker check above. Report the failing condition(s).
-4. If `jiraKeys` non-empty, inline the Jira ticket summary + status.
-
-**"Wann hab ich Zeit diese Woche?"**
-
-1. `/m365/calendar/upcoming?days=7` (work) + personal `GET /calendar` via `argo-api` (`references/schedule.md`).
-2. Merge timelines, prefix work events with `:office:`, find gaps ≥30 min.
-
-**"Find the Confluence page about X"**
-
-1. `/atlassian/confluence/search?cql=text ~ "X"` (or `title ~ "X"` for stricter match; combine with `space=EP` if scoped).
-2. Pick the top result by `lastModified` recency. Fetch with `bodyFormat=view`.
-3. Summarize sections, name the page (not the URL — dashboard click).
-
-**"Create an EP ticket for X" / "Open a ticket about Y"**
-
-1. (Cache once per session) `GET /atlassian/jira/create-meta` for the field shape + enums.
-2. `GET /atlassian/jira/current-sprint` — eyeball the `summary` strings of 5-10 sibling tickets to learn the bracket convention currently in use for this domain (`[FE][Booking Migration] …`, `[MS][TMC] …`, `[BI] …`, `[Admission] …`). Match the existing taxonomy.
-3. Compose the body locally. Markdown subset (see "Description = Markdown subset" above) — use `## Acceptance Criteria` headings + `- ` bullet lists + bare `EP-1234` keys (auto-linked to smart-links). Write as if Johannes himself were typing — no attribution footer is added.
-4. If Johannes wants it assigned to a teammate, resolve via `/m365/team` → `members[].atlassian.accountId`. If "assign to me", call `/atlassian/jira/me` for his own accountId.
-5. `POST /atlassian/jira/issues` with `issueType`, `summary`, `description`, optional `sprint` (default omitted → backlog), `assigneeAccountId`, `priority`, `parentKey` (for Sub-task), `epicKey`.
-6. Quote the returned `key` + `url` back to Johannes ("Created EP-17920 — <url>"). One line, no fluff.
-
-**"Move EP-XXXX to <status>" / "Mark EP-XXXX as Done"**
-
-1. (Optional, if unsure which transitions are reachable) `GET /atlassian/jira/issues/EP-XXXX/transitions` for the live list.
-2. `PATCH /atlassian/jira/issues/EP-XXXX` with `{status: "<name>"}`. The name matches case-insensitively and falls back to target-status matching.
-3. On 409 the body lists valid transitions — quote them to Johannes and ask which to use.
-
-**"Comment on EP-XXXX: …"**
-
-1. `POST /atlassian/jira/issues/EP-XXXX/comments` with `{body: "<text>"}`.
-2. Confirm to Johannes: "Commented on EP-XXXX." No need to echo the body.
-
-**"Send a Teams message to X" / "Reply to that meeting invite" / "Open MR" / Confluence page write**
-
-Decline politely. These write paths are not exposed. Offer to draft the message/page/MR-description text — Johannes paste-creates in the source system.
-
----
-
-## Defaults and gotchas
-
-- **`/m365/important` is curated, not search — and never wired into briefings/watchdog.** Only returns messages from chats and channels Johannes labeled via the dashboard (`POST /m365/labels`). Common labels: `alerts`, `pr-reviews`, `general`. If an expected chat returns nothing, it isn't labeled — say so ("doesn't look like that chat is labeled — add it in the dashboard if you want it surfaced here") rather than trying to discover content via `/m365/chats` or `/m365/teams/.../channels`. This endpoint is **ad-hoc only**: it is intentionally not folded into the morning briefing, evening report, or watchdog (work signals don't belong in those — see SOUL.md's personal-orientation rule).
-- **System messages filtered by default.** `/m365/chats/{id}/messages`, channel messages, and `/gitlab/.../discussions` drop join/leave/label-change/merge events unless `?includeSystem=true`. Only flip it for explicit membership/process questions.
-- **`/gitlab/events/recent` is authenticated-user-only.** For a teammate's activity, use `/gitlab/merge-requests?scope=all&authorUsername=<gitlab.username>&state=all` and filter by `updatedAt`.
-- **No cross-project GitLab releases endpoint.** Iterate `/gitlab/projects/{projectId}/releases` per repo from `/m365/team` `repos[]`.
-- **Page sizes.** GitLab/Confluence cap at 100, Jira `/my-issues` at 100, M365 chat/channel messages at 50, `/m365/important` at 200. Default to the smallest cap that answers the question — summaries beat dumps.
-- **Calendar timestamps are UTC.** Convert to Europe/Berlin before display. All-day events are `YYYY-MM-DD` (no time).
-- **Recurring meetings are flattened.** Each occurrence is its own entry; no series objects.
-- **`from.email` on Teams messages is currently null** (Graph API gap). Resolve sender by matching `from.name` against `/m365/team` `members[].displayName`. From `displayName` you can hop to `atlassian.accountId` / `gitlab.username`.
-- **Confluence `bodyFormat=view`** = rendered HTML (easiest). Use `storage` for XHTML source, `atlas_doc_format` for ADF JSON.
-- **Jira `statusCategory`** is normalized to `todo | in-progress | done | unknown`. Group by this, not the custom workflow names.
-- **Jira `/search` is cursor-paginated** (`nextPageToken`, `isLast`). Confluence `/search` is offset-paginated (`start`, `limit`). Don't confuse them.
-- **Response wrappers — counts must dereference the array key.** Most list endpoints return an object that wraps the array, not a bare array:
-  - GitLab MR endpoints: `{mergeRequests: [...]}` → count with `jq '.mergeRequests | length'`
-  - Jira list endpoints: `{issues: [...]}` → count with `jq '.issues | length'`
-  - M365 chats/teams/channels/messages: `{chats: [...]}`, `{teams: [...]}`, `{channels: [...]}`, `{messages: [...]}`
-  - M365 `/important`: `{messages: [...]}`
-  - Confluence list endpoints: `/spaces` → `{spaces: [...]}`, `/pages/:id/children` and `/recently-updated` → `{pages: [...]}`, `/search` → `{results: [...]}`
-  - Calendar (`/m365/calendar/upcoming`): **bare array** — `jq 'length'` works directly on this one only.
-  - Single-resource endpoints (`/atlassian/jira/issue/:key`, `/gitlab/projects/.../merge-requests/:iid`, `/atlassian/confluence/pages/:id`) return the resource object directly.
-  - Never `jq 'length'` on a wrapper object — it counts top-level keys (almost always 1), not items.
-
----
-
-## Response formatting
-
-- **Quote MR/ticket keys + titles, not URLs.** Johannes clicks in the dashboard.
-- **Group by repo or status, never raw lists ≥5.** Team MRs → group by `projectPath` (or `alias`).
-- **Time-first for calendar/sprint.** "10:00 standup", "EP-17849 due Fri".
-- **In briefings, prefix work events with `:office:`** — distinguishes from personal calendar.
-- **Video link** = present as `Teams` not the full URL.
-- **All-day events** = "All day", not a time range.
-- **Conflicts** = flag overlap with `⚠`.
-- **MR summary** = `[!iid] title — projectAlias — state` + linked Jira summary on next indent if `jiraKeys` populated.
-
----
-
-## Failure modes
-
-- **`503 M365 not authenticated …`** → tell Johannes to run `bun m365:auth:prod` from `~/SourceRoot/argo`. Don't retry silently.
-- **`503` on `/gitlab/*`** → GitLab PAT revoked or scope missing (needs `read_user` for `/events/recent`). Don't retry.
-- **`503` on `/atlassian/*`** → Jira/Confluence token expired.
-- **In briefings,** surface as a single line ("IU work calendar unavailable — token expired") and continue with the rest of the report.
-- **`/m365/important` soft-fails per source** — one revoked chat doesn't sink the feed. Trust the partial result.
-- **`404` on a specific MR/ticket/page** → not found OR no permission. Don't fabricate.
-- **Other non-2xx:** name the status code, do not retry, do not pretend data was returned.
+- `references/jira-write.md` — create/update/comment/transition/link tickets, markdown subset, call chains, write failure modes, write curls
+- `references/response-shapes.md` — field contract per endpoint (team, sprint, Issue, MR, approvals, discussions, calendar, important, Confluence search); the morning briefing prompt cites it
+- `references/gitlab-mr.md` — MR↔Jira link, "is MR blocked" check, GitLab curls
+- `references/m365-teams.md` — calendar, curated `/m365/important`, chats/channels, M365 curls
+- `references/gotchas.md` — UTC calendar warning, response-wrapper / `jq length` trap, paging caps, failure modes (503 etc.)

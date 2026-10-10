@@ -334,6 +334,7 @@ s=c.get("security") or {};bad+=[k for k in ("protected_instruction_files","tirit
 print("    ✓ approvals + guards off (no prompts)") if not bad else print("    ✗ approval prompts re-enabled [%s]" % ", ".join(bad))' 2>/dev/null \
 		|| echo "    ✗ approvals check [could not parse config.yaml]"
 	@$(MAKE) --no-print-directory cron-skills-check
+	@$(MAKE) --no-print-directory skills-set-check
 	@# The Hermes cron REGISTRY. jobs.json is gitignored runtime state, so the
 	@# git-tracked list of what should be registered is the table in
 	@# docs/scheduled-jobs.md, keyed by its State column (live | paused (<reason>)
@@ -465,6 +466,23 @@ bad=sorted({(j.get("name"),s) for j in d.get("jobs",[]) for s in (j.get("skills"
 [print("    ✗ cron skill \"%s\" missing [job: %s]" % (s,n)) for n,s in bad];\
 print("    ✓ cron job skills resolve") if not bad else None' 2>/dev/null \
 		|| echo "    ✗ cron job skills [could not read jobs.json]"
+
+# The live skill set must equal the declared one. Three drifts it catches: a repo skills/<dir>
+# missing from HERMES_SKILLS (never linked), a live symlink into this repo that HERMES_SKILLS
+# does not name (a retired skill still loaded), and a declared skill with no live link.
+# Upstream-bundled and hub dirs under ~/.hermes/skills are not ours and are ignored.
+.PHONY: skills-set-check
+skills-set-check:
+	@declared=$$(printf '%s\n' $(HERMES_SKILLS) | sort); \
+	repo=$$(find "$(HERMES_REPO)/skills" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort); \
+	live=$$(find "$(HERMES_DIR)/skills" -mindepth 1 -maxdepth 1 -type l -exec sh -c 'case "$$(readlink "$$1")" in "$(HERMES_REPO)/skills/"*) basename "$$1";; esac' _ {} \; | sort); \
+	bad=0; \
+	for kind in repo live; do \
+		eval "set=\$$$$kind"; \
+		for n in $$set; do echo "$$declared" | grep -qx "$$n" || { echo "    ✗ skills $$kind has undeclared: $$n [add to HERMES_SKILLS or retire]"; bad=1; }; done; \
+		for n in $$declared; do echo "$$set" | grep -qx "$$n" || { echo "    ✗ skills $$kind lacks declared: $$n [run make setup]"; bad=1; }; done; \
+	done; \
+	[ "$$bad" = 0 ] && echo "    ✓ live skill set matches HERMES_SKILLS ($$(echo "$$declared" | wc -l | tr -d ' '))" || true
 
 # Probes the live gateway (process, Slack, API server, /health, patches). Exit 0 = healthy.
 .PHONY: verify

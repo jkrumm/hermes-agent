@@ -449,6 +449,30 @@ skills:
     - imessage
     - songwriting-and-ai-music
     - kanban
+    # 2026-10-10 audit (docs/skills-audit.md): no usage record since creation, no stack fit.
+    # Disabled, not deleted — remove a line to re-enable.
+    - modal-serverless-gpu
+    - gguf-quantization
+    - guidance
+    - outlines
+    - clip
+    - stable-diffusion-image-generation
+    - whisper
+    - dspy
+    - axolotl
+    - grpo-rl-training
+    - peft-fine-tuning
+    - pytorch-fsdp
+    - fine-tuning-with-trl
+    - unsloth
+    - minecraft-modpack-server
+    - pokemon-player
+    - ideation
+    - pixel-art
+    - box
+    - linear
+    - petdex
+    - sdlc-review
 curator:
   enabled: true
   interval_hours: 168

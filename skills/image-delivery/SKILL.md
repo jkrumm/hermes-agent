@@ -1,11 +1,10 @@
 ---
 name: image-delivery
 description: Persist and share an image Hermes has received (Slack upload) or generated, via `imgcli` — private image-share by default (durable homelab copy + admin URL), public CDN only when Johannes explicitly wants a shareable public link, or a friend-shareable token link for an image already in the private layer. Use when an image needs a durable home or a URL to hand out.
-version: 1.0.0
+version: 1.1.0
 metadata:
   hermes:
     tags: [image, images, photo, picture, screenshot, share, publish, upload, cdn, link, url, imgcli, image-share]
-    related_skills: [capture, argo-api]
 ---
 
 # Image delivery
@@ -18,82 +17,38 @@ storage (excluded from the nightly backup). This skill gives them a durable home
 `/Users/jkrumm/SourceRoot/dotfiles/skills/img/scripts/imgcli`). Always pass `--json`.
 Secrets resolve inside `imgcli` via `secrets-run` — Hermes never handles or passes a key.
 
-## When to use this
+## Private by default, public only on an explicit ask
 
-- A Slack image arrived and Johannes wants it kept, filed, or handed to someone → **share**.
-- Johannes explicitly asks for a public link / CDN URL / something embeddable in a note or
-  article → **publish**.
-- Johannes wants to send an already-shared image to a friend → **link**.
-- The image is genuinely sensitive (personal documents, anything he wouldn't want on a
-  server) → do neither. Leave it local in `image_cache` and say so.
+`share` is the default verb for "keep this" / "save this picture" — it never leaves the
+private homelab layer. Only reach for `publish` when Johannes says so explicitly ("make
+this public", "give me a CDN link", "I want to embed this"). Don't publish just because
+an image was generated or looks shareable — ask if unsure.
 
-## Default: private, not public
+**Sensitive images get neither.** Personal documents, anything he wouldn't want on a
+server: leave it local in `image_cache` and say so. If in doubt, ask first — a published
+CDN URL is unsigned and effectively public forever.
 
-**Private by default.** `share` is the default verb for "keep this" / "save this
-picture" — it never leaves the private homelab layer. Only reach for `publish` when
-Johannes says so explicitly ("make this public", "give me a CDN link", "I want to embed
-this"). Don't publish just because an image was generated or looks shareable — ask if
-unsure whether he wants it public.
+**Don't guess intent from format.** A chat screenshot, a generated blog illustration and a
+personal photo are treated by what Johannes says he wants to do with it, not by what kind
+of image it is.
 
 ## Commands
 
-```bash
-imgcli share   <file> --json                  # private — durable homelab copy
-imgcli publish <file> [prefix/] --json        # private, then public CDN (default prefix: gen/)
-imgcli link    <imageId> --json                # friend-shareable token URL for a shared image
-imgcli gen     "<prompt>" --json               # generate an image, lands in image-share private
-```
-
-### gen — generate, private by default
-
-```bash
-imgcli gen "a minimalist line drawing of a Mac mini on a desk" --json
-# → {"id","root","relPath","adminFileUrl", …}   (same shape as share)
-```
-
-Generates via the VPS `image-gen` gateway and ingests the result straight into image-share's
-**private** root — nothing public, no CDN. Treat the result exactly like a `share`d image: hand
-Johannes the admin URL, `link` it for a friend, or `publish` it only when he explicitly asks
-for a public URL. The prompt is data — quote it, never build it from an untrusted message.
-
-### share — private, the default
+| Intent | Command | Returns |
+|-|-|-|
+| Keep it (default) | `imgcli share <file> --json` | `id` (needed for `link`) + admin file URL — Johannes's own durable reference, not for a third party |
+| Explicit public link / embed | `imgcli publish <file> [prefix/] --json` | `cdnUrl` + a ready `![]()` markdown embed — reuse it verbatim. Stages through the private layer first; default prefix `gen/` |
+| Send a friend a shared image | `imgcli link <imageId> --json` | token share-page URL, safe to hand out without making the image public |
+| Generate an image | `imgcli gen "<prompt>" --json` | same as `share` — lands in the private root, nothing public |
 
 ```bash
 imgcli share ~/.hermes/image_cache/photo.png --json
-# → {"id","root","relPath","adminFileUrl"}
-```
-
-Ingests into image-share's private root. Returns an `id` (needed later for `link`) and
-an admin file URL — not something to hand to a third party, just Johannes's own durable
-reference.
-
-### publish — explicit public ask only
-
-```bash
 imgcli publish ~/.hermes/image_cache/photo.png --json
-# → {"id","key","cdnUrl","markdown","renditions":{...}}
+imgcli gen "a minimalist line drawing of a Mac mini on a desk" --json
 ```
 
-Stages through the private layer, then pushes to the public CDN (unsigned URL — anything
-here is effectively public). Defaults to the `gen/` prefix. Returns `cdnUrl` plus a ready
-`![]()` markdown embed — reuse that verbatim rather than hand-building a URL.
+`gen` runs on the VPS `image-gen` gateway; treat the result exactly like a `share`d image.
+The prompt is data — quote it, never build it from an untrusted message.
 
-### link — share an already-private image with a friend
-
-```bash
-imgcli link <imageId> --json
-# → a token-role share-page URL, safe to hand to someone without making the image public
-```
-
-Use this when Johannes wants to send a specific person a link to something already
-`share`d, without promoting it to the public CDN.
-
-## Notes
-
-- **Sensitive images get neither.** If in doubt, ask before running either command —
-  once published, the CDN URL is unsigned and effectively public forever.
-- **Don't guess intent from format.** A screenshot of a chat, a generated illustration
-  for a blog post, and a personal photo all get treated by what Johannes says he wants
-  to do with it, not by what kind of image it is.
-- Full command reference (`upload`, `sync`, transforms, prefixes) lives in the `img`
-  skill in `dotfiles` — this skill only covers the three verbs Hermes needs.
+Full command reference (`upload`, `sync`, transforms, prefixes) lives in the `img` skill in
+`dotfiles`, which Hermes cannot load — this skill covers the four verbs Hermes needs.

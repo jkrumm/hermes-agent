@@ -16,7 +16,7 @@ whole lifecycle on its own — investigate, implement if the verdict says so, re
 merge, deploy, verify. You hand it over and step back; narrate it that way and
 never imply you are driving the rest.
 
-There is no tier, no `--why`, no Approve button and no merge verb in your hands:
+You pick no tier (the only flag is `--tier investigate`, below, for answer-only), no `--why`, no Approve button and no merge verb in your hands:
 Warden decides, agent-gateway's repo policy is the only boundary. You never land a PR,
 never `gh pr merge`, never open a `claude` session yourself.
 

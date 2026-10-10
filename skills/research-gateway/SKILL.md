@@ -145,7 +145,7 @@ and why you must relay them.
   min budget covers a `standard` run) and **write `GET /research/{jobId}` to a file the moment
   `status` flips**, then parse the file.
 - **Non-2xx on submit** / `health` down → the service is unreachable. It's tailnet-only on
-  the VPS; surface "research service unreachable" rather than falling back to a guess.
+  the mini (`research.mini.jkrumm.com`); surface "research service unreachable" rather than falling back to a guess.
 - **Still `running` past the cap** → don't hang. Tell Johannes it's taking long and offer
   to check back, or to keep the `jobId` and poll again shortly.
 - **Never answer a substantive/library/version question from memory when this fails** —

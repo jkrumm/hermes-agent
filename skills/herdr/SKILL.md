@@ -191,9 +191,13 @@ bare `ssh mini 'claude …'` comes up `Not logged in` and silently bills the API
 | Verb | What it starts |
 |-|-|
 | `rd wave <repo> '<prompt>'` | a fresh herdr tab labelled `wave <n>` running one bounded wave |
-| `rd agents` / `rd read` / `rd say <pane>` | track, read, steer |
+| `rd fan <repo> <brief-files…>` | one worktree + tab per brief in the repo's existing workspace (fan-out) |
+| `rd merge <repo> <branches…>` | rebase/check/merge train, GitHub only |
+| `rd read` / `rd say <agent>` / `rd close <agent>` | read, steer, close a finished wave tab |
 
-The model is an env var, not a flag: **`RD_WAVE_MODEL`** (default `sonnet`). `rd` is the only way to place work on the mini — never a raw `claude --bg` / `claude -p`, which loses the keychain credential and the house flags.
+`rd` verifies prompt delivery (no `working` state within 30 s → one re-send); `rd read` it if the agent is still idle after that. `agent prompt`/`agent wait` can exit 0 on a failed delivery — read the pane before claiming it started.
+
+The model is an env var, not a flag: **`RD_WAVE_MODEL`** (default `sonnet`). `rd` is the only way to place a *visible* agent on the mini (background repo work is `warden run`) — never a raw `claude --bg` / `claude -p`, which loses the keychain credential and the house flags.
 
 A long prompt is safe: the script base64s it and stages it in a temp file,
 because a pane's canonical input stops at 1024 bytes — never inline a brief
@@ -201,7 +205,7 @@ longer than ~700 bytes by hand.
 
 ## Integrations — the difference between a pane and an agent
 
-`herdr integration status` lists every agent herdr 0.9.1 knows; `herdr integration
+`herdr integration status` lists every agent herdr knows; `herdr integration
 install <name>` wires one. Two kinds, and the difference decides what a pane can do:
 
 - **Lifecycle authority** (Pi, OMP, Kimi Code CLI, OpenCode, Kilo Code, MastraCode) —
@@ -254,12 +258,12 @@ agent reports done; the branch is pushed, so nothing is lost.
 ad-hoc cron):
 
 ```bash
-herdr agent wait <agent> --until done --timeout 150000   # exit 0 = done; non-zero = timeout/blocked
+herdr agent wait <agent> --until idle --until done --until blocked --timeout 150000   # exit 0 = settled; non-zero = timeout
 ```
 
 The terminal tool dies at 180 s, so keep `--timeout` ≤ 150000 and, on a timeout, re-issue
 the same call once or twice, then stop and tell him it is still running. `--until blocked`
-means the agent asks him something — report that, never answer for him.
+(or the `blocked` state) means the agent asks him something — report that, never answer for him.
 
 `done` ends a *turn*: an agent that parked a background shell goes `done` and resumes later.
 Before reporting an outcome, confirm the **external effect** the brief asked for (PR state,
