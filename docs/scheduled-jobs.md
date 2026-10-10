@@ -27,8 +27,10 @@ the global provider/model no longer matches the resolved one — no inference ca
 silent until resolved. Remediation is a deliberate pin: `hermes cron edit <job_id> --provider <p>
 --model <m>`. Only jobs created (or inference-edited) after the snapshot feature carry snapshots,
 so `8fe7be4985d9` — pinned `custom`/`deepseek-v4.1-flash` on 2026-09-19 after the 09-13 brain
-rollout skipped its 09-19 run — is the one live job that is guarded *and* pinned; the older rows
-carry no snapshot and still follow the global default silently.
+rollout skipped its 09-19 run, and re-pinned `custom`/`claude-haiku-5-5-eu` after the 2026-10-08
+brain switch (its 2026-10-10 run had fired on the retired model and 404'd) — is the one live job
+that is guarded *and* pinned; the older rows carry no snapshot and still follow the global default
+silently.
 
 **Watchdog (`*/30 * * * *`) and Dispatch sweep (`*/5 * * * *`) left this registry 2026-09-09** —
 they're LaunchAgents in `~/SourceRoot/warden` now (`com.jkrumm.warden-poll`,
