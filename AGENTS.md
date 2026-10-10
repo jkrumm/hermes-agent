@@ -42,6 +42,8 @@ the first pass.
 | `skills/{name}/` | `~/.hermes/skills/{name}/` | **`HERMES_SKILLS` in the Makefile is the source of truth** — 20 dirs (agent-platform Wave 2, 2026-10-04; was 126). Retired skills live on as `<skill>/references/*.md` or in git history; roster: docs. |
 | `USER.md` | `~/.hermes/memories/USER.md` | **copied** — Hermes writes to it |
 
+**Skill audit (2026-10-10, `docs/skills-audit.md`):** per-skill verdicts, usage evidence and the Hermes↔global wiring map. Upstream-bundled skills with no usage record are retired by `skills.disabled` in `config.yaml` (reversible; never deleted). `make skills-set-check` (in `make status`) asserts repo `skills/`, live symlinks and `HERMES_SKILLS` are one set.
+
 **Autonomous skill creation is off** (`skills.creation_nudge_interval: 0`); `skills.create_dir` points at `~/.hermes/skills-quarantine`, outside `external_dirs`, so anything Hermes writes anyway is neither live nor tracked until the owner promotes it here. Needs a gateway restart.
 
 **A skill is durable only if symlinked from this repo.** `skills.external_dirs` satisfies the
