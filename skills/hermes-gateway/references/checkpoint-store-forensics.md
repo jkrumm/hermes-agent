@@ -140,7 +140,9 @@ Reproduce any store operation by exporting exactly those three.
   between git's stat and its write. Tool calls run on a daemon thread pool, so two
   snapshots and a gc interleave **in one process**, and a per-project index is not a gc
   reachability root — so a snapshot's staged-but-uncommitted blobs are also prunable
-  between `add -A` and `write-tree`. **Fixed in code** (2026-09-15): one reentrant
+  between `add -A` and `write-tree`. **Since v0.21.6+669 (2026-10-11) upstream's
+  `tools/checkpoint_pruning.store_lock` (cross-process `flock`) covers this and the next race;
+  our locks below were retired.** Historical: **fixed in code** (2026-09-15): one reentrant
   `_STORE_LOCK` now covers every store-touching git call and the whole `_take` sequence.
   If you see this line again, the patch is missing — check `make patch-check`, do not
   re-diagnose the mechanism.

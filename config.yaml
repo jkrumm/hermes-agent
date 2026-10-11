@@ -65,7 +65,7 @@ agent:
     - delegation
   # high: Haiku 5.5 EU on the native Anthropic leg — 15/15 on the bench at ~1.6 s median;
   # medium dropped a task, xhigh/max think 50-100 s+ on long outputs (modelpick, 2026-10-08).
-  # Reaches the wire only through patches/anthropic-adapter-haiku-5.patch.
+  # Reaches the wire via upstream _is_pre_thinking_haiku (Haiku 5.5+ is adaptive).
   reasoning_effort: high
 terminal:
   backend: local

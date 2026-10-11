@@ -21,7 +21,9 @@ Two defects, one subsystem, both observed live on 2026-09-15:
    and a ``gc --prune=now`` interleave in one process; a concurrent gc removed an
    ``objects/<xx>/`` fanout directory mid-write (``Konnte Datei …/objects/21/… nicht schreiben``)
    and a per-project index is not a gc reachability root, so a snapshot's staged-but-uncommitted
-   blobs are prunable mid-flight.  Fix: one reentrant lock over every store-touching git call.
+   blobs are prunable mid-flight.  Our reentrant-lock fix was retired at v0.21.6+669: upstream's
+   ``tools/checkpoint_pruning.store_lock`` (a cross-process ``flock`` around snapshot, diff,
+   restore and gc) covers it.  Section 5 still asserts the cross-process outcome.
 
 Run:  ~/.hermes/hermes-agent/venv/bin/python3 tests/test_checkpoint_store_excludes.py
 """
@@ -157,8 +159,8 @@ try:
     calls = []
     real_stage = cm._stage_all
 
-    def counting_stage(p, allowed_returncodes=None):
-        result = real_stage(p, allowed_returncodes=allowed_returncodes)
+    def counting_stage(*args, allowed_returncodes=None):
+        result = real_stage(*args, allowed_returncodes=allowed_returncodes)
         calls.append(result[0])
         return result
 
@@ -188,7 +190,7 @@ try:
     real_stage = cm._stage_all
     state = {"first": True}
 
-    def racing_stage(p, allowed_returncodes=None):
+    def racing_stage(*args, allowed_returncodes=None):
         if state["first"]:
             state["first"] = False
             # Delete a file between git's directory walk and its per-entry read.  A background
@@ -204,10 +206,10 @@ try:
             t = threading.Thread(target=churn)
             t.start()
             try:
-                return real_stage(p, allowed_returncodes=allowed_returncodes)
+                return real_stage(*args, allowed_returncodes=allowed_returncodes)
             finally:
                 t.join()
-        return real_stage(p, allowed_returncodes=allowed_returncodes)
+        return real_stage(*args, allowed_returncodes=allowed_returncodes)
 
     cm._stage_all = racing_stage
     try:
@@ -222,74 +224,6 @@ finally:
 
 
 
-# ---------------------------------------------------------------------------
-def _run_lock_checks(f, cm, _STORE_LOCK):
-    # Reentrancy: _take -> _enforce_size_cap -> _gc_store nests inside the same lock, so a plain
-    # Lock would deadlock.  Prove the nesting path actually runs while held.
-    depths = []
-    real_gc = cm._gc_store
-
-    def observing_gc(store, working_dir):
-        depths.append(cm._STORE_LOCK._is_owned() if hasattr(cm._STORE_LOCK, "_is_owned")
-                      else cm._STORE_LOCK.acquire(blocking=False))
-        if depths[-1] is True and not hasattr(cm._STORE_LOCK, "_is_owned"):
-            cm._STORE_LOCK.release()
-        return real_gc(store, working_dir)
-
-    cm._gc_store = observing_gc
-    try:
-        # Force the size cap to trip so _enforce_size_cap -> _gc_store runs inside _take.
-        f.mgr.max_total_size_mb = 0  # no cap: _enforce_size_cap returns early
-        f.mgr.max_snapshots = 1      # so _prune rewrites the ref on the second snapshot
-        check("snapshot 1", f.snapshot("one"), True)
-        (f.work / "top.txt").write_text("two\n")
-        check("snapshot 2 (prune path)", f.snapshot("two"), True)
-        check("gc ran while the lock was held", any(d is True for d in depths), True)
-    finally:
-        cm._gc_store = real_gc
-
-    # Two threads snapshotting different projects must not interleave their git calls.  Assert
-    # by observing that no two store-touching subprocesses overlap.
-    other = f.root / "project2"
-    other.mkdir()
-    (other / "x.txt").write_text("x\n")
-    mgr2 = CheckpointManager(enabled=True, max_snapshots=50)
-
-    overlap = []
-    real_sub = cm._git_subprocess
-    active = {"n": 0}
-    guard = threading.Lock()
-
-    def observing_sub(cmd, env, timeout, cwd=None):
-        with guard:
-            active["n"] += 1
-            if active["n"] > 1:
-                overlap.append(cmd)
-        try:
-            time.sleep(0.01)  # widen the window so an unserialized overlap is visible
-            return real_sub(cmd, env, timeout, cwd=cwd)
-        finally:
-            with guard:
-                active["n"] -= 1
-
-    cm._git_subprocess = observing_sub
-    try:
-        f.mgr.new_turn()
-        mgr2.new_turn()
-        threads = [
-            threading.Thread(target=lambda: f.mgr.ensure_checkpoint(str(f.work), "t1")),
-            threading.Thread(target=lambda: mgr2.ensure_checkpoint(str(other), "t2")),
-        ]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
-    finally:
-        cm._git_subprocess = real_sub
-    check("no two store git calls overlapped", len(overlap), 0)
-
-
-
 # ---------------------------------------------------------------------------------------------
 # 4. The ERROR line must name the cause, not the first line of stderr.
 #
@@ -301,20 +235,9 @@ def _run_lock_checks(f, cm, _STORE_LOCK):
 # ---------------------------------------------------------------------------------------------
 
 
-print("store access is serialized by one reentrant lock")
-f = Fixture()
-try:
-    (f.work / "top.txt").write_text("top\n")
-    _lock = getattr(cm, "_STORE_LOCK", None)
-    check("lock exists", isinstance(_lock, type(threading.RLock())), True)
-    if _lock is None:
-        # Pristine module: the behaviour checks cannot run.  Report and move on so the suite still
-        # produces a complete FAIL list instead of aborting on the first missing attribute.
-        print("  (skipping lock-behaviour checks — no _STORE_LOCK on this module)")
-    else:
-        _run_lock_checks(f, cm, _lock)
-finally:
-    f.close()
+print("store access is serialized by upstream's store_lock")
+from tools import checkpoint_pruning as cp  # noqa: E402
+check("upstream store_lock exists", callable(getattr(cp, "store_lock", None)), True)
 
 
 print("\n[4] stderr cause extraction")
@@ -353,7 +276,7 @@ if callable(_log):
 # ---------------------------------------------------------------------------------------------
 # 5. Cross-process serialization.
 #
-# The in-process RLock cannot see another *process*'s git index lock.  Live 14:19:32: the gateway
+# An in-process lock cannot see another *process*'s git index lock (upstream's store_lock can).  Live 14:19:32: the gateway
 # snapshotting /private/tmp failed with `Unable to create '<store>/indexes/11fe14a563f7aed6.lock':
 # File exists` because a second process was snapshotting the same project.  This lane spawns real
 # subprocesses against a shared store: pristine fails ~15/24 rounds, patched 0.

@@ -1,16 +1,16 @@
 diff --git a/plugins/platforms/slack/adapter.py b/plugins/platforms/slack/adapter.py
-index b38211b672..fae1d047c5 100644
+index 5fd44180e8..1f8cc10847 100644
 --- a/plugins/platforms/slack/adapter.py
 +++ b/plugins/platforms/slack/adapter.py
-@@ -18,6 +18,7 @@ import aiohttp
- try:
+@@ -18,6 +18,7 @@ try:
+     import aiohttp as _aiohttp
      from slack_bolt.async_app import AsyncApp
      from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 +    from slack_sdk.errors import SlackApiError
      from slack_sdk.web.async_client import AsyncWebClient
  
-     SLACK_AVAILABLE = True
-@@ -26,6 +27,7 @@ except ImportError:
+     aiohttp = _aiohttp
+@@ -27,6 +28,7 @@ except ImportError:
      AsyncApp = Any
      AsyncSocketModeHandler = Any
      AsyncWebClient = Any
@@ -18,7 +18,7 @@ index b38211b672..fae1d047c5 100644
  
  import sys
  from pathlib import Path as _Path
-@@ -2194,6 +2196,21 @@ class SlackAdapter(BasePlatformAdapter):
+@@ -2207,6 +2209,21 @@ class SlackAdapter(BasePlatformAdapter):
          try:
              return await getattr(client_fn(), method)(**kwargs)
          except Exception as e:
@@ -40,7 +40,7 @@ index b38211b672..fae1d047c5 100644
              if kwargs.get("blocks") and self._is_block_payload_rejection(e):
                  retry_kwargs = dict(kwargs)
                  if verb == "edit":
-@@ -2203,6 +2220,20 @@ class SlackAdapter(BasePlatformAdapter):
+@@ -2216,6 +2233,20 @@ class SlackAdapter(BasePlatformAdapter):
                  logger.info(
                      "[Slack] Block Kit payload rejected; retrying %s without blocks: %s", verb, e)
                  return await getattr(client_fn(), method)(**retry_kwargs)
@@ -61,7 +61,7 @@ index b38211b672..fae1d047c5 100644
              raise
  
      async def send(
-@@ -3034,6 +3065,20 @@ class SlackAdapter(BasePlatformAdapter):
+@@ -3161,6 +3192,20 @@ class SlackAdapter(BasePlatformAdapter):
          if not content:
              return content
          content = _wrap_markdown_tables(content)

@@ -1,9 +1,9 @@
 diff --git a/agent/transports/chat_completions.py b/agent/transports/chat_completions.py
-index 8f3ae66712..c36a9ca63b 100644
+index e27180e5eb..14664432e3 100644
 --- a/agent/transports/chat_completions.py
 +++ b/agent/transports/chat_completions.py
-@@ -246,6 +246,158 @@ def _is_openai_api_base_url(base_url: Any) -> bool:
-         return False
+@@ -250,6 +250,158 @@ _GEMINI_SIGNATURE_HOSTS = ("generativelanguage.googleapis.com", "aiplatform.goog
+ _GEMINI_SIGNATURE_PROVIDERS = frozenset({"gemini", "vertex", "copilot"})
  
  
 +# LOCAL MODIFICATION (patches/transport-iu-reasoning-effort.patch)
@@ -158,12 +158,12 @@ index 8f3ae66712..c36a9ca63b 100644
 +    return api_kwargs
 +
 +
- def _model_consumes_thought_signature(model: Any) -> bool:
-     """True for Gemini-family targets, which require tool-call ``extra_content`` (thought_signature) replay.
+ def _model_consumes_thought_signature(model: Any, base_url: Any = None, provider: Any = None) -> bool:
+     """True for Gemini routes, which require tool-call ``extra_content`` (thought_signature) replay.
  
-@@ -474,7 +626,12 @@ class ChatCompletionsTransport(ProviderTransport):
-         _profile = params.get("provider_profile")
-         sanitized = self.convert_messages(messages, model=model, base_url=params.get("base_url"), provider_profile=_profile)
+@@ -497,7 +649,12 @@ class ChatCompletionsTransport(ProviderTransport):
+             provider=params.get("provider_name"),
+         )
          if _profile:
 -            return self._build_kwargs_from_profile(_profile, model, sanitized, tools, params)
 +            # LOCAL MODIFICATION (patches/transport-iu-reasoning-effort.patch)
@@ -175,7 +175,7 @@ index 8f3ae66712..c36a9ca63b 100644
  
          sanitized = _swap_developer_role(sanitized, params.get("model_lower", (model or "").lower()))
          api_kwargs = _base_kwargs(model, sanitized, tools, params)
-@@ -544,9 +701,14 @@ class ChatCompletionsTransport(ProviderTransport):
+@@ -561,9 +718,14 @@ class ChatCompletionsTransport(ProviderTransport):
              api_kwargs["extra_body"] = extra_body
          if params.get("request_overrides"):
              api_kwargs.update(params["request_overrides"])

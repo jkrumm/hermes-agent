@@ -90,9 +90,8 @@ the listener is reachable, never that the model route works.
 
 The brain (`claude-haiku-5-5-eu`) runs `api_mode: anthropic_messages` on the native `/anthropic`
 leg (`${ANTHROPIC_BASE_URL}`) and needs no Responses-API workaround: `agent.reasoning_effort: high`
-reaches the wire as `output_config.effort` on every turn (via
-`patches/anthropic-adapter-haiku-5.patch` — upstream's `_thinking_kwargs` returns `{}` for any
-`haiku`). Prove it with `HERMES_DUMP_REQUESTS=1 hermes chat -q …` → `~/.hermes/sessions/request_dump_*.json`. The failure mode below is real, but it is
+reaches the wire as `output_config.effort` on every turn (upstream's `_is_pre_thinking_haiku`
+sends Haiku 5.5+ down the adaptive branch). Prove it with `HERMES_DUMP_REQUESTS=1 hermes chat -q …` → `~/.hermes/sessions/request_dump_*.json`. The failure mode below is real, but it is
 **fallback-only** — it fires only when Hermes has failed over to the fallback model (`gpt-6-luna`; gpt-5.x wording shown, the gpt-6 refusal is the same):
 
 > Function tools with reasoning_effort are not supported for gpt-5.6-luna in

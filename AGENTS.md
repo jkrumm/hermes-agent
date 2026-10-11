@@ -329,7 +329,7 @@ agent not to call it.
 Re-apply after `hermes update`: **one `.patch` file per patched upstream file**, each with `git
 apply --3way` (`/hermes-update` carries the loop). `ls patches/` is the count, `make patch-check`
 proves they are applied — deliberately not restated here (it drifted repeatedly). Baseline
-**v0.21.5** (tag v2026.9.24), upstream `f97608f178`.
+**v0.21.6+669**, upstream `c152ba5a82` (2026-10-11).
 
 **2026-09-07 — every patch moved file.** Upstream landed 5503 commits in six days under an
 unchanged version number, splitting every monolith apart. The **patch names are unchanged**
@@ -350,14 +350,13 @@ file they no longer touch — read the table's left column, not the patch name.
 | `agent/auxiliary_client.py` | `auxiliary-client-iu-openai-leg-quirks` | always `max_completion_tokens` on the IU OpenAI leg, covering every call site of `auxiliary_max_tokens_param` (compression/title/vision, the fast-lane cap via `_build_call_kwargs`, the credit-limited-402 retry, the same-provider fallback rebuild), and move `extra_body.reasoning` to a clamped top-level `reasoning_effort` there. The gpt-5.x `temperature` strip was retired at v0.21.4 — upstream's `_is_openai_default_temperature_only` now omits it on every endpoint |
 | `gateway/run.py` | `gateway-start-predecessor-grace` | non-`--replace` startup (launchd KeepAlive) gets a 20s/1s poll grace for a still-dying predecessor PID before refusing — continues (clearing stale PID/lock like `--replace` does) if it exits, refuses as before if it doesn't. Never signals the target |
 | `tools/skill_manager_tool.py` | `skill-manager-colon-hint` | `_validate_frontmatter` stays fail-closed on a YAML `ScannerError`, but appends a hint when the message is "mapping values are not allowed here" — an unquoted `key: value: with-a-colon` description |
-| `tools/checkpoint_manager.py` | `checkpoint-store-integrity` | four fixes in the shared shadow store, one file: (1) `_take()`'s `git add -A` retries once on **any** transient failure — a stale gitlink (drop the dead gitlinks, `update-index --force-remove`) *and* a file deleted mid-walk by another process (`unable to stat …: No such file or directory`, the Claude Code scratch race); (2) `info/exclude` is rewritten from `DEFAULT_EXCLUDES` whenever it has moved on, and tracked paths the store's own exclude file matches are force-removed — a path committed *before* its pattern existed survives `_seed_project_index`'s read-tree forever otherwise (`claude-501/` sat at 1925 tracked paths / ~32 MB in the `/tmp` ref while nominally excluded); (3) one reentrant `_STORE_LOCK` over every store-touching git call **and** a cross-process file lock on the store, so a snapshot cannot be pruned by a concurrent `gc --prune=now` between `add -A` and `write-tree` (a per-project index is not a gc reachability root) and two *processes* snapshotting the same project cannot collide on git's own `indexes/<hash>.lock`; (4) the logged stderr keeps its first line verbatim (Warden's signature) but is summarized, and the retry quotes the real cause — `add -A` prints advice before the error, so a commitless nested repo was filed as an innocent `Füge eingebettetes Repository hinzu: …` |
-| `agent/anthropic_adapter.py` | `anthropic-adapter-haiku-5` | `_thinking_kwargs` returned `{}` for any id containing `haiku`, so `claude-haiku-5-5-eu` got no `output_config.effort` and silently ran at the API default (medium). Narrowed to legacy Haikus (3.x/4.x) + non-Claude ids; 5.x reaches the adaptive branch |
+| `tools/checkpoint_manager.py` | `checkpoint-store-integrity` | four fixes in the shared shadow store, one file: (1) `_take()`'s `git add -A` retries once on **any** transient failure — a stale gitlink (drop the dead gitlinks, `update-index --force-remove`) *and* a file deleted mid-walk by another process (`unable to stat …: No such file or directory`, the Claude Code scratch race); (2) `info/exclude` is rewritten from `DEFAULT_EXCLUDES` whenever it has moved on, and tracked paths the store's own exclude file matches are force-removed — a path committed *before* its pattern existed survives `_seed_project_index`'s read-tree forever otherwise (`claude-501/` sat at 1925 tracked paths / ~32 MB in the `/tmp` ref while nominally excluded); (3) ~~store lock~~ retired at v0.21.6+669 — upstream's `checkpoint_pruning.store_lock` (cross-process `flock` around snapshot/diff/restore/gc) covers both the gc-vs-snapshot and the cross-process `indexes/<hash>.lock` race; (4) the logged stderr keeps its first line verbatim (Warden's signature) but is summarized, and the retry quotes the real cause — `add -A` prints advice before the error, so a commitless nested repo was filed as an innocent `Füge eingebettetes Repository hinzu: …` |
 | `agent/chat_completion_helpers.py` | `stream-error-transient-openai-classes` | `_StreamingCall._handle_stream_error` classified transients against raw httpx types only, so `openai.APITimeoutError`/`openai.APIConnectionError` missed the transient set and a blip the retry loop heals anyway logged at ERROR with a full traceback (the `hermes_log:*` card family; issue #4). Adds both classes to `_is_timeout`/`_is_conn_err` — the same classification `agent/error_classifier._TRANSPORT_ERROR_TYPES` and `agent/agent_runtime_helpers._TRANSIENT_TRANSPORT_ERRORS` already apply |
 
 Re-apply: `cd ~/.hermes/hermes-agent && git apply ~/SourceRoot/hermes-agent/patches/<name>.patch`.
 **Anything touching `cronjob_prompt_scan.py`, `runtime_provider.py`,
 `agent/transports/chat_completions.py`, `run_agent.py`, `agent/auxiliary_client.py`,
-`agent/chat_completion_helpers.py`, `agent/anthropic_adapter.py` or
+`agent/chat_completion_helpers.py` or
 `config.yaml` needs a gateway restart** (`launchctl kickstart -k gui/$(id -u)/ai.hermes.gateway`)
 — modules are imported once at startup and `config.yaml` is read at startup too: a running
 process serves whatever model/patch state it started with, regardless of what `config.yaml` or
@@ -368,8 +367,8 @@ these patched files say on disk. The 2026-10-08 brain switch (`claude-haiku-5-5-
 Hermes runs like Claude Code with `--dangerously-skip-permissions` and is steered by
 **guidance, not gates**: SOUL.md *How you get things done* + the skills. `approvals.mode: 'off'`
 (`smart` turned flagged commands into Slack Approve buttons that stalled the turn 300 s and
-failed closed), cron/`-q`/unattended `approve`, `security.tirith_enabled: false`,
-`security.protected_instruction_files: false`. The local `tirith-hermes-guards` patch
+failed closed), cron/`-q`/unattended `approve`, `security.protected_instruction_files: false`
+(the `security.tirith_*` keys are gone — upstream removed the bundled tirith scanner, config v50). The local `tirith-hermes-guards` patch
 (pipeline allowlist, `download_then_execute`, `raw_agent_invocation`, `raw_repo_write`) was
 **deleted** with its tests — it produced friction and silent lane substitutions, not safety.
 Still blocking: upstream's hardline floor, the gateway-self-restart block, three irreversible
@@ -401,7 +400,7 @@ published source disagrees in some direction. Re-probe after an endpoint change.
 | Efforts, Anthropic leg | `none, low, medium, high` | `xhigh` refused by the IU LiteLLM gateway |
 
 **The brain runs `anthropic_messages` (Haiku 5.5 EU) and gets its effort every turn via
-`patches/anthropic-adapter-haiku-5.patch`; the Responses dance was a gpt-5.x-only problem
+upstream's `_is_pre_thinking_haiku` (our `anthropic-adapter-haiku-5` patch retired at v0.21.6+669); the Responses dance was a gpt-5.x-only problem
 (DeepSeek, no longer routed anywhere, never needed it).** `/v1/chat/completions` refuses any effort on gpt-5.x once the request
 carries function tools — and Hermes always sends tools — but DeepSeek takes tools and
 `reasoning_effort` together on the same wire with no such refusal (probed 2026-09-13). So the

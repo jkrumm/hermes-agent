@@ -1,8 +1,8 @@
 diff --git a/agent/chat_completion_helpers.py b/agent/chat_completion_helpers.py
-index d1b4c6e4e4..cba536965e 100644
+index 01c26afe7a..1dc216e2b0 100644
 --- a/agent/chat_completion_helpers.py
 +++ b/agent/chat_completion_helpers.py
-@@ -3404,15 +3404,29 @@ class _StreamingCall(StreamingWaitMonitor):
+@@ -3573,18 +3573,32 @@ class _StreamingCall(StreamingWaitMonitor):
          ``result["error"]`` set (unless our own interrupt force-closed the
          socket). Runs inside the ``except`` so ``logger.exception`` works."""
          import httpx as _httpx
@@ -29,8 +29,11 @@ index d1b4c6e4e4..cba536965e 100644
 +        _is_timeout = isinstance(e, (_httpx.ReadTimeout, _httpx.ConnectTimeout, _httpx.PoolTimeout, _OpenAIAPITimeoutError))
          # ReadError: abort/reset mid-body (stale-kill shutdown under a parked reader,
          # ECONNRESET) — the retry loop owns recovery.
--        _is_conn_err = isinstance(e, (_httpx.ConnectError, _httpx.ReadError, _httpx.RemoteProtocolError, ConnectionError))
-+        _is_conn_err = isinstance(e, (_httpx.ConnectError, _httpx.ReadError, _httpx.RemoteProtocolError, ConnectionError, _OpenAIAPIConnectionError))
+         # anthropic.APIConnectionError: the Anthropic SDK wraps connect/read drops
+         # (incl. stale-kill aborts) in its own type, not httpx's.
+         _is_conn_err = isinstance(e, (_httpx.ConnectError, _httpx.ReadError, _httpx.RemoteProtocolError, ConnectionError,
+-                                      *_anthropic_connection_error_types()))
++                                      _OpenAIAPIConnectionError, *_anthropic_connection_error_types()))
          _is_stream_parse_err = self.agent._is_provider_stream_parse_error(e)
          _is_empty_stream = isinstance(e, EmptyStreamError)
          _is_sse_conn_err = not _is_timeout and not _is_conn_err and _is_sse_connection_error(e)

@@ -162,7 +162,8 @@ git diff HEAD --name-only        # must be exactly the patched files
 grep -n "_rename_with_title"          tools/tts_tool.py
 grep -n "x-audio-title"               tools/tts_tool_openai.py
 grep -n "cannot_reply_to_message"     plugins/platforms/slack/adapter.py
-grep -n "HAIKU\|haiku" agent/anthropic_adapter.py   # LOCAL MODIFICATION marker present
+grep -n "_OpenAIAPIConnectionError"    agent/chat_completion_helpers.py
+grep -n "_stage_all_with_gitlink_recovery" tools/checkpoint_manager.py
 grep -n "_sanitize_trusted_api_fence" tools/cronjob_prompt_scan.py
 grep -n "_apply_iu_reasoning_effort"  agent/transports/chat_completions.py
 grep -n "_SPEAK_SUMMARY"              hermes_cli/web_routers/audio.py
