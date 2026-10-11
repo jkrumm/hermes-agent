@@ -324,13 +324,13 @@ status:
 		echo "    ✗ legacy crontab entries [double-firing — run make cron-migrate]"; \
 	fi
 	@# No approval prompts, no command guards (owner decision 2026-09-14):
-	@# approvals.mode 'off', approve for every unattended context, tirith and the
-	@# protected-instruction gate off. A drift back is the 5-minute-Slack-button
+	@# approvals.mode 'off', approve for every unattended context, the
+	@# protected-instruction gate off (tirith left core upstream in config v50). A drift back is the 5-minute-Slack-button
 	@# stall again, so it is graded, not remembered.
 	@"$(HERMES_DIR)/hermes-agent/venv/bin/python3" -c 'import yaml,sys;\
 c=yaml.safe_load(open("$(HERMES_REPO)/config.yaml"));a=c.get("approvals") or {};\
 bad=[k for k,v in (("mode","off"),("cron_mode","approve"),("single_query_mode","approve"),("unattended_mode","approve")) if str(a.get(k))!=v];\
-s=c.get("security") or {};bad+=[k for k in ("protected_instruction_files","tirith_enabled") if s.get(k) is not False];\
+s=c.get("security") or {};bad+=[k for k in ("protected_instruction_files",) if s.get(k) is not False];\
 print("    ✓ approvals + guards off (no prompts)") if not bad else print("    ✗ approval prompts re-enabled [%s]" % ", ".join(bad))' 2>/dev/null \
 		|| echo "    ✗ approvals check [could not parse config.yaml]"
 	@$(MAKE) --no-print-directory cron-skills-check
@@ -428,7 +428,11 @@ patch-check:
 # Local validation, no side effects. Excludes test_checkpoint_store_excludes.py: its
 # gc/cross-process-lock cases are timing-dependent and fail intermittently on a clean tree
 # (run it by hand: `make test-checkpoint`).
-HERMES_PY := $(HERMES_SRC)/venv/bin/python3
+# HERMES_DISABLE_LAZY_INSTALLS: since v0.21.6+669 upstream's bootstrap (prepare_launch) re-execs any
+# process importing the tree into its managed store interpreter, which a bare test script never
+# activates — every import then dies on `No module named 'ruamel'`. The tests import modules directly
+# and need the venv as-is, so they opt out of that relaunch.
+HERMES_PY := HERMES_DISABLE_LAZY_INSTALLS=1 $(HERMES_SRC)/venv/bin/python3
 
 .PHONY: check
 check:
