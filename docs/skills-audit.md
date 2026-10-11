@@ -41,9 +41,9 @@ skill's description and, for ours, its body. **No skill was deleted.** "Retire" 
 | image-delivery | 2 (08-02) | keep, trimmed | policy kept; duplicated JSON-shape prose removed. Hermes cannot load dotfiles' `img`, so the verb table stays |
 | verify | 3 (10-06) | keep | — |
 
-`work/iu-epos-ops` (gitignored, employer-internal, 1 use, agent-created 09-14) — **flagged, not changed**: it references the retired
-approval layer and tells Hermes to read repo files and run `make`, which SOUL.md forbids. It is not in git, so the fix is
-local-only; see Left behind in the plan.
+`work/iu-epos-ops` (gitignored, employer-internal, 1 use, agent-created 09-14) — **rewritten 2026-10-11** (local-only, it is not in git):
+it told Hermes to read repo files, query SE/Care and call deletion endpoints, which SOUL.md forbids. v2 routes EPOS work to a
+Claude Code session in the IuRoot repo and carries only the three lessons a hand-over brief must keep.
 
 ## Upstream-bundled (73) — verdicts
 
