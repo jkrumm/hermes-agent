@@ -80,12 +80,7 @@ terminal:
   env_passthrough: []
   shell_init_files: []
   auto_source_bashrc: false
-  docker_image: nikolaik/python-nodejs:python3.11-nodejs20
   docker_forward_env: []
-  singularity_image: docker://nikolaik/python-nodejs:python3.11-nodejs20
-  modal_image: nikolaik/python-nodejs:python3.11-nodejs20
-  daytona_image: nikolaik/python-nodejs:python3.11-nodejs20
-  vercel_runtime: node24
   container_cpu: 1
   container_memory: 5120
   container_disk: 51200
@@ -592,10 +587,6 @@ security:
   protected_instruction_files: false
   allow_private_urls: false
   redact_secrets: true
-  tirith_enabled: false
-  tirith_path: tirith
-  tirith_timeout: 5
-  tirith_fail_open: true
   website_blocklist:
     enabled: false
     domains: []
@@ -685,14 +676,13 @@ secrets:
     server_url: ''
   command:
     enabled: true
-    command: $HOME/.local/bin/secrets-run export --env-file=$HOME/.hermes/.env.tpl
-      | sed 's/^export //'
+    command: $HOME/.local/bin/secrets-run export --env-file=$HOME/.hermes/.env.tpl | sed 's/^export //'
     helper_timeout_seconds: 15
     override_existing: true
 paste_collapse_threshold: 5
 paste_collapse_threshold_fallback: 5
 paste_collapse_char_threshold: 2000
-_config_version: 46
+_config_version: 50
 homelab_api:
   base_url: https://argo.jkrumm.com/api
   api_key: ${HOMELAB_API_KEY}
