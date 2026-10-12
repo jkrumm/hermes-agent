@@ -329,7 +329,7 @@ table, which has gone stale before.
 | `skills/work/SKILL.md` | IU surface — M365, Jira, Confluence, GitLab |
 | `skills/karakeep/SKILL.md` · `skills/obsidian/SKILL.md` | Read-later bucket · second brain |
 | `skills/reading/SKILL.md` · `skills/research-gateway/SKILL.md` | Book shelf · deep cited research |
-| `skills/image-delivery/SKILL.md` | `imgcli share`/`publish` — private by default |
+| `skills/image-delivery/SKILL.md` | `imgcli private`/`upload` — private by default |
 | `~/.hermes/logs/agent.log` | Structured run log (api_calls, time, inbound messages) |
 | `~/.hermes/logs/gateway.log` | Gateway stdout (startup, tool progress bars) |
 | `~/.hermes/sessions/*.jsonl` | Turn-by-turn traces — **Slack path only** (see method-A note) |

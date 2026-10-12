@@ -113,7 +113,7 @@ Diagnosis path (fast — the CI log is the smoking gun):
 5. **Verify the gate, don't assume it's missing.** Some app repos gate Deploy on check in the
    same workflow (`needs: check` — e.g. `research-gateway/.github/workflows/deploy.yml`);
    others run check as a fully separate workflow that does NOT block deploy (e.g. `argo`,
-   `image-gen` — a red check there still ships a broken image). Read the repo's own
+   `image-gateway` — a red check there still ships a broken image). Read the repo's own
    `deploy.yml` before recommending a `needs: check` gate — it may already exist.
 
 ## Fourth pattern: health-probe 404s during a rollout
