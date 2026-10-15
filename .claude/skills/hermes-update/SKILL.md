@@ -379,6 +379,26 @@ permanently red), and **both** `.claude/skills/hermes-{update,validate}/SKILL.md
 guess. Also re-read `make status` output after any change: a stale `✗` line trains you to
 ignore the one that eventually matters.
 
+### `hermes update` lands on the stable release, not `origin/main`
+
+The install follows the `stable` channel (`hermes update --check` names it). At v0.22.2 the
+update checked out the release commit `d923a5eb48`, which is **not an ancestor** of
+`origin/main`, so a rehearsal against `origin/main` can show conflicts the real update never hits.
+Rehearse against the target instead: `hermes update --check` prints its sha. Run the live
+update as `hermes update --yes --no-gateway-restart`, put the patches back, and restart once.
+That leaves no window where an unpatched gateway is running, and no double drain.
+
+Since v0.21.6+669 the gateway runs on a **managed Python 3.14** (`~/.hermes/tools/python-3.14.*`,
+deps in `~/.hermes/installs/<id>/environments/<id>/venv/lib/python3.14/site-packages`) launched by
+`.hermes/bin/hermes`. `venv/` (3.11) is only what `make check` uses. To run upstream tests against a
+tree, run the managed interpreter with `-I`, call `site.addsitedir(<that site-packages>)`, drop
+the `__editable__` finder from `sys.meta_path` and put the tree first on `sys.path`. If you go
+through `hermes_bootstrap` instead, it pins the live tree (or refuses: "no dependency environment
+is committed").
+
+`~/.hermes/.hermes-update-in-progress.lock` is a `flock` sidecar, not the marker. An empty one
+with no `.hermes-update-in-progress` beside it and nothing in `lsof` is inert and safe to delete.
+
 ### Rehearse in a worktree first, and baseline the test failures
 
 At v0.21.4 (8060 commits) the whole port was done **before** `hermes update` touched the

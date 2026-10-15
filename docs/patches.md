@@ -6,6 +6,19 @@ three test files and `guards.md`. Owner decision: Hermes runs with approvals and
 steered by SOUL.md/skills instead of command guards. The rules and their incident history are in
 git (`git log --all -- patches/tirith-hermes-guards.patch docs/guards.md`).
 
+**2026-10-15, v0.21.6+669 → v0.22.2 (`c152ba5a82` → `d923a5eb48`, 3091 commits) — no
+retirements, no ports.** `hermes update` follows the `stable` channel, so it lands on the release
+commit, not `origin/main`; the autostash re-applied all 14 patches without a conflict and every
+regenerated patch carries byte-identical `+`/`-` lines. A rehearsal against `origin/main`
+(`30463589eb`, 85 commits further) conflicted on one patch only: `gateway-start-predecessor-grace`.
+Upstream moved `_start_gateway_replace_existing_instance` into `gateway/run_bootstrap.py` and kept
+the same no-grace refusal there, so the hunk ports verbatim (the helpers are imported from
+`gateway.run` at the top of the function). Expect that move at the next stable release. Also seen
+in the rehearsal: when another test file stubs `slack_sdk` without `errors`, our added
+`from slack_sdk.errors import SlackApiError` fails the adapter's import `try`, so `aiohttp` stays
+`None` and 9 `test_slack.py` cases fail in a combined run. They pass in isolation (213/213), and
+production loads the real `slack_sdk`.
+
 **Retired / narrowed 2026-10-11 at v0.21.6+669 (upstream `f97608f178` → `c152ba5a82`, 9849 commits):**
 - `anthropic-adapter-haiku-5` — retired. Upstream's `_is_pre_thinking_haiku` (parses the Claude
   family version, `< (5, 5)` only) replaced the blanket `"haiku" in model` early-return. Verified on

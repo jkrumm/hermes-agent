@@ -329,7 +329,7 @@ agent not to call it.
 Re-apply after `hermes update`: **one `.patch` file per patched upstream file**, each with `git
 apply --3way` (`/hermes-update` carries the loop). `ls patches/` is the count, `make patch-check`
 proves they are applied — deliberately not restated here (it drifted repeatedly). Baseline
-**v0.21.6+669**, upstream `c152ba5a82` (2026-10-11).
+**v0.22.2** (`stable` channel), upstream `d923a5eb48` (2026-10-15).
 
 **2026-09-07 — every patch moved file.** Upstream landed 5503 commits in six days under an
 unchanged version number, splitting every monolith apart. The **patch names are unchanged**
