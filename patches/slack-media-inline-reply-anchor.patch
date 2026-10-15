@@ -1,8 +1,8 @@
 diff --git a/gateway/platforms/base.py b/gateway/platforms/base.py
-index 197f6dca70..d7a23e9055 100644
+index 651743e88f..12e6551997 100644
 --- a/gateway/platforms/base.py
 +++ b/gateway/platforms/base.py
-@@ -4326,19 +4326,30 @@ class BasePlatformAdapter(ABC):
+@@ -4323,19 +4323,30 @@ class BasePlatformAdapter(ABC):
                  event, [(f"file://{_quote(p)}", "") for p in _image_paths], metadata, human_delay,
                  record_delivery)
          chat_id = event.source.chat_id

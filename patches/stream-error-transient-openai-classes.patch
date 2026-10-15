@@ -1,8 +1,8 @@
 diff --git a/agent/chat_completion_helpers.py b/agent/chat_completion_helpers.py
-index 01c26afe7a..1dc216e2b0 100644
+index e35a0e90c1..99073b2583 100644
 --- a/agent/chat_completion_helpers.py
 +++ b/agent/chat_completion_helpers.py
-@@ -3573,18 +3573,32 @@ class _StreamingCall(StreamingWaitMonitor):
+@@ -3570,18 +3570,32 @@ class _StreamingCall(StreamingWaitMonitor):
          ``result["error"]`` set (unless our own interrupt force-closed the
          socket). Runs inside the ``except`` so ``logger.exception`` works."""
          import httpx as _httpx
