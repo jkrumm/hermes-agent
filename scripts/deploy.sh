@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Ships the checked-out HEAD: `make setup` (symlinks, LaunchAgents), restart the gateway, then
-# `make verify`. On a failed verify, rolls the checkout back to HEAD~1 (detached) and repeats —
+# `make verify`. Restarts `hermes serve` (com.jkrumm.hermes-serve) alongside the gateway. On a failed verify, rolls the checkout back to HEAD~1 (detached) and repeats —
 # only when the working tree is clean; otherwise it refuses and says how to recover by hand.
 # The checkout IS the live config (symlinked into ~/.hermes), so "deploy" = apply + restart.
 # Restarting kills in-flight gateway sessions — run it when no turn is mid-flight.
@@ -15,6 +15,8 @@ head=$(git rev-parse --short HEAD)
 apply_and_restart() {
   make --no-print-directory setup >/dev/null || return 1
   launchctl kickstart -k "gui/$(id -u)/ai.hermes.gateway" || return 1
+  # hermes serve (Desktop backend) imports config.yaml and patched modules at its own start too.
+  launchctl kickstart -k "gui/$(id -u)/com.jkrumm.hermes-serve" || return 1
 }
 
 verify_with_retry() {

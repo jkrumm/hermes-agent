@@ -499,6 +499,7 @@ SOUL.md / config.yaml changes need a gateway restart (skills are symlinked, so S
 
 ```bash
 hermes gateway restart
+launchctl kickstart -k gui/$(id -u)/com.jkrumm.hermes-serve   # Desktop backend — imports patched modules (serve-speak-summary) at start too
 ```
 
 > **launchd supervision works as of v0.19.0.** Earlier revisions of this skill said

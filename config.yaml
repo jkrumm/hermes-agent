@@ -309,6 +309,12 @@ display:
   tool_progress_overrides:
     slack: 'off'
   tool_progress: new
+# `hermes serve` (com.jkrumm.hermes-serve, loopback :9119 behind the Caddy door).
+# public_url engages the auth gate despite the loopback bind; credentials come from
+# serve.env.tpl as HERMES_DASHBOARD_BASIC_AUTH_* env (env wins over basic_auth here),
+# so no placeholder sits in this public file. See docs/hermes-serve.md.
+dashboard:
+  public_url: https://hermes-api.mini.jkrumm.com
 privacy:
   redact_pii: false
 tts:

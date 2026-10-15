@@ -6,6 +6,7 @@
 |-|-|-|
 | `config.yaml` | `~/.hermes/config.yaml` | symlink — edit here, live immediately |
 | `.env.tpl` | `~/.hermes/.env.tpl` | symlink |
+| `serve.env.tpl` | `~/.hermes/serve.env.tpl` | symlink — `hermes serve`'s basic-auth refs, read only by `scripts/hermes-serve-launch.sh` |
 | `SOUL.md` | `~/.hermes/SOUL.md` | symlink |
 | `cron/` | `~/.hermes/cron/` | symlink — Hermes-driven (LLM) cron jobs |
 | `scripts/` | `~/.hermes/scripts/` | symlink — Hermes cron pre-run scripts (security check requires they live under `HERMES_HOME/scripts/`). Also holds host-level shell scripts. |
@@ -32,6 +33,8 @@
 **Host-level scripts (run by user LaunchAgents, not symlinked):**
 - `scripts/hermes-liveness.sh` — every 5 min (`com.jkrumm.hermes-liveness`, `StartInterval 300`), checks gateway state + Slack connection, pings the push URL resolved via `secrets-run read op://hermes/uptime-kuma/agent-push-url` on success.
 - `scripts/hermes-backup.sh` — daily 03:00 (`com.jkrumm.hermes-backup`, `StartCalendarInterval`), rsyncs `~/.hermes/` → `homelab:/mnt/hdd/backups/hermes/`, pings the push URL resolved via `secrets-run read op://hermes/uptime-kuma/backup-push-url` on success. Holds a `mkdir`-based single-instance lock (`~/Library/Caches/hermes-backup.lock`) so two overlapping runs can never race one another's `rsync --delete`.
+- `scripts/hermes-serve-launch.sh` — the `ProgramArguments` of `com.jkrumm.hermes-serve` (KeepAlive, 30s throttle). Counts the three `serve.env.tpl` refs, refuses (exit 78) below the full set, then execs `.hermes/bin/hermes serve --host 127.0.0.1 --port 9119 --skip-build` under `secrets-run run --env-file=serve.env.tpl` (the gateway's refs arrive via `secrets.command`). Restored 2026-10-15; see `docs/hermes-serve.md`.
+- `scripts/hermes-serve-liveness.sh` — every 5 min (`com.jkrumm.hermes-serve-liveness`), asserts `/api/status` reports `auth_required: true` and an unauthenticated `POST /api/auth/ws-ticket` returns 401, then pings `op://hermes/uptime-kuma/serve-push-url`.
 
 The alert-triage act-loop (`triage.py`, `com.jkrumm.warden-loop`, every 10 min) used to be a
 third host-level script here — it moved to `~/SourceRoot/warden` on 2026-09-09, deliberately
@@ -41,7 +44,7 @@ still a LaunchAgent and not a `hermes cron` job, for the same reason: see
 Templates live in `launchd/`, rendered into `~/Library/LaunchAgents` by `make setup`
 (`_agents` → `_render-plists`, `__HOME__` substituted; unchanged content is a no-op,
 so re-running never bounces a healthy agent). Logs are declared, never globbed, in
-`dotfiles/scripts/log-rotate.sh`'s `FILES` array: `hermes-{liveness,backup}.{log,err}`
+`dotfiles/scripts/log-rotate.sh`'s `FILES` array: `hermes-{liveness,backup,serve,serve-liveness}.{log,err}`
 under `~/Library/Logs`, `~/.hermes/logs/gateway.{log,error.log}` (absolute — the
 gateway's own launchd streams, not this repo's LaunchAgents), plus the audit logs
 `hermes-ops.log` and `warden-cli.log` (`hermes-cc.log` is the retired predecessor

@@ -29,17 +29,19 @@ LAUNCHD_DIR   := $(HERMES_REPO)/launchd
 LAUNCHAGENTS  := $(HOME)/Library/LaunchAgents
 # com.jkrumm.hermes-triage left with the act-loop it ran (2026-09-09) — it is
 # com.jkrumm.warden-loop now, installed by warden's own `make setup`.
-HERMES_PLISTS := com.jkrumm.hermes-liveness com.jkrumm.hermes-backup
+# hermes-serve{,-liveness}: `hermes serve` for Hermes Desktop, restored 2026-10-15
+# (owner decision — Desktop, Slack, the :8642 API and the CLI are the surfaces).
+HERMES_PLISTS := com.jkrumm.hermes-liveness com.jkrumm.hermes-backup \
+                 com.jkrumm.hermes-serve com.jkrumm.hermes-serve-liveness
 # Labels this repo used to install and no longer does. `_agents` unloads and
 # removes each one, so a rename can never leave two agents racing the same port.
 # com.parantoux.hermes-webui: hand-written into ~/Library/LaunchAgents by the
 # agent on 2026-08-25 under a foreign reverse-DNS prefix, superseded by
-# com.jkrumm.hermes-webui. The four hermes-{webui,serve}{,-liveness} labels:
-# torn down 2026-09-07 (owner decision — Collie + Slack are the surfaces; the
-# third-party WebUI clone and `hermes serve` for Hermes Desktop are gone).
+# com.jkrumm.hermes-webui. The two hermes-webui{,-liveness} labels: the
+# third-party WebUI clone, torn down 2026-09-07 and not coming back (the serve
+# pair torn down with it was restored 2026-10-15, see HERMES_PLISTS).
 HERMES_PLISTS_RETIRED := com.parantoux.hermes-webui \
-                         com.jkrumm.hermes-webui com.jkrumm.hermes-webui-liveness \
-                         com.jkrumm.hermes-serve com.jkrumm.hermes-serve-liveness
+                         com.jkrumm.hermes-webui com.jkrumm.hermes-webui-liveness
 # The gateway's own LaunchAgent is installed by `hermes gateway install` (stock
 # plist), not rendered from launchd/ — graded by `make status` alongside ours.
 HERMES_GATEWAY_LABEL := ai.hermes.gateway
@@ -100,6 +102,9 @@ _symlinks:
 	@$(MAKE) --no-print-directory _link \
 		SRC="$(HERMES_REPO)/.env.tpl" \
 		DST="$(HERMES_DIR)/.env.tpl"
+	@$(MAKE) --no-print-directory _link \
+		SRC="$(HERMES_REPO)/serve.env.tpl" \
+		DST="$(HERMES_DIR)/serve.env.tpl"
 	@$(MAKE) --no-print-directory _link \
 		SRC="$(HERMES_REPO)/SOUL.md" \
 		DST="$(HERMES_DIR)/SOUL.md"
@@ -257,6 +262,7 @@ status:
 		|| echo "    ✗ hermes CLI [not installed]"
 	@$(MAKE) --no-print-directory _check DST="$(HERMES_DIR)/config.yaml"
 	@$(MAKE) --no-print-directory _check DST="$(HERMES_DIR)/.env.tpl"
+	@$(MAKE) --no-print-directory _check DST="$(HERMES_DIR)/serve.env.tpl"
 	@$(MAKE) --no-print-directory _check DST="$(HERMES_DIR)/SOUL.md"
 	@$(MAKE) --no-print-directory _check DST="$(HERMES_DIR)/cron"
 	@$(MAKE) --no-print-directory _check DST="$(HERMES_DIR)/hooks"
@@ -292,6 +298,27 @@ status:
 	@curl -fsS https://audio-gateway.jkrumm.com/health >/dev/null 2>&1 \
 		&& echo "    ✓ audio-gateway (TTS/STT)" \
 		|| echo "    ✗ audio-gateway [not reachable — VPS Docker container over tailnet]"
+	@# `hermes serve` auth. Counted, not spot-checked: the launcher refuses below the
+	@# full set (an absent username silently skips the provider), so a partial seed
+	@# shows up as exit 78 there and as this line here.
+	@n=$$(timeout 20 "$(HOME)/.local/bin/secrets-run" export --env-file="$(HERMES_DIR)/serve.env.tpl" 2>/dev/null | grep -c '^export ' || true); \
+	w=$$(grep -cE '^[A-Za-z_][A-Za-z0-9_]*=' "$(HERMES_REPO)/serve.env.tpl"); \
+	if [ "$${n:-0}" -ge "$$w" ]; then \
+		echo "    ✓ serve auth ($$n/$$w refs via secrets-run cache)"; \
+	else \
+		echo "    ✗ serve auth [$${n:-0}/$$w refs — op://mini/hermes-serve/* unseeded]"; \
+	fi
+	@timeout 15 "$(HOME)/.local/bin/secrets-run" read op://hermes/uptime-kuma/serve-push-url >/dev/null 2>&1 \
+		&& echo "    ✓ serve push url (UptimeKuma heartbeat)" \
+		|| echo "    ✗ serve push url [op://hermes/uptime-kuma/serve-push-url unresolved]"
+	@status=$$(curl -s --max-time 5 http://127.0.0.1:9119/api/status 2>/dev/null); \
+	if printf '%s' "$$status" | /opt/homebrew/bin/jq -e '.auth_required == true' >/dev/null 2>&1; then \
+		echo "    ✓ hermes serve (:9119, auth_required)"; \
+	elif [ -n "$$status" ]; then \
+		echo "    ✗ hermes serve [:9119 answers WITHOUT auth_required — the agent socket is open]"; \
+	else \
+		echo "    ✗ hermes serve [:9119 not answering]"; \
+	fi
 	@# LaunchAgents, graded the way dotfiles' doctor.sh grades them. A label that
 	@# merely appears in `launchctl list` is not a healthy job: `launchctl print`
 	@# is the only place the last exit code lives, and a KeepAlive job with no PID

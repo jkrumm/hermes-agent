@@ -35,7 +35,8 @@ the first pass.
 
 | File here | Live path | Notes |
 |-|-|-|
-| `config.yaml`, `.env.tpl`, `SOUL.md` | `~/.hermes/…` | edit here, live immediately; `.env.tpl` is the one list of `KEY=op://…` refs |
+| `config.yaml`, `.env.tpl`, `SOUL.md` | `~/.hermes/…` | edit here, live immediately; `.env.tpl` is the gateway's list of `KEY=op://…` refs |
+| `serve.env.tpl` | `~/.hermes/serve.env.tpl` | `hermes serve`'s own three basic-auth refs — deliberately not in `.env.tpl` (see *Hermes Desktop*) |
 | `cron/`, `scripts/`, `hooks/` | `~/.hermes/…` | Hermes-driven cron + pre-run scripts (must live under `HERMES_HOME/scripts/`) + host-level shell scripts |
 | `plugins/{name}/` | `~/.hermes/plugins/{name}/` | **`HERMES_PLUGINS`** is the source of truth. **None today** — `dispatch-approval` was removed 2026-10-04 (warden Wave 1 deleted the approval stack). A new one must **also** be enabled once — `hermes plugins enable <name>`; the symlink alone is inert. |
 | `config/` | `~/.hermes/config/` | **empty** since 2026-09-10 — `dispatch-repos.json` is gone — the repo/tier policy is agent-gateway's `server/lib/dispatch-policy.ts` (`GET /api/dispatch-policy`) |
@@ -54,12 +55,14 @@ mechanism + adoption path: **`docs/symlinks-and-agents.md`**.
 
 **Host-level scripts** (user LaunchAgents, not symlinked): `hermes-liveness.sh` (300s — gateway
 state + Slack connected + the live pid belongs to launchd's job), `hermes-backup.sh` (daily
-03:00 — rsync to homelab, `mkdir`-lock against overlap). The alert-triage act-loop is a
+03:00 — rsync to homelab, `mkdir`-lock against overlap), and the `hermes serve` pair —
+`hermes-serve-launch.sh` (KeepAlive) + `hermes-serve-liveness.sh` (300s), see *Hermes Desktop*
+below. The alert-triage act-loop is a
 LaunchAgent too, but it's `~/SourceRoot/warden`'s own — see **Alert triage** below.
 `HERMES_PLISTS_RETIRED` unloads +
-removes labels this repo no longer installs — the four `hermes-{webui,serve}{,-liveness}` labels
-sit there since the 2026-09-07 teardown (Collie + Slack are the surfaces; the third-party WebUI
-clone and `hermes serve`/Hermes Desktop are gone). `make status` grades every agent like
+removes labels this repo no longer installs — the two `hermes-webui{,-liveness}` labels sit there
+since the 2026-09-07 teardown of the third-party WebUI clone (not coming back; the serve pair torn
+down with it was restored 2026-10-15). `make status` grades every agent like
 dotfiles' doctor. Logs declared, never globbed, in `dotfiles/scripts/log-rotate.sh`.
 
 **Scheduled jobs are LaunchAgents, never macOS crontab** — a `crontab -` *write* needs Full
@@ -202,6 +205,28 @@ startup from `.env.tpl` via `secrets.command`:
 argo redeploys). Mismatch = **401**; connection-refused = not bound to the tailnet IP. Verify
 from the VPS, rotation steps, network path: **`docs/gateway-http-api.md`**.
 
+## Hermes Desktop (`hermes serve`)
+
+**Owner decision 2026-10-15** (supersedes 2026-09-07's "Collie + Slack are the surfaces"): the
+surfaces are Hermes Desktop on the MacBook, Slack, the `:8642` API server and the CLI; Collie
+stays as it is. Desktop cannot use `:8642` (no `/api/ws`) — it talks to `hermes serve`, a second
+always-on process beside the gateway: LaunchAgent `com.jkrumm.hermes-serve` (KeepAlive) on
+loopback `:9119`, behind the dotfiles Caddy door `hermes-api.test` ⇒
+`https://hermes-api.mini.jkrumm.com` (tailnet, `tag:devhost` only).
+
+- **Auth is upstream's basic provider**, gated because `config.yaml` sets `dashboard.public_url`
+  (a non-loopback public URL engages the gate despite the loopback bind; gate on + no provider =
+  serve exits). Credentials are `HERMES_DASHBOARD_BASIC_AUTH_{USERNAME,PASSWORD,SECRET}` from
+  `serve.env.tpl` → `op://mini/hermes-serve/*`; the launcher refuses (exit 78) below 3/3.
+- **Desktop connection:** remote, that URL, auth mode `oauth` (= "gated server", which covers the
+  password provider), sign in with the `op://mini/hermes-serve` username/password.
+- **Heartbeat** `com.jkrumm.hermes-serve-liveness` asserts `auth_required: true` and a 401 on an
+  unauthenticated `POST /api/auth/ws-ticket` before pinging `Hermes Serve - Push`.
+- **Patched modules load at serve start too** — after a `hermes update` restart both the gateway
+  and `launchctl kickstart -k gui/$(id -u)/com.jkrumm.hermes-serve`.
+
+Full design, verification recipe and failure modes: **`docs/hermes-serve.md`**.
+
 ## Homelab API Integration
 
 `skills/argo-api/SKILL.md` endpoint tables are regenerated from
@@ -340,7 +365,7 @@ file they no longer touch — read the table's left column, not the patch name.
 |-|-|-|
 | `tools/tts_tool_openai.py` + `tools/tts_tool.py` | `tts-tool-audio-title` | name saved audio from the gateway's `X-Audio-Title` header instead of `tts_<timestamp>.mp3` |
 | `gateway/run_voice.py` | `gateway-auto-tts-voice-only` | auto-TTS answers **voice input only**, so alerts stop coming back as MP3s. `/voice all` per chat still speaks everything |
-| `hermes_cli/web_routers/audio.py` | `serve-speak-summary` | Desktop relay read-aloud summarization. **Dormant** — the relay it serves was torn down 2026-09-07, kept applied |
+| `hermes_cli/web_routers/audio.py` | `serve-speak-summary` | Desktop relay read-aloud summarization in `hermes serve`. **Active again** since serve was restored 2026-10-15 (dormant 2026-09-07 → 2026-10-15) |
 | `plugins/platforms/slack/adapter.py` | `slack-cannot-reply-to-message` | mrkdwn normalization + `cannot_reply_to_message` retry (drop `thread_ts`, retry flat) |
 | `gateway/platforms/base.py` | `slack-media-inline-reply-anchor` | pass the text reply's anchor to media senders. **Dormant** under `reply_in_thread: true`, kept applied |
 | `tools/cronjob_prompt_scan.py` | `cronjob-tools-allowlist-argo-bearer` | argo/karakeep/research/hyperdx/audio-gateway bearer allowlist so a legitimate cron curl stops tripping `exfil_curl_auth_header` |
@@ -500,7 +525,7 @@ with `make test-checkpoint` and read the failures before blaming a change.
 ## Deploy
 
 `make deploy` — the checkout *is* the live config (symlinked into `~/.hermes`), so deploy =
-`make setup` + `launchctl kickstart -k gui/$(id -u)/ai.hermes.gateway` + `make verify`
+`make setup` + `launchctl kickstart -k` of `ai.hermes.gateway` **and** `com.jkrumm.hermes-serve` + `make verify`
 (retried ~1 min while Slack reconnects). On failure it rolls back to `HEAD~1` (detached,
 clean tree only), repeats, and exits non-zero either way; return with `git switch master`.
 It restarts the gateway, which drops in-flight turns — and **Hermes itself may never run
@@ -510,7 +535,8 @@ beyond the skills-index restart noted in *Editing Rules*.
 ## Verify & Monitor
 
 - **`make verify`** — gateway pid alive, `gateway_state.json` slack + api_server
-  `connected`, API `/health` 200 on the tailnet bind (`op://hermes/gateway/host`), all patches
+  `connected`, API `/health` 200 on the tailnet bind (`op://hermes/gateway/host`), `hermes serve`
+  answering on `:9119` **and gated** (`auth_required`, unauthenticated ws-ticket 401), all patches
   applied. Exit 0 = healthy.
 - **Heartbeat:** `hermes-liveness.sh` (300 s LaunchAgent) pushes the Uptime Kuma push monitor
   at `op://hermes/uptime-kuma/agent-push-url`; the backup job has its own
