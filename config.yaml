@@ -353,7 +353,7 @@ stt:
     model: base
     language: ''
   openai:
-    model: gpt-4o-transcribe
+    model: gpt-transcribe
     base_url: https://audio-gateway.jkrumm.com/v1
     api_key: hermes
   mistral:

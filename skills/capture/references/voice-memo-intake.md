@@ -21,7 +21,7 @@ OpenAI-compatible in both directions: `https://audio-gateway.jkrumm.com/v1`.
    ```bash
    curl -s -m 280 -w "\nHTTP=%{http_code}\n" \
      -X POST https://audio-gateway.jkrumm.com/v1/audio/transcriptions \
-     -F "file=@/tmp/memo.m4a" -F "model=gpt-4o-transcribe" -F "language=de" \
+     -F "file=@/tmp/memo.m4a" -F "model=gpt-transcribe" -F "language=de" \
      -o /tmp/transcript.json
    ```
 

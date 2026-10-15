@@ -44,7 +44,7 @@ Files touched (all are `.patch` files applied with `git apply` — no full-file 
 | `agent/auxiliary_client.py` | `patches/auxiliary-client-iu-openai-leg-quirks.patch` | always `max_completion_tokens`, and a clamped top-level `reasoning_effort`, on the IU OpenAI leg — covers the auxiliaries the transport/run_agent patches don't (the gpt-5.x `temperature` strip retired at v0.21.4, upstream does it) |
 | `tools/tts_tool_openai.py` + `tools/tts_tool.py` | `patches/tts-tool-audio-title.patch` | name the audio file from the audio-gateway's `X-Audio-Title` header (a short title from the gateway's own prep step) instead of `tts_<timestamp>` |
 
-> **STT is not patched.** `tools/transcription_tools.py` (native `openai` STT → `gpt-4o-transcribe`) is pointed at the audio-gateway purely via `config.yaml`. TTS uses the stock native `openai` provider (→ Gemini Charon via the audio-gateway) plus the one small `tts-tool-audio-title` patch above for the filename. After an update, confirm `config.yaml`'s `tts.openai` / `stt.openai` `base_url` still reads `https://audio-gateway.jkrumm.com/v1`.
+> **STT is not patched.** `tools/transcription_tools.py` (native `openai` STT → `gpt-transcribe`) is pointed at the audio-gateway purely via `config.yaml`. TTS uses the stock native `openai` provider (→ Gemini Charon via the audio-gateway) plus the one small `tts-tool-audio-title` patch above for the filename. After an update, confirm `config.yaml`'s `tts.openai` / `stt.openai` `base_url` still reads `https://audio-gateway.jkrumm.com/v1`.
 
 ### When EVERY patch conflicts, check the commit count before the conflicts
 

@@ -15,7 +15,7 @@ Mac Mini M2 Pro — Hermes Agent (always-on)
   ├→ audio-gateway (https://audio-gateway.jkrumm.com/v1) — OpenAI-compatible audio via IU (STT EU, TTS US via Replicate).
   │     VPS Docker container, reached over the tailnet. No local audio service.
   │     TTS: ElevenLabs via IU Replicate — flash-v2.5 for replies, v3 for briefings, voice "Mark".
-  │     STT: gpt-4o-transcribe (German/English steered).
+  │     STT: gpt-transcribe (German/English steered).
   ├→ Homelab — Docker containers, CouchDB, backups (via Tailscale)
   ├→ VPS — Production apps, ClickStack (via Tailscale)
   └→ IU unified endpoint — claude-haiku-5-5-eu (brain + approval, native /anthropic),

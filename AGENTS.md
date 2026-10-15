@@ -20,7 +20,7 @@ OpenAI-compatible VPS container at `https://audio-gateway.jkrumm.com/v1` over th
 Hermes only points its native `openai` TTS/STT providers at it in `config.yaml` — this repo
 installs and patches no audio service. TTS = ElevenLabs via the IU Replicate route:
 `elevenlabs/flash-v2.5` (voice "Mark") for chat replies, `elevenlabs/v3` for briefings
-(`skills/briefing-tts`); STT = `gpt-4o-transcribe`. Rationale: `modelpick/docs/decisions/audio-stack.md`.
+(`skills/briefing-tts`); STT = `gpt-transcribe`. Rationale: `modelpick/docs/decisions/audio-stack.md`.
 
 **This repo is public.** Anything Hermes writes here gets read for tailnet names, node IPs,
 workspace user ids and `homelab-private` internals before it is committed — all four appeared on
