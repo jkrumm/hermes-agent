@@ -245,8 +245,8 @@ agents-teardown:
 	@for label in $(HERMES_PLISTS); do \
 		PLIST="$(LAUNCHAGENTS)/$$label.plist"; \
 		launchctl unload "$$PLIST" 2>/dev/null || true; \
-		rm -f "$$PLIST"; \
-		echo "  ✓ $$label torn down (unloaded + plist removed)"; \
+		rm -f "$$PLIST" "$$HOME/.local/state/jobs/$$label.json"; \
+		echo "  ✓ $$label torn down (unloaded + plist + job state removed)"; \
 	done
 
 # ============================================================================

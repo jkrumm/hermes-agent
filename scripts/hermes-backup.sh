@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Daily Hermes backup — rsync ~/.hermes/ to homelab HDD, then ping UptimeKuma.
+# Daily Hermes backup — rsync ~/.hermes/ to homelab HDD, the exit code is the verdict.
 # Excludes large/regenerable artifacts and a plaintext ~/.hermes/.env (there is
 # none by design — `hermes model` recreates one, and a copy of it must never
 # reach homelab). State.db (conversation history) IS included. Runs at 03:00 via the com.jkrumm.hermes-backup LaunchAgent
@@ -10,23 +10,19 @@
 # gateway checkpoints kanban.db/state.db while rsync walks them, the sidecar
 # disappears between the file list and the transfer, rsync reports "open: No such
 # file or directory" and exits 23 (partial transfer) — which suppresses the
-# UptimeKuma ping even though every real file shipped, so a healthy backup reads
+# Kuma push even though every real file shipped, so a healthy backup reads
 # as a dead one.
 
 set -u
 
-SECRETS_RUN="$HOME/.local/bin/secrets-run"
 SRC="$HOME/.hermes/"
 DEST="homelab:/mnt/hdd/backups/hermes/"
-# launchd hands the job a minimal PATH (as cron did); prepend Homebrew so secrets-run
-# finds sops+jq (its cache backend) and `timeout` resolves. Prepend, not replace.
+# launchd hands the job a minimal PATH; prepend Homebrew. Prepend, not replace.
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
-# Resolve the UptimeKuma push URL from op://hermes/uptime-kuma/backup-push-url via
-# `secrets-run read` (encrypted cache on the mini, biometric op on the MacBook), bounded
-# by `timeout`. A resolution failure is non-fatal: the backup still runs and exits with
-# rsync's code; only the success ping is skipped, so UptimeKuma alerts on the missing
-# heartbeat. A failed ping never overrides rsync's exit code (RC is captured before it).
+# The plist runs this under `jobrun` (dotfiles): each run is recorded and graded, and
+# `--kuma op://hermes/uptime-kuma/backup-push-url` pings the 25 h backstop on rc 0, so
+# this script no longer resolves or pushes anything itself.
 # Single-instance lock. Two concurrent `rsync --delete` runs onto the same
 # destination race each other's file list — one deleting what the other is still
 # writing. Nothing scheduled this twice by design, but the crontab→LaunchAgent
@@ -62,9 +58,6 @@ fi
 printf '%s' "$$" >"$LOCK_DIR/pid"
 trap 'rm -rf "$LOCK_DIR"' EXIT INT TERM
 
-PUSH_URL=""
-[[ -x "$SECRETS_RUN" ]] && PUSH_URL=$(timeout 10 "$SECRETS_RUN" read op://hermes/uptime-kuma/backup-push-url 2>/dev/null)
-
 # --delete-excluded: the excludes are things that must NOT exist on homelab (a stray
 # plaintext /.env, sidecars), so --delete has to remove them too. Without it a directory
 # holding only excluded files (sidecars-excluded-20260921) could never be deleted, and
@@ -95,17 +88,5 @@ if [[ $RC -eq 0 ]] && grep -q 'cannot delete' "$RSYNC_OUT"; then
   RC=1
 fi
 rm -f "$RSYNC_OUT"
-
-# The success ping is the last step and every way of skipping it is a failure, so the
-# exit code and Kuma agree: no ping without a clean run, no clean exit without a ping.
-if [[ $RC -eq 0 ]]; then
-  if [[ -z "${PUSH_URL:-}" ]]; then
-    echo "no Kuma push URL resolved — the backup shipped but cannot report" >&2
-    RC=1
-  elif ! /usr/bin/curl -fsS --max-time 10 "$PUSH_URL" >/dev/null; then
-    echo "Kuma push failed" >&2
-    RC=1
-  fi
-fi
 
 exit $RC

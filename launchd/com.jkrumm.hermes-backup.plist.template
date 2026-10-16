@@ -8,6 +8,15 @@
        liveness plist for why crontab was the wrong mechanism on a headless Mac. -->
   <key>ProgramArguments</key>
   <array>
+    <string>__HOME__/.local/bin/jobrun</string>
+    <string>com.jkrumm.hermes-backup</string>
+    <string>--owner</string>
+    <string>hermes-agent</string>
+    <string>--every</string>
+    <string>86400</string>
+    <string>--kuma</string>
+    <string>op://hermes/uptime-kuma/backup-push-url</string>
+    <string>--</string>
     <string>__HOME__/SourceRoot/hermes-agent/scripts/hermes-backup.sh</string>
   </array>
   <!-- 03:00 daily, same slot as the crontab entry. Unlike cron, launchd runs a
@@ -23,6 +32,11 @@
        every `make setup` and every reboot would turn an install step into a
        backup run and paper over a genuinely missed night. -->
   <key>RunAtLoad</key><false/>
+  <!-- jobrun is a `#!/usr/bin/env bun` script and launchd's PATH has neither. -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>__HOME__/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
   <!-- ~/Library/Logs, never /tmp — see the liveness plist. This one matters more:
        it is the only record that a backup ran at all, and macOS's /tmp sweep was
        deleting that history every 3 days. Declared in log-rotate.sh. -->
