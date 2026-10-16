@@ -65,7 +65,12 @@ trap 'rm -rf "$LOCK_DIR"' EXIT INT TERM
 PUSH_URL=""
 [[ -x "$SECRETS_RUN" ]] && PUSH_URL=$(timeout 10 "$SECRETS_RUN" read op://hermes/uptime-kuma/backup-push-url 2>/dev/null)
 
-/usr/bin/rsync -az --delete \
+# --delete-excluded: the excludes are things that must NOT exist on homelab (a stray
+# plaintext /.env, sidecars), so --delete has to remove them too. Without it a directory
+# holding only excluded files (sidecars-excluded-20260921) could never be deleted, and
+# rsync reported "cannot delete non-empty directory" every night while still exiting 0.
+RSYNC_OUT=$(mktemp "${TMPDIR:-/tmp}/hermes-backup.XXXXXX")
+/usr/bin/rsync -az --delete --delete-excluded \
   --exclude='audio_cache/' \
   --exclude='image_cache/' \
   --exclude='cache/' \
@@ -79,12 +84,28 @@ PUSH_URL=""
   --exclude='hermes-agent/' \
   --exclude='.update_check' \
   --exclude='.skills_prompt_snapshot.json' \
-  "$SRC" "$DEST"
-
+  "$SRC" "$DEST" >"$RSYNC_OUT" 2>&1
 RC=$?
+cat "$RSYNC_OUT"
 
-if [[ $RC -eq 0 && -n "${PUSH_URL:-}" ]]; then
-  /usr/bin/curl -fsS --max-time 10 "$PUSH_URL" >/dev/null
+# rsync exits 0 when it merely failed to delete ("cannot delete ..."), so a broken
+# rotation passed for a good backup. Treat any such line as a failure.
+if [[ $RC -eq 0 ]] && grep -q 'cannot delete' "$RSYNC_OUT"; then
+  echo "rsync could not delete everything it should — failing the run" >&2
+  RC=1
+fi
+rm -f "$RSYNC_OUT"
+
+# The success ping is the last step and every way of skipping it is a failure, so the
+# exit code and Kuma agree: no ping without a clean run, no clean exit without a ping.
+if [[ $RC -eq 0 ]]; then
+  if [[ -z "${PUSH_URL:-}" ]]; then
+    echo "no Kuma push URL resolved — the backup shipped but cannot report" >&2
+    RC=1
+  elif ! /usr/bin/curl -fsS --max-time 10 "$PUSH_URL" >/dev/null; then
+    echo "Kuma push failed" >&2
+    RC=1
+  fi
 fi
 
 exit $RC
