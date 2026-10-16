@@ -151,6 +151,7 @@ through `scripts/hermes-cc.sh` (an exec shim into the `warden` CLI) — see
 *Dispatch Bridge* above. Full state machine
 and why the loop is a LaunchAgent rather than a `hermes cron` job:
 `~/SourceRoot/warden/AGENTS.md`, `DESIGN.md`, `STATE.md`.
+Background-job failures (`jobrun`/`jobs-grade`, including the Hermes cron jobs as `hermes-cron.*` labels), Kuma and HyperDX alerts all reach warden directly; Hermes only narrates them. Model: `~/SourceRoot/dotfiles/docs/ops-signals.md`, ladder: `docs/background-jobs.md`.
 
 ## Secrets — native `secrets.command` over the headless cache (v0.19.0+)
 
