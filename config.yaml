@@ -765,3 +765,13 @@ telemetry:
     enabled: false
     send: false
     offer_version: 2
+# WeatherOrb's data API as tools (weatherorb Wave 49, packages/mcp): a stdio server over /v1 only,
+# through the published client. Its own API key lives in a chmod-600 file outside every repo, minted
+# by the account CLI (`create-user`, `create-key`); this public file holds only the path.
+mcp_servers:
+  weatherorb:
+    command: /opt/homebrew/bin/bun
+    args: ["${HOME}/SourceRoot/weatherorb/packages/mcp/src/index.ts"]
+    env:
+      WEATHERORB_API_KEY_FILE: "${HOME}/.config/weatherorb/mcp-key"
+    timeout: 60

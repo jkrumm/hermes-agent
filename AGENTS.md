@@ -265,6 +265,15 @@ search, which stays for quick lookups. EU/IU models, off Max.
   description/tags, so "recherchier mal" still triggers it.
 - Its host is in the cron scanner allowlist patch (`cronjob-tools-allowlist-argo-bearer`).
 
+## WeatherOrb (MCP)
+
+`config.yaml` `mcp_servers.weatherorb` launches weatherorb's `packages/mcp` (stdio, Bun): six
+read-only tools (`mcp__weatherorb__weatherorb_{pointcast,probe,astro,surf,spots_search,spot}`)
+over the public `/v1` data API only. Its own key (`key:xm99s48mmee8`, account "Hermes") sits in
+`~/.config/weatherorb/mcp-key` (chmod 600, outside every repo, minted with weatherorb's account
+CLI); this public file holds only `${HOME}` paths. Loaded per process: a new `hermes chat` sees it,
+the gateway after a restart. Rotate: revoke the key, `create-key` a new one into the same file.
+
 ## Observability triage (hyperdx)
 
 `skills/hyperdx/SKILL.md` gives Hermes an authenticated path into ClickHouse instead of a browser
