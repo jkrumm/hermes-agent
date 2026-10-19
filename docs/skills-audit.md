@@ -6,7 +6,7 @@ skill's description and, for ours, its body. **No skill was deleted.** "Retire" 
 
 ## What the 73 / 24 numbers actually are
 
-- **20** skills are ours (`HERMES_SKILLS`, symlinks from this repo). `make skills-set-check` (part of `make status`) now asserts
+- **21** skills are ours (`HERMES_SKILLS`, symlinks from this repo). `make skills-set-check` (part of `make status`) now asserts
   repo dirs, live symlinks and the declared list are the same set.
 - **73** `SKILL.md` files under `~/.hermes/skills` are *upstream-bundled* categories (re-seeded by `hermes update`, listed in
   `.bundled_manifest`) plus nested ones; **24** dirs in `~/.hermes/skills/.archive` are curator archives of those.

@@ -6,7 +6,7 @@ HERMES_SRC    := $(HERMES_DIR)/hermes-agent
 # 2026-10-04; was 126). Retired siblings were folded into `<skill>/references/*.md` or deleted;
 # git history is the archive. `skills/work/iu-*/` is gitignored (employer-internal) and rides
 # inside the `work` symlink.
-HERMES_SKILLS := capture argo-api work karakeep obsidian reading wildrift research-gateway image-delivery podcast briefing-tts hyperdx homelab homelab-ops hermes-gateway human-queue dispatch warden herdr verify
+HERMES_SKILLS := capture argo-api work karakeep obsidian reading wildrift research-gateway image-delivery podcast prose briefing-tts hyperdx homelab homelab-ops hermes-gateway human-queue dispatch warden herdr verify
 
 # Skill links this repo no longer installs — removed by `make setup` so a retired skill
 # cannot linger live. `agents` folded into warden/references, `claude-dispatch` renamed
