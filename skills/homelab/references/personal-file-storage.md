@@ -20,8 +20,9 @@ archive.
 ## Where his archive lives
 
 **Homelab, on the SSD: `/home/jkrumm/ssd/SSD/`** — `Dokumente/`, `Bilder/`,
-`Bücher/`, `Hörbücher/`, `Videos/`, `Public/`, `Dev/`. "Meine Dokumente" means a
-subfolder of `/home/jkrumm/ssd/SSD/Dokumente/`.
+`Bücher/`, `Videos/`, `Public/`, `Dev/`. "Meine Dokumente" means a
+subfolder of `/home/jkrumm/ssd/SSD/Dokumente/`. Audiobooks are not on the SSD —
+they live on the HDD at `/mnt/hdd/Hörbücher/` (SMB share `[HDD]`).
 
 - `Dokumente/` is topic-foldered (`Steuer`, `IDs`, `Vermietung`, `Wallbox`, …).
   Pick the matching topic; when none fits, **create one** (`Auto/` for vehicle
