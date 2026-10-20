@@ -1,9 +1,12 @@
 model:
   provider: custom
-  default: claude-haiku-5-5-eu
-  base_url: ${ANTHROPIC_BASE_URL}
-  api_key: ${ANTHROPIC_API_KEY}
-  api_mode: anthropic_messages
+  # deepseek-v4.1-flash since 2026-10-20 (trial; Haiku 5.5 EU before — revert = restore the
+  # anthropic_messages block from bfa33c3). The id is DeepSeek's own API via Requesty, the 1017
+  # snapshot (same system_fingerprint as the explicit -1017 id); chat_completions is its only wire.
+  default: deepseek-v4.1-flash
+  base_url: ${OPENAI_BASE_URL}
+  api_key: ${OPENAI_API_KEY}
+  api_mode: chat_completions
   # Explicit so model_tools/auxiliary lookups don't fall back to a hardcoded catalog entry
   # (they don't read custom_providers).
   context_length: 1000000
@@ -11,12 +14,14 @@ model:
 providers:
   custom:
     name: Custom
-    base_url: ${ANTHROPIC_BASE_URL}
-    api_key: ${ANTHROPIC_API_KEY}
-    model: claude-haiku-5-5-eu
+    base_url: ${OPENAI_BASE_URL}
+    api_key: ${OPENAI_API_KEY}
+    model: deepseek-v4.1-flash
     discover_models: false
-    api_mode: anthropic_messages
+    api_mode: chat_completions
     models:
+      deepseek-v4.1-flash:
+        context_length: 1000000
       claude-haiku-5-5-eu:
         context_length: 1000000
       gpt-6-luna:
@@ -63,9 +68,10 @@ agent:
   disabled_toolsets:
     - kanban
     - delegation
-  # high: Haiku 5.5 EU on the native Anthropic leg — 15/15 on the bench at ~1.6 s median;
-  # medium dropped a task, xhigh/max think 50-100 s+ on long outputs (modelpick, 2026-10-08).
-  # Reaches the wire via upstream _is_pre_thinking_haiku (Haiku 5.5+ is adaptive).
+  # high: deepseek-v4.1-flash (1017) honours reasoning_effort on DeepSeek's own route — 15/15
+  # at every level, high 1.4 s median (modelpick bench:fast 2026-10-19); it takes tools and
+  # effort together on chat_completions, and transport-iu-reasoning-effort leaves DeepSeek's
+  # effort untouched. (The 2026-09 `max` was set when the Fireworks route ignored effort.)
   reasoning_effort: high
 terminal:
   backend: local
