@@ -165,6 +165,33 @@ check("renamed row flagged",
 check("unpinned job not flagged",
       ccr.missing_pin_error("cc7900c424a9", "cron/morning-briefing.md", {"cc7900c424a9"}), None)
 
+print("\n13. parse_agent_rows() — a reworded prompt cell still names an agent row to flag")
+md = """\
+| Job id | Name | Schedule | Mode | Model | Script / prompt | Skills | Delivery | State |
+|-|-|-|-|-|-|-|-|-|
+| `8fe7be4985d9` | Brain drift audit | `0 9 * * 6` | agent | pinned | `cron/brain-drift-audit.prompt` | `dispatch` | `slack:C0ASRULFTSS` | live |
+| `2d38c80e685c` | Evening report | `0 22 * * 1-4` | agent | unpinned | `cron/evening-report.prompt.txt` | `argo-api` | `slack:C0AT6TH404R` | paused (waiting on a fix) |
+| `9909f808fe17` | Project narratives | `30 6 * * *` | no-agent | — | `narratives-cron.py` | — | `slack:C0ASRUD7K1U` | live |
+"""
+check("live agent rows", ccr.parse_agent_rows(md), {"8fe7be4985d9"})
+check("reworded prompt path not parseable", "8fe7be4985d9" not in ccr.parse_prompt_files(md), True)
+check("reworded cell leaves a flaggable gap",
+      ccr.parse_agent_rows(md) - ccr.parse_prompt_files(md).keys(), {"8fe7be4985d9"})
+
+print("\n14. compare_unpinned() — a recorded `unpinned` row whose live job carries a pin is drift")
+unpinned = {"cc7900c424a9"}
+ok = {"cc7900c424a9": {"id": "cc7900c424a9", "name": "M", "provider": "", "model": ""}}
+check("still-unpinned job is fine", ccr.compare_unpinned(unpinned, ok), [])
+pinned = {"cc7900c424a9": {"id": "cc7900c424a9", "name": "M", "provider": "custom",
+                           "model": "claude-haiku-5-5-eu"}}
+errors = ccr.compare_unpinned(unpinned, pinned)
+check("pinned live job flagged", len(errors), 1)
+check_true("message names the pin and the recorded unpinned",
+           "custom/claude-haiku-5-5-eu" in errors[0] and "unpinned" in errors[0])
+partial = {"cc7900c424a9": {"id": "cc7900c424a9", "name": "M", "provider": "custom", "model": ""}}
+errors = ccr.compare_unpinned(unpinned, partial)
+check("provider-only pin flagged too", len(errors), 1)
+
 print()
 if failures:
     print(f"{len(failures)} failure(s):")

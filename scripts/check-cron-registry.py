@@ -17,6 +17,10 @@ bullet list) in `docs/scheduled-jobs.md`. This checks both directions:
 - a live job's `provider`/`model` must equal the `pinned` row in its
   `cron/<name>.md` Model line; a job whose pin doc has no parseable Model line
   is a ✗ unless its registry row records `unpinned` (a decision, not a drift)
+- an `agent`-mode row must name a `cron/*.prompt.txt` path; a reworded path
+  drops the row out of the prompt and pin checks, so it is a ✗
+- a row recorded `unpinned` must have a live job with no `provider`/`model`
+  (a pin added later without updating the registry is drift, not the default)
 
 Used by `make status` (`Makefile`'s `status` target shells out to this
 file); see `tests/test_check_cron_registry.py` for the unit coverage that a
@@ -35,6 +39,9 @@ RETIRED_RE = re.compile(r"^- \*\*`([0-9a-f]{12})`", re.M)
 PROMPT_RE = re.compile(r"^\| `([0-9a-f]{12})` \|[^\n]*?`(cron/[^`\n]+\.prompt\.txt)`", re.M)
 PIN_RE = re.compile(r"^\| Model \| pinned `([^`]*)` / `([^`]*)`", re.M)
 UNPINNED_RE = re.compile(r"^\| `([0-9a-f]{12})` \|[^\n]*?\| unpinned \|", re.M)
+AGENT_ROW_RE = re.compile(
+    r"^\| `([0-9a-f]{12})` \|[^|]*\|[^|]*\| agent \|.*\| (live|paused \([^|]*\)) \|$", re.M
+)
 
 
 def parse_registry(md_text: str) -> tuple[list[tuple[str, str]], list[str]]:
@@ -63,6 +70,12 @@ def parse_pin(md_text: str) -> tuple[str, str] | None:
 def parse_unpinned(md_text: str) -> set[str]:
     """Return the job ids whose registry row records `unpinned` (no pin by design)."""
     return set(UNPINNED_RE.findall(md_text))
+
+
+def parse_agent_rows(md_text: str) -> set[str]:
+    """Return the job ids of live `agent`-mode rows, which must each name a
+    `cron/*.prompt.txt` path so the prompt and pin checks can reach them."""
+    return {job_id for job_id, state in AGENT_ROW_RE.findall(md_text) if state == "live"}
 
 
 def missing_pin_error(job_id: str, pin_path: str, unpinned: set[str]) -> str | None:
@@ -104,6 +117,25 @@ def compare_pins(pins: dict[str, tuple[str, str]], jobs: dict[str, dict]) -> lis
                 f"live job {job_id} ({job.get('name')}) is "
                 f"{live[0] or 'unpinned'}/{live[1] or 'unpinned'} but cron/*.md pins "
                 f"{provider}/{model} — re-pin with `hermes cron edit --provider --model`"
+            )
+    return errors
+
+
+def compare_unpinned(unpinned: set[str], jobs: dict[str, dict]) -> list[str]:
+    """`unpinned` ids record that a job follows the global default; a live job that
+    carries a `provider`/`model` pin has drifted from that recorded decision."""
+    errors: list[str] = []
+    for job_id in sorted(unpinned):
+        job = jobs.get(job_id)
+        if job is None:
+            continue
+        provider = job.get("provider") or ""
+        model = job.get("model") or ""
+        if provider or model:
+            errors.append(
+                f"live job {job_id} ({job.get('name')}) is {provider or 'unpinned'}/"
+                f"{model or 'unpinned'} but its registry row records `unpinned` — "
+                "record `pinned` in the registry or clear the pin"
             )
     return errors
 
@@ -195,9 +227,10 @@ def main(argv: list[str] | None = None) -> int:
     errors = compare(rows, retired, jobs)
     repo = os.path.dirname(os.path.dirname(os.path.abspath(md_path)))
     unpinned = parse_unpinned(md_text)
+    prompt_paths = parse_prompt_files(md_text)
     prompts: dict[str, str] = {}
     pins: dict[str, tuple[str, str]] = {}
-    for job_id, rel in parse_prompt_files(md_text).items():
+    for job_id, rel in prompt_paths.items():
         try:
             with open(os.path.join(repo, rel)) as f:
                 prompts[job_id] = f.read()
@@ -217,8 +250,15 @@ def main(argv: list[str] | None = None) -> int:
             err = missing_pin_error(job_id, pin_path, unpinned)
             if err is not None:
                 errors.append(err)
+    for job_id in sorted(parse_agent_rows(md_text)):
+        if job_id not in prompt_paths:
+            errors.append(
+                f"job {job_id} is an `agent` job in docs/scheduled-jobs.md but its "
+                "Script / prompt cell names no `cron/*.prompt.txt` path"
+            )
     errors += compare_prompts(prompts, jobs)
     errors += compare_pins(pins, jobs)
+    errors += compare_unpinned(unpinned, jobs)
 
     if errors:
         for e in errors:
