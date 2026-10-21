@@ -54,9 +54,9 @@ def emit_coverage() -> None:
 
 
 def emit_agents_overview() -> None:
-    """Append the read-only agents-overview digest (fetch only, no refresh —
+    """Append the read-only agents-overview digest (cached fetch, no refresh —
     a fresh LLM pass can run past this script's own timeout budget)."""
-    _run_subscript(AGENTS_OVERVIEW_SCRIPT, timeout=15, args=["--briefing"])
+    _run_subscript(AGENTS_OVERVIEW_SCRIPT, timeout=15, args=["--briefing-cached"])
 
 
 def emit_project_narratives() -> None:

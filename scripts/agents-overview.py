@@ -496,13 +496,13 @@ def main(argv: list[str] | None = None) -> int:
     args = argv if argv is not None else sys.argv[1:]
     base = _base_url()
 
-    if "--briefing" in args:
+    if "--briefing" in args or "--briefing-cached" in args:
         try:
             cur = fetch(base)
         except Exception:
             print("agents overview unavailable")
             return 0
-        if needs_refresh(cur, _briefing_max_age_ms()):
+        if "--briefing-cached" not in args and needs_refresh(cur, _briefing_max_age_ms()):
             refreshed = refresh(base)
             if refreshed is not None:
                 cur = refreshed
@@ -544,7 +544,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
-    print("usage: agents-overview.py --briefing | --json | --post-full", file=sys.stderr)
+    print("usage: agents-overview.py --briefing | --briefing-cached | --json | --post-full", file=sys.stderr)
     return 2
 
 

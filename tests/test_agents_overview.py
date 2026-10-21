@@ -112,6 +112,22 @@ try:
 finally:
     ao.fetch = _orig_fetch
 
+print("\n13b. main(['--briefing-cached']) never refreshes, even when the overview is stale")
+_stale = {"overview": {"ageMs": 10 * 7200_000, "verdicts": []}, "projects": [], "summary": {}}
+_orig_fetch = ao.fetch
+_orig_refresh = ao.refresh
+ao.fetch = lambda base, timeout_s=10: _stale
+ao.refresh = lambda base, poll_interval=20: (_ for _ in ()).throw(AssertionError("refresh called"))
+try:
+    out = io.StringIO()
+    with redirect_stdout(out):
+        rc = ao.main(["--briefing-cached"])
+    check("exit 0", rc, 0)
+    check_true("prints the cached briefing without calling refresh", "agents overview unavailable" not in out.getvalue())
+finally:
+    ao.fetch = _orig_fetch
+    ao.refresh = _orig_refresh
+
 
 # --- needs_you agents + the human queue ---------------------------------------
 
