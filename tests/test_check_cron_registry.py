@@ -148,6 +148,23 @@ errors = ccr.compare_pins(pins, unpinned)
 check("unpinned live job flagged", len(errors), 1)
 check_true("message names both sides", "unpinned/unpinned" in errors[0] and "custom/claude-haiku-5-5-eu" in errors[0])
 
+print("\n11. parse_unpinned() — registry `unpinned` marker is the recorded no-pin decision")
+md = """\
+| Job id | Name | Schedule | Mode | Model | Script / prompt | Skills | Delivery | State |
+|-|-|-|-|-|-|-|-|-|
+| `cc7900c424a9` | Morning briefing | `0 7 * * 1-5` | agent | unpinned | `briefing-context.py` pre-run · `cron/morning-briefing.prompt.txt` | `argo-api` | `slack:C0AT6TH404R` | live |
+| `8fe7be4985d9` | Brain drift audit | `0 9 * * 6` | agent | pinned | `cron/brain-drift-audit.prompt.txt` | `dispatch` | `slack:C0ASRULFTSS` | live |
+"""
+check("unpinned ids", ccr.parse_unpinned(md), {"cc7900c424a9"})
+
+print("\n12. missing_pin_error() — a renamed Model row is a drift, `unpinned` is a decision")
+check("renamed Model row yields None", ccr.parse_pin("| Model | custom / deepseek-v4.1-flash |"), None)
+check("renamed row flagged",
+      ccr.missing_pin_error("8fe7be4985d9", "cron/brain-drift-audit.md", set()),
+      "job 8fe7be4985d9 names cron/brain-drift-audit.md but it has no parseable Model pin — re-pin with `hermes cron edit --provider --model` or record `unpinned` in the registry")
+check("unpinned job not flagged",
+      ccr.missing_pin_error("cc7900c424a9", "cron/morning-briefing.md", {"cc7900c424a9"}), None)
+
 print()
 if failures:
     print(f"{len(failures)} failure(s):")

@@ -13,12 +13,17 @@ the same commit that registers it.
 **State vocabulary:** `live` | `paused (<reason>)` | `retired (<date>, <reason>)`. A row's
 state must match the live job's — `make status` asserts it.
 
-| Job id | Name | Schedule | Mode | Script / prompt | Skills | Delivery | State |
-|-|-|-|-|-|-|-|-|
-| `cc7900c424a9` | Morning briefing | `0 7 * * 1-5` | agent | `briefing-context.py` pre-run · `cron/morning-briefing.prompt.txt` | `argo-api`, `work` | `slack:C0AT6TH404R` #briefings | live |
-| `2d38c80e685c` | Evening report | `0 22 * * 1-4` | agent | `briefing-context.py` pre-run · `cron/evening-report.prompt.txt` | `argo-api`, `work` | `slack:C0AT6TH404R` #briefings | live |
-| `8fe7be4985d9` | Brain drift audit | `0 9 * * 6` | agent | `cron/brain-drift-audit.prompt.txt` | `dispatch`, `obsidian` | `slack:C0ASRULFTSS` #watchdog | live |
-| `9909f808fe17` | Project narratives | `30 6 * * *` | no-agent | `narratives-cron.py` → `project-narratives.py --run` | — | `slack:C0ASRUD7K1U` #hermes | live |
+**Model vocabulary:** `pinned` | `unpinned` | `—` (no-agent). `unpinned` is a *recorded*
+decision — the job follows the global default and `make status` expects no `cron/<name>.md`
+Model pin for it. Any other agent job whose pin doc lacks a parseable
+`| Model | pinned … |` line is a ✗ (a reworded or deleted Model line must not pass silently).
+
+| Job id | Name | Schedule | Mode | Model | Script / prompt | Skills | Delivery | State |
+|-|-|-|-|-|-|-|-|-|
+| `cc7900c424a9` | Morning briefing | `0 7 * * 1-5` | agent | unpinned | `briefing-context.py` pre-run · `cron/morning-briefing.prompt.txt` | `argo-api`, `work` | `slack:C0AT6TH404R` #briefings | live |
+| `2d38c80e685c` | Evening report | `0 22 * * 1-4` | agent | unpinned | `briefing-context.py` pre-run · `cron/evening-report.prompt.txt` | `argo-api`, `work` | `slack:C0AT6TH404R` #briefings | live |
+| `8fe7be4985d9` | Brain drift audit | `0 9 * * 6` | agent | pinned | `cron/brain-drift-audit.prompt.txt` | `dispatch`, `obsidian` | `slack:C0ASRULFTSS` #watchdog | live |
+| `9909f808fe17` | Project narratives | `30 6 * * *` | no-agent | — | `narratives-cron.py` → `project-narratives.py --run` | — | `slack:C0ASRUD7K1U` #hermes | live |
 
 **Unpinned jobs stop, they don't re-route, when the global model moves.** `cron.model_drift_guard`
 (on unless `cron.model_drift_guard: false`) refuses to fire any job whose *creation snapshot* of

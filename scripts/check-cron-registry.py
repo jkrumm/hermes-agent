@@ -15,7 +15,8 @@ bullet list) in `docs/scheduled-jobs.md`. This checks both directions:
 - a live job's `prompt` must equal its registry row's `cron/*.prompt.txt`
   (the tracked copy; `hermes cron edit --prompt` is the only way to change it)
 - a live job's `provider`/`model` must equal the `pinned` row in its
-  `cron/<name>.md` Model line, when that line pins one
+  `cron/<name>.md` Model line; a job whose pin doc has no parseable Model line
+  is a ✗ unless its registry row records `unpinned` (a decision, not a drift)
 
 Used by `make status` (`Makefile`'s `status` target shells out to this
 file); see `tests/test_check_cron_registry.py` for the unit coverage that a
@@ -33,6 +34,7 @@ ROW_RE = re.compile(r"^\| `([0-9a-f]{12})` \|.*\| (live|paused \([^|]*\)) \|$", 
 RETIRED_RE = re.compile(r"^- \*\*`([0-9a-f]{12})`", re.M)
 PROMPT_RE = re.compile(r"^\| `([0-9a-f]{12})` \|[^\n]*?`(cron/[^`\n]+\.prompt\.txt)`", re.M)
 PIN_RE = re.compile(r"^\| Model \| pinned `([^`]*)` / `([^`]*)`", re.M)
+UNPINNED_RE = re.compile(r"^\| `([0-9a-f]{12})` \|[^\n]*?\| unpinned \|", re.M)
 
 
 def parse_registry(md_text: str) -> tuple[list[tuple[str, str]], list[str]]:
@@ -56,6 +58,22 @@ def parse_pin(md_text: str) -> tuple[str, str] | None:
     """Return (provider, model) from a cron/<name>.md `| Model | pinned ... |` line."""
     m = PIN_RE.search(md_text)
     return (m.group(1), m.group(2)) if m else None
+
+
+def parse_unpinned(md_text: str) -> set[str]:
+    """Return the job ids whose registry row records `unpinned` (no pin by design)."""
+    return set(UNPINNED_RE.findall(md_text))
+
+
+def missing_pin_error(job_id: str, pin_path: str, unpinned: set[str]) -> str | None:
+    """The ✗ sentence for a pin doc with no parseable Model line, unless the job's
+    registry row records `unpinned` — then absence is a recorded decision, not drift."""
+    if job_id in unpinned:
+        return None
+    return (
+        f"job {job_id} names {pin_path} but it has no parseable Model pin — "
+        "re-pin with `hermes cron edit --provider --model` or record `unpinned` in the registry"
+    )
 
 
 def compare_prompts(prompts: dict[str, str], jobs: dict[str, dict]) -> list[str]:
@@ -176,6 +194,7 @@ def main(argv: list[str] | None = None) -> int:
 
     errors = compare(rows, retired, jobs)
     repo = os.path.dirname(os.path.dirname(os.path.abspath(md_path)))
+    unpinned = parse_unpinned(md_text)
     prompts: dict[str, str] = {}
     pins: dict[str, tuple[str, str]] = {}
     for job_id, rel in parse_prompt_files(md_text).items():
@@ -191,9 +210,13 @@ def main(argv: list[str] | None = None) -> int:
                 pin = parse_pin(f.read())
         except FileNotFoundError:
             errors.append(f"job {job_id} names {pin_path} (Model pin doc) but it is missing")
-            pin = None
+            continue
         if pin is not None:
             pins[job_id] = pin
+        else:
+            err = missing_pin_error(job_id, pin_path, unpinned)
+            if err is not None:
+                errors.append(err)
     errors += compare_prompts(prompts, jobs)
     errors += compare_pins(pins, jobs)
 
