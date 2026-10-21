@@ -12,6 +12,10 @@ bullet list) in `docs/scheduled-jobs.md`. This checks both directions:
 - a `## Retired` id must have NO live job
 - any live job absent from the registry entirely is a ✗, enabled or not
   (that is how the brain drift audit lived for three weeks in jobs.json alone)
+- a live job's `prompt` must equal its registry row's `cron/*.prompt.txt`
+  (the tracked copy; `hermes cron edit --prompt` is the only way to change it)
+- a live job's `provider`/`model` must equal the `pinned` row in its
+  `cron/<name>.md` Model line, when that line pins one
 
 Used by `make status` (`Makefile`'s `status` target shells out to this
 file); see `tests/test_check_cron_registry.py` for the unit coverage that a
@@ -27,6 +31,8 @@ import sys
 
 ROW_RE = re.compile(r"^\| `([0-9a-f]{12})` \|.*\| (live|paused \([^|]*\)) \|$", re.M)
 RETIRED_RE = re.compile(r"^- \*\*`([0-9a-f]{12})`", re.M)
+PROMPT_RE = re.compile(r"^\| `([0-9a-f]{12})` \|[^\n]*?`(cron/[^`\n]+\.prompt\.txt)`", re.M)
+PIN_RE = re.compile(r"^\| Model \| pinned `([^`]*)` / `([^`]*)`", re.M)
 
 
 def parse_registry(md_text: str) -> tuple[list[tuple[str, str]], list[str]]:
@@ -39,6 +45,49 @@ def parse_registry(md_text: str) -> tuple[list[tuple[str, str]], list[str]]:
     rows = ROW_RE.findall(md_text)
     retired = RETIRED_RE.findall(md_text)
     return rows, retired
+
+
+def parse_prompt_files(md_text: str) -> dict[str, str]:
+    """Return {job_id: repo-relative cron/*.prompt.txt} for every row that names one."""
+    return {job_id: path for job_id, path in PROMPT_RE.findall(md_text)}
+
+
+def parse_pin(md_text: str) -> tuple[str, str] | None:
+    """Return (provider, model) from a cron/<name>.md `| Model | pinned ... |` line."""
+    m = PIN_RE.search(md_text)
+    return (m.group(1), m.group(2)) if m else None
+
+
+def compare_prompts(prompts: dict[str, str], jobs: dict[str, dict]) -> list[str]:
+    """`prompts` maps job id -> tracked prompt body; a live job must carry exactly that body."""
+    errors: list[str] = []
+    for job_id, body in sorted(prompts.items()):
+        job = jobs.get(job_id)
+        if job is None:
+            continue
+        if (job.get("prompt") or "").strip() != body.strip():
+            errors.append(
+                f"live job {job_id} ({job.get('name')}) prompt differs from its tracked "
+                "cron/*.prompt.txt — push it with `hermes cron edit --prompt`"
+            )
+    return errors
+
+
+def compare_pins(pins: dict[str, tuple[str, str]], jobs: dict[str, dict]) -> list[str]:
+    """`pins` maps job id -> (provider, model) recorded in its cron/<name>.md."""
+    errors: list[str] = []
+    for job_id, (provider, model) in sorted(pins.items()):
+        job = jobs.get(job_id)
+        if job is None:
+            continue
+        live = (job.get("provider") or "", job.get("model") or "")
+        if live != (provider, model):
+            errors.append(
+                f"live job {job_id} ({job.get('name')}) is "
+                f"{live[0] or 'unpinned'}/{live[1] or 'unpinned'} but cron/*.md pins "
+                f"{provider}/{model} — re-pin with `hermes cron edit --provider --model`"
+            )
+    return errors
 
 
 def compare(rows: list[tuple[str, str]], retired: list[str], jobs: dict[str, dict]) -> list[str]:
@@ -126,6 +175,25 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     errors = compare(rows, retired, jobs)
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(md_path)))
+    prompts: dict[str, str] = {}
+    pins: dict[str, tuple[str, str]] = {}
+    for job_id, rel in parse_prompt_files(md_text).items():
+        try:
+            with open(os.path.join(repo, rel)) as f:
+                prompts[job_id] = f.read()
+        except OSError:
+            errors.append(f"job {job_id} names {rel} in docs/scheduled-jobs.md but the file is missing")
+            continue
+        try:
+            with open(os.path.join(repo, rel[: -len(".prompt.txt")] + ".md")) as f:
+                pin = parse_pin(f.read())
+        except OSError:
+            pin = None
+        if pin is not None:
+            pins[job_id] = pin
+    errors += compare_prompts(prompts, jobs)
+    errors += compare_pins(pins, jobs)
 
     if errors:
         for e in errors:

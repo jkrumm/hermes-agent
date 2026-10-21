@@ -13,6 +13,9 @@ API_SERVER_ENABLED=true
 API_SERVER_HOST=op://hermes/gateway/host
 API_SERVER_PORT=8642
 API_SERVER_KEY=op://hermes/gateway/api-server-key
+# Advertised model name: argo sends model "hermes" and must route to the brain, not the
+# fallback. Literal, not an op:// ref — it is a routing label, not a secret.
+API_SERVER_MODEL_NAME=hermes
 
 # Slack (create app via manifest: hermes/slack-app-manifest.json)
 SLACK_BOT_TOKEN=op://hermes/slack/bot-token

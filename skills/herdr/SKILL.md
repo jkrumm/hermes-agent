@@ -190,7 +190,7 @@ bare `ssh mini 'claude …'` comes up `Not logged in` and silently bills the API
 
 | Verb | What it starts |
 |-|-|
-| `rd wave <repo> '<prompt>'` | a fresh herdr tab labelled `wave <n>` running one bounded wave |
+| `rd wave <repo> '<prompt>'` | a fresh herdr tab labelled `wave <n>` running one bounded wave — gated: `scripts/wave-gate.py` requires `docs/waves/PLAN.md` (or the plan path the prompt names) with one active wave. Free-form work with no plan is `rd work <repo>` |
 | `rd fan <repo> <brief-files…>` | one worktree + tab per brief in the repo's existing workspace (fan-out) |
 | `rd merge <repo> <branches…>` | rebase/check/merge train, GitHub only |
 | `rd read` / `rd say <agent>` / `rd close <agent>` | read, steer, close a finished wave tab |
@@ -199,9 +199,9 @@ bare `ssh mini 'claude …'` comes up `Not logged in` and silently bills the API
 
 The model is an env var, not a flag: **`RD_WAVE_MODEL`** (default `sonnet`). `rd` is the only way to place a *visible* agent on the mini (background repo work is `warden run`) — never a raw `claude --bg` / `claude -p`, which loses the keychain credential and the house flags.
 
-A long prompt is safe: the script base64s it and stages it in a temp file,
-because a pane's canonical input stops at 1024 bytes — never inline a brief
-longer than ~700 bytes by hand.
+A long prompt is safe: the script base64s it and carries it inline on the host command
+line (`echo <b64> | base64 -d`), not via a temp file, because a pane's canonical input stops
+at 1024 bytes — never inline a brief longer than ~700 bytes by hand.
 
 ## Integrations — the difference between a pane and an agent
 

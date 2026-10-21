@@ -119,6 +119,35 @@ check("two errors, one per undocumented job regardless of enabled", len(errors),
 check_true("enabled undocumented job flagged", any("deadbeef0001" in e for e in errors))
 check_true("disabled undocumented job flagged too", any("deadbeef0002" in e for e in errors))
 
+print("\n8. parse_prompt_files() / parse_pin() — registry prompt path and cron/*.md pin")
+md = """\
+| Job id | Name | Schedule | Mode | Script / prompt | Skills | Delivery | State |
+|-|-|-|-|-|-|-|-|
+| `cc7900c424a9` | Morning briefing | `0 7 * * 1-5` | agent | `briefing-context.py` pre-run · `cron/morning-briefing.prompt.txt` | `argo-api` | `slack:C0AT6TH404R` | live |
+| `9909f808fe17` | Project narratives | `30 6 * * *` | no-agent | `narratives-cron.py` | — | `slack:C0ASRUD7K1U` | live |
+"""
+check("prompt files", ccr.parse_prompt_files(md), {"cc7900c424a9": "cron/morning-briefing.prompt.txt"})
+check("pin", ccr.parse_pin("| Model | pinned `custom` / `claude-haiku-5-5-eu` (re-pinned) |"),
+      ("custom", "claude-haiku-5-5-eu"))
+check("no pin", ccr.parse_pin("| Model | inherits the global default |"), None)
+
+print("\n9. compare_prompts() — live prompt must equal the tracked file body")
+prompts = {"cc7900c424a9": "Brief text.\n"}
+check("matching body (trailing newline ignored)",
+      ccr.compare_prompts(prompts, {"cc7900c424a9": {"id": "cc7900c424a9", "name": "M", "prompt": "Brief text."}}), [])
+errors = ccr.compare_prompts(prompts, {"cc7900c424a9": {"id": "cc7900c424a9", "name": "M", "prompt": "Old text."}})
+check("drifted body flagged", len(errors), 1)
+check("unregistered job skipped (compare() owns that)", ccr.compare_prompts(prompts, {}), [])
+
+print("\n10. compare_pins() — live provider/model must equal the pinned pair")
+pins = {"8fe7be4985d9": ("custom", "claude-haiku-5-5-eu")}
+ok = {"8fe7be4985d9": {"id": "8fe7be4985d9", "name": "D", "provider": "custom", "model": "claude-haiku-5-5-eu"}}
+check("matching pin", ccr.compare_pins(pins, ok), [])
+unpinned = {"8fe7be4985d9": {"id": "8fe7be4985d9", "name": "D", "provider": "", "model": ""}}
+errors = ccr.compare_pins(pins, unpinned)
+check("unpinned live job flagged", len(errors), 1)
+check_true("message names both sides", "unpinned/unpinned" in errors[0] and "custom/claude-haiku-5-5-eu" in errors[0])
+
 print()
 if failures:
     print(f"{len(failures)} failure(s):")
