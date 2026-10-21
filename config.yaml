@@ -179,7 +179,7 @@ bedrock:
 auxiliary:
   vision:
     provider: custom
-    model: gemini-3.5-flash
+    model: gemini-3.8-flash
     base_url: ${OPENAI_BASE_URL}
     api_key: ${OPENAI_API_KEY}
     timeout: 120
@@ -268,7 +268,7 @@ auxiliary:
     timeout: 600
 display:
   compact: false
-  personality: ''
+  personality: 'concise'
   resume_display: full
   resume_exchanges: 10
   resume_max_user_chars: 300
