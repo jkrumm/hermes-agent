@@ -116,12 +116,13 @@ this is how Johannes starts one himself, and what he means by "mit cf":
 | `cs` | same, pinned to **Sonnet** |
 | `ca [model]` | the IU endpoint route, off Max |
 
-Start it by typing the launcher into the pane — **not** `herdr agent start`, which
-uses herdr's own bare `claude` command and loses the house flags:
+Start it by typing the launcher into the pane — or `herdr agent start --kind claude
+--pane w1E:p4 -- --dangerously-skip-permissions --model <model>`, which passes the
+house flags after `--` rather than losing them (that is what `rd` does):
 
 ```bash
 herdr pane run w1E:p4 'cf'
-herdr pane wait-output w1E:p4 --regex 'bypass permissions|Welcome|>' --timeout 90000
+herdr agent wait w1E:p4 --until idle --timeout 90000
 herdr agent list | jq -r '.result.agents[] | select(.pane_id=="w1E:p4")'
 ```
 
@@ -184,7 +185,7 @@ Steering an existing agent is the same two verbs: `agent prompt` for text,
 
 ## The `rd` lane — placing durable work on the mini
 
-`rd` is not on Hermes' PATH; it is `~/SourceRoot/dotfiles/scripts/remote-dev.sh`.
+`rd` is on Hermes' PATH (`~/.local/bin/rd`, symlinked to `~/SourceRoot/dotfiles/scripts/remote-dev.sh`).
 It spawns *through* a herdr pane so the Max keychain credential is reachable (a
 bare `ssh mini 'claude …'` comes up `Not logged in` and silently bills the API).
 
@@ -195,7 +196,7 @@ bare `ssh mini 'claude …'` comes up `Not logged in` and silently bills the API
 | `rd merge <repo> <branches…>` | rebase/check/merge train, GitHub only |
 | `rd read` / `rd say <agent>` / `rd close <agent>` | read, steer, close a finished wave tab |
 
-`rd` verifies prompt delivery (no `working` state within 30 s → one re-send); `rd read` it if the agent is still idle after that. `agent prompt`/`agent wait` can exit 0 on a failed delivery — read the pane before claiming it started.
+`rd` verifies prompt delivery (no `working` state within 30 s → one re-send); `rd read` it if the agent is still idle after that. `agent prompt`/`agent wait` exit 1 on a failed delivery — read the pane before claiming it started.
 
 The model is an env var, not a flag: **`RD_WAVE_MODEL`** (default `sonnet`). `rd` is the only way to place a *visible* agent on the mini (background repo work is `warden run`) — never a raw `claude --bg` / `claude -p`, which loses the keychain credential and the house flags.
 
