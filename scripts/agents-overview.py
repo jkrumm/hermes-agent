@@ -512,6 +512,9 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"overview verdicts are {_fmt_age_ms(age_ms)} old")
                 return 0
         print(render_briefing(cur))
+        if "--briefing-cached" in args and needs_refresh(cur, _briefing_max_age_ms()):
+            age_ms = (cur.get("overview") or {}).get("ageMs")
+            print(f"overview verdicts are {_fmt_age_ms(age_ms)} old")
         return 0
 
     if "--json" in args:

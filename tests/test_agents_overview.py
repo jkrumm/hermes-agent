@@ -124,6 +124,7 @@ try:
         rc = ao.main(["--briefing-cached"])
     check("exit 0", rc, 0)
     check_true("prints the cached briefing without calling refresh", "agents overview unavailable" not in out.getvalue())
+    check_true("prints a staleness note when cached and stale", "overview verdicts are" in out.getvalue())
 finally:
     ao.fetch = _orig_fetch
     ao.refresh = _orig_refresh

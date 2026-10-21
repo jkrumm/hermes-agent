@@ -185,10 +185,12 @@ def main(argv: list[str] | None = None) -> int:
         except OSError:
             errors.append(f"job {job_id} names {rel} in docs/scheduled-jobs.md but the file is missing")
             continue
+        pin_path = rel[: -len(".prompt.txt")] + ".md"
         try:
-            with open(os.path.join(repo, rel[: -len(".prompt.txt")] + ".md")) as f:
+            with open(os.path.join(repo, pin_path)) as f:
                 pin = parse_pin(f.read())
-        except OSError:
+        except FileNotFoundError:
+            errors.append(f"job {job_id} names {pin_path} (Model pin doc) but it is missing")
             pin = None
         if pin is not None:
             pins[job_id] = pin
