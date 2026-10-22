@@ -161,7 +161,13 @@ def _load_jobs(jobs_json_path: str) -> dict[str, dict]:
         return {}
     with open(jobs_json_path) as f:
         data = json.load(f)
-    return {j["id"]: j for j in data.get("jobs", [])}
+    jobs: dict[str, dict] = {}
+    for j in data.get("jobs", []):
+        job_id = j.get("id") if isinstance(j, dict) else None
+        if not job_id:
+            raise ValueError(f"job in jobs.json is missing an 'id': {j!r}")
+        jobs[job_id] = j
+    return jobs
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -194,7 +200,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             with open(os.path.join(repo_root, rel)) as f:
                 return f.read()
-        except OSError:
+        except (OSError, ValueError, UnicodeDecodeError):
             return None
 
     try:

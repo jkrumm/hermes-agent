@@ -375,7 +375,7 @@ print("    ✓ approvals + guards off (no prompts)") if not bad else print("    
 	@# down — checked regardless of enabled (that is how the brain drift audit
 	@# lived for three weeks in jobs.json alone).
 	@python3 "$(HERMES_REPO)/scripts/check-cron-registry.py" \
-		"$(HERMES_REPO)/docs/scheduled-jobs.md" "$(HERMES_DIR)/cron/jobs.json" 2>/dev/null || true
+		"$(HERMES_REPO)/docs/scheduled-jobs.md" "$(HERMES_DIR)/cron/jobs.json"
 	@$(MAKE) --no-print-directory patch-check
 	@# Hermes writes into this repo through the skill symlinks during ordinary
 	@# foreground use — it has authored whole nested skills under skills/homelab/
