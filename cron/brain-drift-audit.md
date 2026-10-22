@@ -15,7 +15,7 @@ auto-loaded.** The live job carries its own copy of the prompt in `~/.hermes/cro
 | Pre-run script | none — the agent runs the whole turn |
 | Deliver | `slack:C0ASRULFTSS` (#watchdog) |
 | Name | `Brain drift audit` |
-| Model | pinned `custom` / `claude-haiku-5-5-eu` (re-pinned after the 2026-10-08 brain switch) |
+| Model | pinned `custom` / `deepseek-v4.1-flash` (re-pinned on the 2026-10-20 brain switch) |
 
 ## What it does
 
@@ -39,12 +39,13 @@ so a global switch can never silently change what a job spends. This job was cre
 under `custom`/`gpt-5.6-luna`; the brain moved to `deepseek-v4.1-flash` on 2026-09-13, and the
 2026-09-19 09:00 run was skipped (`[drift_skip]`, alerted once) with no inference call made.
 
-It is now **pinned** to the current brain — `hermes cron edit 8fe7be4985d9 --provider custom
---model claude-haiku-5-5-eu` — which clears both snapshots and drops the authority to the pin:
-the job no longer follows a later global model change. The 2026-10-08 brain switch to
-`claude-haiku-5-5-eu` (DeepSeek dropped from routing 2026-10-09) re-pointed this pin; the
-2026-10-10 09:00 run had already requested the now-retired `deepseek-v4.1-flash` and 404'd. Re-pin
-deliberately if the brain moves again; leaving it unpinned means it stops and asks rather than
+It is **pinned** to the current brain — `hermes cron edit 8fe7be4985d9 --provider custom
+--model deepseek-v4.1-flash` — which clears both snapshots and drops the authority to the pin:
+the job no longer follows a later global model change. The 2026-10-08 Haiku brain
+(`claude-haiku-5-5-eu`) was the previous pin; the 2026-10-20 switch to `deepseek-v4.1-flash` on
+`chat_completions` re-points it. `make status` (`scripts/check-cron-registry.py`) fails when a
+job's pinned model differs from `model.default` in `config.yaml`, so a stale pin cannot hide.
+Re-pin deliberately if the brain moves again; leaving it unpinned means it stops and asks rather than
 re-routing.
 
 ## Edit
@@ -52,5 +53,5 @@ re-routing.
 ```bash
 hermes cron edit 8fe7be4985d9 --prompt "$(cat ~/SourceRoot/hermes-agent/cron/brain-drift-audit.prompt.txt)"
 hermes cron edit 8fe7be4985d9 --skill dispatch --skill obsidian   # replaces the set
-hermes cron edit 8fe7be4985d9 --provider custom --model claude-haiku-5-5-eu   # re-pin if the brain moves
+hermes cron edit 8fe7be4985d9 --provider custom --model deepseek-v4.1-flash   # re-pin if the brain moves
 ```

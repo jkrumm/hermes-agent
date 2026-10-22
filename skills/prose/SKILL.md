@@ -10,7 +10,7 @@ metadata:
 
 # Prose — the writing pass for longer artifacts
 
-You write on Haiku; the `prose` job rewrites on a stronger writer against `~/SourceRoot/brain/voice.md`, with a different lab reviewing and a lint gate that discards a rewrite that loses a code block, a URL or a fact. One script wraps it: `~/.hermes/scripts/prose.py`.
+You write on the brain (deepseek-v4.1-flash, `chat_completions`); the `prose` job rewrites on a stronger writer against `~/SourceRoot/brain/voice.md`, with a different lab reviewing and a lint gate that discards a rewrite that loses a code block, a URL or a fact. One script wraps it: `~/.hermes/scripts/prose.py`.
 
 ## When to use
 

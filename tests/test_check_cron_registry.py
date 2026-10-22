@@ -119,6 +119,78 @@ check("two errors, one per undocumented job regardless of enabled", len(errors),
 check_true("enabled undocumented job flagged", any("deadbeef0001" in e for e in errors))
 check_true("disabled undocumented job flagged too", any("deadbeef0002" in e for e in errors))
 
+# --- parse_prompt_files() / parse_brain_model() ----------------------------
+
+print("\n8. parse_prompt_files() — registry rows naming a tracked prompt file")
+md = """\
+| Job id | Name | Script / prompt | State |
+|-|-|-|-|
+| `cc7900c424a9` | Morning briefing | `briefing-context.py` pre-run · `cron/morning-briefing.prompt.txt` | live |
+| `9909f808fe17` | Project narratives | `narratives-cron.py` | live |
+"""
+check("only the row naming a prompt file", ccr.parse_prompt_files(md),
+      {"cc7900c424a9": "cron/morning-briefing.prompt.txt"})
+
+print("\n9. parse_brain_model() — model.default from the top-level model block only")
+cfg = """\
+platform:
+  default: slack
+model:
+  provider: custom
+  # default: commented-out example
+  default: deepseek-v4.1-flash
+  api_mode: chat_completions
+other:
+  default: not-the-brain
+"""
+check("brain model", ccr.parse_brain_model(cfg), "deepseek-v4.1-flash")
+check("no model block -> None", ccr.parse_brain_model("platform:\n  default: slack\n"), None)
+
+# --- compare_prompts() / compare_pins() --------------------------------------
+
+BRAIN = "deepseek-v4.1-flash"
+REPO_PROMPT = "Morning briefing body.\n"
+repo_files = {"cron/morning-briefing.prompt.txt": REPO_PROMPT}
+
+
+def read_repo(rel: str):
+    return repo_files.get(rel)
+
+
+print("\n10. compare_prompts() — live prompt matches the tracked file (ends ignored)")
+pf = {"cc7900c424a9": "cron/morning-briefing.prompt.txt"}
+jobs = {"cc7900c424a9": {**mk_job("cc7900c424a9", "Morning briefing"), "prompt": "Morning briefing body."}}
+check("no errors", ccr.compare_prompts(pf, jobs, read_repo), [])
+
+print("\n11. compare_prompts() — live-only edit (the :7734 curl) is drift")
+jobs = {"cc7900c424a9": {**mk_job("cc7900c424a9", "Morning briefing"),
+                         "prompt": "Morning briefing body.\ncurl http://127.0.0.1:7734/status"}}
+errors = ccr.compare_prompts(pf, jobs, read_repo)
+check("one error", len(errors), 1)
+check_true("names the file to push from", "differs from cron/morning-briefing.prompt.txt" in errors[0])
+
+print("\n12. compare_prompts() — tracked file missing is its own error")
+errors = ccr.compare_prompts({"cc7900c424a9": "cron/gone.prompt.txt"}, jobs, read_repo)
+check_true("file missing reported", len(errors) == 1 and "file is missing" in errors[0])
+
+print("\n13. compare_pins() — unpinned job is not checked; pin to the live brain is fine")
+jobs = {
+    "cc7900c424a9": mk_job("cc7900c424a9", "Morning briefing"),
+    "8fe7be4985d9": {**mk_job("8fe7be4985d9", "Brain drift audit"), "model": BRAIN},
+}
+jobs["cc7900c424a9"]["model"] = ""
+check("no errors", ccr.compare_pins(jobs, BRAIN), [])
+
+print("\n14. compare_pins() — brain-drift audit pinned to the dead Haiku model is drift")
+jobs = {"8fe7be4985d9": {**mk_job("8fe7be4985d9", "Brain drift audit"), "model": "claude-haiku-5-5-eu"}}
+errors = ccr.compare_pins(jobs, BRAIN)
+check("one error", len(errors), 1)
+check_true("names both models", "claude-haiku-5-5-eu" in errors[0] and BRAIN in errors[0])
+
+print("\n15. compare_pins() — unreadable config.yaml is reported, not silently passed")
+errors = ccr.compare_pins(jobs, None)
+check_true("config unreadable reported", len(errors) == 1 and "config.yaml" in errors[0])
+
 print()
 if failures:
     print(f"{len(failures)} failure(s):")

@@ -116,16 +116,17 @@ this is how Johannes starts one himself, and what he means by "mit cf":
 | `cs` | same, pinned to **Sonnet** |
 | `ca [model]` | the IU endpoint route, off Max |
 
-Start it by typing the launcher into the pane — **not** `herdr agent start`, which
-uses herdr's own bare `claude` command and loses the house flags:
+Start it by typing the launcher into the pane, which is what Johannes does. Do not
+use `herdr agent start` for this until it is checked on the installed herdr version:
+it is not verified here as carrying the dotfiles launcher's flags.
 
 ```bash
 herdr pane run w1E:p4 'cf'
-herdr pane wait-output w1E:p4 --regex 'bypass permissions|Welcome|>' --timeout 90000
+herdr agent wait w1E:p4 --until idle --timeout 90000
 herdr agent list | jq -r '.result.agents[] | select(.pane_id=="w1E:p4")'
 ```
 
-Wait until that pane shows up in `agent list` as `claude`/`idle` before prompting.
+Readiness is the agent's `idle` state, not a regex over the scrollback. Wait until that pane shows up in `agent list` as `claude`/`idle` before prompting.
 
 ## Prompt it, and read the answer back
 
@@ -184,24 +185,26 @@ Steering an existing agent is the same two verbs: `agent prompt` for text,
 
 ## The `rd` lane — placing durable work on the mini
 
-`rd` is not on Hermes' PATH; it is `~/SourceRoot/dotfiles/scripts/remote-dev.sh`.
+`rd` is the dotfiles script `~/SourceRoot/dotfiles/scripts/remote-dev.sh`; if the bare `rd`
+name does not resolve in your shell, call it by that path.
 It spawns *through* a herdr pane so the Max keychain credential is reachable (a
 bare `ssh mini 'claude …'` comes up `Not logged in` and silently bills the API).
 
 | Verb | What it starts |
 |-|-|
-| `rd wave <repo> '<prompt>'` | a fresh herdr tab labelled `wave <n>` running one bounded wave |
+| `rd wave <repo>` | a fresh herdr tab running the one active wave from `docs/waves/PLAN.md` — `wave-gate.py` refuses unless exactly one wave is active there. Not for free-form prompts. |
+| `rd work <repo> '<prompt>'` | ad-hoc, non-wave work in a fresh herdr tab |
 | `rd fan <repo> <brief-files…>` | one worktree + tab per brief in the repo's existing workspace (fan-out) |
 | `rd merge <repo> <branches…>` | rebase/check/merge train, GitHub only |
 | `rd read` / `rd say <agent>` / `rd close <agent>` | read, steer, close a finished wave tab |
 
-`rd` verifies prompt delivery (no `working` state within 30 s → one re-send); `rd read` it if the agent is still idle after that. `agent prompt`/`agent wait` can exit 0 on a failed delivery — read the pane before claiming it started.
+`rd` checks prompt delivery: if the agent never reaches `working` within 30 s it re-sends once. `rd read` the pane if it is still idle after that. Do not treat the exit code of `agent prompt` or `agent wait` as proof of delivery — confirm `working` with `herdr agent get` and read the pane before claiming it started.
 
 The model is an env var, not a flag: **`RD_WAVE_MODEL`** (default `sonnet`). `rd` is the only way to place a *visible* agent on the mini (background repo work is `warden run`) — never a raw `claude --bg` / `claude -p`, which loses the keychain credential and the house flags.
 
-A long prompt is safe: the script base64s it and stages it in a temp file,
-because a pane's canonical input stops at 1024 bytes — never inline a brief
-longer than ~700 bytes by hand.
+`rd` base64-encodes the prompt into the command line it types; it does not stage
+a temp file. Do not push a long brief through it: put the full brief in a repo
+file and have the wave read that file.
 
 ## Integrations — the difference between a pane and an agent
 

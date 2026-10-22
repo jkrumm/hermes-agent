@@ -502,16 +502,16 @@ def main(argv: list[str] | None = None) -> int:
         except Exception:
             print("agents overview unavailable")
             return 0
-        if needs_refresh(cur, _briefing_max_age_ms()) and "--no-refresh" not in args:
+        stale = needs_refresh(cur, _briefing_max_age_ms())
+        if stale and "--no-refresh" not in args:
             refreshed = refresh(base)
             if refreshed is not None:
                 cur = refreshed
-            else:
-                age_ms = (cur.get("overview") or {}).get("ageMs")
-                print(render_briefing(cur))
-                print(f"overview verdicts are {_fmt_age_ms(age_ms)} old")
-                return 0
+                stale = False
         print(render_briefing(cur))
+        if stale:
+            age_ms = (cur.get("overview") or {}).get("ageMs")
+            print(f"overview verdicts are {_fmt_age_ms(age_ms)} old")
         return 0
 
     if "--json" in args:
