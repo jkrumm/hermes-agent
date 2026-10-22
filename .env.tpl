@@ -13,6 +13,8 @@ API_SERVER_ENABLED=true
 API_SERVER_HOST=op://hermes/gateway/host
 API_SERVER_PORT=8642
 API_SERVER_KEY=op://hermes/gateway/api-server-key
+# Name advertised on /v1/models (default would be 'hermes-agent').
+API_SERVER_MODEL_NAME=hermes
 
 # Slack (create app via manifest: hermes/slack-app-manifest.json)
 SLACK_BOT_TOKEN=op://hermes/slack/bot-token

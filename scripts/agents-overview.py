@@ -502,7 +502,7 @@ def main(argv: list[str] | None = None) -> int:
         except Exception:
             print("agents overview unavailable")
             return 0
-        if needs_refresh(cur, _briefing_max_age_ms()):
+        if needs_refresh(cur, _briefing_max_age_ms()) and "--no-refresh" not in args:
             refreshed = refresh(base)
             if refreshed is not None:
                 cur = refreshed
