@@ -113,6 +113,31 @@ finally:
     ao.fetch = _orig_fetch
 
 
+print("\n13b. main(['--briefing', '--no-refresh']) on a stale cache states its age and never refreshes")
+_stale = mk_overview([("argo", [mk_agent("a1", "Ship it", "ship")])])
+_stale["overview"] = {"ageMs": 3 * 3600 * 1000}
+_refresh_calls = []
+def _no_refresh(base, poll_interval=20):
+    _refresh_calls.append(base)
+    return None
+_orig_fetch = ao.fetch
+_orig_refresh = ao.refresh
+ao.fetch = lambda base, timeout_s=10: _stale
+ao.refresh = _no_refresh
+try:
+    out = io.StringIO()
+    with redirect_stdout(out):
+        rc = ao.main(["--briefing", "--no-refresh"])
+    lines = out.getvalue().splitlines()
+    check("exit 0", rc, 0)
+    check("refresh never called", _refresh_calls, [])
+    check("stale age line printed last", lines[-1] if lines else "", "overview verdicts are 3h old")
+    check_true("briefing body still rendered", any("Ship it" in l for l in lines))
+finally:
+    ao.fetch = _orig_fetch
+    ao.refresh = _orig_refresh
+
+
 # --- needs_you agents + the human queue ---------------------------------------
 
 print("\n14c. needs_you agent with a non-actionable recommendation is still listed in the briefing")
