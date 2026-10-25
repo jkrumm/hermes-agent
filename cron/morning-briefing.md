@@ -74,7 +74,7 @@ Tested via the `/hermes-validate` flow — sent the prompt to `#hermes` as a one
 |-|-|
 | `time` | 87.5s (target <90s) |
 | `api_calls` | 3 (target ≤5) |
-| Tool pattern | 3 parallel `terminal` curls → `text_to_speech` → final response |
+| Tool pattern | 3 parallel `terminal` curls → `terminal` TTS script (`gemini-3.8-flash-tts`, since 2026-10-25; was `text_to_speech`) → final response |
 | Output | German narrative, ~165 words, single `MEDIA:` tag |
 | Skills routed | `tasks` + `schedule` + `weather` via SOUL.md (no skill misroutes) |
 
