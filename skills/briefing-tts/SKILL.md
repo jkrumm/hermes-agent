@@ -1,10 +1,10 @@
 ---
 name: briefing-tts
-description: "TTS audio synthesis via the VPS audio-gateway (https://audio-gateway.jkrumm.com/v1) — ElevenLabs v3 for briefings/long-form (expressive, titled), ElevenLabs Flash v2.5 for short replies, voice \"Mark\", OpenAI-compatible /v1/audio/speech. Use for any spoken output: morning/evening briefings, voice memos, ad-hoc TTS."
+description: "TTS audio synthesis via the VPS audio-gateway (https://audio-gateway.jkrumm.com/v1) — Gemini 3.8 Flash TTS for briefings/long-form (prepped, titled), Gemini 3.8 Flash-Lite for short replies, voice \"Charon\", OpenAI-compatible /v1/audio/speech. Use for any spoken output: morning/evening briefings, voice memos, ad-hoc TTS."
 version: 2.0.0
 metadata:
   hermes:
-    tags: [tts, audio, briefing, elevenlabs, audio-gateway, mp3, voice]
+    tags: [tts, audio, briefing, gemini, audio-gateway, mp3, voice]
     related_skills: [argo-api, homelab-ops]
 ---
 
@@ -29,15 +29,14 @@ vps` / `logs vps <name>` verbs, which resolve the live name for you.
 
 | Use | `model` | What the gateway does | Latency |
 |-|-|-|-|
-| Briefings, long-form, anything worth listening to | `elevenlabs/v3` | prep LLM (spoken-form numbers/dates, ~110-word chunks, sparse audio tags, **title**), parallel synth, one continuous MP3 | ~10 s per 40 s of audio |
-| Short replies, confirmations | `elevenlabs/flash-v2.5` | one synthesis call, no prep, no title | ~1.2 s |
+| Briefings, long-form, anything worth listening to | `gemini-3.8-flash-tts` | prep LLM (spoken-form numbers, ≤~1,000-char sentence-aligned chunks, `<short pause>`/`<long pause>` tags, **title**), per-chunk synth, one continuous MP3 | ~5 s for ~30 s of audio |
+| Short replies, confirmations | `gemini-3.8-flash-lite-tts` | one synthesis call, deterministic number normalisation, no title | first audio ~0.7 s |
 
-Voice is `Mark` for both (ElevenLabs fixed voice list: Mark, Roger, Drew, Paul,
-Bradford, James, Mark, Clyde, …; unknown names fall back to the gateway default).
-The chat/desktop/Slack-reply path uses Flash through `config.yaml` → `tts.openai`;
-this skill is the briefing path and pins `elevenlabs/v3` explicitly.
-`gemini-3.1-flash-tts-preview` (voice `Charon`) is still served for comparison,
-but it is ~10× slower per second of audio and no longer the default.
+Voice is `Charon` for both (Gemini prebuilt voices; request shapes, tag vocabulary and traps:
+`modelpick/docs/gemini-tts.md`). The chat/desktop/Slack-reply path uses Flash-Lite through
+`config.yaml` → `tts.openai`; this skill is the briefing path and pins `gemini-3.8-flash-tts`
+explicitly. Gemini has no `speed` parameter — pace is the gateway's constant style string.
+ElevenLabs ids (`elevenlabs/v3`, `elevenlabs/flash-v2.5`, voice `Mark`) still work as a fallback.
 
 ---
 
@@ -47,20 +46,19 @@ but it is ~10× slower per second of audio and no longer the default.
 
 ```json
 {
-  "model": "elevenlabs/v3",
-  "voice": "Mark",
+  "model": "gemini-3.8-flash-tts",
+  "voice": "Charon",
   "input": "the whole briefing text — do not pre-chunk",
   "response_format": "mp3"
 }
 ```
 
 Returns raw MP3 bytes — no base64 wrapping, write directly to file. Optional
-fields: `language` (`de`/`en`, else auto-detected from the text), `speed`
-(0.7–1.2), `instructions` (a short delivery hint the prep LLM folds in; v3 only).
+fields: `language` (`de`/`en`, else auto-detected from the text). `speed` and `instructions` are ElevenLabs-lane only.
 A model id that matches nothing is silently remapped to the gateway default, so a
 typo won't error — check the id.
 
-Response header **`X-Audio-Title`** (URL-encoded, v3 only) carries a 3–6-word
+Response header **`X-Audio-Title`** (URL-encoded, prepped models only) carries a 3–6-word
 title the prep LLM derived from the content, in the text's language — use it for
 the filename when no convention below applies.
 
@@ -70,8 +68,8 @@ the filename when no convention below applies.
 
 ### 1. Don't chunk on the caller side anymore
 The old Gemini backend 503'd on long text, so this skill used to split into
-40–80-word pieces and concatenate MP3 bytes. The ElevenLabs lane chunks
-server-side with cross-chunk prosody continuity — sending pieces yourself now
+40–80-word pieces and concatenate MP3 bytes. The gateway chunks
+server-side (same style string per chunk) — sending pieces yourself now
 *hurts* (no continuity, no title, repeated prep). One request, whole text.
 
 If a request 502s with `proxy_error`, the Replicate upstream failed for that
@@ -97,8 +95,8 @@ os.makedirs(AUDIO_DIR, exist_ok=True)
 text = """Guten Morgen. Heute ist ... (the whole briefing, plain prose, no markdown)"""
 
 payload = json.dumps({
-    "model": "elevenlabs/v3",
-    "voice": "Mark",
+    "model": "gemini-3.8-flash-tts",
+    "voice": "Charon",
     "input": text,
     "response_format": "mp3",
 }).encode("utf-8")
@@ -119,12 +117,12 @@ with open(out_path, "wb") as f:
 print(f"{len(audio)} bytes, title={title!r} -> {out_path}")
 ```
 
-For a short phrase, a curl one-liner on Flash:
+For a short phrase, a curl one-liner on Flash-Lite:
 
 ```bash
 curl -s -X POST https://audio-gateway.jkrumm.com/v1/audio/speech \
   -H "Content-Type: application/json" \
-  -d '{"model":"elevenlabs/flash-v2.5","voice":"Mark","input":"Erledigt.","response_format":"mp3"}' \
+  -d '{"model":"gemini-3.8-flash-lite-tts","voice":"Charon","input":"Erledigt.","response_format":"mp3"}' \
   -o /tmp/short.mp3
 ```
 

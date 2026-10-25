@@ -18,9 +18,13 @@ reads it back.
 Audio (TTS + STT) is the **`audio-gateway`** service (`~/SourceRoot/audio-gateway`), an
 OpenAI-compatible VPS container at `https://audio-gateway.jkrumm.com/v1` over the tailnet.
 Hermes only points its native `openai` TTS/STT providers at it in `config.yaml` — this repo
-installs and patches no audio service. TTS = ElevenLabs via the IU Replicate route:
-`elevenlabs/flash-v2.5` (voice "Mark") for chat replies, `elevenlabs/v3` for briefings
-(`skills/briefing-tts`); STT = `gpt-transcribe`. Rationale: `modelpick/docs/decisions/audio-stack.md`.
+installs and patches no audio service. TTS = Gemini 3.8 via the gateway's native lane, voice
+Charon: `gemini-3.8-flash-lite-tts` for chat replies (`tts.openai`), `gemini-3.8-flash-tts` for
+briefings (`skills/briefing-tts`, prep on). Streaming clients (CLI voice `OpenAIStreamer`, desktop
+`speak-stream` relay, spoken summary) already send `response_format: pcm` and get the progressive
+stream; Slack/file replies stay whole-file mp3 + `X-Audio-Title`. ElevenLabs ids stay selectable as a
+fallback. STT = `gpt-transcribe`. Request shapes and traps: `modelpick/docs/gemini-tts.md`;
+rationale: `modelpick/docs/decisions/audio-stack.md`.
 
 **This repo is public.** Anything Hermes writes here gets read for tailnet names, node IPs,
 workspace user ids and `homelab-private` internals before it is committed — all four appeared on

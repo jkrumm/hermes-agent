@@ -333,8 +333,8 @@ tts:
     voice_id: pNInz6obpgDQGcFmaJgB
     model_id: eleven_multilingual_v2
   openai:
-    model: elevenlabs/flash-v2.5
-    voice: Mark
+    model: gemini-3.8-flash-lite-tts
+    voice: Charon
     base_url: https://audio-gateway.jkrumm.com/v1
     api_key: hermes
     speed: 1
