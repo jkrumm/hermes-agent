@@ -23,7 +23,7 @@ Charon: `gemini-3.8-flash-lite-tts` for chat replies (`tts.openai`), `gemini-3.8
 briefings (`skills/briefing-tts`, prep on). Streaming clients (CLI voice `OpenAIStreamer`, desktop
 `speak-stream` relay, spoken summary) already send `response_format: pcm` and get the progressive
 stream; Slack/file replies stay whole-file mp3 + `X-Audio-Title`. ElevenLabs ids stay selectable as a
-fallback. STT = `gpt-transcribe`. Request shapes and traps: `modelpick/docs/gemini-tts.md`;
+fallback. STT = `voxtral-mini-transcribe-3-0` (EU; gateway falls back to `gpt-transcribe`). Request shapes and traps: `modelpick/docs/gemini-tts.md`;
 rationale: `modelpick/docs/decisions/audio-stack.md`.
 
 **This repo is public.** Anything Hermes writes here gets read for tailnet names, node IPs,

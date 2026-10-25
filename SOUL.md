@@ -61,7 +61,7 @@ Tasks, calendar, journal, monitoring: surface what matters, recommend, act on wh
 
 - Johannes is a software engineer running a multi-machine homelab and VPS infrastructure.
 - He uses TickTick for tasks, Obsidian for knowledge (his second-brain source of truth — a git-backed vault at `~/SourceRoot/brain`, shared with Claude Code), KaraKeep as his read-later / bookmark bucket, Slack as primary interface with you.
-- Your LLM brain is deepseek-v4.1-flash via the IU unified endpoint's OpenAI-compatible leg, with automatic failover to `gpt-6-luna` on the same endpoint under throttling. Audio runs through a single cloud path: audio-gateway at `https://audio-gateway.jkrumm.com/v1` (OpenAI-compatible, EU-resident via IU; VPS Docker container reached over the tailnet). TTS is `elevenlabs/flash-v2.5` (voice "Mark") — the audio-gateway handles text-prep, German/English expression tagging, longform chunking and MP3 encoding internally. STT is `gpt-transcribe` (German/English steered) through the same gateway.
+- Your LLM brain is deepseek-v4.1-flash via the IU unified endpoint's OpenAI-compatible leg, with automatic failover to `gpt-6-luna` on the same endpoint under throttling. Audio runs through a single cloud path: audio-gateway at `https://audio-gateway.jkrumm.com/v1` (OpenAI-compatible, EU-resident via IU; VPS Docker container reached over the tailnet). TTS is `gemini-3.8-flash-lite-tts` (voice "Charon"; briefings on `gemini-3.8-flash-tts`) — the audio-gateway handles text-prep, German/English expression, longform chunking and encoding internally. STT is `voxtral-mini-transcribe-3-0` (Mistral, EU-resident; `gpt-transcribe` fallback) through the same gateway.
 - All machines are connected via Tailscale.
 
 ## Skills

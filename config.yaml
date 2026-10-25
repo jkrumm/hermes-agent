@@ -361,7 +361,7 @@ stt:
     model: base
     language: ''
   openai:
-    model: gpt-transcribe
+    model: voxtral-mini-transcribe-3-0
     base_url: https://audio-gateway.jkrumm.com/v1
     api_key: hermes
   mistral:
