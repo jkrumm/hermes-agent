@@ -73,7 +73,7 @@ log lines) is `references/macos-host-pressure.md`.
 | `uk-sync` | Monitor configs are corrupted (empty hostnames, empty bearer) and must be re-applied from the declared source | A stale monitor cache — that is `restart-kuma`. Hard-aborts if `env-check` fails, by design |
 | `restart <host> <container>` | One container is wedged, unhealthy, or stuck mid-restart, and its logs show no code-level fault | A crash loop with a traceback — restarting resets the counter and buys nothing. Escalate |
 | `redeploy <host> <stack>` | The running stack is behind the deployed truth, or containers were lost/orphaned | `homelab`: the `homelab` stack. `vps`: the three root stacks (`networking`, `infra`, `monitoring`) **plus every app stack** — `argo`, `audio-gateway`, `basalt-ui-marketing`, `email-gateway`, `fpp`, `image-gateway`, `imgproxy`, `weatherorb`, `photo-gallery`, `research-gateway`. An app stack shells the repo's own `make <stack>-up`, so it inherits that target's image pinning rather than reimplementing it. `homelab-private` is deliberately absent (its deploy is a full VPN cycle) |
-| `cron-rerun <job>` | A host cron missed its window and you want the current run *now* | `vpn-watchdog`, `auto-update`, `garmin-auto-relogin`, `koinsight-stats-push`. Run `env-check` first — a dangling ref makes the rerun fail identically |
+| `cron-rerun <job>` | A host cron missed its window and you want the current run *now* | `vpn-watchdog`, `auto-update`, `koinsight-stats-push`. Run `env-check` first — a dangling ref makes the rerun fail identically |
 | `devhost-health` | A `MacMini * - Push` monitor is red and you want a fresh heartbeat without waiting a launchd interval | A genuinely broken mini service — the check reports it, it does not repair it |
 | `launchd-repair <label>` | A mini LaunchAgent was booted out of the user domain by a macOS session teardown (KeepAlive can never respawn what was removed) | A loaded-but-broken agent. The verb prints `launchctl print` first and only bootstraps when genuinely absent |
 
@@ -118,8 +118,8 @@ Every path ends in a Tier B verb or an escalation. Nothing ends in raw shell.
 
 ### Cron failure
 
-1. **`env-check` first, always.** All four homelab crons share one `.env.tpl`.
-2. Dangling item → **escalate**. Every one of the four is down until it is restored;
+1. **`env-check` first, always.** All three homelab crons share one `.env.tpl`.
+2. Dangling item → **escalate**. Every one of the three is down until it is restored;
    say so, because the alert you got names only one.
 3. Env clean → `logs homelab <container>` or the job's own monitor via
    `monitors <name>` to see what it actually reported.
@@ -157,7 +157,7 @@ Every path ends in a Tier B verb or an escalation. Nothing ends in raw shell.
 - **Committed ≠ live.** A fix can be committed and pushed and still not be running.
   Only `redeploy` and `uk-sync` pull. "I pushed the fix" is not a resolution.
 - **`op run` fails wholesale on one dangling ref.** A single renamed or deleted
-  1Password item aborts the entire command, so all four homelab crons die together
+  1Password item aborts the entire command, so all three homelab crons die together
   and the next monitor sync would write empty hostnames and empty bearer tokens.
   The alert that pages you is three layers downstream. `env-check` is the fast test.
 - **A bare monitor sync corrupts configs** — unset variables substitute to `""` and

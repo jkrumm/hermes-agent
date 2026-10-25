@@ -115,10 +115,10 @@ VALID_HOSTS=(homelab vps)
 VALID_STACKS_homelab="homelab"
 VALID_STACKS_vps="networking infra monitoring argo audio-gateway basalt-ui-marketing email-gateway fpp image-gateway imgproxy weatherorb photo-gallery research-gateway"
 
-# The four `op run`-wrapped homelab host crons (crontab -l). All share
-# ~/homelab/.env.tpl — which is why one dangling 1Password ref takes out all four
+# The three `op run`-wrapped homelab host crons (crontab -l). All share
+# ~/homelab/.env.tpl — which is why one dangling 1Password ref takes out all three
 # at once, and why `env-check` exists.
-VALID_CRONS=(vpn-watchdog auto-update garmin-auto-relogin koinsight-stats-push)
+VALID_CRONS=(vpn-watchdog auto-update koinsight-stats-push)
 
 # LaunchAgents this repo's operator owns and that are safe to re-bootstrap after a
 # macOS session teardown (smd boots agents out of gui/501 wholesale; see SKILL.md
@@ -692,8 +692,8 @@ PY
 
 # Directly detects the root cause of the 2026-08-01 outage: `op run` fails
 # WHOLESALE when any single reference in the shared .env.tpl cannot be resolved.
-# One 1Password item renamed or retired takes out all four homelab crons at once
-# (vpn-watchdog every 5 min, auto-update, garmin-relogin, koinsight-stats-push)
+# One 1Password item renamed or retired takes out all three homelab crons at once
+# (vpn-watchdog every 5 min, auto-update, koinsight-stats-push)
 # and re-corrupts uptime-kuma on the next sync. Nothing else in this fleet checks
 # it — the symptom that pages you is a missing heartbeat three layers downstream.
 cmd_env_check() {
@@ -1176,14 +1176,13 @@ cmd_cron_rerun() {
   case "$job" in
     vpn-watchdog)         script='~/homelab-private/scripts/vpn-watchdog.sh' ;;
     auto-update)          script='~/homelab-private/scripts/auto-update.sh' ;;
-    garmin-auto-relogin)  script='~/homelab/scripts/garmin-auto-relogin.sh' ;;
     koinsight-stats-push) script='~/homelab-private/scripts/koinsight-stats-push.sh' ;;
   esac
 
   # Mirrors the crontab entry, including `. ~/.profile` — the crons source it for
   # OP_SERVICE_ACCOUNT_TOKEN, and a rerun that skips it reproduces a different
-  # failure than the one being debugged. All four share ~/homelab/.env.tpl, which
-  # is why env-check covers all four at once.
+  # failure than the one being debugged. All three share ~/homelab/.env.tpl, which
+  # is why env-check covers all three at once.
   # `cd ~/homelab` + a relative --env-file, because a tilde is NOT expanded after
   # `=` (verified: the remote shell echoes `--env-file=~/homelab/.env.tpl`
   # literally). The scripts cd to their own repo root via lib.sh, so the cwd this
@@ -1268,7 +1267,7 @@ TIER A — read-only, safe to allowlist (no --why, no --confirm)
   logs <host> <container> [n]   Container logs, default n=200
   alerts [n]                    #alerts messages, newest first, default n=40
   env-check                     `op run --env-file=.env.tpl -- true` on homelab + vps.
-                                One dangling 1Password ref breaks ALL four homelab
+                                One dangling 1Password ref breaks ALL three homelab
                                 crons and corrupts the next uk-sync. Check it first.
   sync-drift                    HEAD vs live origin sha for homelab, homelab-private,
                                 vps — on BOTH the mini clone and the server clone.
@@ -1301,8 +1300,7 @@ TIER B — mutating. Requires --why "<reason>"; prints a plan and changes NOTHIN
                                 weatherorb, photo-gallery, research-gateway
                                 (homelab-private excluded: its `make up` is a full
                                 VPN cycle, not a redeploy)
-  cron-rerun <job>              vpn-watchdog | auto-update | garmin-auto-relogin |
-                                koinsight-stats-push
+  cron-rerun <job>              vpn-watchdog | auto-update | koinsight-stats-push
   devhost-health                Run the mini health check (pushes fresh heartbeats)
   launchd-repair <label>        `launchctl print` first; bootstrap ONLY if the
                                 service was booted out of the domain
