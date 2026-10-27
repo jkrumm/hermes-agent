@@ -15,14 +15,6 @@ import os
 from pathlib import Path
 
 STATE_FILE = Path(__file__).parent / "briefing-state.json"
-# Left for warden with the ledger it reads (2026-09-09) — this is a live cross-repo
-# path, not an oversight. It matters that it is spelled out: _run_subscript() below
-# is best-effort and returns silently when the file is missing, so a stale path here
-# would drop the Watchdog State block from the morning briefing with nothing said.
-WATCHDOG_SUMMARY = Path(
-    os.environ.get("WARDEN_WATCHDOG_SUMMARY")
-    or Path.home() / "SourceRoot" / "warden" / "scripts" / "watchdog-summary.py"
-)
 COVERAGE_SCRIPT = Path(__file__).parent / "briefing-coverage.py"
 AGENTS_OVERVIEW_SCRIPT = Path(__file__).parent / "agents-overview.py"
 PROJECT_NARRATIVES_SCRIPT = Path(__file__).parent / "project-narratives.py"
@@ -42,10 +34,6 @@ def _run_subscript(path: Path, timeout: int, args: list[str] | None = None) -> N
             print(res.stdout.rstrip())
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
-
-
-def emit_watchdog() -> None:
-    _run_subscript(WATCHDOG_SUMMARY, timeout=10)
 
 
 def emit_coverage() -> None:
@@ -72,7 +60,6 @@ def main() -> None:
     except FileNotFoundError:
         print("BRIEFING_CITY=Munich")
         print("BRIEFING_SUPPRESSED=false")
-        emit_watchdog()
         emit_coverage()
         emit_agents_overview()
         emit_project_narratives()
@@ -82,7 +69,6 @@ def main() -> None:
         print(f"WARNING: state file invalid ({e}) — falling back to defaults", file=sys.stderr)
         print("BRIEFING_CITY=Munich")
         print("BRIEFING_SUPPRESSED=false")
-        emit_watchdog()
         emit_coverage()
         emit_agents_overview()
         emit_project_narratives()
@@ -101,7 +87,6 @@ def main() -> None:
 
     print(f"BRIEFING_CITY={city}")
     print("BRIEFING_SUPPRESSED=false")
-    emit_watchdog()
     emit_coverage()
     emit_agents_overview()
     emit_project_narratives()

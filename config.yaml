@@ -63,8 +63,8 @@ agent:
   gateway_notify_interval: 180
   gateway_auto_continue_freshness: 3600
   image_input_mode: auto
-  # kanban + delegation: off (agent-platform Wave 2). Repo work goes through `dispatch`
-  # (warden), long visible work through herdr/`rd` — never a Hermes child agent or board.
+  # kanban + delegation: off (agent-platform Wave 2). Repo work is filed as a GitHub issue,
+  # long visible work goes through herdr/`rd` — never a Hermes child agent or board.
   disabled_toolsets:
     - kanban
     - delegation
@@ -499,9 +499,9 @@ slack:
   # override, all for the same underlying reason: a per-message LLM turn is the wrong
   # tool for a firehose Hermes doesn't need to read live.
   #   C0AS5GUH5U4 = #media    (podcast/image completions — Hermes is the producer)
-  #   C0ARZJD824W = #updates  (also polled out-of-band by warden's watchdog-poll.py as slack_update)
-  #   C0BVDE5R562 = #agents   (warden/agents digests — mention-only, never answers a bot post)
-  #   C0AS1LAUQ3C = #alerts   (see below — replaced by warden's triage.py)
+  #   C0ARZJD824W = #updates  
+  #   C0BVDE5R562 = #agents   (agent digests — mention-only, never answers a bot post)
+  #   C0AS1LAUQ3C = #alerts   (see below)
   # Silencing is inbound-only: `hermes send`, cron delivery and dispatch verdicts still
   # post here, and the dispatch nudge targets origin_channel, never these three.
   #
@@ -510,14 +510,8 @@ slack:
   # new. Because reply_in_thread makes every alert its own session, that turn had zero
   # memory of the last time the same alert fired — the same signature could be
   # (and was) re-triaged dozens of times in a day, reaching the same conclusion every
-  # time, without ever noticing a fix already existed. `~/SourceRoot/warden`'s
-  # `scripts/watchdog-poll.py` already ingests this channel out-of-band (source
-  # `slack_alert`, deduplicated by `normalize_title()` into a stable signature);
-  # its loop (own LaunchAgent, `com.jkrumm.warden-loop`) turns that dedup into one
-  # tracked item per problem (one Slack line on fixed / needs_decision), with a
-  # real agent-gateway investigation attached once a signature repeats or stays open —
-  # no LLM call in the intake. Mentioning Hermes directly in
-  # #alerts still works for an ad-hoc question; see ~/SourceRoot/warden/DESIGN.md.
+  # time, without ever noticing a fix already existed. Alerts now go straight to Slack (warden was
+  # switched off 2026-10-27); mentioning Hermes directly in #alerts still works for an ad-hoc question.
   require_mention: false
   free_response_channels: ''
   allowed_channels: ''

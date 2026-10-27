@@ -3,7 +3,7 @@
 agent-gateway is tracking, for the morning briefing and an on-demand Slack post.
 
 Talks to agent-gateway's overview endpoints (`http://localhost:7705`, a local
-LaunchAgent — see `skills/warden/references/agents.md`):
+LaunchAgent — see the agent-gateway AGENTS.md):
 
   GET  /api/overview          -> {ok, data: {generatedAt, summary, projects[], overview, ...}}
   POST /api/jobs {"tool":"overview"} -> {ok, job:{id, status, ...}}   -- triggers
@@ -27,8 +27,7 @@ recommendation — `summary.needsYou` counts by state, so a briefing whose
 header says "1 need you" must show that one item.
 
 This script only reads. It never sends keys to a herdr pane and never
-dispatches — that is warden's job (scripts/hermes-cc.sh is only the exec shim
-into it).
+dispatches.
 
 Retired 2026-09-11: the scheduled `#agents` Slack digest (`--slack-body`,
 cron job `72aa2fb36307`) that reposted this data every 30 minutes. Its code
