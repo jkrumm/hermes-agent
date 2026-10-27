@@ -6,7 +6,7 @@ HERMES_SRC    := $(HERMES_DIR)/hermes-agent
 # 2026-10-04: 20, was 126; `prose` added 2026-10-19). Retired siblings were folded into `<skill>/references/*.md` or deleted;
 # git history is the archive. `skills/work/iu-*/` is gitignored (employer-internal) and rides
 # inside the `work` symlink.
-HERMES_SKILLS := capture argo-api work karakeep obsidian reading wildrift research-gateway image-delivery podcast prose briefing-tts hyperdx homelab homelab-ops hermes-gateway human-queue dispatch warden herdr verify
+HERMES_SKILLS := capture argo-api work karakeep obsidian reading wildrift research-gateway image-delivery podcast prose briefing-tts hyperdx homelab homelab-ops hermes-gateway human-queue dispatch herdr verify
 
 # Skill links this repo no longer installs — removed by `make setup` so a retired skill
 # cannot linger live. `agents` folded into warden/references, `claude-dispatch` renamed
@@ -270,19 +270,6 @@ status:
 	@for skill in $(HERMES_SKILLS); do \
 		$(MAKE) --no-print-directory _check DST="$(HERMES_DIR)/skills/$$skill"; \
 	done
-	@# Dispatch bridge. hermes-cc.sh itself (now warden/scripts/warden, a Python
-	@# CLI), and the dispatch-repos.json policy it reads, moved wholesale to
-	@# warden/scripts and warden/config (2026-09-10) — this repo's copy is now an
-	@# exec shim (see the file itself), and the dispatch-repos.json validation
-	@# against it moved with the policy file to warden's own `make check-policy`.
-	@# This check only confirms the shim is intact and its exec target exists
-	@# and is executable.
-	@target="$${WARDEN_CLI:-$(HOME)/SourceRoot/warden/scripts/warden}"; \
-	if [ -x "$(HERMES_REPO)/scripts/hermes-cc.sh" ] && [ -x "$$target" ]; then \
-		echo "    ✓ hermes-cc.sh → warden"; \
-	else \
-		echo "    ✗ hermes-cc.sh → warden [shim at $(HERMES_REPO)/scripts/hermes-cc.sh or exec target $$target missing/not executable]"; \
-	fi
 	@curl -fsS --max-time 5 http://localhost:7705/health >/dev/null 2>&1 \
 		&& echo "    ✓ agent-gateway job server (:7705, dispatch backend)" \
 		|| echo "    ✗ agent-gateway job server [:7705 unreachable — dispatch would fail with exit 3]"
