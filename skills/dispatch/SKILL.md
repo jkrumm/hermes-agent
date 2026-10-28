@@ -100,5 +100,5 @@ was slow.
 
 - Restart / redeploy / infra mutation → `homelab-ops`, not a dispatch.
 - A todo, reminder or issue whose text Johannes already knows → `capture`.
-- A visible long-running session he wants to steer → `herdr`, only when he asks. A running dispatch needs only new facts → `agw steer <jobId> <text>` (running OpenCode episode; a restart of agent-gateway re-attaches it, it is not lost).
+- A visible long-running session he wants to steer → `herdr`, only when he asks. A running dispatch needs only new facts → `agw-legacy steer <jobId> <text>` (running OpenCode episode; a restart of agent-gateway re-attaches it, it is not lost).
 - "Is it done?" → `warden`.
