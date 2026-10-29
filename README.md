@@ -12,8 +12,8 @@ For repo-operating detail (dispatch bridge, secrets, patches, model routing), se
 Slack (Socket Mode)
   ↓
 Mac Mini M2 Pro — Hermes Agent (always-on)
-  ├→ audio-gateway (https://audio-gateway.jkrumm.com/v1) — OpenAI-compatible audio via IU (STT EU, TTS US via Replicate).
-  │     VPS Docker container, reached over the tailnet. No local audio service.
+  ├→ audio door (http://127.0.0.1:7792/v1) — OpenAI-compatible audio via IU (agent-workflows audio process, loopback).
+  │     Bearer from the local door-token file. No audio service in this repo.
   │     TTS: ElevenLabs via IU Replicate — flash-v2.5 for replies, v3 for briefings, voice "Mark".
   │     STT: gpt-transcribe (German/English steered).
   ├→ Homelab — Docker containers, CouchDB, backups (via Tailscale)
@@ -77,8 +77,8 @@ Mac Mini M2 Pro — Hermes Agent (always-on)
 # Prevent sleep (always-on agent host)
 sudo pmset -a sleep 0 displaysleep 0 disksleep 0
 
-# Verify audio-gateway — VPS Docker container, reached over the tailnet
-curl -s https://audio-gateway.jkrumm.com/health
+# Verify the audio door — agent-workflows audio process on the mini
+curl -s http://127.0.0.1:7792/health
 ```
 
 ### 2. Install Hermes
@@ -118,9 +118,9 @@ the full set incl. `#alerts`, `#updates`, `#media`, `#agents`:
 
 ```bash
 # Mac Mini-only — symlinks all hermes config files and installs the
-# liveness + backup LaunchAgents. TTS/STT is served by the audio-gateway
-# (https://audio-gateway.jkrumm.com/v1), a VPS Docker container reached over the
-# tailnet — Hermes just points its native openai TTS/STT providers at it (see config.yaml).
+# liveness + backup LaunchAgents. TTS/STT is served by the agent-workflows audio door
+# (http://127.0.0.1:7792/v1, loopback) — Hermes just points its native openai
+# TTS/STT providers at it (see config.yaml).
 cd ~/SourceRoot/hermes-agent && make setup
 
 # Verify
@@ -168,8 +168,8 @@ tail -20 ~/.hermes/logs/gateway.log  # watch for successful Slack connection
 ### 9. Verify
 
 - [x] Send message in `#hermes` on Slack — get a response
-- [x] Send voice memo in Slack — get transcribed via audio-gateway (`gpt-4o-transcribe`)
-- [x] TTS audio generation — ElevenLabs (flash-v2.5 / v3, voice Mark) via audio-gateway, MP3 output
+- [x] Send voice memo in Slack — get transcribed via the audio door (`gpt-4o-transcribe`)
+- [x] TTS audio generation — ElevenLabs (flash-v2.5 / v3, voice Mark) via the audio door, MP3 output
 - [x] Backup agent — daily 03:00 rsync to `homelab:/mnt/hdd/backups/hermes/`, pings UK
 - [x] Liveness agent — every 5 min, pings UK if gateway running + Slack connected
 

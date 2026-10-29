@@ -335,8 +335,8 @@ tts:
   openai:
     model: gemini-3.8-flash-lite-tts
     voice: Charon
-    base_url: https://audio-gateway.jkrumm.com/v1
-    api_key: hermes
+    base_url: http://127.0.0.1:7792/v1
+    api_key: ${AUDIO_DOOR_TOKEN}
     speed: 1
     max_text_length: 32000
   xai:
@@ -362,8 +362,8 @@ stt:
     language: ''
   openai:
     model: voxtral-mini-transcribe-3-0
-    base_url: https://audio-gateway.jkrumm.com/v1
-    api_key: hermes
+    base_url: http://127.0.0.1:7792/v1
+    api_key: ${AUDIO_DOOR_TOKEN}
   mistral:
     model: voxtral-mini-latest
   elevenlabs:
@@ -684,7 +684,7 @@ secrets:
     server_url: ''
   command:
     enabled: true
-    command: $HOME/.local/bin/secrets-run export --env-file=$HOME/.hermes/.env.tpl | sed 's/^export //'
+    command: "{ $HOME/.local/bin/secrets-run export --env-file=$HOME/.hermes/.env.tpl | sed 's/^export //'; sed -n 's/^hermes=/AUDIO_DOOR_TOKEN=/p' $HOME/.agent-workflows/data/door-tokens 2>/dev/null; true; }"
     helper_timeout_seconds: 15
     override_existing: true
 paste_collapse_threshold: 5

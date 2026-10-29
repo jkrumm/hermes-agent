@@ -1,33 +1,33 @@
 ---
 name: briefing-tts
-description: "TTS audio synthesis via the VPS audio-gateway (https://audio-gateway.jkrumm.com/v1) — Gemini 3.8 Flash TTS for briefings/long-form (prepped, titled), Gemini 3.8 Flash-Lite for short replies, voice \"Charon\", OpenAI-compatible /v1/audio/speech. Use for any spoken output: morning/evening briefings, voice memos, ad-hoc TTS."
+description: "TTS audio synthesis via the agent-workflows audio door (http://127.0.0.1:7792/v1) — Gemini 3.8 Flash TTS for briefings/long-form (prepped, titled), Gemini 3.8 Flash-Lite for short replies, voice \"Charon\", OpenAI-compatible /v1/audio/speech. Use for any spoken output: morning/evening briefings, voice memos, ad-hoc TTS."
 version: 2.0.0
 metadata:
   hermes:
-    tags: [tts, audio, briefing, gemini, audio-gateway, mp3, voice]
-    related_skills: [argo-api, homelab-ops]
+    tags: [tts, audio, briefing, gemini, audio-door, mp3, voice]
+    related_skills: [argo-api]
 ---
 
 # Briefing TTS
 
-Audio synthesis via the VPS audio-gateway, OpenAI-compatible `/v1/audio/speech`.
-The gateway routes by **model id** and owns everything behind it (prep LLM,
+Audio synthesis via the agent-workflows audio door on this machine, OpenAI-compatible
+`/v1/audio/speech`. The door routes by **model id** and owns everything behind it (prep LLM,
 chunking, concatenation, title); the caller sends the whole text in one request.
 This skill exists because the native `text_to_speech` tools are NOT reliably
-registered in every session (especially cron), so it calls the gateway directly
+registered in every session (especially cron), so it calls the door directly
 via urllib/curl. Same pattern works interactively and in cron.
 
-**API base:** `https://audio-gateway.jkrumm.com/v1`
-**Health:** `GET https://audio-gateway.jkrumm.com/health` → `{"ok":true,"service":"audio-gateway"}`
-**Container lookup:** don't hardcode a container name — the Docker Compose
-suffix changes on every redeploy. Use the `homelab-ops` skill's `containers
-vps` / `logs vps <name>` verbs, which resolve the live name for you.
+**API base:** `http://127.0.0.1:7792/v1` (loopback only; the mini's LaunchAgent `com.jkrumm.agent-workflows-audio`)
+**Auth:** `Authorization: Bearer $AUDIO_DOOR_TOKEN` — in the gateway's environment from the
+local door-token file (see `references/audio-door-troubleshooting.md`); never print or write it.
+**Health:** `GET http://127.0.0.1:7792/health` → `{"status":"ok","version":"…"}` (no auth)
+**Run record:** every response carries `agw-run-id`; `agw run status <id>` shows caller, route, cost.
 
 ---
 
 ## Which model
 
-| Use | `model` | What the gateway does | Latency |
+| Use | `model` | What the door does | Latency |
 |-|-|-|-|
 | Briefings, long-form, anything worth listening to | `gemini-3.8-flash-tts` | prep LLM (spoken-form numbers, ≤~1,000-char sentence-aligned chunks, `<short pause>`/`<long pause>` tags, **title**), per-chunk synth, one continuous MP3 | ~5 s for ~30 s of audio |
 | Short replies, confirmations | `gemini-3.8-flash-lite-tts` | one synthesis call, deterministic number normalisation, no title | first audio ~0.7 s |
@@ -35,7 +35,7 @@ vps` / `logs vps <name>` verbs, which resolve the live name for you.
 Voice is `Charon` for both (Gemini prebuilt voices; request shapes, tag vocabulary and traps:
 `modelpick/docs/gemini-tts.md`). The chat/desktop/Slack-reply path uses Flash-Lite through
 `config.yaml` → `tts.openai`; this skill is the briefing path and pins `gemini-3.8-flash-tts`
-explicitly. Gemini has no `speed` parameter — pace is the gateway's constant style string.
+explicitly. Gemini has no `speed` parameter — pace is the door's constant style string.
 ElevenLabs ids (`elevenlabs/v3`, `elevenlabs/flash-v2.5`, voice `Mark`) still work as a fallback.
 
 ---
@@ -55,7 +55,7 @@ ElevenLabs ids (`elevenlabs/v3`, `elevenlabs/flash-v2.5`, voice `Mark`) still wo
 
 Returns raw MP3 bytes — no base64 wrapping, write directly to file. Optional
 fields: `language` (`de`/`en`, else auto-detected from the text). `speed` and `instructions` are ElevenLabs-lane only.
-A model id that matches nothing is silently remapped to the gateway default, so a
+A model id the door has no route for is silently remapped to its default, so a
 typo won't error — check the id.
 
 Response header **`X-Audio-Title`** (URL-encoded, prepped models only) carries a 3–6-word
@@ -68,13 +68,13 @@ the filename when no convention below applies.
 
 ### 1. Don't chunk on the caller side anymore
 The old Gemini backend 503'd on long text, so this skill used to split into
-40–80-word pieces and concatenate MP3 bytes. The gateway chunks
+40–80-word pieces and concatenate MP3 bytes. The door chunks
 server-side (same style string per chunk) — sending pieces yourself now
 *hurts* (no continuity, no title, repeated prep). One request, whole text.
 
-If a request 502s with `proxy_error`, the Replicate upstream failed for that
-prediction — retry once; if health is fine but every request fails, see
-`references/audio-gateway-troubleshooting.md`.
+If a request 502s with `proxy_error`, the upstream failed for that call — retry
+once; if health is fine but every request fails, see
+`references/audio-door-troubleshooting.md`.
 
 ### 3. Chapter pauses: blank line + `<long pause>` (~2.5 s)
 Measured 2026-10-27 on the chat lane (`gemini-3.8-flash-lite-tts`) with three short
@@ -97,7 +97,7 @@ Verify any new pacing claim the same way instead of guessing: synth, then
 `ffmpeg -af silencedetect=noise=-35dB:d=0.2`, then transcribe the file back.
 
 ### 4. `text_to_speech` / `text_to_speech_fast` tools aren't always registered
-Not reliably available in every session, especially cron. Call the gateway
+Not reliably available in every session, especially cron. Call the door
 directly via curl or `urllib.request` — don't depend on the native tool.
 
 ---
@@ -122,9 +122,12 @@ payload = json.dumps({
 }).encode("utf-8")
 
 req = urllib.request.Request(
-    "https://audio-gateway.jkrumm.com/v1/audio/speech",
+    "http://127.0.0.1:7792/v1/audio/speech",
     data=payload,
-    headers={"Content-Type": "application/json"},
+    headers={
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {os.environ['AUDIO_DOOR_TOKEN']}",
+    },
     method="POST",
 )
 with urllib.request.urlopen(req, timeout=180) as resp:
@@ -140,8 +143,8 @@ print(f"{len(audio)} bytes, title={title!r} -> {out_path}")
 For a short phrase, a curl one-liner on Flash-Lite:
 
 ```bash
-curl -s -X POST https://audio-gateway.jkrumm.com/v1/audio/speech \
-  -H "Content-Type: application/json" \
+curl -s -X POST http://127.0.0.1:7792/v1/audio/speech \
+  -H "Authorization: Bearer $AUDIO_DOOR_TOKEN" -H "Content-Type: application/json" \
   -d '{"model":"gemini-3.8-flash-lite-tts","voice":"Charon","input":"Erledigt.","response_format":"mp3"}' \
   -o /tmp/short.mp3
 ```
@@ -155,7 +158,7 @@ Append at the **very end** of the Slack text body:
 MEDIA:/Users/jkrumm/.hermes/cache/audio/filename.mp3
 ```
 The delivery system picks it up and attaches the MP3. (The native
-`text_to_speech` tool names its output from the gateway's `X-Audio-Title`
+`text_to_speech` tool names its output from the door's `X-Audio-Title`
 header instead — see the repo `AGENTS.md`'s `tts-tool-audio-title.patch`
 note. With the urllib pattern above you name the file yourself, per the
 conventions below, and can fall back to the header title for ad-hoc audio.)
@@ -175,5 +178,5 @@ All files saved to `/Users/jkrumm/.hermes/cache/audio/`.
 ---
 
 **Reference files:**
-- `references/audio-gateway-troubleshooting.md` — architecture, 503 diagnosis, container log access via `homelab-ops`
+- `references/audio-door-troubleshooting.md` — architecture, auth, health, error patterns, run lookup
 - `references/morning-briefing-edge-cases.md` — content edge cases observed while assembling the morning/evening briefing narrative (calendar, GitHub, watchdog, meeting overlap)

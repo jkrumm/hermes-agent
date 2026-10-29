@@ -46,9 +46,10 @@ HERMES_PLISTS_RETIRED := com.parantoux.hermes-webui \
 # plist), not rendered from launchd/ — graded by `make status` alongside ours.
 HERMES_GATEWAY_LABEL := ai.hermes.gateway
 
-# TTS/STT is served by the audio-gateway (https://audio-gateway.jkrumm.com/v1),
-# a VPS Docker container reached over the tailnet — Hermes only points its native
-# openai TTS/STT providers at it in config.yaml. No local audio service to install.
+# TTS/STT is served by the agent-workflows audio door (http://127.0.0.1:7792/v1,
+# LaunchAgent com.jkrumm.agent-workflows-audio) — Hermes only points its native
+# openai TTS/STT providers at it in config.yaml, authenticated by the hermes line of
+# the door-token file. No local audio service to install here.
 
 # ============================================================================
 # Setup — Mac Mini-only. Symlinks config + skills into ~/.hermes/, installs the
@@ -282,9 +283,12 @@ status:
 	else \
 		echo "    ✗ secrets [secrets-run resolved nothing — gateway would start credential-less]"; \
 	fi
-	@curl -fsS https://audio-gateway.jkrumm.com/health >/dev/null 2>&1 \
-		&& echo "    ✓ audio-gateway (TTS/STT)" \
-		|| echo "    ✗ audio-gateway [not reachable — VPS Docker container over tailnet]"
+	@curl -fsS http://127.0.0.1:7792/health >/dev/null 2>&1 \
+		&& echo "    ✓ audio door (TTS/STT)" \
+		|| echo "    ✗ audio door [not reachable — agent-workflows audio LaunchAgent on :7792]"
+	@grep -qE '^hermes=.{32,}' "$(HOME)/.agent-workflows/data/door-tokens" 2>/dev/null \
+		&& echo "    ✓ audio door token (hermes line present)" \
+		|| echo "    ✗ audio door token [no hermes= line in ~/.agent-workflows/data/door-tokens — TTS/STT would 401]"
 	@# `hermes serve` auth. Counted, not spot-checked: the launcher refuses below the
 	@# full set (an absent username silently skips the provider), so a partial seed
 	@# shows up as exit 78 there and as this line here.
@@ -562,7 +566,7 @@ help:
 	@echo "  hermes-agent"
 	@echo ""
 	@echo "  make setup           Mac Mini-only — config symlinks, LaunchAgents, CC skills"
-	@echo "  make status          Verify symlinks, audio-gateway, LaunchAgents (graded), cron registry, CC skills"
+	@echo "  make status          Verify symlinks, audio door, LaunchAgents (graded), cron registry, CC skills"
 	@echo "  make check           Syntax + unit tests + patch-check (no side effects)"
 	@echo "  make deploy          Setup + restart gateway + verify; roll back to HEAD~1 on failure"
 	@echo "  make verify          Probe the live gateway (exit 0 = healthy)"

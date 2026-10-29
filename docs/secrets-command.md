@@ -60,6 +60,13 @@ regression is monitored rather than merely accepted:
   empty or absent `.env.tpl` makes the assertion vacuous (`WANT=0`) — a gateway with no
   secrets can't reach Slack, so the connected-check below catches that case anyway.
 
+**One value is not a 1Password ref:** `AUDIO_DOOR_TOKEN`, the bearer for the agent-workflows audio
+door (`tts.openai` / `stt.openai` `api_key: ${AUDIO_DOOR_TOKEN}`). It lives in the local file
+`~/.agent-workflows/data/door-tokens` (`hermes=<token>`, mode 0600, created by agent-workflows' deploy), so
+`secrets.command` is `{ <secrets-run export | sed>; sed -n 's/^hermes=/AUDIO_DOOR_TOKEN=/p' <file> 2>/dev/null; true; }`
+— the token reaches the process environment like any other secret and never enters git. A missing
+file leaves the variable unset (audio 401s); `make status` grades the `hermes=` line.
+
 Manual check after any secrets change: `Command helper: applied 28 secrets` in
 `hermes gateway status`, and `✓ secrets (28 refs …)` from `make status`.
 

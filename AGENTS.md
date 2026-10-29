@@ -15,15 +15,20 @@ loop. Hermes has one role — **narrate, answer, route** (spec: `dotfiles/docs/a
 Bridge* below for how Hermes hands it work, and the read-only `warden` skill for how Hermes
 reads it back.
 
-Audio (TTS + STT) is the **`audio-gateway`** service (`~/SourceRoot/audio-gateway`), an
-OpenAI-compatible VPS container at `https://audio-gateway.jkrumm.com/v1` over the tailnet.
-Hermes only points its native `openai` TTS/STT providers at it in `config.yaml` — this repo
-installs and patches no audio service. TTS = Gemini 3.8 via the gateway's native lane, voice
-Charon: `gemini-3.8-flash-lite-tts` for chat replies (`tts.openai`), `gemini-3.8-flash-tts` for
+Audio (TTS + STT) is the **agent-workflows audio door** (`~/SourceRoot/agent-workflows`,
+`packages/audio`), an OpenAI-compatible loopback service on the mini at `http://127.0.0.1:7792/v1`
+(LaunchAgent `com.jkrumm.agent-workflows-audio`; moved off the VPS `audio-gateway` 2026-10-29, same
+request/response contract). Hermes only points its native `openai` TTS/STT providers at it in
+`config.yaml` — this repo installs and patches no audio service. **Auth:** `api_key: ${AUDIO_DOOR_TOKEN}`;
+`secrets.command` appends that variable from the `hermes=` line of `~/.agent-workflows/data/door-tokens`
+(a local 0600 file created by agent-workflows' deploy — not a 1Password ref, never in git). Every
+request is a run in agent-workflows (`agw-run-id` response header, caller `hermes`). The
+`audio-gateway` VPS container still serves the cron briefing prompts and the `podcast` skill.
+TTS = Gemini 3.8 via the door's native lane, voice Charon: `gemini-3.8-flash-lite-tts` for chat replies (`tts.openai`), `gemini-3.8-flash-tts` for
 briefings (`skills/briefing-tts`, prep on). Streaming clients (CLI voice `OpenAIStreamer`, desktop
 `speak-stream` relay, spoken summary) already send `response_format: pcm` and get the progressive
 stream; Slack/file replies stay whole-file mp3 + `X-Audio-Title`. ElevenLabs ids stay selectable as a
-fallback. STT = `voxtral-mini-transcribe-3-0` (EU; gateway falls back to `gpt-transcribe`). Request shapes and traps: `modelpick/docs/gemini-tts.md`;
+fallback. STT = `voxtral-mini-transcribe-3-0` (EU; the door falls back to `gpt-transcribe`). Request shapes and traps: `modelpick/docs/gemini-tts.md`;
 rationale: `modelpick/docs/decisions/audio-stack.md`.
 
 **This repo is public.** Anything Hermes writes here gets read for tailnet names, node IPs,
@@ -175,6 +180,11 @@ single list of `KEY=op://vault/item/field` refs. The `sed` exists because `expor
 `export K='V'` while the bulk parser wants `K=V`. 0.29s for 29 refs (28 since 2026-09-14) (default budget 3s), and
 secrets resolve for **every** hermes invocation — gateway, CLI, cron.
 
+- **Not a 1Password ref: the audio door token.** `AUDIO_DOOR_TOKEN` comes from the local
+  `~/.agent-workflows/data/door-tokens` file (`hermes=` line): the `command` above is wrapped as
+  `{ secrets-run … | sed …; sed -n 's/^hermes=/AUDIO_DOOR_TOKEN=/p' <file> 2>/dev/null; true; }`.
+  A missing file degrades to an unset variable (TTS/STT 401), graded by `make status` ("audio door token").
+  Rotation: edit the file, restart the gateway **and** `com.jkrumm.hermes-serve`.
 - **Not `secrets.onepassword`**: it needs an interactive `op` session (hangs headless) or a
   standing `OP_SERVICE_ACCOUNT_TOKEN` (a live credential on an always-on box). The sealed cache
   is strictly stronger — its contents are the explicit `dotfiles-private/headless.refs` allowlist.
@@ -502,7 +512,7 @@ make status       # verify all of it
 make patch-check  # assert every patches/*.patch is applied to the live checkout
 ```
 
-Prerequisites: `hermes` CLI installed, `audio-gateway` reachable, 1Password CLI authenticated as
+Prerequisites: `hermes` CLI installed, the audio door up (`curl http://127.0.0.1:7792/health`), 1Password CLI authenticated as
 `tkrumm`. `make help` lists the rest.
 
 ## Editing Rules

@@ -5,8 +5,9 @@ _Use when an audio file or voice memo must become text._
 He sends a voice memo as an attachment (an `.m4a`, arriving as
 `~/.hermes/cache/documents/doc_<hash>_<original name>`). Every downstream lane
 wants the words, not the container, and transcription is the one step of that
-chain no other skill documents. STT lives on the same VPS audio-gateway as TTS,
-OpenAI-compatible in both directions: `https://audio-gateway.jkrumm.com/v1`.
+chain no other skill documents. STT lives on the same agent-workflows audio door as TTS,
+OpenAI-compatible in both directions: `http://127.0.0.1:7792/v1` (loopback, bearer
+`$AUDIO_DOOR_TOKEN` from the gateway's environment — never print it).
 
 ## Procedure
 
@@ -20,7 +21,8 @@ OpenAI-compatible in both directions: `https://audio-gateway.jkrumm.com/v1`.
 
    ```bash
    curl -s -m 280 -w "\nHTTP=%{http_code}\n" \
-     -X POST https://audio-gateway.jkrumm.com/v1/audio/transcriptions \
+     -X POST http://127.0.0.1:7792/v1/audio/transcriptions \
+     -H "Authorization: Bearer $AUDIO_DOOR_TOKEN" \
      -F "file=@/tmp/memo.m4a" -F "model=voxtral-mini-transcribe-3-0" -F "language=de" \
      -o /tmp/transcript.json
    ```

@@ -42,9 +42,9 @@ Files touched (all are `.patch` files applied with `git apply` — no full-file 
 | `agent/transports/chat_completions.py` | `patches/transport-iu-reasoning-effort.patch` | clamp/strip the top-level `reasoning_effort` for the **main-loop model only** (brain + fallback), per model family — does not cover the auxiliaries |
 | `run_agent.py` | `patches/run-agent-iu-max-completion-tokens.patch` | always send `max_completion_tokens` (never `max_tokens`) on the IU OpenAI leg, regardless of model-id prefix |
 | `agent/auxiliary_client.py` | `patches/auxiliary-client-iu-openai-leg-quirks.patch` | always `max_completion_tokens`, and a clamped top-level `reasoning_effort`, on the IU OpenAI leg — covers the auxiliaries the transport/run_agent patches don't (the gpt-5.x `temperature` strip retired at v0.21.4, upstream does it) |
-| `tools/tts_tool_openai.py` + `tools/tts_tool.py` | `patches/tts-tool-audio-title.patch` | name the audio file from the audio-gateway's `X-Audio-Title` header (a short title from the gateway's own prep step) instead of `tts_<timestamp>` |
+| `tools/tts_tool_openai.py` + `tools/tts_tool.py` | `patches/tts-tool-audio-title.patch` | name the audio file from the audio door's `X-Audio-Title` header (a short title from the door's own prep step) instead of `tts_<timestamp>` |
 
-> **STT is not patched.** `tools/transcription_tools.py` (native `openai` STT → `gpt-transcribe`) is pointed at the audio-gateway purely via `config.yaml`. TTS uses the stock native `openai` provider (→ Gemini Charon via the audio-gateway) plus the one small `tts-tool-audio-title` patch above for the filename. After an update, confirm `config.yaml`'s `tts.openai` / `stt.openai` `base_url` still reads `https://audio-gateway.jkrumm.com/v1`.
+> **STT is not patched.** `tools/transcription_tools.py` (native `openai` STT → `gpt-transcribe`) is pointed at the audio door purely via `config.yaml`. TTS uses the stock native `openai` provider (→ Gemini Charon via the audio door) plus the one small `tts-tool-audio-title` patch above for the filename. After an update, confirm `config.yaml`'s `tts.openai` / `stt.openai` `base_url` still reads `https://audio-gateway.jkrumm.com/v1`.
 
 ### When EVERY patch conflicts, check the commit count before the conflicts
 
@@ -537,7 +537,7 @@ A basic "send a message and see a reply" check doesn't exercise most of the patc
 **Prefer a direct in-process test over a round-trip where one exists.** The table's Slack/TTS rows depend on a real Slack round-trip whose command text is *not* logged, so they prove less than they look like they do. Calling the patched function directly is faster, deterministic, and actually pins the behavior — this is what caught the v0.19.0 `_generate_openai_tts` return-type change. Run these from `~/.hermes/hermes-agent` with `venv/bin/python`:
 
 ```python
-# tts-tool-audio-title: real call to the audio-gateway, asserts the header + rename
+# tts-tool-audio-title: real call to the audio door, asserts the header + rename
 import copy
 from tools.tts_tool import _generate_openai_tts, _rename_with_title
 # The live model (elevenlabs/flash-v2.5) runs no prep step and sends NO title header —
@@ -550,4 +550,4 @@ _rename_with_title("/tmp/tts_123.mp3", title)   # → '/tmp/Kurzer Test.mp3'
 
 **Secrets check (v0.19.0+):** `hermes gateway status` must print `Command helper: applied N secrets`, N = the `KEY=` count in `.env.tpl`. Missing → the gateway is running credential-less; test the helper directly with `secrets-run export --env-file=~/.hermes/.env.tpl | sed 's/^export //' | wc -l`.
 
-Config sanity check (not patch-related, but always confirm after an update): `config.yaml`'s `tts.openai.base_url` / `stt.openai.base_url` still read `https://audio-gateway.jkrumm.com/v1`.
+Config sanity check (not patch-related, but always confirm after an update): `config.yaml`'s `tts.openai.base_url` / `stt.openai.base_url` still read `http://127.0.0.1:7792/v1` and `api_key: ${AUDIO_DOOR_TOKEN}`, and `secrets.command` still appends the door-token line.

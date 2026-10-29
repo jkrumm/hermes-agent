@@ -60,7 +60,7 @@ tags are infrastructure Hermes deliberately does **not** call.
 
 **Not agent-facing (Hermes does NOT call these):**
 - **Hermes Chat** (`/hermes/*`) — the *argo dashboard → Hermes* path (argo calls Hermes here). Calling it from Hermes would be talking to itself.
-- **AI Gateway** (`/ai/v1/*`) — OpenAI-compatible model + audio proxy. Hermes reaches its brain and the **audio-gateway directly** (`config.yaml`), not through Argo's `/ai` hop. Never route TTS/STT/chat through `/ai/v1/*`.
+- **AI Gateway** (`/ai/v1/*`) — OpenAI-compatible model + audio proxy. Hermes reaches its brain and the **audio door directly** (`config.yaml`), not through Argo's `/ai` hop. Never route TTS/STT/chat through `/ai/v1/*`.
 
 ---
 

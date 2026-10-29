@@ -56,11 +56,11 @@ TAVILY_API_KEY=op://hermes/tavily/API_KEY
 
 # Voice — fallback api_key for the native openai TTS/STT tools, only consulted by
 # hermes-agent's _resolve_openai_audio_client_config() when config.yaml's
-# tts.openai.api_key / stt.openai.api_key is unset — both are set directly there
-# (config.yaml:336,363), so this ref is currently inert, kept as a safety net.
-# audio-gateway runs with PROXY_API_KEY empty (tailnet gates access) and maps the
-# bearer value to a caller name via AUDIO_CALLER_TOKENS — "hermes" attributes
-# audio-gateway traces/usage to this agent, not a real credential.
+# tts.openai.api_key / stt.openai.api_key is unset — both are set there to
+# ${AUDIO_DOOR_TOKEN}, so this value is inert, kept as a safety net. It is NOT a
+# door credential (the real token is a local file, not a 1Password ref: config.yaml's
+# secrets.command appends AUDIO_DOOR_TOKEN from the hermes= line of
+# ~/.agent-workflows/data/door-tokens).
 VOICE_TOOLS_OPENAI_KEY=hermes
 
 # GitHub — issue creation, repo queries (watchdog, Phase 3)
@@ -101,6 +101,6 @@ UPTIME_PUSH_WATCHDOG=op://hermes/uptime-kuma/watchdog-push-url
 
 # Cron job idle timeout — hermes-agent/cron/scheduler.py kills any cron job that goes idle
 # (no tool activity / agent thinking) for this long. Default 600s is too tight for the
-# morning briefing's long-form German TTS run (audio-gateway chunks + synthesizes a
+# morning briefing's long-form German TTS run (the audio door chunks + synthesizes a
 # multi-paragraph narrative); 1800s gives headroom.
 HERMES_CRON_TIMEOUT=1800
