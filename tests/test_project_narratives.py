@@ -32,7 +32,7 @@ import json
 import shutil
 import sys
 import tempfile
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
@@ -224,12 +224,42 @@ check("round-tripped state matches", loaded, state)
 
 # --- main(["--run"]) — changed:false ------------------------------------------
 
+print("\n9b. run_narrative_job — argv for agw, output unwrapped, failures degrade to None")
+_orig_run = pn.agw_run.run
+_seen = []
+
+
+def _fake_run(args, **kw):
+    _seen.append(args)
+    return {"status": "done", "output": {"changed": True, "page": "p", "summary": "s"}}
+
+
+pn.agw_run.run = _fake_run
+try:
+    out = pn.run_narrative_job("weatherorb", "/x/weatherorb", "OLD PAGE", "2026-10-28T10:00:00+00:00")
+    check("output unwrapped", out["changed"], True)
+    check("argv with previous page and since", _seen[-1], [
+        "narrative", "--cwd", "/x/weatherorb", "--project", "weatherorb",
+        "--previous-page", "OLD PAGE", "--since", "2026-10-28T10:00:00+00:00",
+    ])
+    pn.run_narrative_job("weatherorb", "/x/weatherorb", None, None)
+    check("bootstrap argv omits previous page and since", _seen[-1],
+          ["narrative", "--cwd", "/x/weatherorb", "--project", "weatherorb"])
+
+    def _fail(args, **kw):
+        raise pn.agw_run.AgwError("agw narrative exit 1: boom", run_id="r1")
+    pn.agw_run.run = _fail
+    with redirect_stderr(io.StringIO()):
+        check("AgwError -> None", pn.run_narrative_job("weatherorb", "/x", None, None), None)
+finally:
+    pn.agw_run.run = _orig_run
+
 print("\n10. main(['--run']) — changed:false writes nothing, advances state")
 _reset_paths()
 _mk_repo("weatherorb")
 calls: list[list[str]] = []
 pn.subprocess.run = make_fake_run(calls, head_sha="sha-new")
-pn.run_narrative_job = lambda base, project, cwd, previous_page, since, **kw: {
+pn.run_narrative_job = lambda project, cwd, previous_page, since, **kw: {
     "project": project, "changed": False, "reason": "no substantive change",
     "summary": None, "page": None, "sections": [], "inputs": {}, "model": "test",
 }
@@ -262,7 +292,7 @@ page_md = (
     "---\ntype: Reference\ndescription: Weather/wave service — 8 mini LaunchAgents.\n"
     "timestamp: 2026-09-07\n---\n\n# weatherorb\n\nShipped CDN icon mirroring this week.\n"
 )
-pn.run_narrative_job = lambda base, project, cwd, previous_page, since, **kw: {
+pn.run_narrative_job = lambda project, cwd, previous_page, since, **kw: {
     "project": project, "changed": True, "reason": "commits landed",
     "summary": "Shipped CDN icon mirroring.", "page": page_md, "sections": ["summary"],
     "inputs": {"commits": 3, "sessions": 1, "sinceUsed": since}, "model": "test",
@@ -312,7 +342,7 @@ calls = []
 pn.subprocess.run = make_fake_run(calls, head_sha="sha-lock", lint_ok=True)
 pn.BRAIN_LOCK_DIR.mkdir(parents=True)
 (pn.BRAIN_LOCK_DIR / "pid").write_text(str(_os.getpid()))  # a live holder: this process
-pn.run_narrative_job = lambda base, project, cwd, previous_page, since, **kw: {
+pn.run_narrative_job = lambda project, cwd, previous_page, since, **kw: {
     "project": project, "changed": True, "reason": "commits landed",
     "summary": "Locked run.", "page": page_md, "sections": ["summary"], "inputs": {}, "model": "test",
 }
@@ -351,7 +381,7 @@ _mk_repo("weatherorb")
 _write_engineering_index()
 calls = []
 pn.subprocess.run = make_fake_run(calls, head_sha="sha-bad", lint_ok=False)
-pn.run_narrative_job = lambda base, project, cwd, previous_page, since, **kw: {
+pn.run_narrative_job = lambda project, cwd, previous_page, since, **kw: {
     "project": project, "changed": True, "reason": "commits landed",
     "summary": "Bad page.", "page": "---\nbroken frontmatter\n---\n\n# weatherorb\n",
     "sections": [], "inputs": {}, "model": "test",
@@ -382,7 +412,7 @@ seen_since = []
 seen_previous = []
 
 
-def _bootstrap_job(base, project, cwd, previous_page, since, **kw):
+def _bootstrap_job(project, cwd, previous_page, since, **kw):
     seen_since.append(since)
     seen_previous.append(previous_page)
     return {

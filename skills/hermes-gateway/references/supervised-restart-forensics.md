@@ -8,7 +8,7 @@ ledger reporting an unclean exit, a service that came back after a gap, or a ver
 that blames a hang.
 
 Applies to anything on this estate with a supervisor: the Hermes gateway, agent-gateway,
-Warden's five LaunchAgents, audio-gateway, weatherorb — launchd plists with `KeepAlive`, or
+audio-gateway, weatherorb — launchd plists with `KeepAlive`, or
 systemd units.
 
 **The app's log is the least authoritative source in the room.** The supervisor's own

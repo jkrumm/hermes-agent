@@ -5,7 +5,7 @@ version: 1.0.0
 metadata:
   hermes:
     tags: [verify, verification, claim, evidence, probe, deploy, live, fixed, done]
-    related_skills: [warden, dispatch, homelab-ops]
+    related_skills: [dispatch, homelab-ops]
 ---
 
 # Verify — evidence, not prose
@@ -18,7 +18,7 @@ the thing being checked.
 
 1. **Name the claim** in one sentence — what exactly would be true if this were right.
 2. **Observe it yourself, this turn.** Run the probe; do not repeat an earlier result.
-   - Item / episode state → `warden` skill (`/items/<eventId>`), never the ledger file.
+   - Dispatch episode state → `agw-legacy status <jobId> --json`, never the jobs database.
    - Code defect → read the code at the cited line on the current default branch.
    - Deploy / "live" → the running thing: container, health URL, process start time
      later than the merge.

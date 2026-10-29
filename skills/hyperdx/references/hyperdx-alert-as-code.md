@@ -5,8 +5,8 @@ _Use when changing a HyperDX alert or dashboard as code._
 HyperDX alerts and dashboards are **declared state in the `vps` repo**, not UI state:
 `observability/alerts/*.json` and `observability/dashboards/*.json` are the source of
 truth, and `scripts/hyperdx-sync.sh` (through `make hyperdx-export` / `make hyperdx-apply`)
-is the only writer. Warden has no per-path allowlist any more: a change to those paths rides the normal merge
-train, with review confirmed on the merged SHA as the gate. **Whether** a family should
+is the only writer. A change to those paths rides the normal merge
+flow, with review confirmed on the merged SHA as the gate. **Whether** a family should
 be changed at all is `alert-noise-suppression`; **how** the change is made is this skill.
 
 ## Procedure
@@ -48,7 +48,7 @@ be changed at all is `alert-noise-suppression`; **how** the change is made is th
    `OK`). The configuration lives in the server; a green apply log line is not proof the row
    changed — the read-back is.
 5. **Land it.** PR against `jkrumm/vps` with `--rebase` (squash merges are disabled on that
-   repo), or let Warden's pre-approved path merge an episode PR. Then discharge the tracking
+   repo). Then discharge the tracking
    item with the measured numbers in the reason — the next session cannot re-derive them from a card.
 
 ## Choosing the guard: express what the platform can actually evaluate

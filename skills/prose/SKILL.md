@@ -1,6 +1,6 @@
 ---
 name: prose
-description: Run a longer written artifact through agent-gateway's prose pass before it is delivered — vault pages, reports, articles, docs, briefings Johannes reads as text. Use after drafting anything longer than a short chat reply. Not for chat replies, not for TTS scripts.
+description: Run a longer written artifact through the platform's prose pass (`agw prose-polish`) before it is delivered — vault pages, reports, articles, docs, briefings Johannes reads as text. Use after drafting anything longer than a short chat reply. Not for chat replies, not for TTS scripts.
 version: 1.0.0
 metadata:
   hermes:
@@ -10,7 +10,7 @@ metadata:
 
 # Prose — the writing pass for longer artifacts
 
-You write on the brain (deepseek-v4.1-flash, `chat_completions`); the `prose` job rewrites on a stronger writer against `~/SourceRoot/brain/voice.md`, with a different lab reviewing and a lint gate that discards a rewrite that loses a code block, a URL or a fact. One script wraps it: `~/.hermes/scripts/prose.py`.
+You write on the brain (deepseek-v4.1-flash, `chat_completions`); the `agw prose-polish` workflow rewrites on a stronger writer against `~/SourceRoot/brain/voice.md`, with a different lab reviewing and a lint gate that discards a rewrite that loses a code block, a URL or a fact. One script wraps it: `~/.hermes/scripts/prose.py` (it shells out to `agw`, which reads its own config — no credential to resolve).
 
 ## When to use
 
@@ -37,14 +37,14 @@ You write on the brain (deepseek-v4.1-flash, `chat_completions`); the `prose` jo
    | `--out <file>` | write the text to this file (atomic) instead of stdout |
    | `--timeout <s>` | give up polling after this many seconds (script default 900) |
 
-   It takes 20–90 s, sometimes longer. The terminal tool's per-command timeout is 180 s (`config.yaml` `terminal.timeout`; a caller can override it per call), so pass the terminal call `timeout: 600` and keep the script's `--timeout 540` below it — the script then fails with the job id instead of the tool killing it silently. stderr is one summary line (`prose: kept=rewrite cost=$0.04`).
+   It takes 20–90 s, sometimes longer. The terminal tool's per-command timeout is 180 s (`config.yaml` `terminal.timeout`; a caller can override it per call), so pass the terminal call `timeout: 600` and keep the script's `--timeout 540` below it — the script then fails with the run id instead of the tool killing it silently. stderr is one summary line (`prose: kept=rewrite cost=$0.04`).
 3. **Read `--out`'s file** and use it as the artifact — write it to the vault page or paste it into the reply. Do not edit it afterwards.
 
 ## Reading the result
 
 - `kept=rewrite` — the pass improved it; use it.
 - `kept=original (<reason>)` — the gate judged the rewrite worse (lost a URL or code block, added content, more lint findings, writer starved). The out file then holds your original draft; **use it as-is and do not retry in a loop.** One run per artifact.
-- Non-zero exit — the job failed, timed out, the gateway is down or the out file could not be written (the `prose:` line names the job id). No new out file is written. Deliver the original draft and say in one clause that the pass did not run. Do not retry more than once.
+- Non-zero exit — the run failed, timed out, `agw` is unreachable or the out file could not be written (the `prose:` line names the run id). No new out file is written. Deliver the original draft and say in one clause that the pass did not run. Do not retry more than once.
 
 ## Notes
 

@@ -1,11 +1,12 @@
-"""Regression suite for scripts/prose.py — the agent-gateway `prose` job client.
+"""Regression suite for scripts/prose.py — the `agw prose-polish` client.
 
-Covers: the wall-clock deadline (raises with the job id), a non-object JSON body (clean
-ProseError, not an AttributeError), an unwritable --out (exit 1, `prose:` line with the job id,
-no partial file), atomic --out on success, GET polls retried on transient failures while the
-POST submit is not, a 4xx poll failing at once, and the throttled progress line.
+Covers: the happy path (argv, stdin draft, run id + output returned), a failed or timed-out
+run raising ProseError with the run id, a done run without a text result, the agw argv built
+from the CLI flags, an unwritable --out (exit 1, `prose:` line with the run id, no partial
+file), atomic --out on success, a failed run leaving an existing --out untouched, and the
+summary line mapping agw's `reason`/`cost`.
 
-No network: every case replaces the module's `_request` (and `time`) with fakes.
+No agw binary: every case replaces `agw_run.run` with a fake.
 
 Run against the live tree:
 
@@ -23,7 +24,6 @@ import sys
 import tempfile
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
-from types import SimpleNamespace
 
 _HERE = Path(__file__).resolve().parent
 _spec = importlib.util.spec_from_file_location("prose", _HERE.parent / "scripts" / "prose.py")
@@ -47,63 +47,31 @@ def check_true(name: str, cond: bool) -> None:
 
 
 TMP_ROOT = Path(tempfile.mkdtemp(prefix="prose-test-"))
-REAL_REQUEST = pr._request
-REAL_TIME = pr.time
+REAL_RUN = pr.agw_run.run
+AgwError = pr.agw_run.AgwError
 
 
-class FakeClock:
-    """Stands in for the `time` module: sleep() advances monotonic() instead of waiting."""
+def install(result) -> list[dict]:
+    """Replace agw_run.run with a fake returning `result` (or raising it when an exception)."""
+    calls: list[dict] = []
 
-    def __init__(self) -> None:
-        self.now = 1000.0
-        self.sleeps: list[float] = []
+    def fake_run(args, *, stdin=None, timeout=None, label="agw"):
+        calls.append({"args": args, "stdin": stdin, "timeout": timeout})
+        if isinstance(result, Exception):
+            raise result
+        return result
 
-    def monotonic(self) -> float:
-        return self.now
-
-    def sleep(self, seconds: float) -> None:
-        self.sleeps.append(seconds)
-        self.now += seconds
-
-
-def install(script: list) -> tuple[list[tuple[str, dict | None]], FakeClock]:
-    """Replace _request with a scripted fake: each item is a value to return or an exception to
-    raise. The last item repeats once the script runs out."""
-    calls: list[tuple[str, dict | None]] = []
-    clock = FakeClock()
-
-    def fake_request(url: str, body: dict | None = None) -> dict:
-        calls.append((url, body))
-        item = script[min(len(calls) - 1, len(script) - 1)]
-        if isinstance(item, Exception):
-            raise item
-        return item
-
-    pr._request = fake_request
-    pr.time = SimpleNamespace(monotonic=clock.monotonic, sleep=clock.sleep)
-    return calls, clock
+    pr.agw_run.run = fake_run
+    return calls
 
 
 def restore() -> None:
-    pr._request = REAL_REQUEST
-    pr.time = REAL_TIME
+    pr.agw_run.run = REAL_RUN
 
 
-def posts(calls) -> int:
-    return len([c for c in calls if c[1] is not None])
-
-
-def gets(calls) -> int:
-    return len([c for c in calls if c[1] is None])
-
-
-SUBMIT = {"ok": True, "job": {"id": "job-1", "status": "pending"}}
-RUNNING = {"ok": True, "job": {"id": "job-1", "status": "running"}}
 DONE = {
-    "ok": True,
-    "job": {"id": "job-1", "status": "done", "result": {
-        "text": "final text\n", "kept": "rewrite", "usage": {"costUsd": 0.0412},
-    }},
+    "runId": "run-1", "workflowId": "prose-polish", "status": "done", "cost": 0.0412,
+    "output": {"text": "final text\n", "kept": "rewrite", "cost": 0.0412, "lint": {"before": 1, "after": 0, "findings": []}},
 }
 
 
@@ -128,125 +96,70 @@ def raised_by(fn) -> str | None:
     return None
 
 
-print("1. happy path — submit once, poll until done, return (job_id, result)")
-calls, _ = install([SUBMIT, RUNNING, DONE])
-job_id, result = pr.run_prose_job("http://gw", {"text": "x"}, poll_interval=3, timeout=900)
+print("1. happy path — one agw call, draft on stdin, (run_id, output) returned")
+calls = install(DONE)
+run_id, result = pr.run_prose(["--medium", "vault"], "the draft", timeout=900)
 restore()
-check("job id", job_id, "job-1")
+check("run id", run_id, "run-1")
 check("text", result["text"], "final text\n")
-check("one POST", posts(calls), 1)
-check("two GETs", gets(calls), 2)
-check("POST body tool", calls[0][1]["tool"], "prose")
+check("one call", len(calls), 1)
+check("workflow + args", calls[0]["args"], ["prose-polish", "--medium", "vault"])
+check("draft on stdin, not argv", calls[0]["stdin"], "the draft")
+check("timeout reaches the transport", calls[0]["timeout"], 900)
 
-print("\n2. deadline — a job that never finishes raises with the job id")
-calls, clock = install([SUBMIT, RUNNING])
-raised = raised_by(lambda: pr.run_prose_job("http://gw", {"text": "x"}, poll_interval=3, timeout=20))
+print("\n2. AgwError becomes ProseError and carries the run id")
+install(AgwError("run run-1 not finished after 20s", run_id="run-1"))
+raised = raised_by(lambda: pr.run_prose([], "x", timeout=20))
 restore()
 check_true("raised", raised is not None)
-check_true("names the job id", raised and "job-1" in raised)
+check_true("names the run id", raised and "run-1" in raised)
 check_true("names the timeout", raised and "20s" in raised)
-check_true("clock stopped at the deadline", clock.now - 1000.0 <= 20.0 + 1e-9)
 
-class FakeResponse:
-    def __init__(self, payload: bytes) -> None:
-        self.payload = payload
-
-    def read(self) -> bytes:
-        return self.payload
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc) -> None:
-        return None
-
-
-print("\n3. non-object JSON body from the real _request — clean ProseError end to end")
-real_urlopen = pr.urllib.request.urlopen
-for name, payload in (("list", b"[1, 2]"), ("null", b"null"), ("string", b'"ok"')):
-    pr.urllib.request.urlopen = lambda req, timeout=None, p=payload: FakeResponse(p)
-    try:
-        raised = raised_by(lambda: pr.run_prose_job("http://gw", {"text": "x"}))
-    except Exception as err:  # noqa: BLE001 — the point is that nothing but ProseError escapes
-        raised = f"UNEXPECTED {type(err).__name__}: {err}"
-    check_true(f"{name} body -> ProseError", raised is not None and not raised.startswith("UNEXPECTED"))
-pr.urllib.request.urlopen = real_urlopen
-
-install([{"ok": True, "job": "nope"}])
-raised = raised_by(lambda: pr.run_prose_job("http://gw", {"text": "x"}))
+print("\n3. AgwError without a run id (agw unreachable) still raises ProseError")
+install(AgwError("agw not runnable: boom"))
+raised = raised_by(lambda: pr.run_prose([], "x"))
 restore()
-check_true("non-object job -> ProseError", raised is not None and "submit refused" in raised)
+check_true("raised", raised is not None and "boom" in raised)
 
-print("\n3b. real _request — non-object JSON is permanent, non-JSON is transient")
-
-
-for payload, want in ((b"[1]", "ProseError"), (b"<html>502</html>", "TransientError")):
-    pr.urllib.request.urlopen = lambda req, timeout=None, p=payload: FakeResponse(p)
-    kind = None
-    try:
-        REAL_REQUEST("http://gw/x")
-    except pr.ProseError as err:
-        kind = type(err).__name__
-    check(f"{payload!r} -> {want}", kind, want)
-pr.urllib.request.urlopen = real_urlopen
-
-print("\n4. GET retried on transient failures, then succeeds")
-calls, clock = install([
-    SUBMIT,
-    pr.TransientError("gateway unreachable: reset"),
-    pr.TransientError("gateway HTTP 503: restarting"),
-    DONE,
-])
-job_id, result = pr.run_prose_job("http://gw", {"text": "x"}, poll_interval=3, timeout=900)
-restore()
-check("got the result", result["kept"], "rewrite")
-check("three GETs (2 failed + 1 ok)", gets(calls), 3)
-check("one POST", posts(calls), 1)
-check("backoff grows", clock.sleeps, [3, 6, 12])
-
-print("\n5. POST not retried — a transient submit failure raises at once")
-calls, _ = install([pr.TransientError("gateway unreachable: reset"), SUBMIT, DONE])
-raised = raised_by(lambda: pr.run_prose_job("http://gw", {"text": "x"}))
-restore()
-check_true("raised", raised is not None)
-check("exactly one request made", len(calls), 1)
-
-print("\n6. 4xx on a poll is not retried and names the job id")
-calls, _ = install([SUBMIT, pr.ProseError("gateway HTTP 404: job not found")])
-raised = raised_by(lambda: pr.run_prose_job("http://gw", {"text": "x"}))
-restore()
-check_true("raised with job id", raised is not None and "job-1" in raised)
-check("submit + one poll only", len(calls), 2)
-
-print("\n7. failed / cancelled / interrupted jobs raise with the job id and error")
-for status in ("failed", "cancelled", "interrupted"):
-    install([SUBMIT, {"ok": True, "job": {"id": "job-1", "status": status, "error": "boom"}}])
-    raised = raised_by(lambda: pr.run_prose_job("http://gw", {"text": "x"}))
+print("\n4. a done run without a text result raises with the run id")
+for bad in ({"runId": "run-1", "status": "done", "output": None},
+            {"runId": "run-1", "status": "done", "output": {"kept": "rewrite"}}):
+    install(bad)
+    raised = raised_by(lambda: pr.run_prose([], "x"))
     restore()
-    check_true(status, raised is not None and "job-1" in raised and "boom" in raised)
+    check_true("raised with run id", raised is not None and "run-1" in raised)
 
-print("\n8. progress line throttled to one per 30 s")
-calls, clock = install([SUBMIT] + [RUNNING] * 40 + [DONE])
-err_buf = io.StringIO()
-with redirect_stderr(err_buf):
-    pr.run_prose_job("http://gw", {"text": "x"}, poll_interval=3, timeout=900)
+print("\n5. main — flags map onto the agw argv")
+calls = install(DONE)
+ctx = TMP_ROOT / "ctx.md"
+ctx.write_text("outline\n")
+rc, out, err = run_main([str(draft_file()), "--medium", "docs", "--language", "de",
+                         "--context", str(ctx), "--no-verdict-first"])
 restore()
-lines = [ln for ln in err_buf.getvalue().splitlines() if ln.startswith("prose: job")]
-check_true("some progress lines", len(lines) >= 2)
-check_true("at most one per 30 s", len(lines) <= int(clock.now - 1000.0) // 30)
+check("exit 0", rc, 0)
+check("argv", calls[0]["args"], ["prose-polish", "--medium", "docs", "--no-verdict-first",
+                                 "--language", "de", "--context", "outline\n"])
+check("stdin is the draft", calls[0]["stdin"], "A draft paragraph.\n")
+check("text to stdout", out, "final text\n")
 
-print("\n9. main — unwritable --out exits 1 with a `prose:` line naming the job id")
-install([SUBMIT, DONE])
+print("\n6. main — default medium vault, no optional flags")
+calls = install(DONE)
+run_main([str(draft_file())])
+restore()
+check("argv", calls[0]["args"], ["prose-polish", "--medium", "vault"])
+
+print("\n7. main — unwritable --out exits 1 with a `prose:` line naming the run id")
+install(DONE)
 bad_out = TMP_ROOT / "no-such-dir" / "final.md"
 rc, out, err = run_main([str(draft_file()), "--out", str(bad_out)])
 restore()
 check("exit 1", rc, 1)
-check_true("stderr is a prose: line with the job id", err.startswith("prose: ") and "job-1" in err)
+check_true("stderr is a prose: line with the run id", err.startswith("prose: ") and "run-1" in err)
 check("nothing on stdout", out, "")
 check_true("no out file", not bad_out.exists())
 
-print("\n10. main — --out writes atomically, leaves no temp file, prints the summary")
-install([SUBMIT, DONE])
+print("\n8. main — --out writes atomically, leaves no temp file, prints the summary")
+install(DONE)
 good_dir = TMP_ROOT / "good"
 good_dir.mkdir()
 good_out = good_dir / "final.md"
@@ -258,26 +171,29 @@ check("only the out file in the directory", [p.name for p in good_dir.iterdir()]
 check("summary line", err.strip(), "prose: kept=rewrite cost=$0.041")
 check("stdout empty with --out", out, "")
 
-print("\n11. main — failed job leaves an existing --out untouched, exit 1")
-install([SUBMIT, {"ok": True, "job": {"id": "job-1", "status": "failed", "error": "boom"}}])
+print("\n9. main — failed run leaves an existing --out untouched, exit 1")
+install(AgwError("agw prose-polish exit 1: boom", run_id="run-1"))
 keep = good_dir / "keep.md"
 keep.write_text("previous\n")
 rc, out, err = run_main([str(draft_file()), "--out", str(keep)])
 restore()
 check("exit 1", rc, 1)
 check("previous content intact", keep.read_text(), "previous\n")
-check_true("error names job id", "job-1" in err)
+check_true("error names run id", "run-1" in err)
 
-print("\n12. main — --timeout reaches the deadline; message carries the job id")
-install([SUBMIT, RUNNING])
-rc, out, err = run_main([str(draft_file()), "--timeout", "10"])
+print("\n10. main — empty input exits 1 without calling agw")
+calls = install(DONE)
+empty = TMP_ROOT / "empty.md"
+empty.write_text("  \n")
+rc, out, err = run_main([str(empty)])
 restore()
 check("exit 1", rc, 1)
-check_true("prose: line with job id and 10s", err.startswith("prose: ") and "job-1" in err and "10s" in err)
+check("agw never called", calls, [])
 
-print("\n13. summary_line — cost=n/a when the gateway reports no USD figure")
-check("n/a", pr.summary_line({"kept": "original", "keptReason": "lost a URL", "usage": {"costUsd": None}}),
+print("\n11. summary_line — agw's `reason` and `cost` keys; cost=n/a when unpriced")
+check("n/a", pr.summary_line({"kept": "original", "reason": "lost a URL", "cost": None}),
       "prose: kept=original (lost a URL) cost=n/a")
+check("priced rewrite", pr.summary_line({"kept": "rewrite", "cost": 0.0352}), "prose: kept=rewrite cost=$0.035")
 
 
 shutil.rmtree(TMP_ROOT, ignore_errors=True)

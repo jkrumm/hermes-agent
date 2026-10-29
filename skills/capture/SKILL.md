@@ -59,7 +59,7 @@ Walk top to bottom. First match wins.
 
 A capture maps to a repo when it:
 - **Names the repo explicitly** ("homelab", "dotfiles", "basalt-ui").
-- **Names a service/domain owned by that repo** — e.g. "the watchdog cron" → `warden`; "the slack patch" or "the morning briefing prompt" → `hermes-agent`; "rollhook deploy logs" → `rollhook`.
+- **Names a service/domain owned by that repo** — e.g. "the slack patch" or "the morning briefing prompt" → `hermes-agent`; "rollhook deploy logs" → `rollhook`.
 - **Names a file/path** that lives in a known repo.
 
 If the repo identity is genuinely ambiguous between two candidates, ask.
@@ -112,8 +112,7 @@ EOF
 ```
 
 **Rules:**
-- Assignee: always `jkrumm`. No labels by default. Warden picks up every owner issue on its
-  own — never add a hand-off label.
+- Assignee: always `jkrumm`. No labels by default. Never add a hand-off label.
 - Title: short, imperative. Strip filler ("can you...", "I think we should...").
 - Body: one inferred context line + `Original capture: <verbatim>`. **Never** invent reproduction steps, acceptance criteria, or facts not present in the user's message.
 - The `gh` CLI returns the issue URL on stdout — capture and surface it in the confirmation.
@@ -131,7 +130,7 @@ After writing, report per SOUL.md.
 - **Repo cache miss:** user mentions a repo not in cache → refresh repos once (`references/state-cache.md`) → if still missing, ask ("I don't see `<name>` in your repos — did you mean `<closest match>`?").
 - **TickTick project miss:** new project added in TickTick → refresh once (`references/state-cache.md`), retry.
 - **`gh` not authenticated:** if `gh issue create` fails with auth error, surface the error verbatim and tell Johannes to run `gh auth status` on the Mac Mini.
-- **Cross-cutting items:** never create both. If the item is repo work *and* something Johannes needs to remember, GitHub wins (warden and the briefing read issues anyway).
+- **Cross-cutting items:** never create both. If the item is repo work *and* something Johannes needs to remember, GitHub wins (the briefing reads issues anyway).
 - **Multiple items in one message** ("remind me to X and also open an issue for Y"): split, route each independently, return one confirmation line per item.
 - **Social media link capture** (Instagram, TikTok, etc.): the user is asking for the thing *behind* the link, not the link itself. Extract full content before writing the item. For Instagram: the caption is visible even behind the login wall — extract the entity name from the snapshot, then web-search for the canonical source (e.g. `filmsimrecipes.com` for Fujifilm recipes). See `references/social-media-extraction.md` for the full escalation path.
 - **Not a capture:** if the message is a question or status check, don't capture — route normally.

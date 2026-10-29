@@ -2,13 +2,12 @@
 
 _Use when relaying a dispatched agent's claimed result._
 
-The class: an episode (Warden item, agent-gateway `dispatch`/`check`/`review` job) reports
+The class: an episode (an `agw-legacy dispatch` job, an `agw check`/`review` run) reports
 an outcome — a verdict, a green suite, a PR — and you must relay it or act on it.
 **The claim and the artifact are different things, and only one of them is evidence.**
 A card's note, a brief's asserted measurement and a PR body are all prose written by
 the thing being checked.
 
-Reading Warden's own status is the `warden` skill (its HTTP API, never the database).
 This is the step before acting: deciding whether the thing you were handed is true.
 
 ## Procedure
@@ -27,9 +26,7 @@ This is the step before acting: deciding whether the thing you were handed is tr
    ```
 
    `result` carries `summary`, `verdict`, `confidence`, `nextAction`, `outcome`,
-   `artifactUrl`, `branch`, and `steps[]` with a `passed` per step. The folded
-   verdict for a Warden item is `GET http://127.0.0.1:7735/items/<event_id>` — read it
-   through the `warden` skill, never the ledger file. Use `mode=ro` + `uri=True` and never the
+   `artifactUrl`, `branch`, and `steps[]` with a `passed` per step. Use `mode=ro` + `uri=True` and never the
    macOS `/usr/bin/sqlite3` CLI — it has no `-uri` and dies `unable to open
    database file (14)`.
 
@@ -128,9 +125,8 @@ unproven, not green.
 
 ## A PR-required repo's PR waiting on the owner
 
-A repo listed in `~/.claude/pr-required-repos.json` keeps its GitHub ruleset: warden's
-merge train squash-merges only what GitHub's own rules allow, and never routes around a
-required human review. **A review-confirmed PR that GitHub will not merge for the loop is
+A repo listed in `~/.claude/pr-required-repos.json` keeps its GitHub ruleset: nothing
+routes around a required human review. **A review-confirmed PR that GitHub will not merge for the loop is
 a handoff, not a defect and not a stuck gate** — the disposition is to say the PR is
 ready and let him merge it. Do not look for another
 way to land it, and never merge on github.com.

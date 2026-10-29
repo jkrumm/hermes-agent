@@ -1,23 +1,22 @@
 #!/usr/bin/env python3
 """Agents overview — read-only summary of every Claude Code / herdr agent
-agent-gateway is tracking, for the morning briefing and an on-demand Slack post.
+the platform is tracking, for the morning briefing and an on-demand Slack post.
 
-Talks to agent-gateway's overview endpoints (`http://localhost:7705`, a local
-LaunchAgent — see the agent-gateway AGENTS.md):
+Talks to the `agw` CLI (agent-workflows; shelled out through `agw_run.py`, caller `hermes`):
 
-  GET  /api/overview          -> {ok, data: {generatedAt, summary, projects[], overview, ...}}
-  POST /api/jobs {"tool":"overview"} -> {ok, job:{id, status, ...}}   -- triggers
-       a fresh LLM pass; poll GET /api/jobs/<id> until status is terminal
-       (done|failed|interrupted|cancelled), then re-GET /api/overview for the
-       merged result on `done`. No wall-clock give-up — agent-gateway workers have
-       no turn or time limit (2026-09-12 policy).
+  agw agents    -> {data: {generatedAt, summary, projects[], overview, quota, ...}}
+                   an unjournaled read of the host's snapshot
+  agw overview  -> a workflow run that triggers a fresh LLM pass; resumed with
+                   `agw run wait` on exit 10 until it ends, then `agw agents`
+                   is re-read for the merged result. No wall-clock give-up — agent
+                   workers have no turn or time limit (2026-09-12 policy).
 
 Refresh is consumer-driven, not clock-driven: `--briefing` only refreshes
 when the cached overview is missing or older than
 `HERMES_AGENTS_BRIEFING_MAX_AGE_S` (default 7200s) — an idle night produces
 zero model calls.
 
-`data.humanQueue` (agent-gateway, 2026-09-07) is the mini's ask-human queue —
+`data.humanQueue` (2026-09-07) is the mini's ask-human queue —
 `[{id, askedAt, question, cmd?}]`, work that needs a PRESENT human (a
 biometric `op`, an ACL push). It renders as a "Needs you" section at the
 top of the briefing and the `--post-full` overview.
@@ -53,7 +52,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-DEFAULT_BASE = "http://localhost:7705"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import agw_run  # noqa: E402
 
 BRIEFING_MAX_AGE_S_ENV = "HERMES_AGENTS_BRIEFING_MAX_AGE_S"
 DEFAULT_BRIEFING_MAX_AGE_S = 7200
@@ -70,7 +70,7 @@ SECRETS_RUN = Path.home() / ".local" / "bin" / "secrets-run"
 SLACK_TOKEN_REF = "op://hermes/slack/bot-token"
 
 # Emoji map for the Block Kit overview — plain_text/mrkdwn render emoji
-# shortcodes, not unicode glyphs (those are agent-gateway's own .txt rendering).
+# shortcodes, not unicode glyphs (those are the host's own `--text` rendering).
 RECOMMENDATION_EMOJI = {
     "answer": ":rotating_light:",
     "ship": ":package:",
@@ -95,10 +95,6 @@ HEADER_TEXT_MAX = 150
 TITLE_MAX = 60
 STANDING_MAX = 110
 BLOCKER_MAX = 100
-
-
-def _base_url() -> str:
-    return os.environ.get("HERMES_AGENTS_AGENT_GATEWAY_BASE", DEFAULT_BASE)
 
 
 def _channel() -> str:
@@ -134,20 +130,19 @@ def resolve_slack_token() -> str:
     return _resolve_ref(SLACK_TOKEN_REF)
 
 
-def fetch(base: str, timeout_s: int = 10) -> dict[str, Any]:
-    """GET /api/overview and return the `data` object. Raises on any
-    transport/shape failure — callers decide how to degrade."""
-    req = urllib.request.Request(f"{base}/api/overview")
-    with urllib.request.urlopen(req, timeout=timeout_s) as resp:
-        payload = json.loads(resp.read().decode())
-    if not payload.get("ok"):
-        raise RuntimeError(f"overview fetch not ok: {payload}")
-    return payload["data"]
+def fetch() -> dict[str, Any]:
+    """`agw agents` and return the `data` object. Raises on any failure —
+    callers decide how to degrade."""
+    payload = agw_run.call(["agents"])
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, dict):
+        raise RuntimeError(f"agw agents returned no data: {str(payload)[:200]}")
+    return data
 
 
 def _human_queue(data: dict[str, Any] | None) -> list[dict[str, Any]]:
     """`data.humanQueue` as a list of dicts, tolerant of the key being absent
-    (an older agent-gateway) or malformed — never raises."""
+    (an older host) or malformed — never raises."""
     if not data:
         return []
     raw = data.get("humanQueue")
@@ -190,57 +185,20 @@ def _fmt_age_ms(ms: int | None) -> str:
     return f"{int(secs / 86400)}d"
 
 
-# agent-gateway job statuses that end the wait without a result. "failed" was the only one this
-# loop used to check; "interrupted"/"cancelled" are the same "no result coming" case.
-_TERMINAL_FAILURE_STATUSES = frozenset({"failed", "interrupted", "cancelled"})
-
-
-def refresh(base: str, poll_interval: int = 20) -> dict[str, Any] | None:
-    """Trigger a fresh overview pass and wait for it. agent-gateway workers have no turn or
-    wall-clock limit (2026-09-12 policy), so this polls until the job reaches a terminal
-    status rather than giving up on a healthy job — only a transport failure or a terminal
-    status of `failed`/`interrupted`/`cancelled` ends the wait early; `done` re-fetches the
-    merged overview. Callers that reach this from under a Hermes cron job rely on its
-    idle-output watchdog (HERMES_CRON_TIMEOUT) for liveness, so a progress line to stderr once
-    a minute is what keeps a long, healthy job alive rather than tripping it on silence."""
+def refresh() -> dict[str, Any] | None:
+    """Trigger a fresh overview pass (`agw overview`) and wait for it. The run has no
+    wall-clock limit, so a healthy long pass is resumed rather than abandoned — only an
+    `agw` failure (unreachable, run failed or cancelled) ends the wait early; success
+    re-reads the merged overview. Callers that reach this from under a Hermes cron job rely
+    on its idle-output watchdog (HERMES_CRON_TIMEOUT) for liveness, so `agw_run` prints a
+    progress line to stderr on every resume, which keeps a long, healthy run alive rather
+    than tripping it on silence. None on any failure."""
     try:
-        body = json.dumps({"tool": "overview", "params": {}}).encode()
-        req = urllib.request.Request(
-            f"{base}/api/jobs",
-            data=body,
-            headers={"content-type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            submitted = json.loads(resp.read().decode())
-        job_id = submitted["job"]["id"]
-    except (urllib.error.URLError, urllib.error.HTTPError, KeyError,
-            json.JSONDecodeError, TimeoutError, OSError):
+        agw_run.run(["overview"], label="agents-overview: refresh")
+        return fetch()
+    except (agw_run.AgwError, RuntimeError) as err:
+        print(f"agents-overview: refresh failed: {err}", file=sys.stderr)
         return None
-
-    elapsed = 0
-    while True:
-        time.sleep(poll_interval)
-        elapsed += poll_interval
-        try:
-            with urllib.request.urlopen(f"{base}/api/jobs/{job_id}", timeout=15) as resp:
-                polled = json.loads(resp.read().decode())
-        except (urllib.error.URLError, urllib.error.HTTPError,
-                json.JSONDecodeError, TimeoutError, OSError):
-            return None
-        status = polled.get("job", {}).get("status")
-        if status == "done":
-            try:
-                return fetch(base)
-            except Exception:
-                return None
-        if status in _TERMINAL_FAILURE_STATUSES:
-            return None
-        if elapsed % 60 < poll_interval:
-            print(
-                f"agents-overview: refresh job {job_id} still {status or 'running'} "
-                f"({elapsed}s elapsed)", file=sys.stderr,
-            )
 
 
 def _summary_line(cur: dict[str, Any]) -> str:
@@ -493,17 +451,16 @@ def render_briefing(cur: dict[str, Any]) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     args = argv if argv is not None else sys.argv[1:]
-    base = _base_url()
 
     if "--briefing" in args:
         try:
-            cur = fetch(base)
+            cur = fetch()
         except Exception:
             print("agents overview unavailable")
             return 0
         stale = needs_refresh(cur, _briefing_max_age_ms())
         if stale and "--no-refresh" not in args:
-            refreshed = refresh(base)
+            refreshed = refresh()
             if refreshed is not None:
                 cur = refreshed
                 stale = False
@@ -515,7 +472,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if "--json" in args:
         try:
-            cur = fetch(base)
+            cur = fetch()
         except Exception as e:
             print(json.dumps({"error": str(e)}))
             return 0
@@ -524,7 +481,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if "--post-full" in args:
         try:
-            cur = fetch(base)
+            cur = fetch()
         except Exception:
             print("agents overview unavailable", file=sys.stderr)
             return 0

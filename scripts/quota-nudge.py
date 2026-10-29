@@ -7,8 +7,8 @@ For every herdr Claude agent that is not actively working:
   1. read the bottom block of its pane (the input box / pause-banner region),
   2. recognise a usage-limit pause ("Paused · usage limit · resets at …",
      "send a prompt to continue", "Automatic continue cancelled", …),
-  3. decide whether quota is back, from agent-gateway's quota view
-     (http://localhost:7705/api/usage) plus the pane's own statusline triple,
+  3. decide whether quota is back, from the platform's quota view (`agw quota`,
+     shelled out through `agw_run.py`) plus the pane's own statusline triple,
   4. if it is: `herdr agent prompt <pane> continue` — and verify the agent went
      to `working`, so a silently swallowed prompt is reported instead of
      believed.
@@ -33,10 +33,11 @@ import re
 import subprocess
 import sys
 import time
-import urllib.request
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import agw_run  # noqa: E402
 
 HOME = os.path.expanduser("~")
-GATEWAY = "http://localhost:7705/api/usage"
 STATE_PATH = os.path.join(HOME, ".hermes/cache/quota-nudge-state.json")
 LOG_PATH = os.path.join(HOME, ".hermes/cache/quota-nudge.jsonl")
 
@@ -130,12 +131,11 @@ def save_state(state):
         pass
 
 
-def gateway_accounts():
+def quota_accounts():
+    """`agw quota` -> ({account: {five_hour_pct, seven_day_pct, ...}}, data). Empty on any failure."""
     try:
-        with urllib.request.urlopen(GATEWAY, timeout=6) as r:
-            data = json.load(r)
-        accounts = data.get("accounts") or {}
-        return accounts, data.get("data") or {}
+        payload = agw_run.call(["quota"])
+        return payload.get("accounts") or {}, payload.get("data") or {}
     except Exception:                                            # noqa: BLE001
         return {}, {}
 
@@ -203,7 +203,7 @@ def quota_view(account, accounts, triples):
         five = acct.get("five_hour_pct")
         seven = acct.get("seven_day_pct")
         if five is None:
-            return None, "kein 5h-Wert im Gateway"
+            return None, "kein 5h-Wert in agw quota"
         if five >= FIVE_HOUR_HEADROOM:
             return False, f"{account} 5h bei {five} %"
         if seven is not None and seven >= SEVEN_DAY_HEADROOM:
@@ -240,7 +240,7 @@ def nudge_target(agent):
 
 def run(dry_run=False, verbose=False, simulate=None):
     state = load_state()
-    accounts, summary = gateway_accounts()
+    accounts, summary = quota_accounts()
     messages = []
     now = int(time.time())
 
