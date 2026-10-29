@@ -14,7 +14,7 @@ This skill owns **what the producer's own state says right now.**
 1. **Identify the producer behind the alert text.** The title names it: a bare
    sentence (`HomeLab CPU above threshold`) is a resource-scraper (Beszel); a
    bracketed one (`[Gluetun - Docker] [:red_circle: Down] …`) is UptimeKuma; an
-   emoji-led one (`🚨 audio-gateway podcast.failed >= 1 (1h)`) is HyperDX. The
+   emoji-led one (`🚨 <service> <event> >= 1 (1h)`) is HyperDX. The
    producer, not the channel, holds the live state.
 2. **Probe that producer read-only** (recipes below). Two facts are needed and
    they are different: *is the condition true now*, and *when did it last fire

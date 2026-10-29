@@ -8,7 +8,7 @@ label-driven over OIDC from GitHub Actions — no SSH, no manual `docker compose
 
 ## How a deploy works
 
-1. **Push to `master`** in an app repo (e.g. `research-gateway`) triggers a workflow
+1. **Push to `master`** in an app repo (e.g. `image-gateway`) triggers a workflow
    (`.github/workflows/deploy.yml` or a sidecar-specific one like `deploy-lightpanda.yml`).
 2. The workflow calls **`jkrumm/rollhook-action@v1`** with `url`, `image_name`, `dockerfile`,
    `context`. The action builds, pushes to the rollhook registry
@@ -32,16 +32,16 @@ if !strings.Contains(rawSvc.Image, "IMAGE_TAG") {
 }
 ```
 
-**Correct pattern — nested fallback** (gateway, both argo services):
+**Correct pattern — nested fallback** (every app service):
 
 ```yaml
-image: ${RESEARCH_GATEWAY_IMAGE:-${IMAGE_TAG:-rollhook.jkrumm.com/research-gateway:latest}}
+image: ${APP_IMAGE:-${IMAGE_TAG:-rollhook.jkrumm.com/<app>:latest}}
 ```
 
 **Broken pattern — single-level fallback:**
 
 ```yaml
-image: ${RESEARCH_GATEWAY_LIGHTPANDA_IMAGE:-rollhook.jkrumm.com/research-gateway-lightpanda:latest}
+image: ${APP_SIDECAR_IMAGE:-rollhook.jkrumm.com/<app>-sidecar:latest}
 ```
 
 Every service in a rollhook-managed compose file MUST use the nested form. The outer var
@@ -111,7 +111,7 @@ Diagnosis path (fast — the CI log is the smoking gun):
    feature needs) and push, or remove the import + route wiring if the feature must not ship.
    Both are code changes — Claude Code session territory, not an ops verb.
 5. **Verify the gate, don't assume it's missing.** Some app repos gate Deploy on check in the
-   same workflow (`needs: check` — e.g. `research-gateway/.github/workflows/deploy.yml`);
+   same workflow (`needs: check`);
    others run check as a fully separate workflow that does NOT block deploy (e.g. `argo`,
    `image-gateway` — a red check there still ships a broken image). Read the repo's own
    `deploy.yml` before recommending a `needs: check` gate — it may already exist.
@@ -130,7 +130,7 @@ pattern: `skills/homelab-ops/references/alert-patterns.md`'s "RollHook deploy fa
 
 ## Template drift — the silent repeat-offender
 
-App repos keep a `deploy/compose.yml` TEMPLATE (e.g. `research-gateway/deploy/compose.yml`)
+App repos keep a `deploy/compose.yml` TEMPLATE (`<app>/deploy/compose.yml`)
 that is meant to mirror `vps/apps/<app>/compose.yml`. Fixing only the vps copy leaves the
 template stale — anyone regenerating from it re-imports the bug, and the next push to the
 app repo fails the same validator. **Always fix BOTH the vps copy AND the app-repo template

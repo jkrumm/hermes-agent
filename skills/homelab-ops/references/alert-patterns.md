@@ -232,17 +232,16 @@ Terminated: 15)` and/or `hermes gateway not answering` on its port.
   restart was a one-off: settled, monitor flips UP on the next interval.
   A fresh `FAIL: <label> restarted (N→M, ...)` with a climbing count means it
   is still crashing: escalate. Applies to any mini LaunchAgent with a
-  `Terminated: 15` restart signature (e.g. `com.jkrumm.agent-gateway`), not only
+  `Terminated: 15` restart signature (e.g. `com.jkrumm.brain-sync`), not only
   the hermes gateway.
-- **agent-gateway restarts are usually planned dev reloads.** The Makefile's
-  `reload` target runs `bun run build` then
-  `launchctl kickstart -k gui/501/com.jkrumm.agent-gateway` — kickstart sends
-  SIGTERM and respawns, which the devhost-health monitor reads as a restart
-  (count climbs, `Terminated: 15`). Any burst of agent-gateway restarts whose
-  times correlate with edits/builds in `~/SourceRoot/agent-gateway` (check `dist/`
-  mtime, `server/` mtime, recent commits) is development activity, not a
-  crash — the log (`~/Library/Logs/agent-gateway.err`) stays clean and the process
-  keeps running between SIGTERMs. Close it; no verb needed. Only escalate if
+- **Restarts of a LaunchAgent under active development are usually planned reloads.**
+  A repo's `reload` target typically builds, then runs
+  `launchctl kickstart -k gui/501/<label>` — kickstart sends SIGTERM and respawns,
+  which the devhost-health monitor reads as a restart (count climbs,
+  `Terminated: 15`). Any burst of restarts whose times correlate with edits/builds
+  in the agent's repo (check build-output mtime, recent commits) is development
+  activity, not a crash — the agent's error log stays clean and the process keeps
+  running between SIGTERMs. Close it; no verb needed. Only escalate if
   restarts happen with no repo activity, or the process dies within seconds
   (crash loop) instead of after tens of minutes.
 

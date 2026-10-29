@@ -6,8 +6,8 @@ verdict to you. Most restarts on this machine are the dev loop: someone edits a
 repo, runs its `reload` target, launchd kickstarts the agent, the runs counter
 climbs. That is expected noise, not an incident.
 
-The named alert shapes themselves — the hermes gateway restart, the agent-gateway
-dev-reload burst, the session-teardown case where an agent *vanishes* rather
+The named alert shapes themselves — the hermes gateway restart, the dev-reload
+burst, the session-teardown case where an agent *vanishes* rather
 than restarts — live in `alert-patterns.md`. This file is the mechanics behind
 those verdicts: how to read the signal, what actually settles the question, and
 what a restart costs even when it is benign.
@@ -48,13 +48,11 @@ working on that repo at those timestamps.
 Verify this before closing a triage, and say so in the summary even when the
 verdict is "no incident":
 
-- **agent-gateway runs `job.recover` on every boot.** In-flight jobs are marked
-  `interrupted` and are **never requeued** — the caller waiting on a `check` or
-  `review` gets nothing back and is not told. A reload during someone else's
-  dispatch silently kills it.
-- The count is in agent-gateway's jobs DB and its structured event log (see the table
-  below). Reading either is a raw sqlite/localhost read with no verb behind it,
-  so recommend the query rather than composing one.
+- **A reload kills whatever the agent had in flight.** A service that runs jobs
+  (a worker, a queue consumer) loses the running ones on SIGTERM, and the caller
+  waiting on them is not told. Name what was running in the summary.
+- Reading that state is a raw log/database read with no verb behind it, so recommend
+  the query rather than composing one.
 
 ## Two things that mislead people
 
@@ -65,20 +63,6 @@ verdict is "no incident":
 - **A restart is not a repair.** Restarting a service that is crash-looping
   resets the counter, destroys the log window that would have explained it, and
   changes nothing. Escalate with the repeating error instead.
-
-## agent-gateway — the canonical example
-
-It is the mini service that restarts most, because it is the one being worked on.
-
-| | |
-|-|-|
-| Label | `com.jkrumm.agent-gateway` (KeepAlive, RunAtLoad). The only supported way it runs — port 7705 is owned by the agent, standalone starts conflict with it |
-| Program | `bun server/index.ts`, working dir `~/SourceRoot/agent-gateway` |
-| Reload path | `make reload` = build, then `launchctl kickstart -k` → SIGTERM → respawn. One restart alert per reload |
-| Logs | `~/Library/Logs/agent-gateway.log` (often empty) and `.err`; structured events in `/tmp/agent-gateway.jsonl` (`job.*`, `app.startup`, `mcp.startup`) |
-| Jobs | `~/.local/share/agent-gateway/jobs.db`; statuses `done`, `failed`, `interrupted`, plus pending/running in flight |
-| MCP server | A **separate** on-demand process (`bun run server/mcp.ts`), spawned per client over stdio and dying on `/mcp` disconnect. `make reload` does not restart it, and a tool-schema change needs a client reconnect, not a reload |
-| Concurrency | `AGENT_GATEWAY_JOB_CONCURRENCY`, default 3; excess submissions queue as `pending` |
 
 ## Closing the triage
 

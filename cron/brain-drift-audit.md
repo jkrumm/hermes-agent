@@ -11,7 +11,7 @@ auto-loaded.** The live job carries its own copy of the prompt in `~/.hermes/cro
 |-|-|
 | Job id | `8fe7be4985d9` (registered 2026-08-16) |
 | Schedule | `0 9 * * 6` (Saturday 09:00, Europe/Berlin) |
-| Skills | `dispatch`, `obsidian` |
+| Skills | `obsidian` |
 | Pre-run script | none — the agent runs the whole turn |
 | Deliver | `slack:C0ASRULFTSS` (#watchdog) |
 | Name | `Brain drift audit` |
@@ -21,11 +21,10 @@ auto-loaded.** The live job carries its own copy of the prompt in `~/.hermes/cro
 
 1. Reads its own previous verdict from `~/.hermes/cron/output/8fe7be4985d9/` (the most recent
    file's `## Response` section) so it can diff instead of restating standing findings.
-2. Files the investigation in the `brain` repo via `agw-legacy dispatch --repo brain` (it never dispatches
-   itself; the dispatch policy caps `brain` below `implement`, so the episode is read-only —
-   the one path that loads the vault's own rule hierarchy). The episode runs `node .scripts/vault-lint.mjs --drift` and
-   judges the curated surface (`Areas/`, `Projects/`) against `voice.md` and the
-   "rewritten, not appended" rule in `AGENTS.md`.
+2. Runs the investigation itself, inside the cron turn, read-only: `node .scripts/vault-lint.mjs --drift`
+   in `~/SourceRoot/brain` (it writes nothing), then judges the curated surface (`Areas/`, `Projects/`)
+   against `voice.md` and the "rewritten, not appended" rule in `AGENTS.md`. No dispatch, no spawned
+   agent — the dispatch path this job used before 2026-10-29 is gone.
 3. Reports NEW findings first (file:line, drift type), then one line of still-open / resolved
    counts. A quiet week is a single "held steady" line.
 
@@ -52,6 +51,6 @@ re-routing.
 
 ```bash
 hermes cron edit 8fe7be4985d9 --prompt "$(cat ~/SourceRoot/hermes-agent/cron/brain-drift-audit.prompt.txt)"
-hermes cron edit 8fe7be4985d9 --skill dispatch --skill obsidian   # replaces the set
+hermes cron edit 8fe7be4985d9 --clear-skills --skill obsidian   # replaces the set
 hermes cron edit 8fe7be4985d9 --provider custom --model deepseek-v4.1-flash   # re-pin if the brain moves
 ```

@@ -44,7 +44,7 @@ real; escalate.
   occurrence count. Grep the line in each file and compare before quoting a number, and report
   the real count.
 - **`cron.scheduler: Job '<name>' failed: RuntimeError: [drift_skip] …` is a spend
-  guard working, not a fault — and its fix is host-side, never a repo dispatch.**
+  guard working, not a fault — and its fix is host-side, never a repo job.**
   The scheduler refuses to fire an **unpinned** job whose creation snapshot
   (`<axis>_snapshot`, written at create/edit time) no longer equals the resolved
   global provider/model: no inference call, one alert (the `drift_alerted` bit; later
@@ -57,8 +57,8 @@ real; escalate.
   either way, with `~/.hermes/hermes-agent/venv/bin/python3` (system `python3` is too
   old for `hermes_cli`): `cron_model_drift_axes(job, current_provider=…,
   current_model=…, config=…)` → `[]`, plus `build_cron_model_impact(...)` to see the
-  whole fleet (0 = nobody else blocked). Do **not** dispatch a repo episode for this —
-  the cause is config state, so an investigate verdict can only restate the pin — and
+  whole fleet (0 = nobody else blocked). Do **not** file a repo issue for this —
+  the cause is config state — and
   do **not** set `cron.model_drift_guard: false`, which is the brake itself. Once the
   pin is verified the guard cannot re-fire against a pinned axis.
 - **`… 404 - No suitable backend server found for model '<something>-does-not-exist'` is a
@@ -71,8 +71,8 @@ real; escalate.
   a line carrying it is the probe unless the model id is one that is actually configured — read
   the model id in the line before deciding; a genuine 404 for the configured model is real.
   Triage it the cheap way: `grep -a "<session-id>" agent.log` for the `Fallback activated:
-  <sentinel> → <model>` line and the successful `API call #1` after it. An investigate episode
-  here can only restate the probe, so do not dispatch one.
+  <sentinel> → <model>` line and the successful `API call #1` after it. A repo issue
+  here can only restate the probe, so do not file one.
 - **`Streaming failed before delivery: Request timed out.` is logged BEFORE the
   retry, not after the failure.** A retry that succeeds seconds later still
   leaves this ERROR with a full traceback. Never relay it as an outage without
@@ -133,8 +133,7 @@ real; escalate.
   activated` → `API call #1: model=gpt-6-luna … latency=…` — the turn was served; the only cost
   is that it ran with no reasoning effort while tools were attached (the accepted 503-avoidance
   tradeoff, see `hermes-gateway`). So "fallback activated → real" does not mean "escalate"
-  here: there is no code change to dispatch (agent-gateway's dispatch policy caps `hermes-agent` at
-  `investigate`, a verdict can only restate the log) and no issue worth filing. Report it naming the upstream leg.
+  here: there is no code change to make and no issue worth filing. Report it naming the upstream leg.
   `ServiceUnavailable` and `InternalServerError` lines close together are ONE incident.
 ## Report or escalate
 
@@ -142,8 +141,7 @@ real; escalate.
   retry that succeeded and its latency) rather than "noise". Nothing to file.
 - **Recurring, or retries exhausted, or a fallback activated** → treat as real.
   Name the provider-side leg (the IU unified endpoint) and the failure class, then route
-  the fix: `agw-legacy dispatch --repo hermes-agent` runs an `investigate` episode (the
-  repo's ceiling), so it produces a verdict, not a change — say that plainly. For the
+  the fix: file a GitHub issue (`capture`). For the
   `_handle_stream_error` classification gap, make the anchor a GitHub issue in
   `jkrumm/hermes-agent` (issues enabled, no label) — and then **hand-land the fix**
   rather than relaying the nag. Recipe: *Hand-landing the patch* below. Only the gateway
@@ -151,11 +149,8 @@ real; escalate.
 
 ## Hand-landing the patch
 
-The `investigate` ceiling (agent-gateway's dispatch policy) bounds **dispatches** — unattended
-episodes whose briefs are attacker-influenceable, aimed at the repo that *is* the control
-plane. It is not a claim that the fix cannot be made: there is simply no episode lane
-(agent-gateway refuses an `implement` on `hermes-agent`), so the
-fix lands by hand. Six steps are yours, one never is.
+There is no unattended episode lane into `hermes-agent` — the repo that *is* the control
+plane — so the fix lands by hand. Six steps are yours, one never is.
 
 1. **Edit the live checkout** (`~/.hermes/hermes-agent/…` — the tree the gateway
    imports from), marking the hunk `# LOCAL MODIFICATION (patches/<name>.patch)`,

@@ -289,7 +289,7 @@ Output the Slack text body from Step 2, then a blank line, then the `MEDIA:` tag
 
 :robot_face: Agenten & Projekte
 - 1 Agenten: 1 brauchen dich, 2 arbeiten, 9 hängen fest
-- audio-gateway — Frage beantworten — Podcast fertig, wartet auf Entscheidung zum Upload
+- agent-workflows — Frage beantworten — Podcast fertig, wartet auf Entscheidung zum Upload
 
 :checkered_flag: Aufgaben — 9 überfällig, 0 heute fällig
 **Überfällig**
