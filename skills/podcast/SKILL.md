@@ -81,15 +81,16 @@ default 20) — pick it from how much source material there is and what Johannes
 ("kurz" → 5–10, "ausführlich" → 30–45).
 
 ```bash
+# AGW_CALLER=hermes books the run to Hermes in Argo (the CLI cannot tell Hermes from any other shell).
 # source text on stdin, plus a brain note by path
-agw podcast --format json --publish \
+AGW_CALLER=hermes agw podcast --format json --publish \
   --source-paths '["Areas/Travel/Northern Spain 2026/Northern Spain 2026.md"]' \
   --brief "Johannes plant genau diese Reise mit dem Camper; sprich ihn direkt an, gib Rat." \
   --language de --minutes 20 --series "Brain Sonderausgabe" \
   < /tmp/podcast-source.md
 
 # brain note only: close stdin explicitly, or the command waits on it
-agw podcast --format json --publish --source-paths '[…]' --brief "…" \
+AGW_CALLER=hermes agw podcast --format json --publish --source-paths '[…]' --brief "…" \
   --series "Brain Sonderausgabe" </dev/null
 ```
 
@@ -171,7 +172,7 @@ the episode is not in Audiobookshelf (`output.produce.abs` is null). Say exactly
 `output.produce.publish.error` verbatim, and offer the re-publish, which repeats only the upload:
 
 ```bash
-agw podcast-publish <runId> --commit --format json
+AGW_CALLER=hermes agw podcast-publish <runId> --commit --format json
 ```
 
 (`<runId>` is the podcast run's id; it prints the new `abs`, `publish` and `brainNote`.
