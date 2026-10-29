@@ -5,7 +5,7 @@ version: 1.0.0
 metadata:
   hermes:
     tags: [agents, human-needed, queue, macbook, mini]
-    related_skills: [dispatch]
+    related_skills: [capture]
 ---
 
 # Present-human queue

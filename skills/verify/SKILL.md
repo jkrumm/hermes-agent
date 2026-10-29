@@ -5,7 +5,7 @@ version: 1.0.0
 metadata:
   hermes:
     tags: [verify, verification, claim, evidence, probe, deploy, live, fixed, done]
-    related_skills: [dispatch, homelab-ops]
+    related_skills: [homelab-ops]
 ---
 
 # Verify — evidence, not prose
@@ -18,7 +18,7 @@ the thing being checked.
 
 1. **Name the claim** in one sentence — what exactly would be true if this were right.
 2. **Observe it yourself, this turn.** Run the probe; do not repeat an earlier result.
-   - Dispatch episode state → `agw-legacy status <jobId> --json`, never the jobs database.
+   - Agent run state → `agw run status <runId> --format json`, never a database file.
    - Code defect → read the code at the cited line on the current default branch.
    - Deploy / "live" → the running thing: container, health URL, process start time
      later than the merge.
@@ -35,7 +35,7 @@ the thing being checked.
 
 | Situation | File |
 |-|-|
-| Relaying a dispatched agent's result | `references/agent-claim-verification.md` |
+| Relaying an agent run's result | `references/agent-claim-verification.md` |
 | A reported code defect or review finding | `references/code-probe-verification.md`, `references/runtime-claim-verification.md` |
 | A claim about live state | `references/live-invariant-probe.md`, `references/live-process-change-verification.md` |
 | A probe that may not measure what it says | `references/probe-fidelity.md` |

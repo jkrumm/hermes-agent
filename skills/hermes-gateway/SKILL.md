@@ -205,11 +205,10 @@ Hermes may not restart its own gateway: a `hermes gateway restart` issued from a
 terminal call inside that gateway would terminate the process running the command,
 and it is blocked. That refusal is correct — do not look for a way around it.
 
-Nor is it a `dispatch` job. Dispatch hands a *repo* episode to Claude Code in
-an isolated worktree; it has no lifecycle authority over this machine's launchd, and
-`hermes-ops.sh` excludes `ai.hermes.gateway` for the same reason. Asking Claude Code
-to run it would be improvising an infrastructure mutation through a tool built for
-code changes.
+Nor is it a job for a Claude Code agent. A repo agent has no lifecycle authority over
+this machine's launchd, and `hermes-ops.sh` excludes `ai.hermes.gateway` for the same
+reason. Asking one to run it would be improvising an infrastructure mutation through a
+tool built for code changes.
 
 **The Mac Mini is headless — "run it in a terminal" is not an escalation on its own.**
 State the finding, then hand over one exact command:

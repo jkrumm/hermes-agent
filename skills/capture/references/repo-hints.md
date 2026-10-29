@@ -13,7 +13,7 @@ live cache (`state-cache.md`) is the source of truth.
 | `basalt-ui` | NPM-published Tailwind v4 design system |
 | `basalt-ui-playground` | TanStack Start boilerplate using basalt-ui |
 | `rollhook` / `rollhook-action` | Zero-downtime Docker rolling deploys + GitHub Action |
-| `agent-gateway` | MCP tooling used by skills |
+| `agent-workflows` | The `agw` CLI/platform: check, review, research, audio door, runs |
 | `jkrumm.dev` | Personal site |
 | `home` | Home dashboard |
 

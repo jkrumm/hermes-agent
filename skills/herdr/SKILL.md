@@ -5,7 +5,7 @@ version: 1.0.0
 metadata:
   hermes:
     tags: [herdr, pane, panes, tab, tabs, workspace, terminal, multiplexer, agent, claude, claude-code, cf, cs, interactive, steer, mini]
-    related_skills: [dispatch, verify]
+    related_skills: [capture, verify]
 ---
 
 # herdr — Johannes's visible terminal workspace
@@ -19,19 +19,19 @@ may use every verb it has.
 
 | He asks for | Lane |
 |-|-|
-| "look into the repo and tell me why X" · "fix it" · anything **unattended, tracked, to an outcome** | `dispatch` → `agw-legacy dispatch`. A job to an outcome (investigate verdict, or a branch/PR). |
+| "look into the repo and tell me why X" · "fix it" · anything that needs a repo's source | `capture` → a GitHub issue. There is no unattended-dispatch lane; the owner starts the repo work. |
 | "what are my agents doing", a cross-project status read | `agw agents --text` (cross-project overview, read-only) |
 | **"open a herdr pane/tab"**, "start `cf` in warden", "write that into a pane", "tell the agent in <repo> …", "stop that agent" | **this skill** |
 
-The difference is not safety, it is **who owns the work**. An `agw-legacy dispatch` is
-*your* background job, invisible until it reports. A herdr pane is *his* workspace —
+The difference is not safety, it is **who owns the work**. A filed issue is a
+note for later. A herdr pane is *his* workspace —
 he asked for it, he can see it in the TUI, he steers it himself afterwards. So:
-never silently substitute a dispatch for a herdr request. If he says herdr,
+never silently substitute an issue for a herdr request. If he says herdr,
 use herdr. If herdr genuinely cannot do it, say so and stop — do not do something
 else and call it done.
 
-Unattended work you decide to start yourself still goes to `dispatch`. Nothing here
-schedules itself.
+Unattended work you decide to start yourself is filed as an issue (`capture`), never
+started. Nothing here schedules itself.
 
 ## You are not inside a pane
 
@@ -137,7 +137,7 @@ summarize it, do not "clean it up", do not strip the rambling — the agent has 
 full repo, the rules and the domain context you don't, and it is better at
 extracting the real task from his phrasing than you are at guessing it. Your
 reformatting silently deletes signal. This holds for briefs to any agent lane
-(herdr pane, `dispatch`), not just this one.
+(herdr pane, `capture` issue), not just this one.
 
 A long or multi-line prompt goes through a file — never try to inline it, quoting
 will bite you:
@@ -200,7 +200,7 @@ bare `ssh mini 'claude …'` comes up `Not logged in` and silently bills the API
 
 `rd` checks prompt delivery: if the agent never reaches `working` within 30 s it re-sends once. `rd read` the pane if it is still idle after that. Do not treat the exit code of `agent prompt` or `agent wait` as proof of delivery — confirm `working` with `herdr agent get` and read the pane before claiming it started.
 
-The model is an env var, not a flag: **`RD_WAVE_MODEL`** (default `sonnet`). `rd` is the only way to place a *visible* agent on the mini (background repo work is `agw-legacy dispatch`) — never a raw `claude --bg` / `claude -p`, which loses the keychain credential and the house flags.
+The model is an env var, not a flag: **`RD_WAVE_MODEL`** (default `sonnet`). `rd` is the only way to place a *visible* agent on the mini (there is no background repo-work lane) — never a raw `claude --bg` / `claude -p`, which loses the keychain credential and the house flags.
 
 `rd` base64-encodes the prompt into the command line it types; it does not stage
 a temp file. Do not push a long brief through it: put the full brief in a repo
@@ -271,8 +271,7 @@ the same call once or twice, then stop and tell him it is still running. `--unti
 `done` ends a *turn*: an agent that parked a background shell goes `done` and resumes later.
 Before reporting an outcome, confirm the **external effect** the brief asked for (PR state,
 the commit on master, `/health`, the report file). For anything that must survive past this
-conversation, do not wait at all — file it through `dispatch` and read the job back with
-`agw-legacy status <jobId>`.
+conversation, do not wait at all — file it as an issue (`capture`).
 
 ## Rules
 

@@ -8,11 +8,11 @@ history and per-file detail live in `docs/*.md`; each section here points at its
 VCS source of truth for Johannes's Hermes Agent setup, Mac Mini-only. Everything here is
 symlinked into `~/.hermes/` — edit at either end, git sees it here.
 
-**Warden, the old control plane, was retired 2026-10-27** (repo archived). Hermes has one role — **narrate, answer, route** (spec: `dotfiles/docs/agent-platform.md` §Hermes): it reports one line per item, answers questions, and files work through `agw-legacy dispatch` or a GitHub issue; herdr tabs / `rd wave` only when the owner asks. It never lands PRs or authors skills unattended. The reporting contract lives in `SOUL.md` and nowhere else — no per-skill report formats. See *Dispatch Bridge* below for how Hermes hands off repo work.
+**Warden, the old control plane, was retired 2026-10-27** (repo archived). Hermes has one role — **narrate, answer, route** (spec: `dotfiles/docs/agent-platform.md` §Hermes): it reports one line per item, answers questions, and files work as a GitHub issue (`capture`); herdr tabs / `rd wave` only when the owner asks. It never lands PRs, starts unattended agents or authors skills. The reporting contract lives in `SOUL.md` and nowhere else — no per-skill report formats. See *Repo work is filed* below.
 
 Audio (TTS + STT) is the **agent-workflows audio door** (`~/SourceRoot/agent-workflows`,
 `packages/audio`), an OpenAI-compatible loopback service on the mini at `http://127.0.0.1:7792/v1`
-(LaunchAgent `com.jkrumm.agent-workflows-audio`; moved off the VPS `audio-gateway` 2026-10-29, same
+(LaunchAgent `com.jkrumm.agent-workflows-audio`; moved off the retired VPS audio gateway 2026-10-29, same
 request/response contract). Hermes only points its native `openai` TTS/STT providers at it in
 `config.yaml` — this repo installs and patches no audio service. **Auth:** `api_key: ${AUDIO_DOOR_TOKEN}`;
 `secrets.command` appends that variable from the `hermes=` line of `~/.agent-workflows/data/door-tokens`
@@ -42,8 +42,8 @@ the first pass.
 | `config.yaml`, `.env.tpl`, `SOUL.md` | `~/.hermes/…` | edit here, live immediately; `.env.tpl` is the gateway's list of `KEY=op://…` refs |
 | `serve.env.tpl` | `~/.hermes/serve.env.tpl` | `hermes serve`'s own three basic-auth refs — deliberately not in `.env.tpl` (see *Hermes Desktop*) |
 | `cron/`, `scripts/`, `hooks/` | `~/.hermes/…` | Hermes-driven cron + pre-run scripts (must live under `HERMES_HOME/scripts/`) + host-level shell scripts |
-| `plugins/{name}/` | `~/.hermes/plugins/{name}/` | **`HERMES_PLUGINS`** is the source of truth. **None today** — `dispatch-approval` was removed 2026-10-04 (the approval stack went with the retired control plane). A new one must **also** be enabled once — `hermes plugins enable <name>`; the symlink alone is inert. |
-| `config/` | `~/.hermes/config/` | **empty** since 2026-09-10 — `dispatch-repos.json` is gone — the repo/tier policy is the dispatch policy (`agw-legacy policy`) |
+| `plugins/{name}/` | `~/.hermes/plugins/{name}/` | **`HERMES_PLUGINS`** is the source of truth. **None today** — the old `dispatch-approval` plugin was removed 2026-10-04 (the approval stack went with the retired control plane). A new one must **also** be enabled once — `hermes plugins enable <name>`; the symlink alone is inert. |
+| `config/` | `~/.hermes/config/` | **empty** since 2026-09-10 — `dispatch-repos.json` is gone, and with the dispatch lane there is no repo/tier policy any more |
 | `skills/{name}/` | `~/.hermes/skills/{name}/` | **`HERMES_SKILLS` in the Makefile is the source of truth** — 21 dirs (agent-platform Wave 2, 2026-10-04; was 126). Retired skills live on as `<skill>/references/*.md` or in git history; roster: docs. |
 | `USER.md` | `~/.hermes/memories/USER.md` | **copied** — Hermes writes to it |
 
@@ -77,32 +77,26 @@ Disk Access and hangs forever on the headless mini. Done 2026-08-02 — no herme
 (test routing, fix SOUL.md / SKILL.md) · `/hermes-update` (pull upstream, re-apply patches,
 restart gateway).
 
-## Dispatch Bridge — handing repo work to a Claude Code episode
+## Repo work is filed — never done, never dispatched
 
 Hermes observes well and reads repos badly — an LLM with a `terminal` tool cannot use a
 repo's `AGENTS.md`/`CLAUDE.md`, `.claude/rules/` or `.claude/skills/`. So repo work is **filed,
-not done**: either **`agw-legacy dispatch --repo <repo> --no-wait --json "$BRIEF"`** (brief from a quoted
-heredoc, never interpolated; the `dispatch` skill documents it) or a GitHub issue (`capture`) —
-`SOUL.md` names which one applies; that routing table is the control. A dispatch is one bounded
-episode (investigate → verdict, or implement → a `dispatch/*` PR) with no lifecycle behind it:
-Hermes reads the result back with `agw-legacy status|wait <jobId>`, does not land PRs, `gh pr merge`,
-or start a `claude` session.
+not done**: a GitHub issue (`capture`). There is no unattended-dispatch lane (agent-gateway and its
+`dispatch` were retired 2026-10-29; warden went 2026-10-27): the owner starts the work.
+Hermes does not land PRs, `gh pr merge`, or start a `claude` session.
 
-**One door per verb:** repo work → `agw-legacy dispatch`; panes / long visible work → `herdr` + `rd`
-(`rd wave`, never `claude --bg` / `claude -p`); issues → `capture`.
+**One door per verb:** repo work → a GitHub issue (`capture`); panes / long visible work → `herdr` + `rd`
+(`rd wave`, never `claude --bg` / `claude -p`, and only when the owner asks).
 
-**No signed approval.** The `dispatch-approval` plugin (Ed25519 signer, Approve/Deny buttons) was
-removed 2026-10-04. agent-gateway's repo policy (`agw-legacy policy`) is the only boundary.
-Config of `plugins:` is empty; `HERMES_PLUGINS` in the Makefile is empty.
+**No approval stack.** The `dispatch-approval` plugin (Ed25519 signer, Approve/Deny buttons) was
+removed 2026-10-04. Config of `plugins:` is empty; `HERMES_PLUGINS` in the Makefile is empty.
 
 **`slack.allow_bots: all` is deliberate — do not "fix" it.** The trust boundary is the
 workspace, not human-vs-bot: HomeLab/VPS/Argo post from inside the tailnet and live `#alerts`
 auto-triage depends on it. `require_mention_channels` silences `#media`/`#updates`/`#alerts`/`#agents` (pure-echo
-channels; in `#agents` Hermes answers only when mentioned, so it never replies to automated agent posts) — inbound-only, `hermes send`/cron/dispatch verdicts still post there.
+channels; in `#agents` Hermes answers only when mentioned, so it never replies to automated agent posts) — inbound-only, `hermes send` and cron deliveries still post there.
 
-**Tests** (`~/.hermes/hermes-agent/venv/bin/python3`): `test_cron_allowlist.py`. The dispatch half is
-`agent-gateway/tests/` (`bun test`, mutation-verified — worktree isolation, the diff-refusal ladder, the
-secret scan, the nonce fence around the brief).
+**Tests** (`~/.hermes/hermes-agent/venv/bin/python3`): `test_cron_allowlist.py`.
 
 **Hermes cron pre-run scripts** (run by `hermes-agent` before each run, not launchd):
 `briefing-context.py`/`briefing-coverage.py` feed the morning briefing (TickTick + GitHub
@@ -115,8 +109,7 @@ module. Detail: **`docs/scheduled-jobs.md`**.
 
 ## Herdr — the interactive lane Hermes may drive
 
-**`agw-legacy dispatch` is the background lane; herdr is Johannes's own visible workspace, and
-Hermes may drive it on his explicit request.** The `herdr` skill
+**Herdr is Johannes's own visible workspace, and Hermes may drive it on his explicit request.** The `herdr` skill
 (`skills/herdr/SKILL.md`) is the door: open a tab/pane in a repo workspace, run a
 command, read a pane back, start an interactive Claude Code session with the
 dotfiles launchers (`c`/`cf`/`cs`, typed into the pane's zsh — `herdr agent start`
@@ -124,7 +117,7 @@ uses herdr's own bare `claude` and loses the house flags), prompt it, steer it.
 
 Every herdr verb is allowed. The command guard that once blocked agent-starting herdr verbs
 produced the failure it existed to prevent — asked to "open a herdr pane in <repo> with `cf`",
-Hermes was refused, silently substituted a background dispatch and reported success for work never
+Hermes was refused, silently substituted a different lane and reported success for work never
 asked for. That guard is gone (see *No approval prompts, no command guards* below); lane choice
 is SOUL.md guidance.
 
@@ -251,8 +244,8 @@ search, which stays for quick lookups.
 - **Named `agw-research`, not `research`** — upstream's bundled skill *category* dir
   `~/.hermes/skills/research/` would collide with a top-level `research` symlink. Routing is by
   description/tags, so "recherchier mal" still triggers it.
-- The standalone research-gateway is no longer called from here. Its host still sits in the cron
-  scanner allowlist patch (`cronjob-tools-allowlist-argo-bearer`) until that service retires (Wave 11).
+- The standalone research-gateway is retired (2026-10-29); nothing calls it, and its host is out of the cron
+  scanner allowlist patch (`cronjob-tools-allowlist-argo-bearer`).
 
 ## WeatherOrb (MCP)
 
@@ -272,10 +265,8 @@ tools` / `guide` list them) and **`agw otel "<investigation>"`** for an open tri
 exits 10 like `agw research`); `agw` holds the HyperDX credential, so no key or MCP URL lives here.
 Raw `clickstack_sql` is CLI-only behind `agw hdx write … --commit` (not proven read-only, never granted
 to an agent), so the three live alerts are re-run by their own dashboard tile (`clickstack_get_alert` →
-`clickstack_query_tile`) and the follow-ups use `clickstack_table`. Escalation uses `agw-legacy
-dispatch` (`--tier author` to file, `implement` after confirmation) except a root cause inside
-Traefik/ClickStack config itself, which is `vps`'s `investigate`-only ceiling — falls back to
-`capture` → `gh issue create` there. No ClickHouse HTTP on the tailnet. `HYPERDX_AGENT_ACCESS_KEY` stays in
+`clickstack_query_tile`) and the follow-ups use `clickstack_table`. Escalation is `capture` → `gh issue create`
+in the owning repo (`vps` for a root cause inside Traefik/ClickStack config itself). No ClickHouse HTTP on the tailnet. `HYPERDX_AGENT_ACCESS_KEY` stays in
 `.env.tpl` only for the alert-as-code export flow (`skills/hyperdx/references/`); its host is in both
 allowlist patches (see *Local Modifications*).
 
@@ -294,14 +285,14 @@ endpoint") exempts `agw podcast` — there is no native tool for this pipeline.
 
 Read-only cross-project Claude Code/herdr status via `agw agents` (an unjournaled read; the LLM
 refresh is `agw overview`) — conversational read (`agw agents --text`, see `skills/herdr`) and a
-morning-briefing feed (`scripts/agents-overview.py`). Never dispatches, never steers a pane — that's
-`dispatch`. **`docs/agents-overview.md`**.
+morning-briefing feed (`scripts/agents-overview.py`). Never starts an agent, never steers a pane — that's
+`herdr`. **`docs/agents-overview.md`**.
 
 **`agw` transport:** `agents-overview.py`, `project-narratives.py`, `prose.py` and `quota-nudge.py` reach
 the platform only through `scripts/agw_run.py` (shells out to `agw … --format json`, `AGW_CALLER=hermes`,
 no credential, no base-URL env knob). A run that outlives the CLI's wait budget exits 10; `agw_run.run`
 resumes it with `agw run wait <runId>` and prints a progress line to stderr per resume (the cron
-idle-output watchdog's liveness signal). Only `agw-legacy dispatch` still talks to agent-gateway.
+idle-output watchdog's liveness signal).
 
 ## Project narratives (project-narratives)
 
@@ -375,7 +366,7 @@ file they no longer touch — read the table's left column, not the patch name.
 | `hermes_cli/web_routers/audio.py` | `serve-speak-summary` | Desktop relay read-aloud summarization in `hermes serve`. **Active again** since serve was restored 2026-10-15 (dormant 2026-09-07 → 2026-10-15) |
 | `plugins/platforms/slack/adapter.py` | `slack-cannot-reply-to-message` | mrkdwn normalization + `cannot_reply_to_message` retry (drop `thread_ts`, retry flat) |
 | `gateway/platforms/base.py` | `slack-media-inline-reply-anchor` | pass the text reply's anchor to media senders. **Dormant** under `reply_in_thread: true`, kept applied |
-| `tools/cronjob_prompt_scan.py` | `cronjob-tools-allowlist-argo-bearer` | argo/karakeep/research/hyperdx bearer allowlist plus the loopback audio door (`127.0.0.1:7792`, exact authority) so a legitimate cron curl stops tripping `exfil_curl_auth_header` |
+| `tools/cronjob_prompt_scan.py` | `cronjob-tools-allowlist-argo-bearer` | argo/karakeep/hyperdx bearer allowlist plus the loopback audio door (`127.0.0.1:7792`, exact authority) so a legitimate cron curl stops tripping `exfil_curl_auth_header` |
 | `hermes_cli/runtime_provider.py` | `runtime-provider-iu-responses-api` | route the IU `…/openai/v1` leg onto `codex_responses` for any gpt-5.x model with no explicit `api_mode` — **dormant on the current config**, every live slot sets `api_mode` explicitly |
 | `agent/transports/chat_completions.py` | `transport-iu-reasoning-effort` | deny-by-default tools+`reasoning_effort`: keep both only for the probed-safe allowlist (Anthropic/DeepSeek/GLM); strip for everything else, gpt-5.x and any unrecognized model id included; clamp per model family (Anthropic: no `xhigh`; GLM: no `medium`; unrecognized: omitted entirely) |
 | `run_agent.py` | `run-agent-iu-max-completion-tokens` | always send `max_completion_tokens` (never `max_tokens`) on the IU OpenAI leg, regardless of which model-id prefix is behind it — `model_forces_max_completion_tokens` only recognizes OpenAI ids, so a non-OpenAI custom-provider model (DeepSeek) fell through to the rejected key |
@@ -404,7 +395,7 @@ failed closed), cron/`-q`/unattended `approve`, `security.protected_instruction_
 (pipeline allowlist, `download_then_execute`, `raw_agent_invocation`, `raw_repo_write`) was
 **deleted** with its tests — it produced friction and silent lane substitutions, not safety.
 Still blocking: upstream's hardline floor, the gateway-self-restart block, three irreversible
-`approvals.deny` globs, and agent-gateway's dispatch policy. `make
+`approvals.deny` globs. `make
 status` grades the config. **When Hermes does the wrong thing, fix SOUL.md or the skill** — make
 the guidance clearer; never answer with a new block.
 
@@ -471,7 +462,7 @@ reason for the direct route was ever found; see `modelpick/docs/decisions/vision
 `auxiliary.web_extract` and `auxiliary.session_search` are gone — upstream stopped reading them
 (`config_defaults.py`: "no longer use an auxiliary LLM... ignored"), so the blocks were dead
 weight. **`delegation.*` (subagent routing) exists but is unused** — a Hermes child gets no
-`.claude/rules`/`skills`/PR artifact, so repo work stays on the dispatch bridge. **Core-tool
+`.claude/rules`/`skills`/PR artifact, so repo work stays filed as issues. **Core-tool
 deferral is on** (`tools.tool_search.enabled: auto`) — measured −19.8% off the cached tool prefix
 every turn; if Hermes ever claims it can't schedule something, check `cronjob_manage` isn't
 wrongly deferred rather than disabling the feature.
@@ -559,10 +550,9 @@ beyond the skills-index restart noted in *Editing Rules*.
   patched upstream files or `SOUL.md`'s cached prompt are not live until it.
 - **API sessions are keyed by the first message.** Re-sending an identical test prompt to
   `/v1/chat/completions` resumes the previous session (and its still-running turn) — reword it.
-  A smoke that files real work (`agw-legacy dispatch`) starts a real episode; stop it with
-  `agw-legacy cancel <jobId>`.
-- **Repo work goes through `dispatch`, never the repo** — a model told only "you can run
-  anything" debugged a flaky agent-gateway test in the live checkout itself (Wave 3 smoke,
+  A smoke that files real work (`capture`) opens a real GitHub issue; close it.
+- **Repo work is filed, never done in the repo** — a model told only "you can run
+  anything" debugged a flaky gateway test in the live checkout itself (Wave 3 smoke,
   2026-10-04). The routing table in `SOUL.md` is the control; fix wording there, not with a gate.
 - Gotchas with their own incident write-up live in the sections above (SIGPIPE under
   `pipefail`, `cron/jobs.json` carrying its own prompt copy, `slack.allow_bots: all`).

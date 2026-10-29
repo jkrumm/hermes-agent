@@ -7,8 +7,8 @@ does not add up: a burst of "already running / refused to start" errors, a lifec
 ledger reporting an unclean exit, a service that came back after a gap, or a verdict
 that blames a hang.
 
-Applies to anything on this estate with a supervisor: the Hermes gateway, agent-gateway,
-audio-gateway, weatherorb — launchd plists with `KeepAlive`, or
+Applies to anything on this estate with a supervisor: the Hermes gateway, the
+agent-workflows services, weatherorb — launchd plists with `KeepAlive`, or
 systemd units.
 
 **The app's log is the least authoritative source in the room.** The supervisor's own
@@ -136,10 +136,9 @@ Sending SIGKILL.` (the deadline hit); `exited due to SIGKILL | sent by launchd` 
   causal story survives primary evidence — an episode reads logs and source, not the
   supervisor, the process table, or a counter-case. Verify the causal claim, and when it
   fails, say so plainly rather than softening it into agreement.
-- **Check whether the fix is even reachable before offering to dispatch it.** The file
-  may live in a checkout that is not the dispatchable repo, or the repo may be capped at
-  a read-only tier. Name the ceiling and the real owner of the file instead of
-  dispatching into a wall. On this estate the upstream Hermes checkout is
+- **Check whether the fix is even reachable before filing it.** The file
+  may live in a checkout that is not the repo you would file against. Name the real
+  owner of the file instead of filing into the wrong repo. On this estate the upstream Hermes checkout is
   `~/.hermes/hermes-agent` (origin `NousResearch/hermes-agent`) and owns `hermes_cli/`;
   `~/SourceRoot/hermes-agent` holds config, skills, scripts and patches and has no
   `hermes_cli/`.

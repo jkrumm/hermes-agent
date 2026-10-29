@@ -6,12 +6,13 @@ HERMES_SRC    := $(HERMES_DIR)/hermes-agent
 # 2026-10-04: 20, was 126; `prose` added 2026-10-19). Retired siblings were folded into `<skill>/references/*.md` or deleted;
 # git history is the archive. `skills/work/iu-*/` is gitignored (employer-internal) and rides
 # inside the `work` symlink.
-HERMES_SKILLS := capture argo-api work karakeep obsidian reading wildrift agw-research image-delivery podcast prose briefing-tts hyperdx homelab homelab-ops hermes-gateway human-queue dispatch herdr verify
+HERMES_SKILLS := capture argo-api work karakeep obsidian reading wildrift agw-research image-delivery podcast prose briefing-tts hyperdx homelab homelab-ops hermes-gateway human-queue herdr verify
 
 # Skill links this repo no longer installs — removed by `make setup` so a retired skill
 # cannot linger live. `agents` folded into warden/references, `claude-dispatch` renamed
-# `dispatch`, `rollhook-deploys` folded into homelab-ops/references.
-HERMES_SKILLS_RETIRED := agents claude-dispatch rollhook-deploys
+# `dispatch`, `rollhook-deploys` folded into homelab-ops/references, `dispatch` dropped with
+# agent-gateway (2026-10-29).
+HERMES_SKILLS_RETIRED := agents claude-dispatch rollhook-deploys dispatch
 
 # Gateway plugins symlinked into ~/.hermes/plugins/ (none today — `dispatch-approval`, the
 # Ed25519 signer, was removed 2026-10-04 once warden Wave 1 deleted the approval stack it
@@ -271,9 +272,6 @@ status:
 	@for skill in $(HERMES_SKILLS); do \
 		$(MAKE) --no-print-directory _check DST="$(HERMES_DIR)/skills/$$skill"; \
 	done
-	@curl -fsS --max-time 5 http://localhost:7705/health >/dev/null 2>&1 \
-		&& echo "    ✓ agent-gateway job server (:7705, dispatch backend)" \
-		|| echo "    ✗ agent-gateway job server [:7705 unreachable — dispatch would fail with exit 3]"
 	@# Secrets resolve natively via config.yaml `secrets.command` -> the dotfiles
 	@# secrets-run cache. There is deliberately no ~/.hermes/.env any more, so this
 	@# asserts the helper actually renders refs rather than checking for a file.

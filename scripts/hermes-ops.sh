@@ -113,7 +113,7 @@ VALID_HOSTS=(homelab vps)
 # `grep -E '^[a-zA-Z0-9_-]+-up:' vps/Makefile`; re-check that grep whenever a
 # vps app stack is added or removed.
 VALID_STACKS_homelab="homelab"
-VALID_STACKS_vps="networking infra monitoring argo audio-gateway basalt-ui-marketing email-gateway fpp image-gateway imgproxy weatherorb photo-gallery research-gateway"
+VALID_STACKS_vps="networking infra monitoring argo basalt-ui-marketing email-gateway fpp image-gateway imgproxy weatherorb photo-gallery"
 
 # The three `op run`-wrapped homelab host crons (crontab -l). All share
 # ~/homelab/.env.tpl — which is why one dangling 1Password ref takes out all three
@@ -127,7 +127,6 @@ VALID_CRONS=(vpn-watchdog auto-update koinsight-stats-push)
 # gateway restart is a deliberate human action. com.iu.* are work agents, out of
 # scope for this script.
 VALID_LAUNCHD=(
-  com.jkrumm.agent-gateway
   com.jkrumm.linewatch-collector
   com.jkrumm.linewatch-heartbeat
   com.jkrumm.linewatch-watchdog
@@ -1143,8 +1142,8 @@ cmd_redeploy() {
         *)
           # Every other valid vps stack is an app: apps/<name>/compose.yml, NOT
           # compose.<name>.yml — the root-stack command above would resolve the
-          # wrong path. Several of these (argo, audio-gateway, research-gateway,
-          # weatherorb, image-gateway) also need the currently-pinned image SHA
+          # wrong path. Several of these (argo, weatherorb,
+          # image-gateway) also need the currently-pinned image SHA
           # so a bare `docker compose up -d` doesn't roll back to a stale
           # RollHook :latest — see vps/Makefile's argo-up comment. Rather than
           # duplicate that pinning dance inside a PLAN string, delegate to the
@@ -1295,9 +1294,9 @@ TIER B — mutating. Requires --why "<reason>"; prints a plan and changes NOTHIN
                                 cascade and the stale MySQL pool
   restart <host> <container>    Container name validated against the live list
   redeploy <host> <stack>       homelab: homelab · vps: networking, infra, monitoring,
-                                argo, audio-gateway, basalt-ui-marketing,
+                                argo, basalt-ui-marketing,
                                 email-gateway, fpp, image-gateway, imgproxy,
-                                weatherorb, photo-gallery, research-gateway
+                                weatherorb, photo-gallery
                                 (homelab-private excluded: its `make up` is a full
                                 VPN cycle, not a redeploy)
   cron-rerun <job>              vpn-watchdog | auto-update | koinsight-stats-push

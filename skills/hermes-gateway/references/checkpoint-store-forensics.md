@@ -43,8 +43,7 @@ Reproduce any store operation by exporting exactly those three.
    and a skip logged as `working directory not found` is the workdir-teardown case,
    not a store defect.
 6. **Report or escalate.** Say what you repaired and the evidence. A store defect that needs
-   a code change goes to `agw-legacy dispatch --repo hermes-agent` (an `investigate` verdict) or a
-   GitHub issue — there is no ledger item to close.
+   a code change goes to a GitHub issue (`capture`) — there is no ledger item to close.
 
 ## Three causes of `git add -A (rc=128)` — triage by the stderr tail
 
@@ -109,8 +108,7 @@ Reproduce any store operation by exporting exactly those three.
   `add -A` walks. Move it to `~/.hermes/quarantine/` (nothing is lost: the `.git` has no
   HEAD and no config), then re-run `add -A` and confirm rc=0 before closing.
   **Provenance of the `/private/tmp` offenders is usually an agent's own verification
-  scratch:** a `git init` + `git fetch <bundle>` against an agent-gateway salvage bundle
-  (`~/.local/state/agent-gateway/salvage/dispatch-*.bundle`) leaves `.git/FETCH_HEAD` and a
+  scratch:** a `git init` + `git fetch <bundle>` against a salvage bundle leaves `.git/FETCH_HEAD` and a
   `refs/remotes/x/…` ref but **no local branch**, so `HEAD` → `refs/heads/main` is unborn
   and the directory is commitless by construction. Read `.git/FETCH_HEAD` to attribute it;
   the dirs are disposable (`b2/`, `b3/`, `sal2`, `salvage-check` are typical names).
@@ -248,9 +246,9 @@ checking when a pattern seems not to apply:
 
 ## Two lines from this family are usually ONE investigation
 
-Different stderr tails, same subsystem, same repo → one investigation, one `agw-legacy dispatch`
-(or one issue): a second episode burns budget and yields two verdicts that cannot both be
-acted on. Check `agw-legacy jobs --running` for an existing episode on the repo before dispatching.
+Different stderr tails, same subsystem, same repo → one investigation, one issue:
+a second issue yields two write-ups that cannot both be acted on. Search the repo's open
+issues (`gh issue list`) for an existing one before filing.
 
 ## A fix on disk is not a fix in the running gateway
 

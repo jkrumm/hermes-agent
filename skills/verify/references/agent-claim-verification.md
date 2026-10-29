@@ -1,8 +1,8 @@
 # Verifying an agent episode's claimed result
 
-_Use when relaying a dispatched agent's claimed result._
+_Use when relaying an agent run's claimed result._
 
-The class: an episode (an `agw-legacy dispatch` job, an `agw check`/`review` run) reports
+The class: an episode (an `agw check`/`review` run, or a worker's report) reports
 an outcome — a verdict, a green suite, a PR — and you must relay it or act on it.
 **The claim and the artifact are different things, and only one of them is evidence.**
 A card's note, a brief's asserted measurement and a PR body are all prose written by
@@ -12,30 +12,17 @@ This is the step before acting: deciding whether the thing you were handed is tr
 
 ## Procedure
 
-1. **Read the job store, not the card.** The ledger holds the real result. This SQLite
-   store is for **dispatch jobs only** (agent-gateway's `jobs.db`); a platform run (research,
-   check, review, podcast, …) is read with `agw run status <runId> --format json`, never from
-   a database file:
-
-   ```python
-   import sqlite3, os, json
-   con = sqlite3.connect(f"file:{os.path.expanduser('~/.local/share/agent-gateway/jobs.db')}?mode=ro", uri=True)
-   con.row_factory = sqlite3.Row
-   for r in con.execute("select * from jobs where id like ?", (job_prefix + '%',)):
-       d = dict(r)          # params, status, result (JSON), error, progress, created_at, finished_at
-   ```
-
-   `result` carries `summary`, `verdict`, `confidence`, `nextAction`, `outcome`,
-   `artifactUrl`, `branch`, and `steps[]` with a `passed` per step. Use `mode=ro` + `uri=True` and never the
-   macOS `/usr/bin/sqlite3` CLI — it has no `-uri` and dies `unable to open
-   database file (14)`.
+1. **Read the run record, not the card.** The platform keeps the real result:
+   `agw run status <runId> --format json` (never a database file). It carries the
+   run's status, its result and the step-by-step outcome; read `passed` per step,
+   not the summary prose.
 
 2. **A brief's "measured evidence" is a claim, not a fact.** A brief that says a
    direction was *measured* ("verified both directions", "reproduced green at
-   ~183s") is asserting it, and the run it cites may not be in the store. Grep the
-   job store for the run that would have produced it before repeating the number.
+   ~183s") is asserting it, and the run it cites may not exist. Look up the run
+   that would have produced it (`agw run status`) before repeating the number.
    If only the counter-direction is recorded, say which direction is unverified —
-   and do **not** re-dispatch to re-derive it; that spends an episode on a claim
+   and do **not** re-run it to re-derive the number; that spends an episode on a claim
    you can settle by reading.
 
 3. **Reproduce by hand before calling a fix verified.** See the recipe below. A
@@ -148,7 +135,7 @@ actually changes his next move:
   and in that shape the parked PR skips the merge-train handoff, so Argo offers no
   `merge`, only `implement`/`dismiss`/`reinvestigate`/`note`. Run the lane yourself and
   report the numbers; **do not** click `implement`/`reinvestigate` to clear the card:
-  each dispatches a fresh master-based episode, which opens another PR and supersedes
+  each starts a fresh master-based episode, which opens another PR and supersedes
   the one you were verifying.
 - **An unmerged PR means the underlying break is still live on the default branch.**
   Say so: until it lands, every episode in that repo reproduces the same failure.
