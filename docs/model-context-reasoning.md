@@ -52,7 +52,7 @@ fell off, which is what a `hermes update` does.
 > route rather than describing the log (`_detect_api_mode_for_url`,
 > `resolve_reasoning_config`). It also carries the restart boundary — Hermes
 > may not restart its own gateway, `hermes-ops.sh` excludes `ai.hermes.gateway`
-> for the same reason, and `dispatch` is not a workaround since it has
+> for the same reason, and handing it to a repo agent is not a workaround since it has
 > no lifecycle authority over launchd.
 
 **The key is `agent.reasoning_effort`, not `model.reasoning_effort`.** `resolve_reasoning_config()` (`hermes_constants.py`) reads `agent.reasoning_overrides` then `agent.reasoning_effort`, and nothing reads the `model` section's copy. `model.reasoning_effort` has been removed from `config.yaml` entirely (2026-09-13) rather than kept as a synced-but-dead mirror — it carried `medium` for months while `resolve_reasoning_config(live config) → None` read the real, live key instead, i.e. no future reader can act on a value nothing consults. Per-model overrides go in `agent.reasoning_overrides`.
@@ -79,7 +79,7 @@ There is **no config key to drop `temperature` on its own** — `_fixed_temperat
 
 ## Subagent routing exists but is unused
 
-`delegation.*` is configured but repo work goes to Claude Code via the dispatch bridge, and a Hermes child gets no `.claude/rules`, no `.claude/skills` and no PR artifact. Worth considering only for read-heavy fan-out (parallel log/API triage). If one is ever pinned to a cheaper model: **`delegation.api_mode` is silently dropped unless `delegation.base_url` or `delegation.provider` is set too**, so `model: claude-*` alone inherits `codex_responses` and 404s — the same trap the `fallback_providers` entry spells out `chat_completions` to avoid. A pin also costs the child its fallback chain and capability inheritance.
+`delegation.*` is configured but repo work is filed as a GitHub issue, and a Hermes child gets no `.claude/rules`, no `.claude/skills` and no PR artifact. Worth considering only for read-heavy fan-out (parallel log/API triage). If one is ever pinned to a cheaper model: **`delegation.api_mode` is silently dropped unless `delegation.base_url` or `delegation.provider` is set too**, so `model: claude-*` alone inherits `codex_responses` and 404s — the same trap the `fallback_providers` entry spells out `chat_completions` to avoid. A pin also costs the child its fallback chain and capability inheritance.
 
 ## Core-tool deferral is on and wanted
 

@@ -57,7 +57,6 @@ curl -s -X POST "https://api.cloudflare.com/client/v4/zones/<ZONE_ID>/dns_record
 | `mini.jkrumm.com` | A | Mac Mini tailnet IP | No | Dev host vhosts |
 | `*.mini.jkrumm.com` | A | Mac Mini tailnet IP | No | Wildcard for dev vhosts |
 | `argo.jkrumm.com` | A | VPS tailnet IP | No | Argo API |
-| `audio-gateway.jkrumm.com` | A | VPS tailnet IP | No | TTS/STT gateway |
 
 Tailnet IPs change only on machine reinstall — a record should always match
 that machine's current `tailscale ip -4` output. Look the live values up with

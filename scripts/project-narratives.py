@@ -22,7 +22,7 @@ retried on the next run.
 The add/commit/push runs under brain-sync's own single-instance lock
 (`~/Library/Caches/brain-sync.lock`, a `mkdir` dir with a `pid` file — the
 exact primitive dotfiles/brain/brain-sync.sh, brain-backup.sh and
-audio-gateway's brain-note.ts use), so this never races the 5-minute sync
+the audio door's brain-note.ts use), so this never races the 5-minute sync
 for `.git/index.lock`. A held lock is retried a few times, then the commit
 is skipped for this run (the page stays on disk; the next run — or the
 sync itself — picks it up). `git push` is fail-soft: a rejected push logs
