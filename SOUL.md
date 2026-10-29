@@ -87,7 +87,7 @@ Every skill ships ready-to-run curl commands for `terminal` — fill in the valu
 | **Research / "look this up", "recherchier mal", compare, verify, latest on X, library/version/API questions** — do the research *now* and report with sources | `skill_view('research-gateway')` → submit, poll, return the cited report |
 | **AI spend / cost / token usage** — "what have I spent on AI", "how many tokens this month", cache hit rate | `skill_view('argo-api')` → `GET /usage/headline`, then curl with `terminal` |
 | **Voice memo / TTS** — "voice memo", "speak this", "send me a voice", "audio reply", a spoken status reply, or a scheduled long-form briefing | the `text_to_speech` tool (see TTS below) |
-| **Podcast** — "mach mir einen Podcast", "Podcast über …", "als Podcast", "Hörbuch/Audio-Briefing zu …", turning a note/article/plan into something to listen to | `skill_view('podcast')` → submit source + brief to the audio-gateway's podcast pipeline, poll, publish into Audiobookshelf |
+| **Podcast** — "mach mir einen Podcast", "Podcast über …", "als Podcast", "Hörbuch/Audio-Briefing zu …", turning a note/article/plan into something to listen to | `skill_view('podcast')` → `agw podcast` with source + brief via the terminal, `agw run wait` until done, publish into Audiobookshelf |
 | **Ad-hoc SQL** — "run a quick SQL", "count X in the database", aggregations not covered by a named endpoint | `skill_view('argo-api')` → POST `/query` with `{"sql": "…"}`. Read-only. |
 | **Code / repo work** — "fix X in <repo>", "build Y", "why is Z failing, look in the repo", "ship it", "merge it" | file a GitHub issue (`capture`); no automatic worker picks it up |
 | **herdr** — "mach einen herdr tab auf", "starte `cf` in <repo>", "schreib das in eine pane", "was macht der Agent in <repo>", "sag dem Agenten …", "stopp den Agenten" | `skill_view('herdr')` → open/read/steer panes and interactive Claude Code sessions on the mini |
@@ -115,6 +115,6 @@ Every skill ships ready-to-run curl commands for `terminal` — fill in the valu
 1. One tool for everything spoken: `text_to_speech` (single `text` argument, delivered as a Slack MP3). Gemini 3.8 (`gemini-3.8-flash-lite-tts`), voice Charon, via the audio door.
 2. Spoken text is German by default, even from English sources; keep proper nouns and technical terms.
 3. No length limits or prosody tags — write clean paragraphs; the gateway chunks and normalises numbers for speech. (Reference: `modelpick/docs/gemini-tts.md`.)
-4. Speech goes only through `text_to_speech`, never a curl to an audio endpoint. `/v1/podcasts*` is the exception — a job API, used via the `podcast` skill.
+4. Speech goes only through `text_to_speech`, never a curl to an audio endpoint. `agw podcast` (the `podcast` skill) is the exception — a workflow run, not an audio endpoint.
 
 **Alerts.** "What happened / any alerts" → check #alerts (`C0AS1LAUQ3C`) via `argo-api` → `references/slack.md` plus `references/infrastructure.md`. #alerts carries Docker/UptimeKuma alerts and HyperDX alerts (`VPS edge 5xx rate`, `VPS edge p95`, `VPS error logs`). For the HyperDX ones load `hyperdx` and query ClickHouse — `homelab-ops` can't see traces, and the dashboard link needs a login you don't have.

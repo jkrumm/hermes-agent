@@ -23,7 +23,7 @@ request/response contract). Hermes only points its native `openai` TTS/STT provi
 `secrets.command` appends that variable from the `hermes=` line of `~/.agent-workflows/data/door-tokens`
 (a local 0600 file created by agent-workflows' deploy — not a 1Password ref, never in git). Every
 request is a run in agent-workflows (`agw-run-id` response header, caller `hermes`). The
-`audio-gateway` VPS container still serves the cron briefing prompts and the `podcast` skill.
+`audio-gateway` VPS container still serves the cron briefing prompts.
 TTS = Gemini 3.8 via the door's native lane, voice Charon: `gemini-3.8-flash-lite-tts` for chat replies (`tts.openai`), `gemini-3.8-flash-tts` for
 briefings (`skills/briefing-tts`, prep on). Streaming clients (CLI voice `OpenAIStreamer`, desktop
 `speak-stream` relay, spoken summary) already send `response_format: pcm` and get the progressive
@@ -306,12 +306,14 @@ Modifications*).
 
 ## Podcast generation (podcast)
 
-`skills/podcast/SKILL.md` turns notes into a long-form two-host German episode via a **job API on
-the audio-gateway** (same VPS/tailnet service as TTS/STT) and publishes the MP3 (chapters + cover)
-into Audiobookshelf. Submit-and-poll like `research-gateway`, **not** a single `/v1/audio/speech`
-call like `briefing-tts`. **No secret** — tailnet-gated, caller identified by the bearer label
-`hermes`. SOUL.md's TTS rule 4 ("NEVER curl an audio endpoint") exempts `/v1/podcasts*` — there is
-no native tool for this pipeline.
+`skills/podcast/SKILL.md` turns notes into a long-form two-host German episode via **`agw podcast`**
+(the agent-workflows CLI, on the terminal tool's `PATH` — the gateway plist carries `~/.local/bin` and
+`/opt/homebrew/bin`) and publishes the MP3 (chapters + cover) into Audiobookshelf. Submit-and-wait like
+`research-gateway`, **not** a single `/v1/audio/speech` call like `briefing-tts`: `agw podcast … --format json`
+exits 10 with the `runId` after ~110 s, `agw run wait <runId>` is called again until exit 0, `agw
+podcast-publish <runId> --commit` repeats only the upload. **No secret in this repo** — `agw` reads its own
+config (`~/.config/agw/env`). The run posts its own Slack notice. SOUL.md's TTS rule 4 ("NEVER curl an audio
+endpoint") exempts `agw podcast` — there is no native tool for this pipeline.
 
 ## Agents overview (agents)
 

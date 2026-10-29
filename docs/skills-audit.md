@@ -61,7 +61,7 @@ Claude Code session in the IuRoot repo and carries only the three lessons a hand
 | Fact | Hermes-specific | Shared (one home) |
 |-|-|-|
 | herdr CLI semantics, status meanings, safety rules | no `--current`, workspace by repo label, launchers typed into the pane, 180 s cap, draft-in-input-line, branch restore | dotfiles `herdr` + `remote-dev` own the CLI; Hermes keeps a deliberate copy because it cannot load them. Differing facts reconciled this wave; draft/branch/integration rules ported *to* dotfiles |
-| podcast API | raw curl with bearer `hermes`, poll in 6×20 s chunks, Slack announce, no `MEDIA:` for long audio | request fields / series / pipeline live in dotfiles `podcast` and `audio-gateway`; model roster lives in its config only |
+| podcast | `agw podcast` / `agw run wait` via the terminal (exit 10 = still running), Slack announce, no `MEDIA:` for long audio | request fields / series / pipeline live in dotfiles `podcast` and agent-workflows' `podcast` workflow; model roster lives in its route table only |
 | research | REST + bash poll, German Slack presentation | `research-gateway` README; dotfiles `research` is the MCP view |
 | homelab / homelab-ops | the whole tier A/B verb model | stack facts live in `homelab-private` (self-contained: not referenced from here) |
 | dispatch / warden | `hermes-cc.sh run` is an exec shim to `warden run` — same command | `~/SourceRoot/warden/AGENTS.md`, `dotfiles/docs/agent-platform.md` |
