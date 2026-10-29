@@ -28,14 +28,14 @@ reason, and don't recite the whole guide.
 Vault-first. Read the matchup table in the relevant champion note. Each row
 carries a *read* — the actual instruction, not just a verdict. Quote that.
 
-Only reach for `research-gateway` if the note has no row for that matchup, and
+Only reach for `agw-research` if the note has no row for that matchup, and
 say plainly that you're going outside the notes.
 
 ## "refresh my `<champ>` build" / "baue mir den X build neu"
 
 1. Read the note: `obsidian read path="Areas/Gaming/Wild Rift/<Champ>.md"`. Note
    its `patch:` frontmatter field.
-2. Establish the current patch via `research-gateway`. If it matches the note,
+2. Establish the current patch via `agw-research`. If it matches the note,
    say so and stop — don't churn the vault for nothing.
 3. If the patch moved, research what changed for that champion and what the
    current core build is.
@@ -49,7 +49,7 @@ say plainly that you're going outside the notes.
 ## "did the new patch change my builds?" / "hat das Update meine Builds beeinflusst"
 
 Same as above but across the pool. Read each note's `patch:` field, ask
-`research-gateway` for the current patch and its champion changes, and report
+`agw-research` for the current patch and its champion changes, and report
 which champions are actually affected. Only write to notes that genuinely moved
 — a balance patch usually touches one or two, not eleven.
 

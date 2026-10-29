@@ -5,7 +5,7 @@ version: 1.5.1
 metadata:
   hermes:
     tags: [ticktick, tasks, gmail, calendar, docker, uptime, slack, weather, garmin, strength, workouts, weight, profile, walking-pad, walkingpad, treadmill, steps, usage, cost, spend, tokens, sql, homelab, api]
-    related_skills: [capture, work, karakeep, obsidian, reading, research-gateway]
+    related_skills: [capture, work, karakeep, obsidian, reading, agw-research]
 ---
 
 # Argo API
@@ -266,7 +266,7 @@ curl -s -X POST -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: ap
   - `references/garmin-health.md` — Daily metrics, recovery, training-load, fitness-direction, weight log, user profile (field semantics, trend arrows, null handling)
   - `references/strength.md` — Workouts, sets, full `/workouts/summary/*` analytics suite (e1RM, INOL, ACWR, volume landmarks, readiness, deload-signal)
   - `references/walking-pad.md` — WalkingPad treadmill sessions, live snapshot, achievements, analytics (field semantics, response formatting)
-- The `reading` skill owns `/reading/*` (Hardcover shelf + book recommendations); the `research-gateway` skill owns deep cited web research (the research-gateway service, not Argo).
+- The `reading` skill owns `/reading/*` (Hardcover shelf + book recommendations); the `agw-research` skill owns deep cited web research (`agw research`, not Argo).
 - The `capture` skill provides TickTick + GitHub Issue routing for new captures (standalone — has its own state cache and routing logic)
 - Endpoint groups without a domain reference yet: `/query` (SQL escape hatch), `/health`, `/oauth/*`. Call them via this skill.
 - Only load this skill when no domain reference matches, or you need the complete endpoint list

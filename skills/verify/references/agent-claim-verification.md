@@ -13,7 +13,10 @@ This is the step before acting: deciding whether the thing you were handed is tr
 
 ## Procedure
 
-1. **Read the job store, not the card.** The ledger holds the real result:
+1. **Read the job store, not the card.** The ledger holds the real result. This SQLite
+   store is for **dispatch jobs only** (agent-gateway's `jobs.db`); a platform run (research,
+   check, review, podcast, …) is read with `agw run status <runId> --format json`, never from
+   a database file:
 
    ```python
    import sqlite3, os, json

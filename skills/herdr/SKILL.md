@@ -19,8 +19,8 @@ may use every verb it has.
 
 | He asks for | Lane |
 |-|-|
-| "look into the repo and tell me why X" · "fix it" · anything **unattended, tracked, to an outcome** | `dispatch` → Warden (`hermes-cc.sh run`). Tracked to a merged, verified fix. |
-| "what are my agents doing", a cross-project status read | `warden` skill → `references/agents.md` (agent-gateway overview, read-only) |
+| "look into the repo and tell me why X" · "fix it" · anything **unattended, tracked, to an outcome** | `dispatch` → `agw-legacy dispatch`. A job to an outcome (investigate verdict, or a branch/PR). |
+| "what are my agents doing", a cross-project status read | `agw agents --text` (cross-project overview, read-only) |
 | **"open a herdr pane/tab"**, "start `cf` in warden", "write that into a pane", "tell the agent in <repo> …", "stop that agent" | **this skill** |
 
 The difference is not safety, it is **who owns the work**. A Warden dispatch is
