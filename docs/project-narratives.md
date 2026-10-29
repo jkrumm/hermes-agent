@@ -2,10 +2,9 @@
 
 `scripts/project-narratives.py` keeps one narrative page per active repo at
 `~/SourceRoot/brain/wiki/engineering/projects/<project>.md`: what the project
-is, where it stands, how it got there. Driven by agent-gateway's `narrative` job
-(same daemon `agents-overview.py` and the dispatch bridge use,
-`http://localhost:7705`) — see `docs/agents-overview.md` for the sibling
-job-submission pattern this one mirrors.
+is, where it stands, how it got there. Driven by the `agw narrative` workflow
+(agent-workflows; the same `agw_run.py` transport `agents-overview.py` and `prose.py`
+use, caller `hermes`) — see `docs/agents-overview.md` for the sibling pattern.
 
 ## Less is more
 
@@ -19,7 +18,7 @@ a degraded one. The gate is `needs_revision()`, pure and cheap:
   scheme Claude Code itself uses) is newer than `lastSessionMtime`.
 
 Neither condition firing means the project is skipped entirely — zero cost,
-every run, for an idle repo. Even when the job *does* run, agent-gateway itself
+every run, for an idle repo. Even when the workflow *does* run, it
 can report `changed: false` (no substantive narrative-worthy delta despite
 the commit/session activity); that also produces no page write, only a
 state-timestamp advance so the gate settles and doesn't re-fire on the same
@@ -37,9 +36,9 @@ discovery to exactly that set, in any CLI mode.
 
 ## Who writes the prose
 
-The narrator prompt is agent-gateway's `server/skills/narrative.md`, not a file in
+The narrator prompt belongs to the agent-workflows `narrative` workflow, not to a file in
 this repo. It tells the narrator to describe the system as it is now: a term from
-a deleted mechanism (warden's merge-approval gate, removed 2026-10-02) belongs in
+a deleted mechanism (a removed merge-approval gate) belongs in
 `howItGotHere` as removed, never in `whereItStands`. A stale phrase in a page
 survives because the previous page is the narrator's input, so fix the page and
 the prompt together.
@@ -52,8 +51,12 @@ stale projects drains gradually rather than in one giant run:
 
 1. Read the existing page (`previousPage`) if one exists; `since` = the
    project's `lastRevisedAt` or `null` on a first revision.
-2. `POST /api/jobs {"tool":"narrative","params":{cwd, project, previousPage,
-   since}}`, poll `GET /api/jobs/<id>` until `done`/`failed` (bounded 5 min).
+2. `agw narrative --cwd <repo> --project <name> [--previous-page <page>] [--since <iso>]`;
+   on exit 10 (still running after the CLI's wait budget) resume with
+   `agw run wait <runId>` until the run ends — no wall-clock limit, a progress line to
+   stderr per resume keeps the cron idle-output watchdog quiet. A failed or cancelled
+   run, or an unreachable `agw`, is `None`: retried next run, never `changed:false`.
+   The workflow also polishes the page through `prose-polish` (default on).
 3. `changed: false` → advance `lastCommit`/`lastSessionMtime` in state,
    write nothing.
 4. `changed: true` → write `result.page` verbatim (full markdown incl.
@@ -88,8 +91,8 @@ untouched until a project's `needs_revision()` gate re-fires for real.
 |-|-|
 | `--run` | The cron entry point — the full gated pipeline above, commits. Prints `<project>: <summary>` per revised project, nothing when none (stdout is the Slack body under `--no-agent`). |
 | `--bootstrap a,b,c` | Forces `since=null` and `previousPage=None` for the named projects (ignores the gate entirely), writes pages + regenerates the index + lints, but **never commits** — prints the written page paths so Johannes reviews the `git diff` by hand. |
-| `--briefing` | Prints `narrative: <project> — <summary>` for every project revised in the last 26h (from state — no job call, no network), or nothing. Feeds `briefing-context.py` → the morning briefing's "Agenten & Projekte" block. |
-| `--dry-run` | Lists which projects would be revised this run and why (`HEAD moved (<old> -> <new>)`, `newer Claude Code session`, or `never revised`) — no job call, no writes. |
+| `--briefing` | Prints `narrative: <project> — <summary>` for every project revised in the last 26h (from state — no `agw` call), or nothing. Feeds `briefing-context.py` → the morning briefing's "Agenten & Projekte" block. |
+| `--dry-run` | Lists which projects would be revised this run and why (`HEAD moved (<old> -> <new>)`, `newer Claude Code session`, or `never revised`) — no `agw` call, no writes. |
 | `--projects a,b` | Restricts discovery to exactly this set, combinable with any mode above. |
 
 ## Registering the cron
@@ -113,7 +116,7 @@ substantial entry point gets rejected regardless of content.
 `tests/test_project_narratives.py` — pure `needs_revision()` branches,
 discovery's deny list + env skip on a temp `SourceRoot`, index rendering
 from page frontmatter, state round-trip, and `main(["--run"])` end to end
-with a monkeypatched `run_narrative_job` (the network seam) and a
+with a monkeypatched `run_narrative_job` (the `agw` seam) and a
 monkeypatched `subprocess.run` recording every git/node invocation. Run:
 
 ```bash

@@ -6,7 +6,7 @@ Block Kit rendering (header/footer, ordering, escaping, the 50-block cap) for
 the on-demand `--post-full` overview, and the unavailable-degrades-gracefully
 path for `--briefing`.
 
-No network, no agent-gateway, no state file — every case builds its fixtures
+No network, no agw, no state file — every case builds its fixtures
 in-memory and calls the module's functions directly (or monkeypatches
 fetch/refresh for the CLI-level unavailable case).
 
@@ -22,7 +22,7 @@ from __future__ import annotations
 import importlib.util
 import io
 import sys
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
@@ -97,9 +97,9 @@ check_true("overflow marker present", any(line.startswith("…") for line in lin
 
 # --- unavailable path (CLI level) -----------------------------------------
 
-print("\n13. main(['--briefing']) degrades to one line when agent-gateway is unreachable")
-def _boom(base, timeout_s=10):
-    raise ConnectionRefusedError("agent-gateway down")
+print("\n13. main(['--briefing']) degrades to one line when agw is unreachable")
+def _boom():
+    raise ConnectionRefusedError("agw down")
 
 _orig_fetch = ao.fetch
 ao.fetch = _boom
@@ -117,12 +117,12 @@ print("\n13b. main(['--briefing', '--no-refresh']) on a stale cache states its a
 _stale = mk_overview([("argo", [mk_agent("a1", "Ship it", "ship")])])
 _stale["overview"] = {"ageMs": 3 * 3600 * 1000}
 _refresh_calls = []
-def _no_refresh(base, poll_interval=20):
-    _refresh_calls.append(base)
+def _no_refresh():
+    _refresh_calls.append(True)
     return None
 _orig_fetch = ao.fetch
 _orig_refresh = ao.refresh
-ao.fetch = lambda base, timeout_s=10: _stale
+ao.fetch = lambda: _stale
 ao.refresh = _no_refresh
 try:
     out = io.StringIO()
@@ -159,6 +159,41 @@ check_true("header counts the human queue", "2 human-queue" in blocks_hq[0]["tex
 brief_hq = ao.render_briefing(cur_hq)
 check_true("briefing carries the Needs you lines", "Needs you" in brief_hq and "Reseed the secrets cache" in brief_hq)
 
+
+# --- agw seam: fetch() and refresh() ---------------------------------------
+
+print("\n21a. fetch() — unwraps `data` from `agw agents`; a payload without data raises")
+_orig_call = ao.agw_run.call
+ao.agw_run.call = lambda args, **kw: {"data": {"summary": {"working": 2}}}
+try:
+    check("data object", ao.fetch(), {"summary": {"working": 2}})
+    ao.agw_run.call = lambda args, **kw: {"data": None}
+    try:
+        ao.fetch()
+        check("raised", False, True)
+    except RuntimeError:
+        check("raised", True, True)
+finally:
+    ao.agw_run.call = _orig_call
+
+print("\n21b. refresh() — runs `agw overview`, then re-reads; any AgwError degrades to None")
+_orig_run = ao.agw_run.run
+_orig_fetch = ao.fetch
+_runs = []
+ao.agw_run.run = lambda args, **kw: _runs.append(args) or {"status": "done"}
+ao.fetch = lambda: {"summary": {}, "fresh": True}
+try:
+    check("merged overview returned", ao.refresh(), {"summary": {}, "fresh": True})
+    check("ran the overview workflow", _runs, [["overview"]])
+
+    def _fail(args, **kw):
+        raise ao.agw_run.AgwError("agw overview exit 1: boom", run_id="r1")
+    ao.agw_run.run = _fail
+    with redirect_stderr(io.StringIO()):
+        check("failed run -> None", ao.refresh(), None)
+finally:
+    ao.agw_run.run = _orig_run
+    ao.fetch = _orig_fetch
 
 # --- needs_refresh() -----------------------------------------------------
 

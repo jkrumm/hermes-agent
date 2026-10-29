@@ -7,9 +7,7 @@ digest line, a `#alerts` post and an UptimeKuma notification are all history; th
 question "is this still true" is answered only by the source that owns the
 measurement. Answer it before relaying anything as outstanding work.
 
-This is the complement to `warden-digest-triage` (which owns Warden's ledger,
-policy file and state machine). This skill owns the other half: **what the
-producer's own state says right now.**
+This skill owns **what the producer's own state says right now.**
 
 ## Procedure
 
@@ -35,8 +33,8 @@ producer's own state says right now.**
 
 ### Beszel — homelab resource thresholds
 
-Emits bare sentences with no bot-alert prefix, which is why this family reaches
-Warden as "unstructured prose". Metrics: `CPU`, `Memory`, `Disk`, `LoadAvg5`,
+Emits bare sentences with no bot-alert prefix, which is why this family arrives
+as "unstructured prose". Metrics: `CPU`, `Memory`, `Disk`, `LoadAvg5`,
 `Temperature`, `Status`.
 
 ```bash
@@ -98,7 +96,7 @@ One call settles a "new incident" line:
   the producer's message shape, not the routing policy.
 - **Never map an alert to an owner by an opaque numeric monitor id.**
   `uk:<number>` changes when the monitor is recreated; the stable form is derived
-  from the title (`Warden Backup - Push` → `uk:warden-backup-push`). A rule written
+  from the title (`Homelab Backup - Push` → `uk:homelab-backup-push`). A rule written
   against the number silently stops matching.
 - **A one-shot alert's ledger row keeps the firing timestamp, so an old-looking digest
   line can still be live.** Beszel fires once on the threshold crossing and emits nothing

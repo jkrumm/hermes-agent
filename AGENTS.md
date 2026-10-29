@@ -42,8 +42,8 @@ the first pass.
 | `config.yaml`, `.env.tpl`, `SOUL.md` | `~/.hermes/…` | edit here, live immediately; `.env.tpl` is the gateway's list of `KEY=op://…` refs |
 | `serve.env.tpl` | `~/.hermes/serve.env.tpl` | `hermes serve`'s own three basic-auth refs — deliberately not in `.env.tpl` (see *Hermes Desktop*) |
 | `cron/`, `scripts/`, `hooks/` | `~/.hermes/…` | Hermes-driven cron + pre-run scripts (must live under `HERMES_HOME/scripts/`) + host-level shell scripts |
-| `plugins/{name}/` | `~/.hermes/plugins/{name}/` | **`HERMES_PLUGINS`** is the source of truth. **None today** — `dispatch-approval` was removed 2026-10-04 (warden Wave 1 deleted the approval stack). A new one must **also** be enabled once — `hermes plugins enable <name>`; the symlink alone is inert. |
-| `config/` | `~/.hermes/config/` | **empty** since 2026-09-10 — `dispatch-repos.json` is gone — the repo/tier policy is agent-gateway's `server/lib/dispatch-policy.ts` (`GET /api/dispatch-policy`) |
+| `plugins/{name}/` | `~/.hermes/plugins/{name}/` | **`HERMES_PLUGINS`** is the source of truth. **None today** — `dispatch-approval` was removed 2026-10-04 (the approval stack went with the retired control plane). A new one must **also** be enabled once — `hermes plugins enable <name>`; the symlink alone is inert. |
+| `config/` | `~/.hermes/config/` | **empty** since 2026-09-10 — `dispatch-repos.json` is gone — the repo/tier policy is the dispatch policy (`agw-legacy policy`) |
 | `skills/{name}/` | `~/.hermes/skills/{name}/` | **`HERMES_SKILLS` in the Makefile is the source of truth** — 21 dirs (agent-platform Wave 2, 2026-10-04; was 126). Retired skills live on as `<skill>/references/*.md` or in git history; roster: docs. |
 | `USER.md` | `~/.hermes/memories/USER.md` | **copied** — Hermes writes to it |
 
@@ -54,7 +54,7 @@ the first pass.
 **A skill is durable only if symlinked from this repo.** `skills.external_dirs` satisfies the
 v0.16.0+ skill-trust check **and** protects a skill from the background self-improvement
 curator — a skill created ad hoc under `~/.hermes/skills/` has neither and gets silently
-rewritten by accretion. Detection is manual (`ls ~/.hermes/skills` against `HERMES_SKILLS`); warden's `stray_skill` poll retired with it. Full
+rewritten by accretion. Detection is manual (`ls ~/.hermes/skills` against `HERMES_SKILLS`); the old `stray_skill` poll retired with the control plane. Full
 mechanism + adoption path: **`docs/symlinks-and-agents.md`**.
 
 **Host-level scripts** (user LaunchAgents, not symlinked): `hermes-liveness.sh` (300s — gateway
@@ -292,15 +292,21 @@ endpoint") exempts `agw podcast` — there is no native tool for this pipeline.
 
 ## Agents overview (agents)
 
-Read-only cross-project Claude Code/herdr status via agent-gateway's `/api/overview` —
-conversational read (`agw agents --text`, see `skills/herdr`) and a morning-briefing feed
-(`scripts/agents-overview.py`). Never dispatches, never steers a pane — that's
+Read-only cross-project Claude Code/herdr status via `agw agents` (an unjournaled read; the LLM
+refresh is `agw overview`) — conversational read (`agw agents --text`, see `skills/herdr`) and a
+morning-briefing feed (`scripts/agents-overview.py`). Never dispatches, never steers a pane — that's
 `dispatch`. **`docs/agents-overview.md`**.
+
+**`agw` transport:** `agents-overview.py`, `project-narratives.py`, `prose.py` and `quota-nudge.py` reach
+the platform only through `scripts/agw_run.py` (shells out to `agw … --format json`, `AGW_CALLER=hermes`,
+no credential, no base-URL env knob). A run that outlives the CLI's wait budget exits 10; `agw_run.run`
+resumes it with `agw run wait <runId>` and prints a progress line to stderr per resume (the cron
+idle-output watchdog's liveness signal). Only `agw-legacy dispatch` still talks to agent-gateway.
 
 ## Project narratives (project-narratives)
 
-Daily vault pages, one per active repo, written by agent-gateway's `narrative` job
-(same daemon as `agents`) into `wiki/engineering/projects/<project>.md` — what
+Daily vault pages, one per active repo, written by the `agw narrative` workflow
+into `wiki/engineering/projects/<project>.md` — what
 a project is, where it stands, how it got there. Less is more: a project with
 no substantive change gets no revision and no mention, gated by a pure
 `needs_revision()` (HEAD moved or a newer Claude Code transcript) before any

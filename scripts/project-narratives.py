@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Project narratives — daily project-status pages in the vault, written by
-agent-gateway's `narrative` job (`POST /api/jobs {"tool":"narrative", ...}`, same
-submit/poll shape agents-overview.py's `refresh()` uses against the same
-daemon, `http://localhost:7705`).
+the `agw narrative` workflow (agent-workflows; shelled out through `agw_run.py`, caller
+`hermes`, resumed with `agw run wait` on exit 10).
 
 Less is more: a project with no substantive change since its last revision
 gets no model call, no revision, and no mention. The gate (`needs_revision`)
@@ -12,7 +11,7 @@ idle project costs nothing every run.
 
 Per changed project, sequential, oldest-revised first, capped at
 `HERMES_NARRATIVE_MAX_PER_RUN` (default 5) per `--run`: read the existing
-vault page (if any) as `previousPage`, call the job with `since` = the last
+vault page (if any) as `previousPage`, call the workflow with `since` = the last
 revision timestamp, and on `changed: true` write the page, regenerate the
 `wiki/engineering/projects/index.md` MOC, lint the vault
 (`node .scripts/vault-lint.mjs`), and commit — always naming the vault
@@ -37,7 +36,7 @@ a 404 — or any failure — is logged and non-fatal.
 
 Page path: ~/SourceRoot/brain/wiki/engineering/projects/<project>.md — part
 of the STRICT `wiki/` tree (frontmatter incl. `type`+`description` comes
-from the job's `page` field verbatim; this script never authors project-page
+from the workflow's `page` field verbatim; this script never authors project-page
 frontmatter itself, only the projects/ index it regenerates).
 
 CLI: --run (the cron entry) · --bootstrap a,b,c (forces since=null, no
@@ -63,6 +62,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import agw_run  # noqa: E402
+
 STATE_PATH = Path.home() / ".hermes" / "project-narratives-state.json"
 SOURCE_ROOT = Path.home() / "SourceRoot"
 VAULT_ROOT = SOURCE_ROOT / "brain"
@@ -83,9 +85,6 @@ ARGO_NARRATIVES_PATH = "/agents/narratives"
 ARGO_API_KEY_REF = "op://common/api/SECRET"
 SECRETS_RUN = Path.home() / ".local" / "bin" / "secrets-run"
 ARGO_HTTP_TIMEOUT = 10
-
-DEFAULT_BASE = "http://localhost:7705"
-BASE_ENV = "HERMES_NARRATIVE_AGENT_GATEWAY_BASE"
 
 # Deny-listed projects: private-secrets repos, the disposable dispatch
 # target, and the vault itself (a narrative page ABOUT the vault, written
@@ -212,72 +211,30 @@ def _newest_transcript_mtime(project_dir: Path, claude_projects_dir: Path | None
     return newest
 
 
-# agent-gateway job statuses that end the wait without a result. "failed" was the only
-# one this loop used to check; "interrupted"/"cancelled" are the same "no result
-# coming" case and were previously mis-treated as still-running.
-_TERMINAL_FAILURE_STATUSES = frozenset({"failed", "interrupted", "cancelled"})
-
-
-# --- agent-gateway job client (the seam tests monkeypatch) -----------------------
+# --- the agw seam (tests monkeypatch it) ------------------------------------------
 
 def run_narrative_job(
-    base: str, project: str, cwd: str, previous_page: str | None, since: str | None,
-    *, poll_interval: int = 10,
+    project: str, cwd: str, previous_page: str | None, since: str | None,
 ) -> dict[str, Any] | None:
-    """POST /api/jobs {tool:narrative,...}, poll GET /api/jobs/<id> until the job reaches a
-    terminal status. agent-gateway workers have no turn or wall-clock limit (2026-09-12 policy), so
-    this polls indefinitely rather than giving up on a healthy job — only a transport failure or
-    a genuinely terminal status (`failed`/`interrupted`/`cancelled`) ends the wait early. This
-    runs under Hermes cron (narratives-cron.py, no_agent), whose only guard is the idle-output
-    watchdog (HERMES_CRON_TIMEOUT) — so a progress line to stderr once a minute is what keeps a
-    long, healthy job alive rather than tripping it on silence. Returns the job's `result` dict
-    on `done`, None on any transport failure or terminal-failure status — callers treat None as
-    'try again next run', never as changed:false."""
+    """Run `agw narrative` to its end and return the workflow's `output`
+    (`changed`, `page`, `summary`, `reason`, ...). The run has no wall-clock limit — a
+    healthy long run is resumed with `agw run wait` on each exit 10, and `agw_run` prints a
+    progress line to stderr per resume, which is what keeps it alive under Hermes cron
+    (narratives-cron.py, no_agent), whose only guard is the idle-output watchdog
+    (HERMES_CRON_TIMEOUT). Returns None on any failure (agw unreachable, the run failed or
+    was cancelled) — callers treat None as 'try again next run', never as changed:false."""
+    args = ["narrative", "--cwd", cwd, "--project", project]
+    if previous_page is not None:
+        args += ["--previous-page", previous_page]
+    if since is not None:
+        args += ["--since", since]
     try:
-        body = json.dumps({
-            "tool": "narrative",
-            "params": {"cwd": cwd, "project": project, "previousPage": previous_page, "since": since},
-        }).encode()
-        req = urllib.request.Request(
-            f"{base}/api/jobs", data=body,
-            headers={"content-type": "application/json"}, method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            submitted = json.loads(resp.read().decode())
-    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, TimeoutError, OSError):
+        record = agw_run.run(args, label=f"project-narratives: {project}")
+    except agw_run.AgwError as err:
+        print(f"project-narratives: {project} — {err}", file=sys.stderr)
         return None
-
-    job_id = (
-        submitted.get("jobId") or submitted.get("id")
-        or (submitted.get("job") or {}).get("id")
-    )
-    if not job_id:
-        return None
-
-    elapsed = 0
-    while True:
-        time.sleep(poll_interval)
-        elapsed += poll_interval
-        try:
-            with urllib.request.urlopen(f"{base}/api/jobs/{job_id}", timeout=15) as resp:
-                polled = json.loads(resp.read().decode())
-        except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, TimeoutError, OSError):
-            return None
-        job = polled.get("job") or polled
-        status = job.get("status")
-        if status == "done":
-            return job.get("result")
-        if status in _TERMINAL_FAILURE_STATUSES:
-            return None
-        if elapsed % 60 < poll_interval:
-            print(
-                f"project-narratives: {project} — job {job_id} still {status or 'running'} "
-                f"({elapsed}s elapsed)", file=sys.stderr,
-            )
-
-
-def _base_url() -> str:
-    return os.environ.get(BASE_ENV, DEFAULT_BASE)
+    output = record.get("output")
+    return output if isinstance(output, dict) else None
 
 
 def _max_per_run() -> int:
@@ -604,9 +561,7 @@ def _process_project(
     previous_page = None if force else _read_previous_page(project)
     since = None if force else (project_state or {}).get("lastRevisedAt")
 
-    result = run_narrative_job(
-        _base_url(), project, str(project_dir), previous_page, since,
-    )
+    result = run_narrative_job(project, str(project_dir), previous_page, since)
     if result is None:
         print(f"project-narratives: {project} — job unreachable/failed, retry next run", file=sys.stderr)
         return None
