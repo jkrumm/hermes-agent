@@ -76,7 +76,27 @@ If a request 502s with `proxy_error`, the Replicate upstream failed for that
 prediction — retry once; if health is fine but every request fails, see
 `references/audio-gateway-troubleshooting.md`.
 
-### 2. `text_to_speech` / `text_to_speech_fast` tools aren't always registered
+### 3. Chapter pauses: blank line + `<long pause>` (~2.5 s)
+Measured 2026-10-27 on the chat lane (`gemini-3.8-flash-lite-tts`) with three short
+blocks, `ffmpeg silencedetect` + STT round-trip (`voxtral-mini-transcribe-3-0`):
+
+| Separator between blocks | inter-block silence |
+|-|-|
+| plain space / one sentence | 0.5–0.7 s |
+| blank line (`\n\n`) only | 0.8–0.9 s |
+| `<short pause>` inline | ~1.2 s |
+| `<long pause>` inline | ~1.6–1.7 s |
+| **`\n\n<long pause>\n\n` on its own line** | **2.3–3.2 s** |
+
+The tag is allowlisted on the chat lane and never spoken (STT transcript clean). This is
+the recipe when a listener needs a beat to think between chapters (status reports, per-
+project rundowns). Never use "..." — ellipses merge words. On the prepped briefing model
+the prep LLM places its own tags; there `<long pause>` alone already yields ~2 s.
+
+Verify any new pacing claim the same way instead of guessing: synth, then
+`ffmpeg -af silencedetect=noise=-35dB:d=0.2`, then transcribe the file back.
+
+### 4. `text_to_speech` / `text_to_speech_fast` tools aren't always registered
 Not reliably available in every session, especially cron. Call the gateway
 directly via curl or `urllib.request` — don't depend on the native tool.
 

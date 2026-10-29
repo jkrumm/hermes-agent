@@ -147,6 +147,14 @@ command runner.
   Read the item read-only first — `ssh vps 'op item get <item> --vault <vault>
   --format json'` works headlessly there (the mini's `op` hangs on a biometric
   prompt), and print only field labels, lengths and hashes.
+- **A queue `run` has no TTY — every interactive confirm inside the cmd must have an env bypass.**
+  `make tailscale-acl-push` asks for a typed `apply`; the gui-run dialog is already the human
+  gate, so the cmd carries `ACL_PUSH_YES=1` (`scripts/tailscale-acl-sync.sh`). Without it the
+  request resolves `failed`, exit 2, right after `…This affects the entire tailnet.`
+- **`op` cannot be verified from the VPS for `mini`-vault refs.** A VPS-side `op vault list`
+  shows only what its service account can see (`common`, `vps`), so `"mini" isn't a vault in
+  this account` there is not proof the vault is missing. Verify on the MacBook, or at the
+  consumer via `OP_ACCOUNT=<acct> ~/.local/bin/secrets-run read "op://…"` (hash it, never print).
 - **`op item edit` from the queue's `run` path needs `</dev/null`.** Without it
   the mini's non-TTY stdin makes `op` fail with `[ERROR] invalid JSON provided`
   and the request resolves `failed` with exit 1 — the corrected cmd that carries
