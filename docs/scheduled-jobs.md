@@ -17,7 +17,7 @@ state must match the live job's — `make status` asserts it.
 |-|-|-|-|-|-|-|-|
 | `cc7900c424a9` | Morning briefing | `0 7 * * 1-5` | agent | `briefing-context.py` pre-run · `cron/morning-briefing.prompt.txt` | `argo-api`, `work` | `slack:C0AT6TH404R` #briefings | live |
 | `2d38c80e685c` | Evening report | `0 22 * * 1-4` | agent | `briefing-context.py` pre-run · `cron/evening-report.prompt.txt` | `argo-api`, `work` | `slack:C0AT6TH404R` #briefings | live |
-| `8fe7be4985d9` | Brain drift audit | `0 9 * * 6` | agent | `cron/brain-drift-audit.prompt.txt` | `dispatch`, `obsidian` | `slack:C0ASRULFTSS` #watchdog | live |
+| `8fe7be4985d9` | Brain drift audit | `0 9 * * 6` | agent | `cron/brain-drift-audit.prompt.txt` | `obsidian` | `slack:C0ASRULFTSS` #watchdog | live |
 | `9909f808fe17` | Project narratives | `30 6 * * *` | no-agent | `narratives-cron.py` → `project-narratives.py --run` | — | `slack:C0ASRUD7K1U` #hermes | live |
 
 **Unpinned jobs stop, they don't re-route, when the global model moves.** `cron.model_drift_guard`
@@ -54,7 +54,7 @@ they're LaunchAgents in `~/SourceRoot/warden` now (`com.jkrumm.warden-poll`,
   `chat.postMessage`). Paused 2026-09-08 18:45 after reposting the same blocked pane ~35
   times in two days; retired 2026-09-11. Replaced by warden's one Slack line per `fixed`/`needs_decision` item in `#agents`
   (the queue itself is Argo `/warden`),
-  the same agent-gateway snapshot in the herdr overview pane, the morning briefing
+  the same `agw agents` snapshot in the herdr overview pane, the morning briefing
   (`agents-overview.py --briefing`), and Argo's `/agents` page and Warden board.
   Its code (`render_slack()`, `agents-overview.py --slack-body`, the
   `fetch_agents()`/`fingerprint()`/`delta()` change-detection chain, the

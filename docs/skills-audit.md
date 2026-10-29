@@ -25,7 +25,7 @@ skill's description and, for ours, its body. **No skill was deleted.** "Retire" 
 | warden | 295 (10-04) | keep; learn-from → agent-platform | — |
 | hyperdx | 280 (10-02) | keep | — |
 | work | 217 (10-09) | keep, split | 618 lines → lean core + `references/`; per-skill report formats dropped (SOUL.md owns it) |
-| research-gateway | 81 (09-23) | keep; adapt-port | "VPS" wording → mini; `partial/grounding` ported to dotfiles `research` |
+| agw-research (was research-gateway) | 81 (09-23) | keep; adapt-port | "VPS" wording → mini; `partial/grounding` ported to dotfiles `research` |
 | hermes-gateway | 75 (10-01) | keep | — |
 | homelab | 74 (09-29) | keep | VPN recovery text corrected |
 | human-queue | 62 (10-01) | keep | — |
@@ -35,9 +35,8 @@ skill's description and, for ours, its body. **No skill was deleted.** "Retire" 
 | herdr | 41 (10-01) | keep (Hermes-specific: outside a pane, 180 s cap) | `wait` on idle/done/blocked, rd verbs completed, delivery check, version pin dropped |
 | podcast | 13 (09-28) | keep | model roster removed from prose |
 | wildrift | 11 (08-26) | keep, split | data-reality / vault-writing / workflows → `references/`; dead Argo group paragraph cut |
-| reading | 6 (09-05) | keep, split | taste/API shapes → `references/`; routes web research to `research-gateway`; one question max |
+| reading | 6 (09-05) | keep, split | taste/API shapes → `references/`; routes web research to `agw-research`; one question max |
 | karakeep | 5 (07-28) | keep, split | endpoints/qualifiers/workflows → `references/`; Kobo claim corrected |
-| dispatch | 5 (10-10) | keep | tier sentence reworded |
 | image-delivery | 2 (08-02) | keep, trimmed | policy kept; duplicated JSON-shape prose removed. Hermes cannot load dotfiles' `img`, so the verb table stays |
 | verify | 3 (10-06) | keep | — |
 
@@ -62,9 +61,8 @@ Claude Code session in the IuRoot repo and carries only the three lessons a hand
 |-|-|-|
 | herdr CLI semantics, status meanings, safety rules | no `--current`, workspace by repo label, launchers typed into the pane, 180 s cap, draft-in-input-line, branch restore | dotfiles `herdr` + `remote-dev` own the CLI; Hermes keeps a deliberate copy because it cannot load them. Differing facts reconciled this wave; draft/branch/integration rules ported *to* dotfiles |
 | podcast | `agw podcast` / `agw run wait` via the terminal (exit 10 = still running), Slack announce, no `MEDIA:` for long audio | request fields / series / pipeline live in dotfiles `podcast` and agent-workflows' `podcast` workflow; model roster lives in its route table only |
-| research | REST + bash poll, German Slack presentation | `research-gateway` README; dotfiles `research` is the MCP view |
+| research | `agw research` via the terminal, German Slack presentation | agent-workflows' `research` workflow; dotfiles `research` is the MCP view |
 | homelab / homelab-ops | the whole tier A/B verb model | stack facts live in `homelab-private` (self-contained: not referenced from here) |
-| dispatch / warden | `hermes-cc.sh run` is an exec shim to `warden run` — same command | `~/SourceRoot/warden/AGENTS.md`, `dotfiles/docs/agent-platform.md` |
 
 ## Retired terms
 

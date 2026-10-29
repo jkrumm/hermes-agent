@@ -5,7 +5,7 @@
 # because on this mini the brain-sync LaunchAgent pulls and pushes every 5 min
 # but never commits. A bare `git -C ~/SourceRoot/brain commit` composed by the
 # agent races that job for .git/index.lock. This script takes the SAME mkdir
-# lock brain-sync.sh, brain-backup.sh, audio-gateway's brain-note.ts and
+# lock brain-sync.sh, brain-backup.sh, the audio door's brain-note.ts and
 # project-narratives.py take, then adds, commits, and pushes (fail-soft — a
 # rejected push is logged, brain-sync pushes on its next tick).
 #

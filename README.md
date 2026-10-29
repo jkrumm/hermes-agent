@@ -2,7 +2,7 @@
 
 Personal AI assistant running 24/7 on Mac Mini. Slack as interface, deepseek-v4.1-flash as brain on the IU OpenAI-compatible leg over `chat_completions` (`gpt-6-luna` failover), twenty skill domains (`HERMES_SKILLS` in the Makefile is the count).
 
-For repo-operating detail (dispatch bridge, secrets, patches, model routing), see `AGENTS.md`.
+For repo-operating detail (repo work, secrets, patches, model routing), see `AGENTS.md`.
 
 **Hermes docs**: https://hermes-agent.nousresearch.com/docs/
 
@@ -225,20 +225,13 @@ with Full Disk Access); `make status` flags them until it succeeds.
 Every Hermes cron job (four — morning briefing, evening report, brain drift audit, project
 narratives) is listed with its id in the registry table in `docs/scheduled-jobs.md`; `make
 status` asserts the live set matches it. Watchdog and dispatch sweep moved to
-`~/SourceRoot/warden` LaunchAgents 2026-09-09; the agents-overview Slack digest retired
+`~/SourceRoot/warden` LaunchAgents 2026-09-09 (warden retired 2026-10-27); the agents-overview Slack digest retired
 2026-09-11.
 
-## Handing work to Claude Code
+## Repo work is filed
 
 Hermes triages well but reads a repo badly — it has no access to a repo's `AGENTS.md`/`CLAUDE.md`,
 `.claude/rules/` or `.claude/skills/`. For anything that needs real repo context (a bug fix,
-an investigation, a PR), Hermes hands the episode to Claude Code via `warden`
-(agent-gateway's `dispatch` job tool) instead of attempting it itself — `hermes-cc.sh run <repo>` files a
-warden item that rides investigate → implement → merge → verify on its own; agent-gateway's dispatch policy
-is the only boundary.
-The CLI itself lives at `warden/scripts/warden` (a Python CLI; the original bash
-`hermes-cc.sh` was retired 2026-09-10); this repo's own `scripts/hermes-cc.sh`
-(= `~/.hermes/scripts/hermes-cc.sh`) is a 6-line exec shim into it — the path stays
-because every other doc and script here references it.
-Full design and every bound: `~/SourceRoot/warden/DESIGN.md`. Hermes's own side —
-the Slack door: `docs/dispatch-bridge.md`.
+an investigation, a PR), Hermes files a GitHub issue (`capture`) and answers in one line; there is
+no unattended-dispatch lane, so the owner starts the work. Herdr tabs / `rd wave` only on request.
+Details: `AGENTS.md` §Repo work is filed.

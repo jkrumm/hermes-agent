@@ -52,12 +52,12 @@ posts whatever the cached overview currently holds.
 
 ## Read-only, by design
 
-This feature never sends keys to a herdr pane and never opens a dispatch — it
+This feature never sends keys to a herdr pane and never starts an agent — it
 only calls `agw agents` (an unjournaled read) and, when the cached overview
 is stale, `agw overview` to trigger a fresh summarization pass (a run that exits 10
 after the CLI's wait budget is resumed with `agw run wait <runId>`; `AGW_CALLER=hermes`
 attributes it to Hermes). Steering an agent (answering it, nudging it, opening a
-new episode) stays `dispatch`'s job. `scripts/agents-overview.py`'s
+new episode) stays the owner's job, via `herdr` / `rd wave`. `scripts/agents-overview.py`'s
 render functions are pure given an overview snapshot — `fetch`/`refresh` are
 the only `agw` calls, everything else (`render_briefing`,
 `render_slack_blocks`) is unit-tested in `tests/test_agents_overview.py` with
