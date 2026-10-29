@@ -178,7 +178,7 @@ Trends matter more than absolutes — a single low HRV reading isn't the signal,
 
 ## Step 3 — Compose the audio narrative (German, ~140–180 words)
 
-A separate text — only fed to the audio synthesis in Step 4. **Five or six short sections separated by blank lines (paragraph breaks).** audio-gateway (Gemini 3.8 TTS, voice Charon) chunks the text at sentence boundaries and gives each section its own natural beat, so prosody doesn't drift across topic changes — you don't pass any pause or chunking arguments. **Do not** add `[long pause]` or any other inline pause markers. Just write five (or six, if Arbeit is non-empty — see rules below) clean paragraphs.
+A separate text — only fed to the audio synthesis in Step 4. **Five or six short sections separated by blank lines (paragraph breaks).** the audio door (Gemini 3.8 TTS, voice Charon) chunks the text at sentence boundaries and gives each section its own natural beat, so prosody doesn't drift across topic changes — you don't pass any pause or chunking arguments. **Do not** add `[long pause]` or any other inline pause markers. Just write five (or six, if Arbeit is non-empty — see rules below) clean paragraphs.
 
 Format the narrative as:
 
@@ -241,16 +241,16 @@ TEXT = """<Step 3 narrative, blank-line-separated paragraphs>"""
 out = os.path.expanduser("~/.hermes/cache/audio/<filename>.mp3")
 os.makedirs(os.path.dirname(out), exist_ok=True)
 req = urllib.request.Request(
-    "https://audio-gateway.jkrumm.com/v1/audio/speech",
+    "http://127.0.0.1:7792/v1/audio/speech",
     data=json.dumps({"model": "gemini-3.8-flash-tts", "voice": "Charon", "input": TEXT, "response_format": "mp3"}).encode(),
-    headers={"Content-Type": "application/json"}, method="POST")
+    headers={"Content-Type": "application/json", "Authorization": "Bearer " + os.environ["AUDIO_DOOR_TOKEN"]}, method="POST")
 with urllib.request.urlopen(req, timeout=180) as r:
     open(out, "wb").write(r.read())
     print(out, urllib.parse.unquote(r.headers.get("X-Audio-Title", "")))
 PY
 ```
 
-audio-gateway (`gemini-3.8-flash-tts`, voice Charon) runs its prep pass (spoken-form numbers, sentence-aligned chunks, pause tags, title) and joins the chunks itself — send the whole text in one request, no pause or chunking arguments. The script prints the file path; use it for the `MEDIA:` tag. On an HTTP 5xx retry once; if it still fails, send the Slack body without a `MEDIA:` tag and say the audio failed in one line.
+the audio door (`gemini-3.8-flash-tts`, voice Charon) runs its prep pass (spoken-form numbers, sentence-aligned chunks, pause tags, title) and joins the chunks itself — send the whole text in one request, no pause or chunking arguments. The script prints the file path; use it for the `MEDIA:` tag. On an HTTP 5xx retry once; if it still fails, send the Slack body without a `MEDIA:` tag and say the audio failed in one line.
 
 ## Step 5 — Final response
 
