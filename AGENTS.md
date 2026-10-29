@@ -22,8 +22,8 @@ request/response contract). Hermes only points its native `openai` TTS/STT provi
 `config.yaml` — this repo installs and patches no audio service. **Auth:** `api_key: ${AUDIO_DOOR_TOKEN}`;
 `secrets.command` appends that variable from the `hermes=` line of `~/.agent-workflows/data/door-tokens`
 (a local 0600 file created by agent-workflows' deploy — not a 1Password ref, never in git). Every
-request is a run in agent-workflows (`agw-run-id` response header, caller `hermes`). The
-`audio-gateway` VPS container still serves the cron briefing prompts.
+request is a run in agent-workflows (`agw-run-id` response header, caller `hermes`); the cron briefing
+prompts use the same door.
 TTS = Gemini 3.8 via the door's native lane, voice Charon: `gemini-3.8-flash-lite-tts` for chat replies (`tts.openai`), `gemini-3.8-flash-tts` for
 briefings (`skills/briefing-tts`, prep on). Streaming clients (CLI voice `OpenAIStreamer`, desktop
 `speak-stream` relay, spoken summary) already send `response_format: pcm` and get the progressive
@@ -261,24 +261,25 @@ in briefings or the watchdog. Errors: `503 M365 not authenticated` → `bun m365
 `~/SourceRoot/argo`; `503` on `/gitlab/*`/`/atlassian/*` → PAT expired. Full taxonomy
 (garmin-health vs strength split, MR↔Jira linking): **`docs/argo-surface.md`**.
 
-## Research (research-gateway)
+## Research (`agw research`)
 
-Deep cited research is the standalone **research-gateway** (`research.mini.jkrumm.com`, on the
-mini as a native LaunchAgent — the only instance, the VPS container is retired, **Tailscale-only**),
-used through `skills/research-gateway/SKILL.md` via `terminal`:
-`POST /research/ {query, depth?}` → `{jobId}`, poll `GET /research/{jobId}` until `status: done`
-→ `{result: {report, citations[], sources[]}}`. Async because even `quick` runs 1–3 min.
+Deep cited research is the platform's `research` workflow, used through `skills/agw-research/SKILL.md`
+via `terminal`: `AGW_CALLER=hermes agw research "<q>" [--depth quick|standard|deep] [--context …]
+[--follow-up <runId>] --format json`. It waits ~110 s (under the terminal tool's 180 s cap), then exits
+10 `pending` with the `runId`; `agw run wait <runId>` resumes. Result: `{runId, status, output:
+{report, citations[], sources[], unverified[], status ok|partial, warnings[], grounding}, cost}`.
 **Preferred path for substantive / factual / library-version questions** over built-in Tavily
-search, which stays for quick lookups. EU/IU models, off Max.
+search, which stays for quick lookups.
 
-- **Auth:** `RESEARCH_API_KEY` = `op://vps/research-gateway/API_SECRET` (shared with the Claude
-  Code `/research` skill), in `.env.tpl`; base URL hardcoded in the skill, like argo/karakeep.
-- **Routing (SOUL.md):** "research X now" → `research-gateway`; "remind me to research X later"
+- **Auth:** none — `agw` reads its own config (`~/.config/agw/env`); `RESEARCH_API_KEY` left
+  `.env.tpl` when Hermes moved to `agw` (Wave 10). No host or key in this repo.
+- **Routing (SOUL.md):** "research X now" → `agw-research`; "remind me to research X later"
   → `capture` → TickTick; book/novel discovery → `reading`.
-- **Named `research-gateway`, not `research`** — upstream's bundled skill *category* dir
+- **Named `agw-research`, not `research`** — upstream's bundled skill *category* dir
   `~/.hermes/skills/research/` would collide with a top-level `research` symlink. Routing is by
   description/tags, so "recherchier mal" still triggers it.
-- Its host is in the cron scanner allowlist patch (`cronjob-tools-allowlist-argo-bearer`).
+- The standalone research-gateway is no longer called from here. Its host still sits in the cron
+  scanner allowlist patch (`cronjob-tools-allowlist-argo-bearer`) until that service retires (Wave 11).
 
 ## WeatherOrb (MCP)
 
@@ -291,25 +292,26 @@ the gateway after a restart. Rotate: revoke the key, `create-key` a new one into
 
 ## Observability triage (hyperdx)
 
-`skills/hyperdx/SKILL.md` gives Hermes an authenticated path into ClickHouse instead of a browser
-login wall. HyperDX/ClickStack is **VPS-only** (`hyperdx.jkrumm.com`, Tailscale-only), exposing a
-stateless JSON-RPC/SSE MCP server at `/api/mcp` — the same server agent-gateway's `otel` tool uses,
-same credential (`HYPERDX_AGENT_ACCESS_KEY` ← `op://vps/clickstack/AGENT_ACCESS_KEY`). One
-verified curl template (`clickstack_sql` against `default.otel_traces`/`otel_logs`/
-`otel_metrics_*`) plus the SQL behind each of the three live alerts
-(`vps/observability/alerts/*.json`), so a triage re-runs the condition that fired. Escalation
-reuses the dispatch bridge (`--tier author` to file, `implement` after confirmation) except a
-root cause inside Traefik/ClickStack config itself, which is `vps`'s `investigate`-only ceiling
-— falls back to `capture` → `gh issue create` there. No ClickHouse HTTP on the tailnet; all
-querying goes via HyperDX's MCP/REST. Its host is in both allowlist patches (see *Local
-Modifications*).
+`skills/hyperdx/SKILL.md` gives Hermes an authenticated path into ClickStack instead of a browser
+login wall. HyperDX/ClickStack is **VPS-only** (`hyperdx.jkrumm.com`, Tailscale-only). Reads go
+through **`agw hdx query <tool> '<json>'`** (read-only, allow-listed ClickStack MCP tools; `agw hdx
+tools` / `guide` list them) and **`agw otel "<investigation>"`** for an open triage (a workflow that
+exits 10 like `agw research`); `agw` holds the HyperDX credential, so no key or MCP URL lives here.
+Raw `clickstack_sql` is CLI-only behind `agw hdx write … --commit` (not proven read-only, never granted
+to an agent), so the three live alerts are re-run by their own dashboard tile (`clickstack_get_alert` →
+`clickstack_query_tile`) and the follow-ups use `clickstack_table`. Escalation uses `agw-legacy
+dispatch` (`--tier author` to file, `implement` after confirmation) except a root cause inside
+Traefik/ClickStack config itself, which is `vps`'s `investigate`-only ceiling — falls back to
+`capture` → `gh issue create` there. No ClickHouse HTTP on the tailnet. `HYPERDX_AGENT_ACCESS_KEY` stays in
+`.env.tpl` only for the alert-as-code export flow (`skills/hyperdx/references/`); its host is in both
+allowlist patches (see *Local Modifications*).
 
 ## Podcast generation (podcast)
 
 `skills/podcast/SKILL.md` turns notes into a long-form two-host German episode via **`agw podcast`**
 (the agent-workflows CLI, on the terminal tool's `PATH` — the gateway plist carries `~/.local/bin` and
 `/opt/homebrew/bin`) and publishes the MP3 (chapters + cover) into Audiobookshelf. Submit-and-wait like
-`research-gateway`, **not** a single `/v1/audio/speech` call like `briefing-tts`: `agw podcast … --format json`
+`agw-research`, **not** a single `/v1/audio/speech` call like `briefing-tts`: `agw podcast … --format json`
 exits 10 with the `runId` after ~110 s, `agw run wait <runId>` is called again until exit 0, `agw
 podcast-publish <runId> --commit` repeats only the upload. **No secret in this repo** — `agw` reads its own
 config (`~/.config/agw/env`). The run posts its own Slack notice. SOUL.md's TTS rule 4 ("NEVER curl an audio
@@ -365,11 +367,11 @@ scheduled.
 `skills/wildrift/SKILL.md` maintains the **eleven-champion pool** across jungle, support, mid and
 baron. **Vault-first:** builds, runes, matchups, bans and a dated stats snapshot live at
 `~/SourceRoot/brain/Areas/Gaming/Wild Rift/*.md` (curated surface, not `wiki/`); the open web
-via `research-gateway` only *refreshes* a note when a patch moved. No secret, no external API.
+via `agw-research` only *refreshes* a note when a patch moved. No secret, no external API.
 Writes use the `obsidian` CLI-first contract and `git -C ~/SourceRoot/brain …`
 (never push — the LaunchAgent syncs).
 
-**Web facts go through `research-gateway`** — build sites are JS-heavy and contradict each
+**Web facts go through `agw-research`** — build sites are JS-heavy and contradict each
 other; the gateway cross-verifies. **Stats are China-server only**
 and swing hard by rank tier (0-4 — Hecarim ~45% WR at tier 0 vs ~53.7% at tier 4): qualify every
 answer by rank. An Argo `/wildrift/*` group is **built but not deployed**; the skill tells the

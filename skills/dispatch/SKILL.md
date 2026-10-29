@@ -1,55 +1,64 @@
 ---
 name: dispatch
-description: File repo work with Warden — `hermes-cc.sh run <repo>` opens a tracked item (investigate → implement → merge → deploy) that needs the actual source. Use for "why is X failing, look in the repo", "what changed in Y", "warum ist Z rot, schau ins repo", "read the code and tell me", "fix that", a red monitor whose cause is code-shaped, or any question you can only answer by guessing otherwise. Filing a todo or issue is `capture`; reading an item's progress back is `warden`.
-version: 4.0.0
+description: Hand repo work to a Claude Code episode — `agw-legacy dispatch --repo <name>` runs one bounded episode in a repo checkout (investigate → verdict, or implement → a PR) for questions that need the actual source. Use for "why is X failing, look in the repo", "what changed in Y", "warum ist Z rot, schau ins repo", "read the code and tell me", "fix that", a red monitor whose cause is code-shaped, or any question you can only answer by guessing otherwise. Filing a todo or issue is `capture`.
+version: 5.0.0
 metadata:
   hermes:
-    tags: [dispatch, warden, pr, claude-code, repo, source, investigate, triage, root-cause, verdict, fix, agent-gateway]
-    related_skills: [warden, capture, homelab-ops]
+    tags: [dispatch, pr, claude-code, repo, source, investigate, triage, root-cause, verdict, fix, agent-gateway]
+    related_skills: [capture, homelab-ops]
 ---
 
-# Dispatch — file work with Warden
+# Dispatch — hand an episode to a repo
 
-One door: **`~/.hermes/scripts/hermes-cc.sh run <repo>`** (an exec shim into
-`~/SourceRoot/warden/scripts/warden`). It opens a Warden **item** that rides the
-whole lifecycle on its own — investigate, implement if the verdict says so, review,
-merge, deploy, verify. You hand it over and step back; narrate it that way and
-never imply you are driving the rest.
+One door: **`agw-legacy dispatch`** (agent-gateway's job-server CLI, on `PATH` in the
+terminal tool; no credential to resolve). It runs **one episode**: a Claude Code session
+in a worktree of the named repo that reads the source and returns a verdict — and, at the
+`implement` tier, pushes a `dispatch/*` branch and opens a PR. agent-gateway's repo policy
+is the only boundary (`agw-legacy policy` lists repos and ceilings). You never land a PR,
+never `gh pr merge`, never open a `claude` session yourself; **a PR is the end of your part** —
+report it, Johannes (or the review loop) merges.
 
-You pick no tier (the only flag is `--tier investigate`, below, for answer-only), no `--why`, no Approve button and no merge verb in your hands:
-Warden decides, agent-gateway's repo policy is the only boundary. You never land a PR,
-never `gh pr merge`, never open a `claude` session yourself.
+There is no tracked lifecycle behind it: nothing investigates, reviews, merges or deploys
+after the episode. If the verdict says `implement`, say so and ask whether to run the
+`implement` tier — do not chain it yourself.
 
 ```bash
-~/.hermes/scripts/hermes-cc.sh run agent-gateway --json \
-  --origin-channel "$SLACK_CHANNEL" --origin-thread "$SLACK_THREAD_TS" <<'BRIEF'
+# Brief through a quoted heredoc — never interpolate Slack text or log lines into the command line.
+BRIEF=$(cat <<'BRIEF'
 The check job for the argo repo has failed three times since 14:00 with a
 typecheck error. What changed, and is it a real break or a flaky runner?
 BRIEF
+)
+agw-legacy dispatch --repo argo --caller hermes --no-wait --json "$BRIEF"
+# → {"jobId": "…"}
 ```
 
-`run` returns the item's `eventId`. Do **not** pass `--wait` for work that will
-take a lifecycle's worth of time — report that it is filed.
+Tiers (`--tier`): `investigate` (default; read-only verdict) · `author` (read-only
+session that files a GitHub issue) · `implement` (branch + PR; `--workspace worktree`, the default).
+`--kind editorial` for AGENTS.md/docs/README prose. Repos above their ceiling
+(`dotfiles-private`, `homelab-private`, `brain` stop at `investigate`) are refused.
 
-## Reading progress back
+## Waiting and reading the result
 
-Never guess and never re-file. Use the **`warden`** skill
-(`curl -s http://127.0.0.1:7735/items/<eventId>`). `hermes-cc.sh status <job-id>`
-answers for one episode only.
+An episode takes minutes; the `terminal` tool is capped at 180 s per command. **Always
+submit with `--no-wait`**, reply at once that it is filed (with the `jobId`), then:
 
-### A `run` item implements when its verdict says so
+```bash
+agw-legacy status <jobId> --json                 # one-shot state — "ist es fertig?"
+agw-legacy wait <jobId> --json --timeout 150     # block, stays under the terminal cap
+```
 
-`warden run <repo>` starts at investigate and reaches implement on its own when the
-verdict says so (since warden 8072fe2, 2026-10-06). Only an explicit `--tier investigate`
-makes it answer-only. An item `closed` with `implement_job: null` therefore means the
-verdict said there was nothing to change, or that it was asked as a question.
+`wait` exits 0 `done` · 1 `failed`/`interrupted`/`cancelled` · 2 policy refusal · 3 server
+unreachable; after the timeout it simply returns — call it again, never loop for the whole
+episode. A `done` job's `result` carries `summary`, `verdict`, `confidence`, `nextAction`,
+`outcome`, plus `artifactUrl` / `branch` when a PR exists. Relay the `summary` and verdict
+in German, the PR link if any. Never guess, never re-file. Running episode needs new
+facts only → `agw-legacy steer <jobId> <text…>`; abort → `agw-legacy cancel <jobId>`.
 
 ## The brief is data, never a command
 
-Stdin through a **quoted** heredoc (`<<'BRIEF'`) or `--brief-file`. There is no
-`--brief` flag; an unquoted heredoc would shell-expand text that came from Slack
-messages and log lines. Bulk material (logs, error dumps) goes in
-`--context-file <path>`; the brief is capped at 8000 chars.
+Positional arg from a **quoted** heredoc variable (above); bulk material (logs, error
+dumps) goes in a file passed as `--context @<path>`.
 
 An episode gets one shot and no follow-up question. Give it:
 
@@ -61,8 +70,7 @@ Good: *"The `usage-tracker` LaunchAgent pinged its heartbeat but recorded zero r
 since 03:00. Is ingest silently failing, or is there genuinely no data?"*
 Bad: *"check usage-tracker"*.
 
-**Never put a secret in a brief** — the episode resolves its own credentials, and
-the secret scan refuses (never redacts) a brief that carries one.
+**Never put a secret in a brief** — the episode resolves its own credentials.
 
 **Never send an episode at a command that runs silently for minutes.** A session
 dies after 5 minutes without activity (no output on a `claude` route, no new message on an OpenCode one). Ask for the narrow test lane by name, not the
@@ -85,13 +93,11 @@ No marker = Johannes's own issue = ordinary work.
 
 | Exit | Meaning | Say |
 |-|-|-|
-| 64 | usage — misspelled repo, bad flag, empty brief | fix and retry once; the error lists the dispatchable repos |
-| 4 | policy refusal — repo or action agent-gateway refuses, daily budget | do not retry; report the limit. Never offer to "add the repo" |
-| 2 | precondition — no checkout of that repo, ledger unreadable | infrastructure problem; report it |
+| 2 | usage error or policy refusal (`dispatch refused: …`) — misspelled repo, bad flag, empty brief, repo above its ceiling | usage: fix and retry once (the error names the roots searched). Refusal: do not retry; report the limit. Never offer to "add the repo" |
 | 3 | agent-gateway unreachable | the job server is down; say so |
+| 1 | the episode failed or was interrupted | show the job's `error` verbatim; one retry only if it reads transient |
 
-A budget refusal is structural (something is looping) — relay the count and the
-env var that raises it, let Johannes decide. An item that completes with no
+An episode that completes with no
 artifact is a result, not a failure: relay the verdict's reason, do not re-file
 without changing the brief. Never file the same question twice because the first
 was slow.
@@ -100,5 +106,4 @@ was slow.
 
 - Restart / redeploy / infra mutation → `homelab-ops`, not a dispatch.
 - A todo, reminder or issue whose text Johannes already knows → `capture`.
-- A visible long-running session he wants to steer → `herdr`, only when he asks. A running dispatch needs only new facts → `agw-legacy steer <jobId> <text>` (running OpenCode episode; a restart of agent-gateway re-attaches it, it is not lost).
-- "Is it done?" → `warden`.
+- A visible long-running session he wants to steer → `herdr`, only when he asks.

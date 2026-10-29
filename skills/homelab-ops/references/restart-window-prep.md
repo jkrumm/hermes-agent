@@ -13,7 +13,7 @@ being scheduled, or when an ask you are about to hand over implies a reboot.
 ## 1. Pre-flight: what a reboot interrupts, and what returns
 
 - **Live work that would lose a turn** —
-  `curl -s http://127.0.0.1:7705/api/overview.txt | head -3` (`working` episodes lose
+  `agw agents --text | head -3` (`working` episodes lose
 their turn; `idle`/`done` panes lose nothing), plus
   `pgrep -fl 'claude -p|claude --bg'` for daemons and dispatches. A window with zero
 `working` is cheap — say so, that is what makes the ask easy to accept.

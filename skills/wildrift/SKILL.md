@@ -1,11 +1,11 @@
 ---
 name: wildrift
-description: Answer and maintain Johannes's Wild Rift (mobile MOBA) champion pool — eleven champions across jungle, support, mid and baron — from the curated build/rune/matchup notes in the Obsidian vault, refreshing them from the web via research-gateway when a patch moves. Use for "refresh my <champ> build", "baue mir den Rammus build neu", "did the patch change my builds", "hat das neue Update meine Builds beeinflusst", "what should I ban", "was soll ich bannen", "what do I pick against an AP comp", "was picke ich gegen AP", "how do I play X into Y", "wie spiele ich X gegen Y", "welchen build für Thresh". Read the vault with the `obsidian` CLI.
+description: Answer and maintain Johannes's Wild Rift (mobile MOBA) champion pool — eleven champions across jungle, support, mid and baron — from the curated build/rune/matchup notes in the Obsidian vault, refreshing them from the web via agw-research when a patch moves. Use for "refresh my <champ> build", "baue mir den Rammus build neu", "did the patch change my builds", "hat das neue Update meine Builds beeinflusst", "what should I ban", "was soll ich bannen", "what do I pick against an AP comp", "was picke ich gegen AP", "how do I play X into Y", "wie spiele ich X gegen Y", "welchen build für Thresh". Read the vault with the `obsidian` CLI.
 version: 2.0.0
 metadata:
   hermes:
     tags: [wildrift, wild rift, wr, moba, league, lol, build, builds, champion, ban, bans, counter, counters, matchup, draft, patch, meta, jungle, support, mid, baron, thresh, pyke, rakan, galio, rammus, hecarim, nunu, shyvana, gragas, mundo, ahri, ap, comp]
-    related_skills: [obsidian, research-gateway]
+    related_skills: [obsidian, agw-research]
 ---
 
 # Wild Rift
@@ -15,7 +15,7 @@ actually wants to play and nine that answer a specific draft.
 
 **The vault is the source of truth.** Builds, runes, matchup tables, ban notes,
 a draft decision guide and a stats snapshot all live in `~/SourceRoot/brain`.
-Answer from the notes first, every time. The web (via `research-gateway`) is for
+Answer from the notes first, every time. The web (via `agw-research`) is for
 *refreshing* a note when a patch has moved — not for answering a question you
 could have read.
 
@@ -83,13 +83,13 @@ Full detail, rank tiers, the missing-row rule and the research-gateway incident:
 - **Qualify every rate by rank tier** (notes quote Master+ by default). No low-elo data exists.
 - **The snapshot is dated** — if it's older than the current patch, say so and offer a refresh.
 - **Check the roster** before repeating a counter: League PC champions (Trundle, Sylas) leak into research and don't exist in Wild Rift. Not in the 141-champion roster → drop it.
-- **Web only through the `research-gateway` skill.** Never curl a Tencent endpoint, a Riot page or a build site directly. If research contradicts something `Sourcing.md` states as tested, the note wins.
+- **Web only through the `agw-research` skill.** Never curl a Tencent endpoint, a Riot page or a build site directly. If research contradicts something `Sourcing.md` states as tested, the note wins.
 
 ## Item and rune data — where to look it up
 
 **Read `Sourcing.md`.** It carries the current source list, which one is
 authoritative for what, and the gaps in each — that note is maintained, this
-skill would go stale. Reach anything it names through `research-gateway`, never
+skill would go stale. Reach anything it names through `agw-research`, never
 a direct fetch.
 
 ## Writing to the vault
@@ -106,8 +106,8 @@ Detail for each in `references/workflows.md`. All vault-first, in this order:
 
 - **"what should I ban?" / "was soll ich bannen"** — `Draft Guide.md` ban table; ask which champion he's planning to play if not obvious.
 - **"what do I pick into X?" / "was picke ich gegen AP"** — `Draft Guide.md` decision chain per role; give the pick and a one-line reason.
-- **"how do I play X into Y?" / "wie spiele ich X gegen Y"** — the matchup table row in the champion note; quote its *read*. `research-gateway` only if no row exists, and say so.
-- **"refresh my `<champ>` build" / "baue mir den X build neu"** — read note, check the patch via `research-gateway`, rewrite only the build/rune section if it moved, lint, commit, reply with the delta.
+- **"how do I play X into Y?" / "wie spiele ich X gegen Y"** — the matchup table row in the champion note; quote its *read*. `agw-research` only if no row exists, and say so.
+- **"refresh my `<champ>` build" / "baue mir den X build neu"** — read note, check the patch via `agw-research`, rewrite only the build/rune section if it moved, lint, commit, reply with the delta.
 - **"did the new patch change my builds?" / "hat das Update meine Builds beeinflusst"** — same across the pool; write only to notes that moved.
 
 Argo `/wildrift/*` is built but not deployed; do not call it.

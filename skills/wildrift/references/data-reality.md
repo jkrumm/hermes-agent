@@ -44,10 +44,10 @@ Loaded from `SKILL.md` — read before quoting a number or going to the web.
 
 ## Reaching the open web
 
-Only through the **`research-gateway`** skill. **Never curl a Tencent endpoint,
+Only through the **`agw-research`** skill. **Never curl a Tencent endpoint,
 a Riot page, or a build site directly** — those hosts aren't cross-verified or
 cited, and results from them have been wrong before (see below). Route the
-question through `research-gateway` and let it fetch.
+question through `agw-research` and let it fetch.
 
 Good research queries for this domain: the current Wild Rift patch number and
 date; what a named patch changed for a specific champion; the current core

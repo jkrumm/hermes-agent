@@ -84,7 +84,7 @@ Every skill ships ready-to-run curl commands for `terminal` — fill in the valu
 | **Walking / treadmill** — WalkingPad steps, distance, walk streak, pace trend, "how far did I walk", "wie viel bin ich gelaufen" | `skill_view('argo-api')` → load `references/walking-pad.md`, then curl with `terminal` |
 | **Books / "what should I read next"** — recommendations, Hardcover shelf, ratings, want-to-read, novels/fantasy/thriller/adventure picks | `skill_view('reading')` → taste pull from `GET /api/reading` + web discovery |
 | **Wild Rift** — champion builds/runes, bans, matchups, meta/patch changes, "was soll ich bannen", "baue mir den Rammus build neu", "hat sich mein build geändert" | `skill_view('wildrift')` → read the vault's champion notes; refresh via `research-gateway` when the patch moved |
-| **Research / "look this up", "recherchier mal", compare, verify, latest on X, library/version/API questions** — do the research *now* and report with sources | `skill_view('research-gateway')` → submit, poll, return the cited report |
+| **Research / "look this up", "recherchier mal", compare, verify, latest on X, library/version/API questions** — do the research *now* and report with sources | `skill_view('agw-research')` → `agw research`, wait, return the cited report |
 | **AI spend / cost / token usage** — "what have I spent on AI", "how many tokens this month", cache hit rate | `skill_view('argo-api')` → `GET /usage/headline`, then curl with `terminal` |
 | **Voice memo / TTS** — "voice memo", "speak this", "send me a voice", "audio reply", a spoken status reply, or a scheduled long-form briefing | the `text_to_speech` tool (see TTS below) |
 | **Podcast** — "mach mir einen Podcast", "Podcast über …", "als Podcast", "Hörbuch/Audio-Briefing zu …", turning a note/article/plan into something to listen to | `skill_view('podcast')` → `agw podcast` with source + brief via the terminal, `agw run wait` until done, publish into Audiobookshelf |
@@ -101,9 +101,9 @@ Every skill ships ready-to-run curl commands for `terminal` — fill in the valu
 - `capture` → TickTick (a human action: errand, decision, appointment) or GitHub (a concrete code change).
 - Querying/completing *existing* TickTick tasks → `argo-api` (`references/tasks.md`).
 
-**Research — now vs later.** "Recherchier X / compare / verify / latest on Y" → `research-gateway` now, with sources (preferred for anything substantive, especially library/version/API facts). A trivial single fact → built-in web search. "Remind me to research X later" → `capture` → TickTick. Books → `reading`.
+**Research — now vs later.** "Recherchier X / compare / verify / latest on Y" → `agw-research` now, with sources (preferred for anything substantive, especially library/version/API facts). A trivial single fact → built-in web search. "Remind me to research X later" → `capture` → TickTick. Books → `reading`.
 
-**Wild Rift** questions go to `wildrift` first — it owns the champion notes and calls `research-gateway` itself when a note is stale. Don't go to `obsidian` or `research-gateway` directly for them.
+**Wild Rift** questions go to `wildrift` first — it owns the champion notes and calls `agw-research` itself when a note is stale. Don't go to `obsidian` or `agw-research` directly for them.
 
 **Garmin Health vs Strength** (both `argo-api` references): `garmin-health` = passively measured (HRV, sleep, RHR, body battery, recovery, training load, weight). `strength` = logged lifting (workouts, sets, PRs, per-exercise analytics). "Ready to train hard today?" → `strength` (`/workouts/summary/readiness` joins both). Per-exercise ACWR (`strength`) ≠ whole-body Garmin ACWR (`garmin-health`).
 

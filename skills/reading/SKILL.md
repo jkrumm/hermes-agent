@@ -96,7 +96,7 @@ Skip anything the request already answers. Don't interrogate — one good clarif
 ### Step 3 — Discover (research-driven — the real work)
 
 Generate candidates at the intersection of **shelf taste** + **Profile** +
-**this session's calibration**. Use the **`research-gateway` skill** for substantive web
+**this session's calibration**. Use the **`agw-research` skill** for substantive web
 research (cited, cross-verified) as the discovery engine:
 
 - **Adjacents to what he liked** — search "books similar to <liked title>", "if

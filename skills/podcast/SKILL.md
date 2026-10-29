@@ -19,7 +19,7 @@ episode into Audiobookshelf so it shows up as a real podcast episode in Plappa. 
 a **workflow run, not TTS** — it is not the `text_to_speech` tool and not
 `briefing-tts`'s single-shot `/v1/audio/speech`; it runs a multi-stage pipeline
 (research → editorial → script → synthesis → mastering → cover → publish → brain note)
-that takes minutes, so it is submit-then-wait like `research-gateway`.
+that takes minutes, so it is submit-then-wait like `agw-research`.
 
 Use the terminal (`agw`). Don't say you lack tooling — turning source material into a
 produced episode is this skill.
@@ -35,7 +35,7 @@ vault paths.
 **Use this skill:**
 - "Mach mir einen Podcast über …", "Podcast zu diesem Plan/Artikel/dieser Recherche"
 - "Als Podcast", "Hörbuch/Audio-Briefing zu …", "mach daraus was zum Anhören"
-- Turning a brain note, a saved KaraKeep article, a research-gateway report, or
+- Turning a brain note, a saved KaraKeep article, an `agw research` report, or
   pasted text into a long-form (3–60 min) two-host conversation Johannes can
   listen to later (e.g. on a drive), not just have read aloud.
 
@@ -48,7 +48,7 @@ vault paths.
   `--source-paths` (the run reads it, and searches the vault on its own); only
   material that is NOT in the brain (a `karakeep`/`reading` article, a URL,
   Johannes's pasted text) goes through the source text.
-- **A quick fact or a single question** — `research-gateway` answers those with a
+- **A quick fact or a single question** — `agw-research` answers those with a
   cited report; a podcast is for material worth 3+ minutes of narration.
 
 ---

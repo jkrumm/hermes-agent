@@ -21,8 +21,8 @@ be changed at all is `alert-noise-suppression`; **how** the change is made is th
    ```
 
    That env pair short-circuits the script's own `secrets-run read op://vps/clickstack/AGENT_ACCESS_KEY`;
-   the agent access key is the same credential the `hyperdx` SQL/MCP path already uses, so it
-   arrives with the normal `.env.tpl` resolution. Drift on files you are not touching is the
+   the key arrives with the normal `.env.tpl` resolution — it is read by this export flow only
+   (the `hyperdx` skill's reads go through `agw hdx`, which holds its own credential). Drift on files you are not touching is the
    server normalizing its own documents — commit it separately or leave it, never inside the change.
 2. **Edit the one file.** The fields that decide behaviour: `interval`, `threshold` +
    `thresholdType`, `numConsecutiveWindows`, `source` (`tile` | `savedSearch`), and the
@@ -40,8 +40,8 @@ be changed at all is `alert-noise-suppression`; **how** the change is made is th
 4. **Verify from the service, never from the file.**
 
    ```bash
-   curl -s -H "Authorization: Bearer $HYPERDX_AGENT_ACCESS_KEY" \
-     "$HYPERDX_PROD_BASE_URL/api/api/v2/alerts"
+   AGW_CALLER=hermes agw hdx query clickstack_get_alert --format json          # all alerts
+   AGW_CALLER=hermes agw hdx query clickstack_get_alert '{"id":"<alert id>"}' --format json
    ```
 
    Read the alert's `interval`, `threshold`, `numConsecutiveWindows` and its `state` (should be
