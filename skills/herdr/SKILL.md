@@ -5,7 +5,7 @@ version: 1.0.0
 metadata:
   hermes:
     tags: [herdr, pane, panes, tab, tabs, workspace, terminal, multiplexer, agent, claude, claude-code, cf, cs, interactive, steer, mini]
-    related_skills: [dispatch, warden, verify]
+    related_skills: [dispatch, verify]
 ---
 
 # herdr — Johannes's visible terminal workspace
@@ -23,14 +23,14 @@ may use every verb it has.
 | "what are my agents doing", a cross-project status read | `agw agents --text` (cross-project overview, read-only) |
 | **"open a herdr pane/tab"**, "start `cf` in warden", "write that into a pane", "tell the agent in <repo> …", "stop that agent" | **this skill** |
 
-The difference is not safety, it is **who owns the work**. A Warden dispatch is
+The difference is not safety, it is **who owns the work**. An `agw-legacy dispatch` is
 *your* background job, invisible until it reports. A herdr pane is *his* workspace —
 he asked for it, he can see it in the TUI, he steers it himself afterwards. So:
-never silently substitute a Warden dispatch for a herdr request. If he says herdr,
+never silently substitute a dispatch for a herdr request. If he says herdr,
 use herdr. If herdr genuinely cannot do it, say so and stop — do not do something
 else and call it done.
 
-Unattended work you decide to start yourself still goes to Warden. Nothing here
+Unattended work you decide to start yourself still goes to `dispatch`. Nothing here
 schedules itself.
 
 ## You are not inside a pane
@@ -200,7 +200,7 @@ bare `ssh mini 'claude …'` comes up `Not logged in` and silently bills the API
 
 `rd` checks prompt delivery: if the agent never reaches `working` within 30 s it re-sends once. `rd read` the pane if it is still idle after that. Do not treat the exit code of `agent prompt` or `agent wait` as proof of delivery — confirm `working` with `herdr agent get` and read the pane before claiming it started.
 
-The model is an env var, not a flag: **`RD_WAVE_MODEL`** (default `sonnet`). `rd` is the only way to place a *visible* agent on the mini (background repo work is `warden run`) — never a raw `claude --bg` / `claude -p`, which loses the keychain credential and the house flags.
+The model is an env var, not a flag: **`RD_WAVE_MODEL`** (default `sonnet`). `rd` is the only way to place a *visible* agent on the mini (background repo work is `agw-legacy dispatch`) — never a raw `claude --bg` / `claude -p`, which loses the keychain credential and the house flags.
 
 `rd` base64-encodes the prompt into the command line it types; it does not stage
 a temp file. Do not push a long brief through it: put the full brief in a repo
@@ -271,8 +271,8 @@ the same call once or twice, then stop and tell him it is still running. `--unti
 `done` ends a *turn*: an agent that parked a background shell goes `done` and resumes later.
 Before reporting an outcome, confirm the **external effect** the brief asked for (PR state,
 the commit on master, `/health`, the report file). For anything that must survive past this
-conversation, do not wait at all — file it through `dispatch` and read the item with the
-`warden` skill.
+conversation, do not wait at all — file it through `dispatch` and read the job back with
+`agw-legacy status <jobId>`.
 
 ## Rules
 

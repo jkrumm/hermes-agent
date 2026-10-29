@@ -8,12 +8,7 @@ history and per-file detail live in `docs/*.md`; each section here points at its
 VCS source of truth for Johannes's Hermes Agent setup, Mac Mini-only. Everything here is
 symlinked into `~/.hermes/` — edit at either end, git sees it here.
 
-**Warden (`~/SourceRoot/warden`) is the control plane this repo hands work to and reads
-from.** It ingests signals, decides, dispatches Claude Code episodes through agent-gateway, and
-owns the only ledger (`~/.warden/warden.db`) — five LaunchAgents, no LLM call anywhere in its
-loop. Hermes has one role — **narrate, answer, route** (spec: `dotfiles/docs/agent-platform.md` §Hermes): it reports one line per item, answers questions, and files work through `warden run` or a GitHub issue; herdr tabs / `rd wave` only when the owner asks. It never dispatches on its own, lands PRs, or authors skills unattended. The reporting contract lives in `SOUL.md` and nowhere else — no per-skill report formats. See *Dispatch
-Bridge* below for how Hermes hands it work, and the read-only `warden` skill for how Hermes
-reads it back.
+**Warden, the old control plane, was retired 2026-10-27** (repo archived). Hermes has one role — **narrate, answer, route** (spec: `dotfiles/docs/agent-platform.md` §Hermes): it reports one line per item, answers questions, and files work through `agw-legacy dispatch` or a GitHub issue; herdr tabs / `rd wave` only when the owner asks. It never lands PRs or authors skills unattended. The reporting contract lives in `SOUL.md` and nowhere else — no per-skill report formats. See *Dispatch Bridge* below for how Hermes hands off repo work.
 
 Audio (TTS + STT) is the **agent-workflows audio door** (`~/SourceRoot/agent-workflows`,
 `packages/audio`), an OpenAI-compatible loopback service on the mini at `http://127.0.0.1:7792/v1`
@@ -59,15 +54,14 @@ the first pass.
 **A skill is durable only if symlinked from this repo.** `skills.external_dirs` satisfies the
 v0.16.0+ skill-trust check **and** protects a skill from the background self-improvement
 curator — a skill created ad hoc under `~/.hermes/skills/` has neither and gets silently
-rewritten by accretion. Detection: warden's `watchdog-poll.py` `stray_skill` source (30 min). Full
+rewritten by accretion. Detection is manual (`ls ~/.hermes/skills` against `HERMES_SKILLS`); warden's `stray_skill` poll retired with it. Full
 mechanism + adoption path: **`docs/symlinks-and-agents.md`**.
 
 **Host-level scripts** (user LaunchAgents, not symlinked): `hermes-liveness.sh` (300s — gateway
 state + Slack connected + the live pid belongs to launchd's job), `hermes-backup.sh` (daily
 03:00 — rsync to homelab, `mkdir`-lock against overlap), and the `hermes serve` pair —
 `hermes-serve-launch.sh` (KeepAlive) + `hermes-serve-liveness.sh` (300s), see *Hermes Desktop*
-below. The alert-triage act-loop is a
-LaunchAgent too, but it's `~/SourceRoot/warden`'s own — see **Alert triage** below.
+below.
 `HERMES_PLISTS_RETIRED` unloads +
 removes labels this repo no longer installs — the two `hermes-webui{,-liveness}` labels sit there
 since the 2026-09-07 teardown of the third-party WebUI clone (not coming back; the serve pair torn
@@ -77,50 +71,42 @@ dotfiles' doctor. Logs declared, never globbed, in `dotfiles/scripts/log-rotate.
 **Scheduled jobs are LaunchAgents, never macOS crontab** — a `crontab -` *write* needs Full
 Disk Access and hangs forever on the headless mini. Done 2026-08-02 — no hermes entries in
 `crontab -l`. All 4 live `hermes cron` jobs (ids, schedules, delivery) + reasoning:
-**`docs/scheduled-jobs.md`**. The watchdog poll and dispatch sweep are LaunchAgents in
-`~/SourceRoot/warden` now, not `hermes cron` jobs — see *Alert triage* below.
+**`docs/scheduled-jobs.md`**.
 
 **Per-repo agent skills** (`.claude/skills/`, committed, no symlink — Claude Code and OpenCode both load them): `/hermes-validate`
 (test routing, fix SOUL.md / SKILL.md) · `/hermes-update` (pull upstream, re-apply patches,
 restart gateway).
 
-## Dispatch Bridge — handing repo work to Warden
+## Dispatch Bridge — handing repo work to a Claude Code episode
 
 Hermes observes well and reads repos badly — an LLM with a `terminal` tool cannot use a
 repo's `AGENTS.md`/`CLAUDE.md`, `.claude/rules/` or `.claude/skills/`. So repo work is **filed,
-not done**: `scripts/hermes-cc.sh` here (= `~/.hermes/scripts/hermes-cc.sh`) is a 6-line exec shim
-into `~/SourceRoot/warden/scripts/warden`, and the `dispatch` skill documents the one verb Hermes
-uses — **`hermes-cc.sh run <repo>`** (brief on stdin, quoted heredoc, never argv). `run` opens a
-Warden item that rides its own lifecycle (investigate → implement → review → merge → deploy →
-verify). Hermes does not land PRs, `gh pr merge`, pick a tier, or start a `claude` session.
-Reading an item back (`/board`, `/items/:id` on warden's loopback API) is the read-only `warden`
-skill — never the ledger file, never a guess. Design: `~/SourceRoot/warden/DESIGN.md`;
-the door: **`docs/dispatch-bridge.md`**.
+not done**: either **`agw-legacy dispatch --repo <repo> --no-wait --json "$BRIEF"`** (brief from a quoted
+heredoc, never interpolated; the `dispatch` skill documents it) or a GitHub issue (`capture`) —
+`SOUL.md` names which one applies; that routing table is the control. A dispatch is one bounded
+episode (investigate → verdict, or implement → a `dispatch/*` PR) with no lifecycle behind it:
+Hermes reads the result back with `agw-legacy status|wait <jobId>`, does not land PRs, `gh pr merge`,
+or start a `claude` session.
 
-**One door per verb:** repo work → `hermes-cc.sh run`; status → `warden` skill (HTTP API); panes /
-long visible work → `herdr` + `rd` (`rd wave`, never `claude --bg` / `claude -p`); issues → `capture`.
+**One door per verb:** repo work → `agw-legacy dispatch`; panes / long visible work → `herdr` + `rd`
+(`rd wave`, never `claude --bg` / `claude -p`); issues → `capture`.
 
-**No signed approval.** Warden Wave 1 (2026-10-04) deleted the approval stack, so the
-`dispatch-approval` plugin (Ed25519 signer, Approve/Deny buttons) was removed here. agent-gateway's repo
-policy is the only boundary; budgets and the brief secret scan (refuses, never redacts) remain.
+**No signed approval.** The `dispatch-approval` plugin (Ed25519 signer, Approve/Deny buttons) was
+removed 2026-10-04. agent-gateway's repo policy (`agw-legacy policy`) is the only boundary.
 Config of `plugins:` is empty; `HERMES_PLUGINS` in the Makefile is empty.
 
 **`slack.allow_bots: all` is deliberate — do not "fix" it.** The trust boundary is the
 workspace, not human-vs-bot: HomeLab/VPS/Argo post from inside the tailnet and live `#alerts`
 auto-triage depends on it. `require_mention_channels` silences `#media`/`#updates`/`#alerts`/`#agents` (pure-echo
-channels; in `#agents` Hermes answers only when mentioned, so it never replies to warden's posts) — inbound-only, `hermes send`/cron/dispatch verdicts still post there.
+channels; in `#agents` Hermes answers only when mentioned, so it never replies to automated agent posts) — inbound-only, `hermes send`/cron/dispatch verdicts still post there.
 
-**Tests** (`~/.hermes/hermes-agent/venv/bin/python3`): `test_cron_allowlist.py`. `test_hermes_cc.py` moved to
-`warden/tests/test_warden_cli.py` (black-box against the real `warden` CLI, stubbed agent-gateway +
-GitHub + Slack) with `hermes-cc.sh` itself (2026-09-10); run it with warden's own venv (`make test`
-from `warden/`). The other
-half is `agent-gateway/tests/` (`bun test`, mutation-verified — worktree isolation, the
-diff-refusal ladder, the secret scan, the nonce fence around the brief).
+**Tests** (`~/.hermes/hermes-agent/venv/bin/python3`): `test_cron_allowlist.py`. The dispatch half is
+`agent-gateway/tests/` (`bun test`, mutation-verified — worktree isolation, the diff-refusal ladder, the
+secret scan, the nonce fence around the brief).
 
 **Hermes cron pre-run scripts** (run by `hermes-agent` before each run, not launchd):
 `briefing-context.py`/`briefing-coverage.py` feed the morning briefing (TickTick + GitHub
-coverage) — the former also reaches across to warden's `watchdog-summary.py`
-(`WARDEN_WATCHDOG_SUMMARY`-overridable) for the briefing's Infrastructure section.
+coverage).
 `narratives-cron.py` is the same thin-loader shape for `project-narratives.py`.
 
 **`hermes cron create --script` rejects any substantial script** (`cron/lifecycle_guard.py`
@@ -129,7 +115,7 @@ module. Detail: **`docs/scheduled-jobs.md`**.
 
 ## Herdr — the interactive lane Hermes may drive
 
-**Warden is the background lane; herdr is Johannes's own visible workspace, and
+**`agw-legacy dispatch` is the background lane; herdr is Johannes's own visible workspace, and
 Hermes may drive it on his explicit request.** The `herdr` skill
 (`skills/herdr/SKILL.md`) is the door: open a tab/pane in a repo workspace, run a
 command, read a pane back, start an interactive Claude Code session with the
@@ -137,8 +123,8 @@ dotfiles launchers (`c`/`cf`/`cs`, typed into the pane's zsh — `herdr agent st
 uses herdr's own bare `claude` and loses the house flags), prompt it, steer it.
 
 Every herdr verb is allowed. The command guard that once blocked agent-starting herdr verbs
-produced the failure it existed to prevent — asked to "open a herdr pane in warden with `cf`",
-Hermes was refused, silently substituted a Warden dispatch and reported success for work never
+produced the failure it existed to prevent — asked to "open a herdr pane in <repo> with `cf`",
+Hermes was refused, silently substituted a background dispatch and reported success for work never
 asked for. That guard is gone (see *No approval prompts, no command guards* below); lane choice
 is SOUL.md guidance.
 
@@ -148,19 +134,6 @@ forbids `--current` and focus-dependent targeting and requires explicit
 returns **plain text, not JSON** (don't pipe it to `jq`), and the terminal tool's
 180 s timeout means `agent prompt --wait` above ~150000 ms kills the call, not the
 agent — prompt without waiting, then poll `agent get`.
-
-## Alert triage
-
-**Moved to `~/SourceRoot/warden` 2026-09-09.** `triage.py` (LaunchAgent
-`com.jkrumm.warden-loop`, 10 min) is the deterministic act-loop over
-`~/.warden/warden.db` that turns deduplicated watchdog events into items and drives them to `fixed`
-(implement at any confidence; review is the gate), with one Slack line per
-`fixed`/`needs_decision` item. It reaches back into this repo
-through `scripts/hermes-cc.sh` (an exec shim into the `warden` CLI) — see
-*Dispatch Bridge* above. Full state machine
-and why the loop is a LaunchAgent rather than a `hermes cron` job:
-`~/SourceRoot/warden/AGENTS.md`, `DESIGN.md`, `STATE.md`.
-Background-job failures (`jobrun`/`jobs-grade`, including the Hermes cron jobs as `hermes-cron.*` labels), Kuma and HyperDX alerts all reach warden directly; Hermes only narrates them. Model: `~/SourceRoot/dotfiles/docs/ops-signals.md`, ladder: `docs/background-jobs.md`.
 
 ## Secrets — native `secrets.command` over the headless cache (v0.19.0+)
 
@@ -320,7 +293,7 @@ endpoint") exempts `agw podcast` — there is no native tool for this pipeline.
 ## Agents overview (agents)
 
 Read-only cross-project Claude Code/herdr status via agent-gateway's `/api/overview` —
-conversational skill (`skills/warden/references/agents.md`) and a morning-briefing feed
+conversational read (`agw agents --text`, see `skills/herdr`) and a morning-briefing feed
 (`scripts/agents-overview.py`). Never dispatches, never steers a pane — that's
 `dispatch`. **`docs/agents-overview.md`**.
 
@@ -425,7 +398,7 @@ failed closed), cron/`-q`/unattended `approve`, `security.protected_instruction_
 (pipeline allowlist, `download_then_execute`, `raw_agent_invocation`, `raw_repo_write`) was
 **deleted** with its tests — it produced friction and silent lane substitutions, not safety.
 Still blocking: upstream's hardline floor, the gateway-self-restart block, three irreversible
-`approvals.deny` globs, and Warden's own dispatch policy (in `~/SourceRoot/warden`). `make
+`approvals.deny` globs, and agent-gateway's dispatch policy. `make
 status` grades the config. **When Hermes does the wrong thing, fix SOUL.md or the skill** — make
 the guidance clearer; never answer with a new block.
 
@@ -580,8 +553,8 @@ beyond the skills-index restart noted in *Editing Rules*.
   patched upstream files or `SOUL.md`'s cached prompt are not live until it.
 - **API sessions are keyed by the first message.** Re-sending an identical test prompt to
   `/v1/chat/completions` resumes the previous session (and its still-running turn) — reword it.
-  A smoke that files real work (`hermes-cc.sh run`) opens a real Warden item; close it with
-  `warden close <id> --why … --reason ignored`.
+  A smoke that files real work (`agw-legacy dispatch`) starts a real episode; stop it with
+  `agw-legacy cancel <jobId>`.
 - **Repo work goes through `dispatch`, never the repo** — a model told only "you can run
   anything" debugged a flaky agent-gateway test in the live checkout itself (Wave 3 smoke,
   2026-10-04). The routing table in `SOUL.md` is the control; fix wording there, not with a gate.

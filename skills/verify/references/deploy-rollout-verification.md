@@ -70,28 +70,15 @@ live, however green the deploy run was.
 ## 6. Liveness
 
 Read the app's own health file (its `ok` flag **and** its push-heartbeat field —
-`sent`, not merely a fresh file), then the control loop's `/health`
-(`pollers.*.ok`). A merge that reached the checkout while a periodic job stayed
+`sent`, not merely a fresh file). A merge that reached the checkout while a periodic job stayed
 dead is still a failed rollout.
 
-## Discharging the parked item
+## Reporting the result
 
-A `needs_decision`/`failed` row never expires —
-no poller retries it — so after the proof above, end it yourself:
-
-```bash
-~/.hermes/scripts/hermes-cc.sh close <event-id> --why "<what the blocker was, why it is gone, what shipped, where it is>"
-```
-
-- `close` writes the `closed by hand: ` prefix itself — never put that phrase in `--why`.
-- It refuses an in-flight item (`working`/`merging`/`verifying`); `abort <event-id> --why` is the verb there.
-- `--why` carries the **real defect**, not the symptom: the rollout has no retry
-  path, so the row never learned the deploy had completed. Name the evidence
-  (pull rc, artifact mtime, process start time, probe results).
-- Confirm: `curl -s http://127.0.0.1:7735/items/<id>` → `state: closed`. Argo
-  `/warden` updates on the next loop tick; a stale Slack line is a snapshot, not a
-  second finding.
-- One cause files one row per merged PR. Close the siblings in the same pass.
+No ledger row tracks the rollout any more (warden retired 2026-10-27), so the proof above is
+the deliverable: report what shipped and the evidence — pull rc, artifact mtime, process
+start time, probe results — and name the real defect, not the symptom. A stale Slack line
+is a snapshot, not a second finding.
 
 ## Pitfalls
 
@@ -109,6 +96,5 @@ no poller retries it — so after the proof above, end it yourself:
   the reversible fix.
 - **Do not restart a healthy service to "re-run" a rollout that already landed.**
   A restart is a production event, and step 3 already told you whether it ran.
-- **Do not re-dispatch or re-open the Warden item** to make the card agree with
-  reality. Close it with the evidence; a re-dispatch spends an episode against a
-  wall that has already fallen.
+- **Do not re-dispatch** to make a stale card agree with reality. Report the evidence;
+  a re-dispatch spends an episode against a wall that has already fallen.

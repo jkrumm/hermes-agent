@@ -7,8 +7,8 @@ The shadow git store behind `write_file`/`patch`/`terminal` snapshots. Every
 symptom of one of a small number of store states. Diagnose the state first; only
 one of the causes is a data defect worth repairing.
 
-`hermes-log-alert-forensics` owns the `hermes_log:*` alert family and the
-discharge/escalate step for the Warden item; this skill owns the store itself.
+`hermes-log-alert-forensics` owns triage of Hermes ERROR lines and the report/escalate
+step; this skill owns the store itself.
 
 ## Layout
 
@@ -34,7 +34,7 @@ Reproduce any store operation by exporting exactly those three.
 2. **Read the stderr tail and classify** — see *Three causes* below. This decides
    whether you are repairing data, reporting a race, or doing nothing.
 3. **Count honestly.** Each gateway-originated line is written to *both* tailed
-   files, so a card's `×N` is roughly double the real event count. Grep each file.
+   files, so a naive count is roughly double the real event count. Grep each file.
 4. **Check the store's own state**: `du -sm store`, then the cap/floor check below.
 5. **Verify through the real entry point**, never a bare `add -A`:
    `CheckpointManager(enabled=True, max_snapshots=50).ensure_checkpoint(workdir, reason=…)`
@@ -42,24 +42,9 @@ Reproduce any store operation by exporting exactly those three.
    the manager still refuses (file-count guard, oversize drop, unchanged-index skip),
    and a skip logged as `working directory not found` is the workdir-teardown case,
    not a store defect.
-6. **Discharge or escalate** via `hermes-cc.sh close <event-id> --why "<mechanism>"`.
-   **If the item is in state `working`, `close` refuses** ("an episode or operation is in
-   flight; 'abort' is the verb for that") — because the triage loop already opened an
-   `investigate` dispatch. When you have diagnosed and repaired the cause by hand, that episode
-   is redundant: `hermes-cc.sh abort <event-id> --why "<mechanism + what you did>"` cancels the
-   job and lands the item `closed` in one step. Do not wait for the verdict, and do not fire a
-   second dispatch.
-   **Abort the item that carries the job and the whole batch goes with it** (warden §82,
-   2026-09-22): every other row sharing that `dispatch_job` still in an episode state is closed
-   with the same note, and an already-terminal job (agent-gateway's 409) is tolerated rather than
-   refused, so re-aborting a sibling is no longer a dead end. Before that, aborting the carrier
-   stranded the siblings in an in-flight state with **no exit at all** — `close` refuses in-flight
-   states, a second `abort` refused on the 409, and the sweep only reads rows with
-   `reported_at IS NULL`, the column the abort had just stamped — so they surfaced as a
-   human-ask two hours later. The old CLI's `abort` also ignored `--dry-run` outright:
-   the "preview" cancelled the job and closed the item for real (fixed in the same §).
-   Confirm an item's state by reading `/items/<event-id>`, never by re-running a mutating verb
-   under `--dry-run`.
+6. **Report or escalate.** Say what you repaired and the evidence. A store defect that needs
+   a code change goes to `agw-legacy dispatch --repo hermes-agent` (an `investigate` verdict) or a
+   GitHub issue — there is no ledger item to close.
 
 ## Three causes of `git add -A (rc=128)` — triage by the stderr tail
 
@@ -109,7 +94,7 @@ Reproduce any store operation by exporting exactly those three.
  (2026-09-21) — empty or near-empty agent `git init` scratch dirs under `/private/tmp`,
  quarantined to `~/.hermes/quarantine/cp-<date>/`; the same case, three runs in a row.
  **Nothing to repair and nothing to dispatch**: confirm the directory is gone or remove it,
- re-run `add -A` on the project's workdir, and close the item.
+ and re-run `add -A` on the project's workdir.
   **The shape is plural and the error names one path at a time — sweep, don't fix the
   named one.** Under `/private/tmp` (which is a whole checkpoint project) agent scratch
   trees accumulate them: a real repair found six in one pass (`glab-probe/a`,
@@ -134,7 +119,7 @@ Reproduce any store operation by exporting exactly those three.
   (verified in a scratch repo), so the retry could exclude a commitless boundary instead of
   re-running the identical add. That revises a *deliberate* report-only choice in
   `patches/checkpoint-store-integrity.patch`; it is a reversible code change, so it goes
-  through `warden run hermes-agent` like any other fix.
+  through the normal patch route (*Hand-landing the patch* in `hermes-log-alert-forensics`).
 - `Konnte Datei <store>/objects/<xx>/<sha> nicht schreiben: No such file or directory`
   → **gc race**. A concurrent `git gc --prune=now` removed the loose-object fanout dir
   between git's stat and its write. Tool calls run on a daemon thread pool, so two
@@ -180,20 +165,20 @@ Reproduce any store operation by exporting exactly those three.
   fired 0.1 s before the write that created it. `ensure_checkpoint` materialises
   the missing ref *and* index, so the residue is cleared by the proof step itself.
   **The real defect is severity, not integrity**: an expected skip is logged at ERROR, so
-  every first-write-into-a-new-directory files a `hermes_log` card — and one batch files
-  **three** items (`rev-parse`, `ls-files -X exclude`, `add -A`) that are one investigation.
-  Fix it through `warden run hermes-agent`: lower the missing-workdir skip to INFO in the
-  patch. The restart is not a blocker — warden's rollout runs `make deploy` after the merge,
-  which restarts the gateway from outside it.
+  every first-write-into-a-new-directory logs an ERROR — and one batch writes
+  **three** lines (`rev-parse`, `ls-files -X exclude`, `add -A`) that are one investigation.
+  Fix it as a patch change: lower the missing-workdir skip to INFO in the patch. The
+  restart is not a blocker for the edit — `make deploy` after the merge restarts the gateway
+  from outside it.
 - `Warnung: Füge eingebettetes Repository hinzu: <dir>` → **not a failure.** That is an
   advice warning on stderr with rc=128 only because something *else* in the same add
   failed; the message names a nested repo that was added as a gitlink, which is normal.
   Read the rest of the stderr for the real cause before chasing the named directory.
   **This is the trap that cost a dispatch**: `add -A` prints advice *before* the error, and
-  Warden derives its `hermes_log:*` signature from the **first** line — so the 13:59:12
-  failure was filed as this warning while the cause (`Fehler: '<dir>/' hat keinen Commit
+  the logger keyed on the **first** line — so the 13:59:12
+  failure read as this warning while the cause (`Fehler: '<dir>/' hat keinen Commit
   ausgecheckt`, a commitless nested repo) sat sixteen lines down. The logger now keeps line
-  1 verbatim (it is the signature) and summarizes the tail, and the retry quotes the real
+  1 verbatim and summarizes the tail, and the retry quotes the real
   cause. When triaging this shape from an *older* log line, read the whole stderr block —
   never the first line alone.
 
@@ -263,11 +248,9 @@ checking when a pattern seems not to apply:
 
 ## Two lines from this family are usually ONE investigation
 
-Different stderr tails, same subsystem, same repo → one dispatch. Close the sibling
-item as a duplicate of the one carrying the in-flight job
-(`warden close <id> --why "duplicate of <id>: same root cause…"`) instead of firing a
-second dispatch: a second episode burns budget and yields two verdicts that cannot both
-be acted on. Check `/items/<id>` for an existing `dispatch_job` before dispatching.
+Different stderr tails, same subsystem, same repo → one investigation, one `agw-legacy dispatch`
+(or one issue): a second episode burns budget and yields two verdicts that cannot both be
+acted on. Check `agw-legacy jobs --running` for an existing episode on the repo before dispatching.
 
 ## A fix on disk is not a fix in the running gateway
 
@@ -290,8 +273,7 @@ sleep 5; grep -c '^claude-501/$' ~/.hermes/checkpoints/store/info/exclude   # 0 
 cp /tmp/exclude.bak ~/.hermes/checkpoints/store/info/exclude                # always restore
 ```
 
-A `0` there means the fix is inert. **Do not use `.hermes-store.lock` as the staleness tell** — the lock file is created *and unlinked* inside each critical section (`os.unlink` in the `finally`), so it is absent whenever no snapshot is in flight, on both the pre- and post-fix code. Its absence proves nothing; the exclude rewrite is the observable tell. **From inside the gateway the restart is a human action** (outside it, `make deploy` — and so
-warden's rollout after a merge — restarts it) — `hermes gateway restart`
+A `0` there means the fix is inert. **Do not use `.hermes-store.lock` as the staleness tell** — the lock file is created *and unlinked* inside each critical section (`os.unlink` in the `finally`), so it is absent whenever no snapshot is in flight, on both the pre- and post-fix code. Its absence proves nothing; the exclude rewrite is the observable tell. **From inside the gateway the restart is a human action** (outside it, `make deploy` restarts it) — `hermes gateway restart`
 is guard-blocked from inside the gateway (SIGTERM would kill the command), and `ask-human.sh` is
 blocked too when its arguments contain the phrase. Hand over the one command; do not look for a
 way around the guard. Until the restart, the pre-fix behaviour continues (the gateway re-adds

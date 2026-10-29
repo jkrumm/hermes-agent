@@ -187,10 +187,9 @@ py-spy dump of it would have nothing to find.
   Streaming failed before delivery: … 404 …` lines (one per `api_max_retries` attempt) from a
   single `platform=cli` session, followed by the `Fallback activated` line and a successful
   `API call #1`. The 404 is the probe's expected answer; read the session id forward, not the
-  log level. Warden's hermes-log poller drops the sentinel shape at ingest
-  (`PROBE_SENTINEL_RE`, warden `scripts/watchdog-poll.py`), so a card from this signature is
-  either older than that filter or a genuine 404 for the real brain model — check which model
-  id the line names.
+  log level. Nothing filters the sentinel shape any more, so a line
+  with this signature is the probe unless it is a genuine 404 for the real brain model — check
+  which model id the line names.
 - **The fallback entry uses `chat_completions`, same as the brain.** That is correct and
   intentional — the fallback (`gpt-6-luna`) and the brain (`deepseek-v4.1-flash`) both sit on the IU
   OpenAI leg (`chat_completions`) since 2026-10-20.
@@ -250,6 +249,6 @@ See `references/model-routing.md` for the 2026-08-14 incident in full.
 Read the matching file when the situation fits:
 
 - `references/checkpoint-store-forensics.md` — Use when a checkpointmanager ERROR or store alert fires
-- `references/hermes-log-alert-forensics.md` — Use when a Hermes log ERROR line reaches Warden or #alerts
+- `references/hermes-log-alert-forensics.md` — Use when a Hermes log ERROR line shows up in #alerts or a log read
 - `references/hermes-model-audit.md` — Use when auditing Hermes's own brain model performance
 - `references/supervised-restart-forensics.md` — Diagnose supervised restarts: kill deadline vs drain
