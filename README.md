@@ -36,7 +36,7 @@ Mac Mini M2 Pro — Hermes Agent (always-on)
 | `#media` | C0AS5GUH5U4 | read only (`require_mention_channels`) | — | Podcast/image completions — Hermes is the producer, not a conversant |
 | `#watchdog` | C0ASRULFTSS | write only | — | Hermes's own proactive monitoring results — today the weekly brain drift audit (cron `8fe7be4985d9`, Saturdays 09:00) |
 | `#briefings` | C0AT6TH404R | write only | — | Morning/evening audio reports (cron `cc7900c424a9`, `2d38c80e685c`) |
-| `#agents` | C0BVDE5R562 | write only | — | Idle — the agents-overview cron that posted here retired 2026-09-11; read the same snapshot with `agw agents --text` or in the morning briefing |
+| `#agents` | C0BVDE5R562 | write only | — | Idle — the scheduled agents-overview digest was retired (paused 2026-09-08); read the same snapshot with `agw agents --text` or in the morning briefing |
 
 ### Trigger Matrix
 
