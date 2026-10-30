@@ -47,10 +47,9 @@ silently.
 - **`72aa2fb36307` — Agents overview** — `*/30 * * * *`, no-agent, `agents-cron.py` →
   `agents-overview.py --slack-body` → `slack:C0BVDE5R562` #agents (Block Kit via
   `chat.postMessage`). Paused 2026-09-08 18:45 after reposting the same blocked pane ~35
-  times in two days; retired 2026-09-11. Replaced by warden's one Slack line per `fixed`/`needs_decision` item in `#agents`
-  (the queue itself is Argo `/warden`),
-  the same `agw agents` snapshot in the herdr overview pane, the morning briefing
-  (`agents-overview.py --briefing`), and Argo's `/agents` page and Warden board.
+  times in two days; retired 2026-09-11. Replaced by the same `agw agents` snapshot in the
+  herdr overview pane, the morning briefing (`agents-overview.py --briefing`), and Argo's
+  `/agents` page.
   Its code (`render_slack()`, `agents-overview.py --slack-body`, the
   `fetch_agents()`/`fingerprint()`/`delta()` change-detection chain, the
   once-per-day unreachable warning, the state file) was removed from
@@ -92,8 +91,7 @@ the check is quiet and the target is only needed if a legacy line ever reappears
 > (`if depth >= _MAX_REFERENCED_SCRIPT_DEPTH: return True`), so a long file — or even a short
 > one whose comments quote filenames and command lines — is rejected as *"contains a gateway
 > lifecycle command"* regardless of content. Measured against the live guard 2026-08-02:
-> `briefing-coverage.py` is rejected today (and so were `watchdog-poll.py`/`watchdog-summary.py`,
-> before they moved to `~/SourceRoot/warden`). The already-registered jobs survive only because
+> `briefing-coverage.py` is rejected today (and so were the retired `watchdog-poll.py`/`watchdog-summary.py`). The already-registered jobs survive only because
 > they predate the guard. That is why every registered entry point here is a thin loader and the
 > logic lives in a module it imports — `narratives-cron.py` (registered, terse, quotes nothing)
 > loads `project-narratives.py` the same way. If a future entry point
