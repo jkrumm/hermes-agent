@@ -15,7 +15,7 @@ being scheduled, or when an ask you are about to hand over implies a reboot.
 - **Live work that would lose a turn** —
   `agw agents --text | head -3` (`working` episodes lose
 their turn; `idle`/`done` panes lose nothing), plus
-  `pgrep -fl 'claude -p|claude --bg'` for daemons and dispatches. A window with zero
+  `pgrep -fl 'claude -p|claude --bg'` for background daemons. A window with zero
 `working` is cheap — say so, that is what makes the ask easy to accept.
 - **LaunchAgents** — `ls ~/Library/LaunchAgents/` and
   `launchctl list | grep -E 'jkrumm|hermes|herdr|colima'`; a `RunAtLoad` agent returns
@@ -70,7 +70,7 @@ TEXT="$(cat /tmp/ask.txt)"; ./scripts/ask-human.sh ask "$TEXT"   # pushing is th
 uptime; sw_vers
 launchctl list | grep -E 'jkrumm|hermes' | awk '{print $1,$3}'   # '-' in col 1 = loaded, not running
 docker ps --format '{{.Names}}|{{.Status}}'                     # "Up N minutes" + healthy
-curl -s http://127.0.0.1:7735/health
+agw agents --text | head -3                                     # the agent platform is back
 ```
 
 A post-boot load average in the 50-80 range is the agent herd starting, not a fault;

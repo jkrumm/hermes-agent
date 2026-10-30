@@ -75,7 +75,7 @@ dead is still a failed rollout.
 
 ## Reporting the result
 
-No ledger row tracks the rollout any more (warden retired 2026-10-27), so the proof above is
+No ledger row tracks the rollout, so the proof above is
 the deliverable: report what shipped and the evidence — pull rc, artifact mtime, process
 start time, probe results — and name the real defect, not the symptom. A stale Slack line
 is a snapshot, not a second finding.

@@ -3,7 +3,7 @@
 _Use when a Hermes log ERROR line shows up in `#alerts` or while reading the logs._
 
 A Hermes ERROR line reaches you through `#alerts` or a log read. There is no poller, card or
-ledger item behind it any more (warden retired 2026-10-27); this skill is the triage for the
+ledger item behind it; this skill is the triage for the
 line itself — deciding whether it is a real fault, and then reporting or filing it.
 
 `alert-liveness-forensics` owns producer-side liveness for Beszel / UptimeKuma /

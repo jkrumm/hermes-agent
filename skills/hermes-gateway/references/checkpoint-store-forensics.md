@@ -146,7 +146,7 @@ Reproduce any store operation by exporting exactly those three.
 - `Git command skipped: <cmd> (working directory not found: <path>)` → **the target directory
   did not exist yet** — the write that triggered the snapshot is the thing that creates it.
   The pre-write checkpoint resolves the write target's *parent* as the project workdir, so a
-  first write into a new directory (`~/.hermes/payloads/`, for a dispatch brief) hits
+  first write into a new directory (`~/.hermes/payloads/`, for an agent brief) hits
   `wd.is_dir()` False: `rev-parse`, `ls-files -X exclude` and `add -A` all skip, the retry
   (`Retrying checkpoint staging after a transient add failure…`) skips identically, and
   `projects/<hash>.json` is left behind with no ref and no index. **Not a store defect and
@@ -159,7 +159,7 @@ Reproduce any store operation by exporting exactly those three.
   `created_at`, with no `workdir_parent_dev`/`workdir_parent_ino` (the parent was
   never statable); a residue that *does* carry them is the torn-down-parent case,
   not this one. Second observed instance (2026-09-20, `/Users/jkrumm/.hermes/tmp`):
-  not a dispatch brief but a session's own `write_file` into a fresh dir — the skip
+  not an agent brief but a session's own `write_file` into a fresh dir — the skip
   fired 0.1 s before the write that created it. `ensure_checkpoint` materialises
   the missing ref *and* index, so the residue is cleared by the proof step itself.
   **The real defect is severity, not integrity**: an expected skip is logged at ERROR, so
@@ -172,7 +172,7 @@ Reproduce any store operation by exporting exactly those three.
   advice warning on stderr with rc=128 only because something *else* in the same add
   failed; the message names a nested repo that was added as a gitlink, which is normal.
   Read the rest of the stderr for the real cause before chasing the named directory.
-  **This is the trap that cost a dispatch**: `add -A` prints advice *before* the error, and
+  **This is the trap that sent a triage after the wrong directory**: `add -A` prints advice *before* the error, and
   the logger keyed on the **first** line — so the 13:59:12
   failure read as this warning while the cause (`Fehler: '<dir>/' hat keinen Commit
   ausgecheckt`, a commitless nested repo) sat sixteen lines down. The logger now keeps line

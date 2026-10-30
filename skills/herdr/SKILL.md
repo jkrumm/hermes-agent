@@ -21,7 +21,7 @@ may use every verb it has.
 |-|-|
 | "look into the repo and tell me why X" · "fix it" · anything that needs a repo's source | `capture` → a GitHub issue; the owner starts the repo work. |
 | "what are my agents doing", a cross-project status read | `agw agents --text` (cross-project overview, read-only) |
-| **"open a herdr pane/tab"**, "start `cf` in warden", "write that into a pane", "tell the agent in <repo> …", "stop that agent" | **this skill** |
+| **"open a herdr pane/tab"**, "start `cf` in dotfiles", "write that into a pane", "tell the agent in <repo> …", "stop that agent" | **this skill** |
 
 The difference is not safety, it is **who owns the work**. A filed issue is a
 note for later. A herdr pane is *his* workspace —
@@ -53,7 +53,7 @@ herdr pane list --workspace w1E | jq -r '.result.panes[] | "\(.pane_id)  \(.agen
 herdr agent list | jq -r '.result.agents[] | "\(.pane_id)  \(.agent)  \(.agent_status)  \(.terminal_title_stripped)"'
 ```
 
-**Workspaces are labelled by repo** (`warden`, `hermes-agent`, `brain`, …) plus
+**Workspaces are labelled by repo** (`dotfiles`, `hermes-agent`, `brain`, …) plus
 separator rows (`── INFRA ──`). To act "in repo X", find the workspace whose label
 is X. Separator workspaces are not work areas — never open anything there.
 
@@ -79,14 +79,14 @@ file and read the file instead.
 A new tab in an existing repo workspace (the normal case):
 
 ```bash
-herdr tab create --workspace w1E --cwd /Users/jkrumm/SourceRoot/warden --label hermes --no-focus
+herdr tab create --workspace w1E --cwd /Users/jkrumm/SourceRoot/dotfiles --label hermes --no-focus
 # → .result.tab.tab_id, .result.root_pane.pane_id
 ```
 
 A sibling pane next to an existing one:
 
 ```bash
-herdr pane split w1E:p4 --direction right --cwd /Users/jkrumm/SourceRoot/warden --no-focus
+herdr pane split w1E:p4 --direction right --cwd /Users/jkrumm/SourceRoot/dotfiles --no-focus
 # → .result.pane.pane_id
 ```
 
