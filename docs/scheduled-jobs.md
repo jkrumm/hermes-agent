@@ -62,9 +62,9 @@ silently.
   agents-cron.py --no-agent --deliver slack:C0BVDE5R562` (the same form
   `docs/project-narratives.md` uses: schedule positional, `--script` a bare filename under
   `~/.hermes/scripts/`).
-- **`b7a45b694f80` — quota-nudge**, **`9919cec4a6d5` — Fleet babysitter** — retired 2026-10-30
-  (F1 Wave 6). The software factory babysits every session `rd` and the factory start; see
-  `software-factory` (`AGENTS.md`, rules list).
+- **`b7a45b694f80` — quota-nudge** — retired 2026-10-30 (F1 Wave 6). The software factory
+  babysits every session `rd` and the factory start: `~/SourceRoot/software-factory/AGENTS.md`.
+- **`9919cec4a6d5` — Fleet babysitter** — retired 2026-10-30 (F1 Wave 6), same replacement.
 
 Job ids are minted at `hermes cron create` and are stable for the life of the job — edit with
 `hermes cron edit <id>`, never delete + re-create (that changes the id and breaks this table,
