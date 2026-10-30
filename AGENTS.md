@@ -284,7 +284,7 @@ refresh is `agw overview`) — conversational read (`agw agents --text`, see `sk
 morning-briefing feed (`scripts/agents-overview.py`). Never starts an agent, never steers a pane — that's
 `herdr`. **`docs/agents-overview.md`**.
 
-**`agw` transport:** `agents-overview.py`, `project-narratives.py`, `prose.py` and `quota-nudge.py` reach
+**`agw` transport:** `agents-overview.py`, `project-narratives.py` and `prose.py` reach
 the platform only through `scripts/agw_run.py` (shells out to `agw … --format json`, `AGW_CALLER=hermes`,
 no credential, no base-URL env knob). A run that outlives the CLI's wait budget exits 10; `agw_run.run`
 resumes it with `agw run wait <runId>` and prints a progress line to stderr per resume (the cron
