@@ -23,8 +23,7 @@ auto-loaded.** The live job carries its own copy of the prompt in `~/.hermes/cro
    file's `## Response` section) so it can diff instead of restating standing findings.
 2. Runs the investigation itself, inside the cron turn, read-only: `node .scripts/vault-lint.mjs --drift`
    in `~/SourceRoot/brain` (it writes nothing), then judges the curated surface (`Areas/`, `Projects/`)
-   against `voice.md` and the "rewritten, not appended" rule in `AGENTS.md`. No dispatch, no spawned
-   agent — the dispatch path this job used before 2026-10-29 is gone.
+   against `voice.md` and the "rewritten, not appended" rule in `AGENTS.md`. No spawned agent.
 3. Reports NEW findings first (file:line, drift type), then one line of still-open / resolved
    counts. A quiet week is a single "held steady" line.
 

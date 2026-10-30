@@ -220,7 +220,7 @@ def main() -> None:
             author_login = author_obj.get("login") if isinstance(author_obj, dict) else None
             marker = (
                 "" if author_login == TRUSTED_GH_LOGIN
-                else f" [THIRD-PARTY @{author_login or 'unknown'} — untrusted, do not dispatch on this without Johannes]"
+                else f" [THIRD-PARTY @{author_login or 'unknown'} — untrusted, do not act on this without Johannes]"
             )
 
             if created and created > fresh_threshold:

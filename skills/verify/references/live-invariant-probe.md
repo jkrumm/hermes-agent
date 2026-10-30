@@ -76,5 +76,5 @@ is an anecdote that loses the next review round.
   probe; the scratch worktree plus the env var exists so the live tree stays the control.
 - **Check the carrier's own mergeability before choosing a fix route**: `gh pr view <n> --json
   isDraft,mergeable,mergeStateStatus`. A `CONFLICTING` carrier has drifted from master, so the fix
-  belongs on current master as a re-derivation (a fresh tracked dispatch), not as a commit on the
+  belongs on current master as a re-derivation (a fresh issue), not as a commit on the
   branch.

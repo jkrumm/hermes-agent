@@ -25,7 +25,7 @@ skill's description and, for ours, its body. **No skill was deleted.** "Retire" 
 | warden | 295 (10-04) | keep; learn-from → agent-platform | — |
 | hyperdx | 280 (10-02) | keep | — |
 | work | 217 (10-09) | keep, split | 618 lines → lean core + `references/`; per-skill report formats dropped (SOUL.md owns it) |
-| agw-research (was research-gateway) | 81 (09-23) | keep; adapt-port | "VPS" wording → mini; `partial/grounding` ported to dotfiles `research` |
+| agw-research | 81 (09-23) | keep; adapt-port | "VPS" wording → mini; `partial/grounding` ported to dotfiles `research` |
 | hermes-gateway | 75 (10-01) | keep | — |
 | homelab | 74 (09-29) | keep | VPN recovery text corrected |
 | human-queue | 62 (10-01) | keep | — |
@@ -66,5 +66,5 @@ Claude Code session in the IuRoot repo and carries only the three lessons a hand
 
 ## Retired terms
 
-`agent-dispatch`, `rd bg`: no occurrences. `claude --bg` appears only as a prohibition (`herdr`, `homelab-ops/restart-window-prep`).
+`rd bg`: no occurrences. `claude --bg` appears only as a prohibition (`herdr`, `homelab-ops/restart-window-prep`).
 `colleague` in `capture` is a routing *keyword* (work signal), not the retired lane. Nothing to remove.

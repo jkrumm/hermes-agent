@@ -79,8 +79,7 @@ stale projects drains gradually rather than in one giant run:
 
 `~/.hermes/project-narratives-state.json`, gitignored runtime state, one
 entry per project: `{lastRevisedAt, lastCommit, lastSessionMtime, summary}`.
-Written atomically (temp file + rename), same pattern as
-`agents-overview-state.json`. Deleting it just means every project looks
+Written atomically (temp file + rename). Deleting it just means every project looks
 never-revised on the next run — expensive (one model call per still-live
 project, capped at 5/run) but not destructive; existing vault pages are
 untouched until a project's `needs_revision()` gate re-fires for real.

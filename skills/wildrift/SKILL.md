@@ -77,7 +77,7 @@ argument is in `Draft Guide.md` — read it rather than reciting this paragraph.
 
 ## Data reality — core rules
 
-Full detail, rank tiers, the missing-row rule and the research-gateway incident: `references/data-reality.md` — read it before quoting a number.
+Full detail, rank tiers and the missing-row rule: `references/data-reality.md` — read it before quoting a number.
 
 - **China-server only.** Riot publishes no Wild Rift API; never claim a "global" win rate.
 - **Qualify every rate by rank tier** (notes quote Master+ by default). No low-elo data exists.
@@ -98,7 +98,7 @@ Rules, lint, pipe/table traps, icons, the four-places stats update and the commi
 
 ## When a refresh is too big for you
 
-A patch that moves most of the pool (or changes the item system the way 7.2 did) wants Johannes's own Claude Code session in `brain`, where the `wildrift-refresh` skill carries the procedure. Say so and say what it needs ("7.3 landed, eleven notes are stale, this needs a session") — that's a useful answer, not a failure. Vault writes are direct via `obsidian` (SOUL.md); don't offer to dispatch one.
+A patch that moves most of the pool (or changes the item system the way 7.2 did) wants Johannes's own Claude Code session in `brain`, where the `wildrift-refresh` skill carries the procedure. Say so and say what it needs ("7.3 landed, eleven notes are stale, this needs a session") — that's a useful answer, not a failure. Vault writes are direct via `obsidian` (SOUL.md).
 
 ## Workflows
 

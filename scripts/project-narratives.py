@@ -86,8 +86,8 @@ ARGO_API_KEY_REF = "op://common/api/SECRET"
 SECRETS_RUN = Path.home() / ".local" / "bin" / "secrets-run"
 ARGO_HTTP_TIMEOUT = 10
 
-# Deny-listed projects: private-secrets repos, the disposable dispatch
-# target, and the vault itself (a narrative page ABOUT the vault, written
+# Deny-listed projects: private-secrets repos, a disposable scratch repo,
+# and the vault itself (a narrative page ABOUT the vault, written
 # INTO the vault, is a confusing loop).
 DENY_LIST = {"dotfiles-private", "homelab-private", "dispatch-scratch", "brain"}
 SKIP_ENV = "HERMES_NARRATIVE_SKIP"
@@ -489,8 +489,7 @@ def _commit_and_push(project: str, summary: str) -> None:
 
 def _resolve_argo_key() -> str:
     """HOMELAB_API_KEY from the process env (the argo-api skill's name for the
-    argo key), else the secrets-run cache — mirrors dispatch-sweep.py's
-    resolve_api_key(). '' on any failure; never raises."""
+    argo key), else the secrets-run cache. '' on any failure; never raises."""
     val = os.environ.get("HOMELAB_API_KEY", "")
     if val:
         return val

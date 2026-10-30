@@ -2,14 +2,14 @@
 
 _Use when a review finding asserts runtime behaviour._
 
-An automated reviewer — a step-7 validation, an adversarial review angle, a
-dispatch verdict — reads the **diff**, not the machine the diff runs on. Its
+An automated reviewer — a step-7 validation, an adversarial review angle, an
+agent verdict — reads the **diff**, not the machine the diff runs on. Its
 blocking findings are therefore claims, and the ones that assert how the runtime
 behaves are the class most likely to be wrong: the reviewer inferred the
 environment from the files and had no way to check it.
 
 The diff can be correct and the blocker wrong at the same time. Verify before you
-relay it as work, re-dispatch, or hand it to the owner.
+relay it as work, file it, or hand it to the owner.
 
 ## Procedure
 
@@ -77,9 +77,9 @@ relay it as work, re-dispatch, or hand it to the owner.
 - **An interactive ssh session is not the scheduler's environment.** It creates a
   login session and changes what the process resolves; test with a stripped
   environment (`env -i`) or a temporary scheduled probe that you remove afterwards.
-- **Do not re-dispatch a whole episode to fix a documentation paragraph.** An
+- **Do not file a whole episode to fix a documentation paragraph.** An
   implement episode costs a session and a PR cycle; a two-line doc change on the
-  existing branch costs one commit. Reserve the dispatch for a finding that
+  existing branch costs one commit. Reserve a new episode for a finding that
   requires re-deriving the change.
 - **Never work around a merge gate.** A repo with no declared auto-merge path
   scope is the owner's review by design — report the gate rather than merging on

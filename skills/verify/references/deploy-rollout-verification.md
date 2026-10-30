@@ -96,5 +96,5 @@ is a snapshot, not a second finding.
   the reversible fix.
 - **Do not restart a healthy service to "re-run" a rollout that already landed.**
   A restart is a production event, and step 3 already told you whether it ran.
-- **Do not re-dispatch** to make a stale card agree with reality. Report the evidence;
-  a re-dispatch spends an episode against a wall that has already fallen.
+- **Do not file new work** to make a stale card agree with reality. Report the evidence;
+  a new episode spends a session against a wall that has already fallen.

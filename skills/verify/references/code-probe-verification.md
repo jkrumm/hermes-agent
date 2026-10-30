@@ -3,7 +3,7 @@
 _Use when verifying a claimed code defect before acting._
 
 A reviewer finding, an agent verdict, or your own hypothesis about a guard, parser or
-matcher is a **claim** until you have run it. Probes cost minutes and no dispatch, and
+matcher is a **claim** until you have run it. Probes cost minutes, and
 they change what you write: an artifact carrying a measured reproduction pins the target,
 while one restating the finding can be re-read as "the naive reading".
 

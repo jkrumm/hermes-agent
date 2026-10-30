@@ -190,15 +190,15 @@ pn.PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
 (pn.PROJECTS_DIR / "weatherorb.md").write_text(
     "---\ntype: Reference\ndescription: Weather/wave service.\n---\n\n# weatherorb\n"
 )
-(pn.PROJECTS_DIR / "agent-gateway.md").write_text(
-    "---\ntype: Reference\ndescription: Local MCP daemon.\n---\n\n# agent-gateway\n"
+(pn.PROJECTS_DIR / "agent-workflows.md").write_text(
+    "---\ntype: Reference\ndescription: Agent platform.\n---\n\n# agent-workflows\n"
 )
 pn._regenerate_projects_index()
 index_text = (pn.PROJECTS_DIR / "index.md").read_text()
 check_true("frontmatter type: Index", "type: Index" in index_text)
 check_true("frontmatter title: Projects", "title: Projects" in index_text)
 check_true("weatherorb line with its description", "- [[weatherorb]] — Weather/wave service." in index_text)
-check_true("agent-gateway line with its description", "- [[agent-gateway]] — Local MCP daemon." in index_text)
+check_true("agent-workflows line with its description", "- [[agent-workflows]] — Agent platform." in index_text)
 
 print("\n8. _ensure_engineering_index_links_projects() — adds a Subdomains link once")
 _write_engineering_index()
@@ -448,7 +448,7 @@ recent = (now - _dt.timedelta(hours=1)).isoformat()
 stale = (now - _dt.timedelta(hours=48)).isoformat()
 pn._save_state({
     "weatherorb": {"lastRevisedAt": recent, "summary": "Fresh narrative."},
-    "agent-gateway": {"lastRevisedAt": stale, "summary": "Old narrative."},
+    "agent-workflows": {"lastRevisedAt": stale, "summary": "Old narrative."},
 })
 out = io.StringIO()
 with redirect_stdout(out):

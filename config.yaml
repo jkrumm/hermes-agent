@@ -502,8 +502,7 @@ slack:
   #   C0ARZJD824W = #updates  
   #   C0BVDE5R562 = #agents   (agent digests — mention-only, never answers a bot post)
   #   C0AS1LAUQ3C = #alerts   (see below)
-  # Silencing is inbound-only: `hermes send`, cron delivery and dispatch verdicts still
-  # post here, and the dispatch nudge targets origin_channel, never these three.
+  # Silencing is inbound-only: `hermes send` and cron delivery still post here.
   #
   # #alerts USED to run a full reasoning_effort:high turn on every inbound alert
   # message, then post-hoc suppress the reply with NO_REPLY for anything that wasn't

@@ -31,11 +31,6 @@ brain switch (its 2026-10-10 run had fired on the retired model and 404'd) — i
 that is guarded *and* pinned; the older rows carry no snapshot and still follow the global default
 silently.
 
-**Watchdog (`*/30 * * * *`) and Dispatch sweep (`*/5 * * * *`) left this registry 2026-09-09** —
-they're LaunchAgents in `~/SourceRoot/warden` now (`com.jkrumm.warden-poll`,
-`com.jkrumm.warden-sweep`), for the same reason the alert-triage loop did: see
-`~/SourceRoot/warden/AGENTS.md`.
-
 ## Retired
 
 - **`fd2fa108e0cc` — homelab-pr6-hardening-followup** — `every 180m`, agent, monitor

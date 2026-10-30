@@ -1,6 +1,6 @@
 ---
 name: herdr
-description: Open, inspect and steer herdr panes, tabs and workspaces on this mini — Johannes's own visible terminal workspace. Use when he explicitly names herdr or asks for a pane/tab/agent there ("mach einen herdr tab auf", "starte eine pane in <repo> mit cf", "open a herdr pane", "schreib das in eine pane", "schau in die pane von <repo>", "was macht der Agent in <repo>", "sag dem Agenten …", "stopp den Agenten in der pane"). Also the path for starting an interactive Claude Code session (`c` / `cf` / `cs`) in a repo on his request, prompting it and reading its answer back. Not for unattended background work — that is `dispatch` → Warden.
+description: Open, inspect and steer herdr panes, tabs and workspaces on this mini — Johannes's own visible terminal workspace. Use when he explicitly names herdr or asks for a pane/tab/agent there ("mach einen herdr tab auf", "starte eine pane in <repo> mit cf", "open a herdr pane", "schreib das in eine pane", "schau in die pane von <repo>", "was macht der Agent in <repo>", "sag dem Agenten …", "stopp den Agenten in der pane"). Also the path for starting an interactive Claude Code session (`c` / `cf` / `cs`) in a repo on his request, prompting it and reading its answer back. Not for unattended background work.
 version: 1.0.0
 metadata:
   hermes:
@@ -19,7 +19,7 @@ may use every verb it has.
 
 | He asks for | Lane |
 |-|-|
-| "look into the repo and tell me why X" · "fix it" · anything that needs a repo's source | `capture` → a GitHub issue. There is no unattended-dispatch lane; the owner starts the repo work. |
+| "look into the repo and tell me why X" · "fix it" · anything that needs a repo's source | `capture` → a GitHub issue; the owner starts the repo work. |
 | "what are my agents doing", a cross-project status read | `agw agents --text` (cross-project overview, read-only) |
 | **"open a herdr pane/tab"**, "start `cf` in warden", "write that into a pane", "tell the agent in <repo> …", "stop that agent" | **this skill** |
 

@@ -8,21 +8,10 @@ HERMES_SRC    := $(HERMES_DIR)/hermes-agent
 # inside the `work` symlink.
 HERMES_SKILLS := capture argo-api work karakeep obsidian reading wildrift agw-research image-delivery podcast prose briefing-tts hyperdx homelab homelab-ops hermes-gateway human-queue herdr verify
 
-# Skill links this repo no longer installs — removed by `make setup` so a retired skill
-# cannot linger live. `agents` folded into warden/references, `claude-dispatch` renamed
-# `dispatch`, `rollhook-deploys` folded into homelab-ops/references, `dispatch` dropped with
-# agent-gateway (2026-10-29).
-HERMES_SKILLS_RETIRED := agents claude-dispatch rollhook-deploys dispatch
-
-# Gateway plugins symlinked into ~/.hermes/plugins/ (none today — `dispatch-approval`, the
-# Ed25519 signer, was removed 2026-10-04 once warden Wave 1 deleted the approval stack it
-# fed). A plugin that lives only under ~/.hermes/ is one `hermes update` from unreviewable
-# state, so a new one belongs here and must also be enabled once (`hermes plugins enable`).
+# Gateway plugins symlinked into ~/.hermes/plugins/ (none today). A plugin that lives only
+# under ~/.hermes/ is one `hermes update` from unreviewable state, so a new one belongs here
+# and must also be enabled once (`hermes plugins enable`).
 HERMES_PLUGINS :=
-
-# Plugin links this repo no longer installs — removed by `make setup` so a retired plugin
-# cannot linger live (a dangling link otherwise).
-HERMES_PLUGINS_RETIRED := dispatch-approval
 
 # Scheduled jobs run as user LaunchAgents, not macOS crontab — see the Setup
 # banner below for why. Templates live in launchd/, rendered into ~/Library/LaunchAgents.
@@ -127,18 +116,10 @@ _symlinks:
 			SRC="$(HERMES_REPO)/plugins/$$plugin" \
 			DST="$(HERMES_DIR)/plugins/$$plugin"; \
 	done
-	@for plugin in $(HERMES_PLUGINS_RETIRED); do \
-		LINK="$(HERMES_DIR)/plugins/$$plugin"; \
-		if [ -L "$$LINK" ]; then rm -f "$$LINK"; echo "  → removed retired plugin link $$plugin"; fi; \
-	done
 	@for skill in $(HERMES_SKILLS); do \
 		$(MAKE) --no-print-directory _link \
 			SRC="$(HERMES_REPO)/skills/$$skill" \
 			DST="$(HERMES_DIR)/skills/$$skill"; \
-	done
-	@for skill in $(HERMES_SKILLS_RETIRED); do \
-		LINK="$(HERMES_DIR)/skills/$$skill"; \
-		if [ -L "$$LINK" ]; then rm -f "$$LINK"; echo "  → removed retired skill link $$skill"; fi; \
 	done
 	@$(MAKE) --no-print-directory _copy \
 		SRC="$(HERMES_REPO)/USER.md" \

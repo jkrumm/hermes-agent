@@ -224,14 +224,12 @@ with Full Disk Access); `make status` flags them until it succeeds.
 
 Every Hermes cron job (four — morning briefing, evening report, brain drift audit, project
 narratives) is listed with its id in the registry table in `docs/scheduled-jobs.md`; `make
-status` asserts the live set matches it. Watchdog and dispatch sweep moved to
-`~/SourceRoot/warden` LaunchAgents 2026-09-09 (warden retired 2026-10-27); the agents-overview Slack digest retired
-2026-09-11.
+status` asserts the live set matches it.
 
 ## Repo work is filed
 
 Hermes triages well but reads a repo badly — it has no access to a repo's `AGENTS.md`/`CLAUDE.md`,
 `.claude/rules/` or `.claude/skills/`. For anything that needs real repo context (a bug fix,
-an investigation, a PR), Hermes files a GitHub issue (`capture`) and answers in one line; there is
-no unattended-dispatch lane, so the owner starts the work. Herdr tabs / `rd wave` only on request.
+an investigation, a PR), Hermes files a GitHub issue (`capture`) and answers in one line; the owner starts
+the work. Herdr tabs / `rd wave` only on request.
 Details: `AGENTS.md` §Repo work is filed.

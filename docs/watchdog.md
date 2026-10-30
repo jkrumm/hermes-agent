@@ -1,9 +1,6 @@
 # Briefing pre-run scripts and runtime state
 
-The watchdog poll, its Slack digest, the dispatch sweeper and the alert-triage act-loop
-moved to `~/SourceRoot/warden` on 2026-09-09; warden itself was retired 2026-10-27 (repo archived —
-its `AGENTS.md`, `DESIGN.md` and `STATE.md` are history). What's left here is the briefing side,
-which still runs inside `hermes-agent`:
+The briefing side, which runs inside `hermes-agent`:
 
 **Hermes cron pre-run scripts (executed by `hermes-agent` before each cron run, *not* by macOS crontab or launchd):**
 - `scripts/briefing-context.py` — reads `briefing-state.json` and emits `BRIEFING_CITY` + `BRIEFING_SUPPRESSED` for the morning briefing prompt. Calls `briefing-coverage.py` as subprocess. Output is appended as `## Script Output` block.

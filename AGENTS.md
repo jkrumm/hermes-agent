@@ -42,8 +42,8 @@ the first pass.
 | `config.yaml`, `.env.tpl`, `SOUL.md` | `~/.hermes/…` | edit here, live immediately; `.env.tpl` is the gateway's list of `KEY=op://…` refs |
 | `serve.env.tpl` | `~/.hermes/serve.env.tpl` | `hermes serve`'s own three basic-auth refs — deliberately not in `.env.tpl` (see *Hermes Desktop*) |
 | `cron/`, `scripts/`, `hooks/` | `~/.hermes/…` | Hermes-driven cron + pre-run scripts (must live under `HERMES_HOME/scripts/`) + host-level shell scripts |
-| `plugins/{name}/` | `~/.hermes/plugins/{name}/` | **`HERMES_PLUGINS`** is the source of truth. **None today** — the old `dispatch-approval` plugin was removed 2026-10-04 (the approval stack went with the retired control plane). A new one must **also** be enabled once — `hermes plugins enable <name>`; the symlink alone is inert. |
-| `config/` | `~/.hermes/config/` | **empty** since 2026-09-10 — `dispatch-repos.json` is gone, and with the dispatch lane there is no repo/tier policy any more |
+| `plugins/{name}/` | `~/.hermes/plugins/{name}/` | **`HERMES_PLUGINS`** is the source of truth. **None today.** A new one must **also** be enabled once — `hermes plugins enable <name>`; the symlink alone is inert. |
+| `config/` | `~/.hermes/config/` | **empty** — kept for tracked agent-facing config |
 | `skills/{name}/` | `~/.hermes/skills/{name}/` | **`HERMES_SKILLS` in the Makefile is the source of truth** — 21 dirs (agent-platform Wave 2, 2026-10-04; was 126). Retired skills live on as `<skill>/references/*.md` or in git history; roster: docs. |
 | `USER.md` | `~/.hermes/memories/USER.md` | **copied** — Hermes writes to it |
 
@@ -77,19 +77,17 @@ Disk Access and hangs forever on the headless mini. Done 2026-08-02 — no herme
 (test routing, fix SOUL.md / SKILL.md) · `/hermes-update` (pull upstream, re-apply patches,
 restart gateway).
 
-## Repo work is filed — never done, never dispatched
+## Repo work is filed — never done
 
 Hermes observes well and reads repos badly — an LLM with a `terminal` tool cannot use a
 repo's `AGENTS.md`/`CLAUDE.md`, `.claude/rules/` or `.claude/skills/`. So repo work is **filed,
-not done**: a GitHub issue (`capture`). There is no unattended-dispatch lane (agent-gateway and its
-`dispatch` were retired 2026-10-29; warden went 2026-10-27): the owner starts the work.
+not done**: a GitHub issue (`capture`); the owner starts the work.
 Hermes does not land PRs, `gh pr merge`, or start a `claude` session.
 
 **One door per verb:** repo work → a GitHub issue (`capture`); panes / long visible work → `herdr` + `rd`
 (`rd wave`, never `claude --bg` / `claude -p`, and only when the owner asks).
 
-**No approval stack.** The `dispatch-approval` plugin (Ed25519 signer, Approve/Deny buttons) was
-removed 2026-10-04. Config of `plugins:` is empty; `HERMES_PLUGINS` in the Makefile is empty.
+**No approval stack.** Config of `plugins:` is empty; `HERMES_PLUGINS` in the Makefile is empty.
 
 **`slack.allow_bots: all` is deliberate — do not "fix" it.** The trust boundary is the
 workspace, not human-vs-bot: HomeLab/VPS/Argo post from inside the tailnet and live `#alerts`
@@ -244,8 +242,6 @@ search, which stays for quick lookups.
 - **Named `agw-research`, not `research`** — upstream's bundled skill *category* dir
   `~/.hermes/skills/research/` would collide with a top-level `research` symlink. Routing is by
   description/tags, so "recherchier mal" still triggers it.
-- The standalone research-gateway is retired (2026-10-29); nothing calls it, and its host is out of the cron
-  scanner allowlist patch (`cronjob-tools-allowlist-argo-bearer`).
 
 ## WeatherOrb (MCP)
 
