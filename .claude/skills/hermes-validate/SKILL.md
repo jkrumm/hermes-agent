@@ -256,7 +256,6 @@ Then re-send the same test message and compare `api_calls` and `time` in `agent.
 | Reading: "was soll ich lesen" | `reading` | — | ~34s | Working — pulled `/api/reading` shelf, German rec grounded in the real shelf (Tress / Bad Karma / Iron Flame) |
 | WalkingPad: weekly distance | `argo-api` (walking-pad) | — | ~26s | Working — `/walking-pad/sessions/summary` + heroes; 33.7 km / 12 sessions / streak / +30.5% wk, all correct |
 | Usage: monthly AI spend | `argo-api` (usage) | — | ~64s | Working — `/usage/headline` + breakdown, per-source + per-model, honest about fixed 7/30/90d windows |
-| Research: latest Bun version | `research-gateway` | — | ~54s | Working — submit+poll to research-gateway, cited answer (Bun v1.3.14); tirith allowlist let `curl research… \| jq` through with no approval gate |
 | Post-update (v0.16.0→v0.18.2) TickTick overdue check | `tasks` (method A) | 4 | ~26s | Working — general agent loop intact after platform-plugin rewrite |
 | Post-update infra status (homelab+vps) | `infrastructure` (method A) | 4 | ~16s | Working — 2× terminal/curl tool calls, clean routing after the platform-plugin rewrite |
 | Post-update Slack formatting check (`*` bullet) | — (method B, real Slack path) | 1 | 5.2s | Working — response posted with `-` bullets (confirms `format_message()` pre-steps ported to `plugins/platforms/slack/adapter.py`). *Recorded `thread_ts: null` — correct then (`reply_in_thread: false`), and the opposite of correct now; see the threading note below.* |
@@ -268,7 +267,7 @@ Then re-send the same test message and compare `api_calls` and `time` in `agent.
 | v0.19.1 Slack bullets + threading (method B) | — | 2 | 10.9s | Working — session key `…:C0ASRUD7K1U:1785673823.484699` with `thread_id` set. Note the model happened to emit `-` bullets itself, so the *round-trip alone proved nothing* about the patch — see the in-process recipe below |
 | v0.19.1 `format_message()` pre-steps (in-process) | `slack-cannot-reply-to-message.patch` | — | — | Working — `* ` → `- ` at all nesting levels, and `` `:white_check_mark: …` `` backticks stripped. This is the check that actually pins the patch |
 | v0.19.1 TTS + thread continuation (method B, `/reply`) | `tts-tool-audio-title` + `base.py` anchor | — | ~29s | Working — `TTS audio saved: …/Gateway und Dienste prüfen.mp3` (human title, not `tts_<timestamp>`), `[Slack] Delivering 1 non-image MEDIA attachment(s)` then a clean send, no errors. Same session reused (mc 5→9) |
-| v0.19.1 STT round-trip (in-process) | `stt.openai` → audio-gateway | — | — | Working — fed the TTS mp3 back to `transcribe_audio()`: `gpt-4o-transcribe` returned accurate German with umlauts intact ("Prüfe Gateway und Dienste… keine Fehler in der Gateway-Logdatei"). Closes the loop Gemini Charon → gpt-4o-transcribe |
+| v0.19.1 STT round-trip (in-process) | `stt.openai` | — | — | Working — fed the TTS mp3 back to `transcribe_audio()`: `gpt-4o-transcribe` returned accurate German with umlauts intact ("Prüfe Gateway und Dienste… keine Fehler in der Gateway-Logdatei"). Closes the loop Gemini Charon → gpt-4o-transcribe |
 | v0.19.1 cron delivery target (in-process) | `scheduler-skip-resolver-for-slack-ids` | — | — | Working — `slack:C0ASRUD7K1U` resolved to `{'chat_id': 'C0ASRUD7K1U', 'thread_id': None}`, un-mangled by the channel directory |
 | v0.21.6+669 in-process sweep (2026-10-11) | slack mrkdwn, `tts-tool-audio-title`, STT, cron allowlist | — | — | Working — `format_message('* eins\n  * zwei')` → `-` bullets at both levels; forced `elevenlabs/v3` returned title `Kurzer Test nach Update` and renamed the file; STT gave back the exact sentence; cron scanner: argo/karakeep/research `OK` live vs `Blocked` pristine, evil host blocked in both |
 | v0.21.6+669 Slack TTS + thread (method B) | `slack-media-inline-reply-anchor`, threading | 5 | 32.5s | Working — text and `tts_<timestamp>.mp3` share `thread_ts`. A timestamp name is correct with the live `elevenlabs/flash-v2.5`: Flash sends no title header. `/reply` continuation reused the session (one row, mc 14) and recalled `12:30` in 2.6s, Haiku 5.5 EU, no fallback |
@@ -330,7 +329,7 @@ table, which has gone stale before.
 | `skills/capture/SKILL.md` | Router: KaraKeep vs Obsidian vs TickTick vs GitHub |
 | `skills/work/SKILL.md` | IU surface — M365, Jira, Confluence, GitLab |
 | `skills/karakeep/SKILL.md` · `skills/obsidian/SKILL.md` | Read-later bucket · second brain |
-| `skills/reading/SKILL.md` · `skills/research-gateway/SKILL.md` | Book shelf · deep cited research |
+| `skills/reading/SKILL.md` · `skills/agw-research/SKILL.md` | Book shelf · deep cited research |
 | `skills/image-delivery/SKILL.md` | `imgcli private`/`upload` — private by default |
 | `~/.hermes/logs/agent.log` | Structured run log (api_calls, time, inbound messages) |
 | `~/.hermes/logs/gateway.log` | Gateway stdout (startup, tool progress bars) |

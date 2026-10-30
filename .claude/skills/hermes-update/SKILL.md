@@ -44,7 +44,7 @@ Files touched (all are `.patch` files applied with `git apply` — no full-file 
 | `agent/auxiliary_client.py` | `patches/auxiliary-client-iu-openai-leg-quirks.patch` | always `max_completion_tokens`, and a clamped top-level `reasoning_effort`, on the IU OpenAI leg — covers the auxiliaries the transport/run_agent patches don't (the gpt-5.x `temperature` strip retired at v0.21.4, upstream does it) |
 | `tools/tts_tool_openai.py` + `tools/tts_tool.py` | `patches/tts-tool-audio-title.patch` | name the audio file from the audio door's `X-Audio-Title` header (a short title from the door's own prep step) instead of `tts_<timestamp>` |
 
-> **STT is not patched.** `tools/transcription_tools.py` (native `openai` STT → `gpt-transcribe`) is pointed at the audio door purely via `config.yaml`. TTS uses the stock native `openai` provider (→ Gemini Charon via the audio door) plus the one small `tts-tool-audio-title` patch above for the filename. After an update, confirm `config.yaml`'s `tts.openai` / `stt.openai` `base_url` still reads `https://audio-gateway.jkrumm.com/v1`.
+> **STT is not patched.** `tools/transcription_tools.py` (native `openai` STT → `gpt-transcribe`) is pointed at the audio door purely via `config.yaml`. TTS uses the stock native `openai` provider (→ Gemini Charon via the audio door) plus the one small `tts-tool-audio-title` patch above for the filename. After an update, confirm `config.yaml`'s `tts.openai` / `stt.openai` `base_url` still reads `http://127.0.0.1:7792/v1` and `api_key` `${AUDIO_DOOR_TOKEN}`.
 
 ### When EVERY patch conflicts, check the commit count before the conflicts
 
@@ -316,7 +316,7 @@ Only then `cp /tmp/new-patches/*.patch ~/SourceRoot/hermes-agent/patches/`, dele
 
 ### config.yaml loses hand-written comments on config-format migration
 
-`hermes update` may print `Updating config format (vN → vM)…` — this re-serializes `config.yaml` through the live symlink and silently **strips comments**, even though it preserves all values. After the update, check `git diff config.yaml` in `~/SourceRoot/hermes-agent` — new default keys are expected and fine, but if any hand-written explanatory comment (the ones documenting *why*, e.g. the audio-gateway routing rationale or the skills-trust `external_dirs` note) got dropped, restore it manually before committing. This is not a patch-tracked file, so there's no `.patch` to re-apply here — just a manual comment restore each time the config version bumps.
+`hermes update` may print `Updating config format (vN → vM)…` — this re-serializes `config.yaml` through the live symlink and silently **strips comments**, even though it preserves all values. After the update, check `git diff config.yaml` in `~/SourceRoot/hermes-agent` — new default keys are expected and fine, but if any hand-written explanatory comment (the ones documenting *why*, e.g. the audio-door routing rationale or the skills-trust `external_dirs` note) got dropped, restore it manually before committing. This is not a patch-tracked file, so there's no `.patch` to re-apply here — just a manual comment restore each time the config version bumps.
 
 ### What `hermes update` does on its own
 
@@ -358,7 +358,7 @@ cd web && fnm exec --using=26.5.1 -- npm ci --no-audit --no-fund \
 installs exactly the lockfile and leaves the tree clean; verify with
 `git status --short package-lock.json` (must be empty) afterwards.
 
-**Lazy-backend refresh warnings are often benign.** After pulling, `hermes update` refreshes "lazy backends" (optional provider/platform plugins) and may print import warnings for some of them (e.g. `provider.vertex`, `platform.matrix`, `platform.feishu`, `platform.teams`, `tool.trace_upload` failed with a transient import error at the v0.18.2 jump). Before investigating, check whether the affected backend is actually active in `~/.hermes/config.yaml` (search for its provider/platform name under an *enabled* section, not just present as a stock default block — every platform gets a default config block whether used or not). If it's not part of this deployment (this repo only runs the Slack platform + OpenAI-provider TTS/STT via the audio-gateway), the warning is inert and doesn't block the update or the gateway.
+**Lazy-backend refresh warnings are often benign.** After pulling, `hermes update` refreshes "lazy backends" (optional provider/platform plugins) and may print import warnings for some of them (e.g. `provider.vertex`, `platform.matrix`, `platform.feishu`, `platform.teams`, `tool.trace_upload` failed with a transient import error at the v0.18.2 jump). Before investigating, check whether the affected backend is actually active in `~/.hermes/config.yaml` (search for its provider/platform name under an *enabled* section, not just present as a stock default block — every platform gets a default config block whether used or not). If it's not part of this deployment (this repo only runs the Slack platform + OpenAI-provider TTS/STT via the audio door), the warning is inert and doesn't block the update or the gateway.
 
 ### Docs-drift sweep (do this whenever an artifact is removed or renamed)
 
@@ -455,7 +455,7 @@ isolation, red in pristine too), and the 9 TTS failures (`bytes-like object is r
   decision), so `messaging` left `TOOLSETS` and `hermes update` printed `platform 'slack'
   references unknown toolset 'messaging'`. Drop the name from `platform_toolsets` in
   `config.yaml`; check nothing in `skills/`, `cron/` or `SOUL.md` told the agent to call it.
-  `hermes send` is untouched, so `dispatch-sweep.py`'s verdict delivery is unaffected.
+  `hermes send` is untouched.
 - **A traceback at the very end of `hermes update` can be module skew, not a bug.** v0.21.4
   ended in `TypeError: _find_stale_dashboard_pids() got an unexpected keyword argument
   'scope_home'` — the running CLI still held the *old* `main.py` while importing the *new*

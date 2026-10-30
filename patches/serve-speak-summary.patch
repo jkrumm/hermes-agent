@@ -1,5 +1,5 @@
 diff --git a/hermes_cli/web_routers/audio.py b/hermes_cli/web_routers/audio.py
-index 3c048cba22..4e37139406 100644
+index 3c048cba22..d539d4ad6d 100644
 --- a/hermes_cli/web_routers/audio.py
 +++ b/hermes_cli/web_routers/audio.py
 @@ -589,6 +589,60 @@ async def transcribe_stream_ws(ws: WebSocket) -> None:
@@ -15,7 +15,7 @@ index 3c048cba22..4e37139406 100644
 +    """``voice.speak_summary_min_chars``: replies at least this long are spoken as a
 +    one-sentence summary instead of read out in full (0 = off, the default).
 +
-+    Only the OpenAI-compatible streamer can do it — the audio-gateway behind
++    Only the OpenAI-compatible streamer can do it — the audio door behind
 +    it owns the summarising LLM via its non-standard ``summarize`` request
 +    field; every other provider keeps full speech.
 +    """

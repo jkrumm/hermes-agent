@@ -54,15 +54,6 @@ ANTHROPIC_BASE_URL=op://common/anthropic/BASE_URL
 # Tavily — web search, extract, crawl (replaces browser-based search)
 TAVILY_API_KEY=op://hermes/tavily/API_KEY
 
-# Voice — fallback api_key for the native openai TTS/STT tools, only consulted by
-# hermes-agent's _resolve_openai_audio_client_config() when config.yaml's
-# tts.openai.api_key / stt.openai.api_key is unset — both are set there to
-# ${AUDIO_DOOR_TOKEN}, so this value is inert, kept as a safety net. It is NOT a
-# door credential (the real token is a local file, not a 1Password ref: config.yaml's
-# secrets.command appends AUDIO_DOOR_TOKEN from the hermes= line of
-# ~/.agent-workflows/data/door-tokens).
-VOICE_TOOLS_OPENAI_KEY=hermes
-
 # GitHub — issue creation, repo queries (watchdog, Phase 3)
 GITHUB_TOKEN=op://hermes/github/token
 
@@ -80,8 +71,7 @@ KARAKEEP_API_KEY=op://hermes/karakeep/api-key
 # HyperDX/ClickStack (observability, Tailscale-only at hyperdx.jkrumm.com, on the
 # VPS). Bearer for the `hyperdx` skill's MCP + REST v2 calls — a dedicated read-only
 # HyperDX **user access key** (not the OTLP ingestion key), provisioned by
-# `make hyperdx-agent-setup` in the vps repo. Same credential the agent-gateway `otel`
-# MCP tool uses for Claude Code sessions. Base URL is hardcoded in the skill.
+# `make hyperdx-agent-setup` in the vps repo. Base URL is hardcoded in the skill.
 HYPERDX_AGENT_ACCESS_KEY=op://vps/clickstack/AGENT_ACCESS_KEY
 
 # UptimeKuma push URLs — pinged on success by hermes-liveness.sh, hermes-backup.sh,
