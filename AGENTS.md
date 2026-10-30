@@ -299,7 +299,7 @@ no substantive change gets no revision and no mention, gated by a pure
 model call. `scripts/project-narratives.py --run` is the cron entry (job `9909f808fe17`, daily 06:30,
 via `narratives-cron.py`); `--bootstrap a,b,c` writes for human review without committing. It
 takes brain-sync's `mkdir` lock around add/commit, pushes (fail-soft), and POSTs each written
-page to Argo `/api/agents/narratives` (best-effort, a 404 is non-fatal).
+page to Argo `/api/agents/narratives` on loopback (`http://127.0.0.1:7737/api`, the native Argo; override `HERMES_NARRATIVE_ARGO_BASE`; best-effort, a 404 is non-fatal).
 Every commit names the vault (`git -C ~/SourceRoot/brain …`). **`docs/project-narratives.md`**.
 
 ## Second Brain (Obsidian + KaraKeep)

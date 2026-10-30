@@ -80,7 +80,8 @@ BRAIN_LOCK_DIR = Path(os.environ.get("BRAIN_SYNC_LOCK_DIR", str(Path.home() / "L
 LOCK_RETRY_ATTEMPTS = 6
 LOCK_RETRY_DELAY_S = 5.0
 
-ARGO_API_BASE = os.environ.get("HERMES_NARRATIVE_ARGO_BASE", "https://argo.jkrumm.com/api")
+# Loopback: Argo runs natively on this machine (com.jkrumm.argo, :7737, the /api prefix is served by the process itself).
+ARGO_API_BASE = os.environ.get("HERMES_NARRATIVE_ARGO_BASE", "http://127.0.0.1:7737/api")
 ARGO_NARRATIVES_PATH = "/agents/narratives"
 ARGO_API_KEY_REF = "op://common/api/SECRET"
 SECRETS_RUN = Path.home() / ".local" / "bin" / "secrets-run"
