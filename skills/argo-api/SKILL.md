@@ -36,9 +36,9 @@ Always read `response.data` for the array and `response.total` for the row count
 - `/daily-metrics/{summary,series,sync-status}`, `/weight-log/{summary,series}`, `/activities/summary`
 - `/uptime-kuma/{status,monitors}`, `/docker/*/{summary,stats,containers}`
 
-## Tag taxonomy (14 tags — what this skill covers)
+## Tag taxonomy (13 tags — what this skill covers)
 
-The live OpenAPI surface has **14 tags**. They split three ways: this skill (`argo-api`)
+The live OpenAPI surface has **13 tags**. They split three ways: this skill (`argo-api`)
 owns the **personal** domains; IU-work domains live in the separate `work` skill; two
 tags are infrastructure Hermes deliberately does **not** call.
 
@@ -59,7 +59,6 @@ tags are infrastructure Hermes deliberately does **not** call.
 **Work — the `work` skill (NOT here):** **M365** (`/m365/*`), **Atlassian** (`/atlassian/jira/*` + `/confluence/*`), **GitLab** (`/gitlab/*`). Route IU-work questions there.
 
 **Not agent-facing (Hermes does NOT call these):**
-- **Hermes Chat** (`/hermes/*`) — the *argo dashboard → Hermes* path (argo calls Hermes here). Calling it from Hermes would be talking to itself.
 - **AI Gateway** (`/ai/v1/*`) — OpenAI-compatible model + audio proxy. Hermes reaches its brain and the **audio door directly** (`config.yaml`), not through Argo's `/ai` hop. Never route TTS/STT/chat through `/ai/v1/*`.
 
 ---
@@ -276,7 +275,7 @@ curl -s -X POST -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: ap
 - **Query param convention:** canonical names are camelCase (`dateFrom`, `dateTo`, `workoutId`, `sortDir`) and json-server-style underscored aliases (`_order`, `_sort`, `_start`, `_end`, `date_from`) still work as backwards-compat. Prefer canonical names in new code; keep legacy in the morning-briefing cron prompt for stability.
 - **Request body fields** are snake_case where the schema says so (`exercise_id`, `weight_kg`, `set_number`, `set_type`, `birth_date`, `height_cm`, `goal_weight_kg`); response field naming is unchanged from each endpoint's source.
 - **Trailing slashes** are tolerated but not preferred — use `/workouts`, not `/workouts/`.
-- This skill is auto-regenerated from the live OpenAPI spec (`https://argo.jkrumm.com/api/openapi/json`) — run `/docs` in the homelab project after API route changes. The regen pass rewrites this file using the **14-tag taxonomy** above: keep the personal / work / not-agent-facing split (don't fold M365/Atlassian/GitLab in here — they're the `work` skill — and never add `/hermes/*` or `/ai/v1/*`).
+- This skill is auto-regenerated from the live OpenAPI spec (`https://argo.jkrumm.com/api/openapi/json`) — run `/docs` in the homelab project after API route changes. The regen pass rewrites this file using the **13-tag taxonomy** above: keep the personal / work / not-agent-facing split (don't fold M365/Atlassian/GitLab in here — they're the `work` skill — and never add `/ai/v1/*`).
 
 ## More references
 

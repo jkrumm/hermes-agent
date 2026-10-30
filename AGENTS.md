@@ -167,22 +167,21 @@ secrets resolve for **every** hermes invocation — gateway, CLI, cron.
 
 Rationale + what this replaced: **`docs/secrets-command.md`**.
 
-## Gateway HTTP Exposure (argo dashboard chat)
+## Gateway HTTP Exposure (iris)
 
-The gateway runs an OpenAI-compatible HTTP API alongside Slack so the **argo VPS dashboard
-chat** can reach Hermes. Four env vars (framework keys in `hermes_cli/config.py`), resolved at
-startup from `.env.tpl` via `secrets.command`:
+The gateway runs an OpenAI-compatible HTTP API alongside Slack; **iris** (the voice and chat
+app on the mini) is its consumer. The argo dashboard chat was removed 2026-10-30 and its
+`tag:vps → tag:mac :8642` ACL grant with it. Four env vars (framework keys in
+`hermes_cli/config.py`), resolved at startup from `.env.tpl` via `secrets.command`:
 
 | Var | Value |
 |-|-|
 | `API_SERVER_ENABLED` / `API_SERVER_PORT` | `true` / `8642` — literals |
 | `API_SERVER_HOST` | the mini's Tailscale IP — **tailnet-only bind**, no LAN listener. `op://hermes/gateway/host` (never a literal in git) |
-| `API_SERVER_KEY` | bearer gating **every** request, even loopback. `op://hermes/gateway/api-server-key` |
+| `API_SERVER_KEY` | bearer gating **every** request, even loopback. `op://hermes/gateway/api-server-key` (iris reads it as `HERMES_TOKEN`) |
 
-**`API_SERVER_KEY` must equal argo's `HERMES_API_KEY`** (mirrored op items) — rotate both, then
-`ssh vps "cd ~/vps && ENV=prod make argo-env && ENV=prod make argo-up"` (no gateway restart, only
-argo redeploys). Mismatch = **401**; connection-refused = not bound to the tailnet IP. Verify
-from the VPS, rotation steps, network path: **`docs/gateway-http-api.md`**.
+Rotate the key, then restart the gateway and iris. Mismatch = **401**; connection-refused = not
+bound to the host iris uses. Verify and rotation steps: **`docs/gateway-http-api.md`**.
 
 ## Hermes Desktop (`hermes serve`)
 
@@ -209,10 +208,10 @@ Full design, verification recipe and failure modes: **`docs/hermes-serve.md`**.
 ## Homelab API Integration
 
 `skills/argo-api/SKILL.md` endpoint tables are regenerated from
-`https://argo.jkrumm.com/api/openapi/json` by the homelab `/docs` skill. The spec's **14 tags**
+`https://argo.jkrumm.com/api/openapi/json` by the homelab `/docs` skill. The spec's **13 tags**
 split three ways: **personal** (`argo-api`) — Garmin Health, Strength, WalkingPad, Productivity,
 Infrastructure, External Data, Reading, Usage Tracking, System; **work** (`work` skill) — M365,
-Atlassian, GitLab; **not agent-facing** — Hermes Chat (`/hermes/*`) + AI Gateway (`/ai/v1/*`).
+Atlassian, GitLab; **not agent-facing** — AI Gateway (`/ai/v1/*`).
 `/reading/*` is the standalone `reading` skill. **API secret:** `op://common/api/SECRET`
 (account `tkrumm`), in `.env.tpl`.
 
