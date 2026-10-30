@@ -49,7 +49,7 @@ imgcli upload ~/.hermes/image_cache/photo.png gen/ --json
 imgcli gen "a minimalist line drawing of a Mac mini on a desk" --private --json
 ```
 
-`gen` runs on the VPS `image-gateway`. The prompt is data — quote it, never build it from
+`gen` runs `agw image` on the mini. The prompt is data — quote it, never build it from
 an untrusted message. Presigned links never go into durable notes — they expire.
 
 Full command reference (`sync`, `ls`, transforms, prefixes) lives in the `img` skill in
