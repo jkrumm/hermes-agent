@@ -34,7 +34,7 @@ Mac Mini M2 Pro — Hermes Agent (always-on)
 | `#alerts` | C0AS1LAUQ3C | read only (`require_mention_channels`) | HomeLab bot, VPS app (A0BV9MG54TD), Argo app (A0BV9MFTM9R), external monitors | Silenced — no per-message LLM turn, and nothing polls it out-of-band any more. Mentioning Hermes here directly still works |
 | `#updates` | C0ARZJD824W | read only (`require_mention_channels`) | HomeLab bot | Silenced — Hermes was echoing its own pipeline's posts |
 | `#media` | C0AS5GUH5U4 | read only (`require_mention_channels`) | — | Podcast/image completions — Hermes is the producer, not a conversant |
-| `#watchdog` | C0ASRULFTSS | write only | — | Reserved for Hermes's own proactive monitoring results; no job posts here today |
+| `#watchdog` | C0ASRULFTSS | write only | — | Hermes's own proactive monitoring results — today the weekly brain drift audit (cron `8fe7be4985d9`, Saturdays 09:00) |
 | `#briefings` | C0AT6TH404R | write only | — | Morning/evening audio reports (cron `cc7900c424a9`, `2d38c80e685c`) |
 | `#agents` | C0BVDE5R562 | write only | — | Idle — the agents-overview cron that posted here retired 2026-09-11; read the same snapshot with `agw agents --text` or in the morning briefing |
 
