@@ -39,8 +39,8 @@ Always read `response.data` for the array and `response.total` for the row count
 ## Tag taxonomy (13 tags — what this skill covers)
 
 The live OpenAPI surface has **13 tags**. They split three ways: this skill (`argo-api`)
-owns the **personal** domains; IU-work domains live in the separate `work` skill; two
-tags are infrastructure Hermes deliberately does **not** call.
+owns the **personal** domains; IU-work domains live in the separate `work` skill; one
+tag is infrastructure Hermes deliberately does **not** call.
 
 **Personal — this skill (`argo-api`):**
 
