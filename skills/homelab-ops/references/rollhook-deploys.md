@@ -50,7 +50,7 @@ validator sees and what rollhook substitutes on each deploy.
 
 ## Diagnosing a "Deployment failed: <app>" alert
 
-1. **Check the container, not just the alert.** `GET /api/docker/vps/containers` (argo):
+1. **Check the container, not just the alert.** `GET /api/docker/vps/containers` (argo; currently returns an error — known gap, VPS Docker is not reachable from the mini where Argo now runs — use SSH/`hermes-ops.sh` instead):
    a failed deploy usually leaves the OLD container running. Running `:latest` while the
    alert names a pinned `:sha` = the rollout never applied; the app can look perfectly
    healthy while the new image never shipped.

@@ -14,6 +14,8 @@ Personal integration layer for TickTick, Gmail, Calendar, Docker, UptimeKuma, Sl
 
 **Base URL:** `https://argo.jkrumm.com/api`
 **Auth:** `Authorization: Bearer $HOMELAB_API_KEY` (available in env)
+**Where it runs:** natively on the Mac mini (since 2026-10-30); the hostname is unchanged.
+**Known gap:** `/docker/vps/*` and the `dockerVps` part of `/summary` currently return an error (the VPS Docker half is not reachable from the mini, where Argo now runs). Docker homelab (`/docker/homelab/*`) works.
 **OpenAPI spec:** `https://argo.jkrumm.com/api/openapi/json`
 **Discovery:** `GET /` — public root returning `{name, version, description, docs, auth, tags[]}`. Use for bootstrap orientation; read `/openapi/json` for the full surface.
 
@@ -123,6 +125,8 @@ tag is infrastructure Hermes deliberately does **not** call.
 | GET | `/docker/homelab/summary` | — | Host resources + container counts + health alerts |
 
 ### Infrastructure — Docker (VPS)
+> **Known gap:** every endpoint below currently returns an error — the VPS Docker half is not reachable from the mini, where Argo now runs. Do not retry; say so and use `hermes-ops.sh` / SSH if the VPS state is needed.
+
 | Method | Path | Key params | Description |
 |-|-|-|-|
 | GET | `/docker/vps/containers` | — | All containers: state, health, restart count |

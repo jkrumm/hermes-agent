@@ -5,6 +5,8 @@ Monitor service uptime (UptimeKuma) and Docker container health across homelab a
 **Base URL:** `https://argo.jkrumm.com/api`
 **Auth:** `Authorization: Bearer $HOMELAB_API_KEY`
 
+> **Known gap:** `/docker/vps/*` and the `dockerVps` part of `/summary` currently return an error (the VPS Docker half is not reachable from the mini, where Argo now runs). Homelab Docker (`/docker/homelab/*`, via the homelab socket-proxy) and UptimeKuma work. Report the VPS half as unavailable instead of retrying; never read it as "VPS containers are down".
+
 ---
 
 ## Quick Commands

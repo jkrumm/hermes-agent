@@ -1,5 +1,7 @@
 # Argo API surface — personal, work and what reaches briefings
 
+Argo runs natively on the Mac mini (since 2026-10-30); the base URL `https://argo.jkrumm.com/api` is unchanged. **Known gap:** `/docker/vps/*` and the `dockerVps` part of `/summary` currently return an error (VPS Docker is not reachable from the mini yet).
+
 `skills/argo-api/SKILL.md` endpoint tables are regenerated from `https://argo.jkrumm.com/api/openapi/json` by the homelab `/docs` skill. The live spec carries **13 tags**, split three ways in the skill's taxonomy: **personal** (`argo-api`) — Garmin Health, Strength, **WalkingPad**, Productivity, Infrastructure, External Data, **Reading**, **Usage Tracking**, System; **work** (`work` skill) — M365, Atlassian, GitLab; and **not-agent-facing** — **AI Gateway** (`/ai/v1/*`, the model+audio proxy Hermes bypasses by hitting its brain + the agent-workflows audio door directly). Domain skills (infrastructure, tasks, capture, schedule, work, weather, slack, garmin-health, strength, walking-pad) are updated in the same pass if their endpoints changed. Reading (`/reading/*`) is owned by the standalone `reading` skill; the `agw-research` skill runs `agw research`, not Argo.
 
 **Work surface (IU) — `work` skill.** Argo wraps four upstream systems behind a single curated REST surface (read-only everywhere **except Jira writes**), all consumed by the Hermes `work` skill:

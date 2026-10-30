@@ -153,6 +153,11 @@ Watchtower's own log shows a nil-pointer panic on the same run.
 **Trigger:** `/docker/vps/*` returns a typo-style error, an empty 200, or a
 timeout, while UptimeKuma shows the actual VPS services healthy.
 
+**Since 2026-10-30 this is the standing state, not an incident:** Argo runs on the
+Mac mini and cannot reach the VPS Docker half yet (known gap), so `/docker/vps/*`
+and `dockerVps` in `/summary` always answer an error. Restarting the VPS proxy
+does not change that; use UptimeKuma and `hermes-ops.sh` (SSH) for VPS state.
+
 - **Root cause:** the VPS `docker-socket-proxy` is unreachable — a monitoring
   gap, not a service outage. The application containers are almost always
   fine.
@@ -353,9 +358,11 @@ either the verb doesn't cover the shape you need, or (see the last bullet)
   ~100 ms of each other, the heartbeat table already records `status 1`, but
   the monitor stays DOWN until the NEXT beat (up to a full interval). Not a
   broken pusher — wait for the next beat instead of restarting or re-syncing.
-- **When the VPS itself is the outage, argo is down with it** (argo runs on
-  the VPS) — `hermes-ops.sh status` failing IS the diagnostic, not a broken
-  API. `kuma-db` still works (it reads the homelab-side kuma DB directly), so
+- **Argo runs on the Mac mini** (since 2026-10-30), not the VPS, so a VPS
+  outage no longer takes it down; the VPS Docker half (`/docker/vps/*`) is
+  unreachable from there anyway (known gap) and answers an error. When argo
+  itself is unreachable, suspect the mini — `hermes-ops.sh status` failing
+  then IS the diagnostic, not a broken API. `kuma-db` still works (it reads the homelab-side kuma DB directly), so
   fall back to `kuma-db heartbeats <id>` / `kuma-db monitor-config` to date
   the outage window. An unauthenticated `curl .../api/summary` returning
   `401` means argo is back up (auth required, not unreachable); `000`/timeout

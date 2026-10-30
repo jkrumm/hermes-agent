@@ -207,6 +207,7 @@ Full design, verification recipe and failure modes: **`docs/hermes-serve.md`**.
 
 ## Homelab API Integration
 
+Argo runs natively on the Mac mini (since 2026-10-30; the base URL `https://argo.jkrumm.com/api` is unchanged). **Known gap:** `/docker/vps/*` and the `dockerVps` part of `/summary` currently return an error (VPS Docker is not reachable from the mini); Argo's homelab Docker route reads the homelab socket-proxy.
 `skills/argo-api/SKILL.md` endpoint tables are regenerated from
 `https://argo.jkrumm.com/api/openapi/json` by the homelab `/docs` skill. The spec's **13 tags**
 split three ways: **personal** (`argo-api`) — Garmin Health, Strength, WalkingPad, Productivity,
