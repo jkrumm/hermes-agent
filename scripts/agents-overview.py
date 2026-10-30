@@ -26,7 +26,7 @@ recommendation — `summary.needsYou` counts by state, so a briefing whose
 header says "1 need you" must show that one item.
 
 This script only reads. It never sends keys to a herdr pane and never
-dispatches.
+starts work.
 
 Retired 2026-09-11: the scheduled `#agents` Slack digest (`--slack-body`,
 cron job `72aa2fb36307`) that reposted this data every 30 minutes. Its code
@@ -208,8 +208,7 @@ def _summary_line(cur: dict[str, Any]) -> str:
         f"{s.get('working', 0)} working · "
         f"{s.get('idle', 0)} idle · "
         f"{s.get('stale', 0)} stale · "
-        f"{s.get('done', 0)} done · "
-        f"{s.get('dispatch', 0)} dispatch"
+        f"{s.get('done', 0)} done"
     )
 
 

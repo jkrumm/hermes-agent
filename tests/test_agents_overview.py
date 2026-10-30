@@ -62,7 +62,7 @@ def mk_agent(id_: str, title: str, recommendation: str | None,
 def mk_overview(projects: list[tuple[str, list[dict]]], summary: dict | None = None) -> dict:
     return {
         "summary": summary or {
-            "needsYou": 0, "working": 0, "idle": 0, "stale": 0, "done": 0, "dispatch": 0,
+            "needsYou": 0, "working": 0, "idle": 0, "stale": 0, "done": 0,
         },
         "overview": {"generatedAt": 0, "model": "claude-haiku-4-5", "ageMs": 0},
         "projects": [{"name": name, "cwd": f"/repo/{name}", "git": None, "agents": agents}
@@ -142,7 +142,7 @@ finally:
 
 print("\n14c. needs_you agent with a non-actionable recommendation is still listed in the briefing")
 cur_ny = mk_overview([("argo", [mk_agent("a1", "Migrate schema", "watch", standing="waiting on input", state="needs_you")])],
-                     summary={"needsYou": 1, "working": 0, "idle": 0, "stale": 0, "done": 0, "dispatch": 0})
+                     summary={"needsYou": 1, "working": 0, "idle": 0, "stale": 0, "done": 0})
 brief_ny = ao.render_briefing(cur_ny)
 check_true("briefing lists the needs_you agent despite recommendation=watch", "Migrate schema" in brief_ny)
 
@@ -219,7 +219,7 @@ check("age at bound -> false",
 print("\n26. render_slack_blocks() — header block text")
 cur = mk_overview(
     [("repoA", [mk_agent("a1", "Ship it", "ship")])],
-    summary={"needsYou": 2, "working": 3, "idle": 0, "stale": 1, "done": 0, "dispatch": 0},
+    summary={"needsYou": 2, "working": 3, "idle": 0, "stale": 1, "done": 0},
 )
 blocks = ao.render_slack_blocks(cur)
 check("first block is a header", blocks[0]["type"], "header")

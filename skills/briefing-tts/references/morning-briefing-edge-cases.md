@@ -39,25 +39,6 @@ not zero: say "GitHub-Daten nicht verfügbar", never "alles sauber". Without
 that line, use `GITHUB_TOTAL`/`GITHUB_OPEN_BY_REPO`/`GITHUB_FRESH_48H` as
 given; don't re-query GitHub to double-check them.
 
-## Warden API unreachable
-`curl -s http://127.0.0.1:7735/board` (Step 1, call 10) can fail if
-`warden-api` isn't running, the ledger is mid-migration (503), or the running
-`warden-api` predates the endpoint (404 — it needs a `launchctl kickstart -k`
-after a warden upgrade). Surface the
-Warden bullet in Infrastruktur as "Board nicht erreichbar" and move on — do
-**not** invent counts or fall back to guessing from the Watchdog block, which
-covers a different, earlier stage (raw signals, not triaged items).
-
-## Watchdog open-items summary
-`~/SourceRoot/warden`'s `watchdog-summary.py` (reached via `briefing-context.py`)
-feeds the briefing's Infrastructure section from `~/.warden/warden.db`. Grouped,
-append-only sources (`slack_alert`, `slack_update`,
-`hermes_log`) auto-resolve after 7 days idle (`sweep_stale_grouped()`), so
-raw counts are bounded — but a busy recent window can still surface more
-distinct signatures than are worth a bullet each. Group by theme and cap
-the Infrastructure bullet at the 2-3 most actionable/recent items rather
-than enumerating every open row.
-
 ## Prometheus Daily + TL<>PM overlap
 Two recurring IU meetings often abut or overlap by 1-2 min (e.g. a
 TL<>PM<>EM daily ending right as the team standup starts). Flag with ⚠
