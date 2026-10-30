@@ -17,8 +17,7 @@ HERMES_PLUGINS :=
 # banner below for why. Templates live in launchd/, rendered into ~/Library/LaunchAgents.
 LAUNCHD_DIR   := $(HERMES_REPO)/launchd
 LAUNCHAGENTS  := $(HOME)/Library/LaunchAgents
-# com.jkrumm.hermes-triage left with the act-loop it ran (2026-09-09) — it is
-# com.jkrumm.warden-loop now, installed by warden's own `make setup`.
+# com.jkrumm.hermes-triage left with the act-loop it ran (2026-09-09); nothing replaced it.
 # hermes-serve{,-liveness}: `hermes serve` for Hermes Desktop, restored 2026-10-15
 # (owner decision — Desktop, Slack, the :8642 API and the CLI are the surfaces).
 HERMES_PLISTS := com.jkrumm.hermes-liveness com.jkrumm.hermes-backup \

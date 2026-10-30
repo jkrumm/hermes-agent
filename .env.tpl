@@ -72,10 +72,9 @@ KARAKEEP_API_KEY=op://hermes/karakeep/api-key
 # `make hyperdx-agent-setup` in the vps repo. Base URL is hardcoded in the skill.
 HYPERDX_AGENT_ACCESS_KEY=op://vps/clickstack/AGENT_ACCESS_KEY
 
-# UptimeKuma push URLs — pinged on success by hermes-liveness.sh, hermes-backup.sh,
-# and warden's watchdog-poll.py. Push monitors created manually in UK UI; URLs stored in
-# 1Password after creation. Watchdog monitor interval ~2700s (45 min) — 30 min poll
-# + grace, so one missed run alerts without flapping.
+# UptimeKuma push URLs — pinged on success by hermes-liveness.sh and hermes-backup.sh.
+# Push monitors created manually in UK UI; URLs stored in 1Password after creation.
+# UPTIME_PUSH_WATCHDOG has no pinger left (the out-of-band watchdog poller was retired).
 UPTIME_PUSH_HERMES=op://hermes/uptime-kuma/agent-push-url
 UPTIME_PUSH_BACKUP=op://hermes/uptime-kuma/backup-push-url
 UPTIME_PUSH_WATCHDOG=op://hermes/uptime-kuma/watchdog-push-url

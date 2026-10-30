@@ -230,8 +230,8 @@ finally:
 # `git add -A` emits advice before the error.  Live, the 13:59:12 failure opened with
 # "Warnung: Füge eingebettetes Repository hinzu: cpexp.znuOaZ" — an entirely normal nested repo —
 # while the cause ("Fehler: 'cpexp3.sgahXS/' hat keinen Commit ausgecheckt") was sixteen lines
-# down.  Warden derives its `hermes_log:*` signature from the first line, so it filed a dispatch
-# against the innocent directory.  The retry's own log line must therefore quote the cause.
+# down.  A log poller deriving its signature from the first line would have chased the innocent
+# directory.  The retry's own log line must therefore quote the cause.
 # ---------------------------------------------------------------------------------------------
 
 

@@ -509,8 +509,8 @@ slack:
   # new. Because reply_in_thread makes every alert its own session, that turn had zero
   # memory of the last time the same alert fired — the same signature could be
   # (and was) re-triaged dozens of times in a day, reaching the same conclusion every
-  # time, without ever noticing a fix already existed. Alerts now go straight to Slack (warden was
-  # switched off 2026-10-27); mentioning Hermes directly in #alerts still works for an ad-hoc question.
+  # time, without ever noticing a fix already existed. Alerts now go straight to Slack;
+  # mentioning Hermes directly in #alerts still works for an ad-hoc question.
   require_mention: false
   free_response_channels: ''
   allowed_channels: ''
