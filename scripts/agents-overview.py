@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
-"""Agents overview — read-only summary of every Claude Code / herdr agent
-the platform is tracking, for the morning briefing and an on-demand Slack post.
+"""Agents overview — read-only summary of every Claude Code agent
+(hc terminal, classic herdr pane, plain session) the platform is tracking, for the morning briefing and an on-demand Slack post.
 
 Talks to the `agw` CLI (agent-workflows; shelled out through `agw_run.py`, caller `hermes`):
 
   agw agents    -> {data: {generatedAt, summary, projects[], overview, quota, ...}}
-                   an unjournaled read of the host's snapshot
+                   an unjournaled read of the host's snapshot. Each agent row has a
+                   `source` (`hc` = herdr-core, `herdr` = classic pane until dotfiles
+                   Wave 7, `claude` = a session outside any terminal host). This script
+                   reads only the source-neutral fields (`state`, `recommendation`,
+                   `title`, `standing`, `blocker`), never `paneId`/`workspaceId`/
+                   `herdrStatus`, so every source renders the same way.
   agw overview  -> a workflow run that triggers a fresh LLM pass; resumed with
                    `agw run wait` on exit 10 until it ends, then `agw agents`
                    is re-read for the merged result. No wall-clock give-up — agent
@@ -25,7 +30,7 @@ An agent in state `needs_you` is ALWAYS listed in the briefing, whatever its
 recommendation — `summary.needsYou` counts by state, so a briefing whose
 header says "1 need you" must show that one item.
 
-This script only reads. It never sends keys to a herdr pane and never
+This script only reads. It never sends input to a terminal and never
 starts work.
 
 Retired 2026-09-11: the scheduled `#agents` Slack digest (`--slack-body`,

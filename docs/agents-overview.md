@@ -1,7 +1,8 @@
-# Agents overview — status across every Claude Code / herdr agent
+# Agents overview — status across every Claude Code agent
 
-The agent-workflows platform (`agw agents` / `agw overview`) tracks every Claude Code / herdr agent running across every
-project and summarizes each into a one-word recommendation (`answer`, `continue`,
+The agent-workflows platform (`agw agents` / `agw overview`) tracks every Claude Code agent running across every
+project — herdr-core terminals (`source: hc`), classic herdr panes (`herdr`, until dotfiles Wave 7) and plain sessions (`claude`) —
+and summarizes each into a one-word recommendation (`answer`, `continue`,
 `ship`, `review`, `merge`, `close`, `stale`, `watch`). This feature surfaces that
 summary through read-only surfaces — nothing here ever steers an agent.
 
@@ -21,8 +22,9 @@ and retired 2026-09-11. Its code (`render_slack()`, the `fetch_agents()`/
 unreachable warning, the state file) was removed from the script 2026-09-12
 once nothing referenced it any more — see `docs/scheduled-jobs.md` for the
 retirement history and how to recreate it from git if ever needed. Replaced
-by the same platform snapshot in the herdr overview pane, this file's
-morning-briefing surface, and Argo's `/agents` page. The
+by the same platform snapshot in this file's morning-briefing surface and Argo's `/agents` page
+(the herdr overview *pane* that was the third surface retired with classic herdr — the Herdr app's sidebar status dots and
+agents list replace it, `dotfiles/docs/herdr-core.md` §Port design). The
 morning briefing (`render_briefing()`) re-surfaces every non-quiet
 recommendation daily, which is what keeps a forgotten standing question from
 vanishing for good.
@@ -39,6 +41,15 @@ and a render whose header says "1 need you" must show that one item
 (`_is_needs_you()` is checked independently of the actionable-recommendation
 filter).
 
+## Fields it reads
+
+`agw agents` is the JSON producer, ported to herdr-core (`terminal.list`; classic rows stay until Wave 7). Per agent:
+`source` (`hc` | `herdr` | `claude`), `state` (`needs_you` | `working` | `idle` | `stale` | `done` | `unknown`),
+`title`, `account` (`me`, `me2`, `iu`), and — from the overview pass — `recommendation`, `standing`, `blocker`.
+`paneId` / `workspaceId` / `herdrStatus` are runner-neutral despite the names (an hc address such as `t7` and a space id, or a classic
+pane id) and are **not** read here. `state` is derived from the terminal's own status, so a blocked hc terminal and a blocked
+classic pane both count as `needs_you`; `tests/test_agents_overview.py` case 34 pins that both sources render alike.
+
 ## Refresh is consumer-driven, not clock-driven
 
 The briefing does not refresh on a fixed clock — it decides for itself
@@ -52,12 +63,12 @@ posts whatever the cached overview currently holds.
 
 ## Read-only, by design
 
-This feature never sends keys to a herdr pane and never starts an agent — it
+This feature never sends input to a terminal and never starts an agent — it
 only calls `agw agents` (an unjournaled read) and, when the cached overview
 is stale, `agw overview` to trigger a fresh summarization pass (a run that exits 10
 after the CLI's wait budget is resumed with `agw run wait <runId>`; `AGW_CALLER=hermes`
 attributes it to Hermes). Steering an agent (answering it, nudging it, opening a
-new episode) stays the owner's job, via `herdr` / `rd wave`. `scripts/agents-overview.py`'s
+new episode) stays the owner's job, via the `herdr` skill (`hc` / `rd wave`). `scripts/agents-overview.py`'s
 render functions are pure given an overview snapshot — `fetch`/`refresh` are
 the only `agw` calls, everything else (`render_briefing`,
 `render_slack_blocks`) is unit-tested in `tests/test_agents_overview.py` with

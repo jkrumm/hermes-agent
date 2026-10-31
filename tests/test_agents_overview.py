@@ -290,6 +290,25 @@ text = "".join(b["text"]["text"] for b in blocks if b["type"] == "section")
 check_true("non-actionable agent with a recommendation is included", "Watched" in text)
 check_true("actionable agent is included", "Ready" in text)
 
+print("\n34. mixed hc / classic herdr / claude rows render alike (state is source-neutral)")
+def mk_src(id_: str, source: str, state: str, recommendation: str | None, title: str) -> dict:
+    a = mk_agent(id_, title, recommendation, state=state)
+    a.update({"source": source, "paneId": "t7" if source == "hc" else "w1:p1",
+              "herdrStatus": "blocked" if state == "needs_you" else state, "account": "me"})
+    return a
+cur = mk_overview([("repoA", [
+    mk_src("h1", "hc", "needs_you", None, "hc blocked"),
+    mk_src("h2", "herdr", "needs_you", None, "classic blocked"),
+    mk_src("h3", "claude", "working", "continue", "plain session"),
+    mk_src("h4", "hc", "idle", "watch", "hc quiet"),
+    mk_src("h5", "herdr", "idle", None, "classic idle"),
+])])
+text = ao.render_briefing(cur)
+check_true("blocked hc row listed", "hc blocked" in text)
+check_true("blocked classic row listed", "classic blocked" in text)
+check_true("claude session with recommendation listed", "plain session" in text)
+check_true("quiet hc row excluded", "hc quiet" not in text)
+check_true("unrecommended idle classic row excluded", "classic idle" not in text)
 
 print()
 if failures:
