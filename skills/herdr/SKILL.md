@@ -1,19 +1,25 @@
 ---
 name: herdr
-description: Open, inspect and steer herdr panes, tabs and workspaces on this mini — Johannes's own visible terminal workspace. Use when he explicitly names herdr or asks for a pane/tab/agent there ("mach einen herdr tab auf", "starte eine pane in <repo> mit cf", "open a herdr pane", "schreib das in eine pane", "schau in die pane von <repo>", "was macht der Agent in <repo>", "sag dem Agenten …", "stopp den Agenten in der pane"). Also the path for starting an interactive Claude Code session (`c` / `cf` / `cs`) in a repo on his request, prompting it and reading its answer back. Not for unattended background work.
-version: 1.0.0
+description: Open, inspect and steer terminals, tabs and agents in Johannes's Herdr workspace on this mini (the Herdr app + herdr-core, driven with `hc` and `rd`). Use when he explicitly names Herdr or asks for a terminal/tab/agent there ("mach einen herdr tab auf", "starte cf in <repo>", "open a herdr tab", "schreib das in den Tab", "schau in den Tab von <repo>", "was macht der Agent in <repo>", "sag dem Agenten …", "stopp den Agenten"). Also the path for starting an interactive Claude Code session in a repo on his request, prompting it and reading its answer back. Not for unattended background work.
+version: 2.0.0
 metadata:
   hermes:
-    tags: [herdr, pane, panes, tab, tabs, workspace, terminal, multiplexer, agent, claude, claude-code, cf, cs, interactive, steer, mini]
+    tags: [herdr, hc, rd, terminal, tab, tabs, space, agent, claude, claude-code, cf, cs, interactive, steer, mini]
     related_skills: [capture, verify]
 ---
 
-# herdr — Johannes's visible terminal workspace
+# Herdr — Johannes's visible terminal workspace
 
-herdr runs on this mini and organises terminals into **workspaces → tabs → panes**.
-It recognises coding agents inside panes and exposes everything through the `herdr`
-CLI, which is on your `PATH` and talks to the running server over its socket. You
-may use every verb it has.
+Herdr is two parts on this mini. **herdr-core** is a launchd service that owns the
+terminals and keeps them alive; **hc** is its CLI. The **Herdr app** (on his MacBook)
+shows them: one **space** per project, **tabs** inside it, a terminal per tab. Agents
+are terminals that report `idle` / `working` / `done` / `blocked` / `error`.
+
+Manuals that are always current — read them instead of trusting this page for flags:
+
+- `hc --skill` — running, waiting on, sending to and reading terminals.
+- `herdr-app --skill` — spaces, tabs and the window layout. (It may not be on this
+  mini's `PATH`; the app lives on the MacBook. Say so rather than guessing.)
 
 ## Which lane is this
 
@@ -21,112 +27,113 @@ may use every verb it has.
 |-|-|
 | "look into the repo and tell me why X" · "fix it" · anything that needs a repo's source | `capture` → a GitHub issue; the owner starts the repo work. |
 | "what are my agents doing", a cross-project status read | `agw agents --text` (cross-project overview, read-only) |
-| **"open a herdr pane/tab"**, "start `cf` in dotfiles", "write that into a pane", "tell the agent in <repo> …", "stop that agent" | **this skill** |
+| **"open a herdr tab"**, "start `cf` in dotfiles", "write that into the tab", "tell the agent in <repo> …", "stop that agent" | **this skill** |
 
 The difference is not safety, it is **who owns the work**. A filed issue is a
-note for later. A herdr pane is *his* workspace —
-he asked for it, he can see it in the TUI, he steers it himself afterwards. So:
-never silently substitute an issue for a herdr request. If he says herdr,
-use herdr. If herdr genuinely cannot do it, say so and stop — do not do something
-else and call it done.
+note for later. A Herdr tab is *his* workspace — he asked for it, he can see it in
+the app, he steers it himself afterwards. So: never silently substitute an issue
+for a Herdr request. If he says Herdr, use Herdr. If Herdr genuinely cannot do it,
+say so and stop — do not do something else and call it done.
 
 Unattended work you decide to start yourself is filed as an issue (`capture`), never
 started. Nothing here schedules itself.
 
-## You are not inside a pane
+## The layout rules
 
-Every example in herdr's own docs assumes it runs *in* a pane. You do not.
+- **One space per project.** `~/SourceRoot/dotfiles` and `~/IuRoot/dotfiles` are two
+  spaces, never one. You never create or rename spaces — `rd` places a tab in the
+  right one.
+- **Orchestrator visible, workers hidden.** A wave's orchestrator is a labelled tab.
+  Its workers are unlabelled children of it: no tab, no pane; the app lists them as
+  the parent's `sub_agents`. A worker you cannot see in the app still shows in
+  `hc ls` (with `parent`) and in `agw agents`.
+- **Accounts are on the command, not inherited.** `rd work|wave` picks a Claude Max
+  account per spawn (`claude-account pick`) and passes it in the spawn's `env`
+  (`CLAUDE_CONFIG_DIR`; absent for the IU route). If no account has room it
+  **pauses** — `paused: …` — and never falls back to IU API tokens. Retry after a
+  reset; do not route around it. Which account an agent runs on is the `account`
+  field (`me`, `me2`, `iu`) in `agw agents`.
 
-- **Never** `--current`, `--pane` without an id, or anything that depends on focus —
-  you would target whichever pane Johannes is looking at.
-- **Always** pass explicit ids: workspace `w1E`, tab `w1E:t9`, pane `w1E:p4`.
-- **Never** `--focus` unless he asked to be taken there. Default `--no-focus`.
-- Read ids out of the JSON a command returns, never out of an example or a guess.
-- Never run bare `herdr` — it tries to attach a TUI.
+## You are not inside a terminal
+
+`hc`'s manual assumes the caller is a terminal (`$HC_TERMINAL_ID`). You are not.
+
+- **Always pass the target explicitly** — an address (`t7`), a name (`dotfiles-w5`)
+  or `machine/t7`. `hc read`, `hc get`, `hc wait` and `hc interrupt` with no target
+  mean "the calling terminal", which is none for you.
+- Read addresses and names out of `hc ls` / the JSON a command returns, never out of
+  an example or a guess.
+- Never `hc attach` — you cannot drive a TUI. Read and send instead.
+- Never bare `hc` with no subcommand.
 
 ## Read the topology
 
 ```bash
-herdr workspace list | jq -r '.result.workspaces[] | "\(.workspace_id)  \(.label)  \(.agent_status)"'
-herdr tab list --workspace w1E | jq -r '.result.tabs[] | "\(.tab_id)  \(.label)"'
-herdr pane list --workspace w1E | jq -r '.result.panes[] | "\(.pane_id)  \(.agent // "-")  \(.agent_status)  \(.cwd)"'
-herdr agent list | jq -r '.result.agents[] | "\(.pane_id)  \(.agent)  \(.agent_status)  \(.terminal_title_stripped)"'
+hc ls | jq -r '.terminals[] | "\(.address)  \(.name // "-")  \(.agent)  \(.status // "-")  \(.parent // "-")  \(.cwd)"'
+rd agents                 # SOURCE NAME STATUS CWD ID — hc rows first, classic rows after
+agw agents --text --format plain     # per project, with account, git state, human queue
 ```
 
-**Workspaces are labelled by repo** (`dotfiles`, `hermes-agent`, `brain`, …) plus
-separator rows (`── INFRA ──`). To act "in repo X", find the workspace whose label
-is X. Separator workspaces are not work areas — never open anything there.
+`hc ls` is JSON (`.terminals[]`: `address`, `name`, `agent`, `cwd`, `state`,
+`status`, `parent`, `turn`, `where` = the app's "space / tab"). It lists **all** live
+terminals, including his plain shells — `hidden_finished` counts finished ones it
+leaves out. A terminal's repo is its `cwd`; to act "in repo X" find the one
+whose `cwd` is that repo.
 
-`agent_status`: `idle` (ready for input) · `working` · `blocked` (waiting on an
-approval/question dialog) · `done` (finished unseen background work) · `unknown`
-(a process herdr cannot classify — *not* proof of completion).
+`status`: `idle` (ready for input) · `working` · `done` (a turn finished) ·
+`blocked` (waiting on an approval/question dialog) · `error`. A plain program such
+as `zsh` has **no status** — absence is not proof of completion. Do not guess
+status from screen text.
 
-## Read what a pane says
+## Read what a terminal says
 
 ```bash
-herdr pane read w1E:p4 --source recent-unwrapped --lines 120
-herdr agent read w1E:p4 --source recent-unwrapped --lines 120
+hc read --lines 120 dotfiles-w5      # screen plus 120 lines of history — plain text, not JSON
+hc get dotfiles-w5                   # one terminal's state/status (JSON)
 ```
 
-Output is **plain text, not JSON** — do not pipe it to `jq`. Use
-`recent-unwrapped` for transcripts and logs, `visible` for the current viewport.
-If more `--lines` reveals nothing more, the agent is on the terminal's alternate
-screen and the rows are unrecoverable — ask the agent to write its answer to a
-file and read the file instead.
+`hc read` output is **plain text** — do not pipe it to `jq`. If more `--lines`
+reveals nothing more, the program is on the alternate screen and the rows are
+unrecoverable: ask the agent to write its answer to a file and read the file instead.
+`rd read <agent> [lines|visible]` is the same by repo name or classic pane id.
 
-## Open a tab or a pane
+## Start an agent — `rd`, not `hc run`
 
-A new tab in an existing repo workspace (the normal case):
+`rd` is the dotfiles script `~/SourceRoot/dotfiles/scripts/remote-dev.sh`; if the bare
+`rd` name does not resolve in your shell, call it by that path. It does the account
+pick, the space/tab placement, the parent rules and the prompt delivery. A hand-rolled
+`hc run … claude` inherits the core's environment, not an account, and lands wherever
+the app puts it.
 
-```bash
-herdr tab create --workspace w1E --cwd /Users/jkrumm/SourceRoot/dotfiles --label hermes --no-focus
-# → .result.tab.tab_id, .result.root_pane.pane_id
-```
-
-A sibling pane next to an existing one:
-
-```bash
-herdr pane split w1E:p4 --direction right --cwd /Users/jkrumm/SourceRoot/dotfiles --no-focus
-# → .result.pane.pane_id
-```
-
-Split wide panes `right`, tall ones `down`. Always pass `--cwd` explicitly — a pane
-that inherits an unstated directory silently runs in the wrong repo.
-
-## Run a command in a pane
-
-```bash
-herdr pane run w1E:p4 'git status'
-herdr pane wait-output w1E:p4 --match 'nothing to commit' --timeout 60000
-herdr pane read w1E:p4 --source recent-unwrapped --lines 60
-```
-
-`pane run` types the command and presses Enter atomically. `pane send-text` types
-without Enter; `pane send-keys` sends logical keys (`Enter`, `esc`, `ctrl+c`).
-
-## Start an interactive Claude Code session
-
-The pane's shell is an interactive zsh, so the **dotfiles launchers** work there —
-this is how Johannes starts one himself, and what he means by "mit cf":
-
-| Launcher | What it starts |
+| Verb | What it starts |
 |-|-|
-| `c` | Claude Code on the Max subscription, current default model |
-| `cf` | same, pinned to **Fable** |
-| `cs` | same, pinned to **Sonnet** |
-| `ca [model]` | the IU endpoint route, off Max |
+| `rd work <repo> [--role R]` | a labelled tab with an interactive `claude` for that repo, no prompt (idempotent: it reports an agent already there instead of stacking a second) |
+| `rd wave <repo> '<prompt>'` | a fresh tab + solo agent with the prompt as claude's first argument — long work he watches or steers |
+| `rd fan <repo> <brief-files…>` | one worktree + hidden child terminal per brief (workers). Only on his request. |
+| `rd merge <repo> <branches…>` | rebase/check/merge train, GitHub only |
+| `rd read <agent>` / `rd say <agent> <text>` / `rd close <agent>` | read, steer, close a finished agent |
+| `rd agents` | every agent on the host, hc and classic |
 
-Start it by typing the launcher into the pane, which is what Johannes does. Do not
-use `herdr agent start` for this until it is checked on the installed herdr version:
-it is not verified here as carrying the dotfiles launcher's flags.
+`<agent>` is whichever of repo name, hc address / name (`t7`, `iris-w3`) or classic
+pane id `rd agents` put in front of you.
 
-```bash
-herdr pane run w1E:p4 'cf'
-herdr agent wait w1E:p4 --until idle --timeout 90000
-herdr agent list | jq -r '.result.agents[] | select(.pane_id=="w1E:p4")'
-```
+**Launchers and models.** "Mit `cf`" / "`cs`" means the model: `c` = default, `cf` = Fable,
+`cs` = Sonnet, all on the Max subscription. `rd wave` takes its model from the
+`RD_WAVE_MODEL` env var (`RD_WAVE_MODEL=<alias> rd wave …`), `rd work` only from `--role R`
+(tier + effort from the factory role table: `mother|lead|wave|worker|mechanical`). If neither
+gives him the model he named, the fallback is a plain shell he can see:
+`hc run --bg --name <repo>-hermes --cwd <repo-path> --keep`, then
+`hc send <repo>-hermes cf` (the launcher picks the account itself). Its tab is where the app
+puts it — read `where` from `hc ls` and tell him, because `rd` does not place this one. `ca` is
+the IU endpoint route, off Max: never start development work with it.
 
-Readiness is the agent's `idle` state, not a regex over the scrollback. Wait until that pane shows up in `agent list` as `claude`/`idle` before prompting.
+**Do not push a long brief through `rd` argv.** Put the full text in a file and
+make the prompt "read `<path>` and do what it says". Nothing here sends a raw
+`claude --bg` / `claude -p`, which loses the keychain credential and the house flags.
+
+Confirm it started: `rd agents` shows the new row `working`, or `hc get <agent>`
+says so. A zero exit is not proof of delivery — read the terminal before claiming it
+started.
 
 ## Prompt it, and read the answer back
 
@@ -137,7 +144,7 @@ summarize it, do not "clean it up", do not strip the rambling — the agent has 
 full repo, the rules and the domain context you don't, and it is better at
 extracting the real task from his phrasing than you are at guessing it. Your
 reformatting silently deletes signal. This holds for briefs to any agent lane
-(herdr pane, `capture` issue), not just this one.
+(Herdr tab, `capture` issue), not just this one.
 
 A long or multi-line prompt goes through a file — never try to inline it, quoting
 will bite you:
@@ -146,108 +153,58 @@ will bite you:
 cat > /tmp/hermes-prompt.txt <<'BRIEF'
 …the full text, verbatim, as many lines as it takes…
 BRIEF
-herdr agent prompt w1E:p4 "$(cat /tmp/hermes-prompt.txt)"
+hc send dotfiles-w5 "$(cat /tmp/hermes-prompt.txt)"     # or: rd say dotfiles-w5 "$(cat …)"
 ```
 
-`agent prompt` refuses with `agent_blocked` if the agent sits at an approval
-dialog — read the pane, tell Johannes what it is asking, and let him decide.
+`hc send` pastes the text and presses Enter. It **refuses on `blocked`** — read the
+terminal, tell Johannes what it is asking, and let him decide. Never `--force` it:
+that types into a permission dialog and is a permission decision. `--if idle` makes
+the send conditional (a working agent keeps its turn).
 
 ### A draft in the input line is not yours to send
 
-Panes regularly show a **non-empty input line** at the bottom — text someone typed
+Terminals regularly show a **non-empty input line** at the bottom — text someone typed
 that never got submitted (`weiter, commit und push wenn der Trip durch ist`). It is
 almost always Johannes's, typed while the agent worked, with his Enter swallowed.
 
-- **Never hit Enter on it and never re-send it through `agent prompt`.** You cannot
-tell his draft from a stale artifact, and acting on a guess puts words in his
-mouth at an agent that is about to write to a repo.
-- **Name it and ask**, in one clause, at the end of your report — *"in der Pane
+- **Never hit Enter on it and never re-send it through `hc send`.** You cannot
+  tell his draft from a stale artifact, and acting on a guess puts words in his
+  mouth at an agent that is about to write to a repo.
+- **Name it and ask**, in one clause, at the end of your report — *"im Tab
   steht ein ungesendeter Entwurf: <text> — von dir?"*
 - **The work must not stall while you wait.** If his draft states the obvious next
   step and that step is already authorized, send that same instruction **in your
-own words** via `agent prompt`. That is relaying, not submitting his text: `agent
-  prompt` submits reliably (verified) while his typing path does not.
-- Three of these in one afternoon means the pane's submit path is broken, not that
+  own words** via `hc send`. That is relaying, not submitting his text.
+- Three of these in one afternoon means the submit path is broken, not that
   he changed his mind. Say so once, name the workaround (`sag mir, was der Agent tun
   soll`), and move on.
 
-**Do not use `--wait` on a long turn.** Your terminal tool times out at 180 s, so a
-wait above ~150000 ms kills the call, not the agent. Prompt without waiting, tell
-him it is running, and poll instead:
-
-```bash
-herdr agent get w1E:p4 | jq -r '.result.agent.agent_status'
-herdr agent read w1E:p4 --source recent-unwrapped --lines 150
-```
-
-Steering an existing agent is the same two verbs: `agent prompt` for text,
-`agent send-keys` for `esc` (interrupt) or `ctrl+c` (stop).
-
-## The `rd` lane — placing durable work on the mini
-
-`rd` is the dotfiles script `~/SourceRoot/dotfiles/scripts/remote-dev.sh`; if the bare `rd`
-name does not resolve in your shell, call it by that path.
-It spawns *through* a herdr pane so the Max keychain credential is reachable (a
-bare `ssh mini 'claude …'` comes up `Not logged in` and silently bills the API).
-
-| Verb | What it starts |
-|-|-|
-| `rd wave <repo>` | a fresh herdr tab running the one active wave from `docs/waves/PLAN.md` — `wave-gate.py` refuses unless exactly one wave is active there. Not for free-form prompts. |
-| `rd work <repo> '<prompt>'` | ad-hoc, non-wave work in a fresh herdr tab |
-| `rd fan <repo> <brief-files…>` | one worktree + tab per brief in the repo's existing workspace (fan-out) |
-| `rd merge <repo> <branches…>` | rebase/check/merge train, GitHub only |
-| `rd read` / `rd say <agent>` / `rd close <agent>` | read, steer, close a finished wave tab |
-
-`rd` checks prompt delivery: if the agent never reaches `working` within 30 s it re-sends once. `rd read` the pane if it is still idle after that. Do not treat the exit code of `agent prompt` or `agent wait` as proof of delivery — confirm `working` with `herdr agent get` and read the pane before claiming it started.
-
-The model is an env var, not a flag: **`RD_WAVE_MODEL`** (default `sonnet`). `rd` is the only way to place a *visible* agent on the mini (there is no background repo-work lane) — never a raw `claude --bg` / `claude -p`, which loses the keychain credential and the house flags.
-
-`rd` base64-encodes the prompt into the command line it types; it does not stage
-a temp file. Do not push a long brief through it: put the full brief in a repo
-file and have the wave read that file.
-
-## Integrations — the difference between a pane and an agent
-
-`herdr integration status` lists every agent herdr knows; `herdr integration
-install <name>` wires one. Two kinds, and the difference decides what a pane can do:
-
-- **Lifecycle authority** (Pi, OMP, Kimi Code CLI, OpenCode, Kilo Code, MastraCode) —
-  hook/plugin events author `idle`/`working`/`blocked`, with no screen-manifest fallback.
-- **Session identity** (Claude Code, Codex, Copilot, Devin, Droid, Qoder, Qwen, Letta,
-  Cursor, Hermes Agent, Antigravity, Grok) — a session reference for restore
-  (`claude --resume <id>`, `opencode --session <id>`); state still comes from the screen.
-
-Without its integration a pane still works, but state is screen-read and the agent
-**cannot be resumed after a herdr restart**. A stale one is silent: status prints
-`outdated (v8 < v10)` — re-run the install after a herdr upgrade, since the version
-lives in the hook/plugin file. Traps: Claude's install rewrites only
-`~/.claude/hooks/herdr-agent-state.sh` (the SessionStart entry lives in dotfiles'
-settings template — leave it alone); Codex additionally needs `[features] hooks = true`
-in `~/.codex/config.toml`, which belongs in `config/codex/config.toml.tpl` or
-`make setup` drops it; the **Hermes** integration writes `~/.hermes/config.yaml`, so it
-is a human's call, never this skill's.
+Stopping: `hc interrupt <agent>` ends the current turn, not the process. `hc kill
+<agent>` then `hc rm <agent>` (or `rd close`) ends the terminal — only one you
+opened, only when he asked, and `rd close` only closes a clean, pushed one.
 
 ## Always report where it is
 
-Every answer about a pane names **what the tab is for and what is running in it** —
-that is what he can act on. Johannes does not read `w1Y:tA` / `w1Y:pA`; a bare id is
+Every answer about a terminal names **what the tab is for and what is running in it** —
+that is what he can act on. Johannes does not read `t22` or `sp-…`; a bare address is
 noise in a chat message and unusable in a voice memo.
 
 - Say: *"der Validierungs-Tab im email-gateway (läuft gerade die Prüfung durch)"*,
   *"der Wave-3-Tab, Agent `email-gateway-w3`, arbeitet an den Jobs"*.
-- Give the raw ids only when he asks for them, or when he needs them to find the
-  thing in the TUI right now — then in a trailing parenthesis, never as the subject.
-- Same rule in a spoken/TTS summary: name the tab by its purpose, never by id.
+- Give the raw address only when he asks for it, or when he needs it to find the
+  thing in the app right now — then in a trailing parenthesis, never as the subject.
+- Same rule in a spoken/TTS summary: name the tab by its purpose, never by address.
 - "Started" without saying which tab and what it does is not an answer.
+- A hidden worker has no tab: name it as "ein Helfer von <orchestrator>", not as a tab.
 
-## After you finish steering a pane agent
+## After you finish steering an agent
 
-A pane agent works in the checkout it was started in — there is no worktree isolation.
-In a repo whose files are **symlinked live** (dotfiles, hermes-agent) that means its
-branch is the running configuration. Always close the loop:
+An agent works in the checkout it was started in — unless it is a `rd fan` worker, there
+is no worktree isolation. In a repo whose files are **symlinked live** (dotfiles,
+hermes-agent) that means its branch is the running configuration. Always close the loop:
 
 ```bash
-git -C <repo> branch --show-current   # back on main? if not: git -C <repo> switch main
+git -C <repo> branch --show-current   # back on master? if not: git -C <repo> switch master
 git -C <repo> status --short
 ```
 
@@ -255,18 +212,19 @@ Leaving dotfiles on a `fix/...` branch makes the live config the unmerged branch
 one-line botched edit pages the dev host. Restore the default branch as soon as the
 agent reports done; the branch is pushed, so nothing is lost.
 
-## Watching a pane agent to an outcome
+## Watching an agent to an outcome
 
 **One blocking call, never a watcher script** (no `/tmp/watch-*.sh`, no `sleep` loop, no
 ad-hoc cron):
 
 ```bash
-herdr agent wait <agent> --until idle --until done --until blocked --timeout 150000   # exit 0 = settled; non-zero = timeout
+hc wait <agent> --timeout 120      # returns when it stops working, blocks, errors or exits
 ```
 
-The terminal tool dies at 180 s, so keep `--timeout` ≤ 150000 and, on a timeout, re-issue
-the same call once or twice, then stop and tell him it is still running. `--until blocked`
-(or the `blocked` state) means the agent asks him something — report that, never answer for him.
+Your terminal tool dies at 180 s, so keep `--timeout` ≤ 150 and, on a timeout (`reason:
+timeout` — a check-in, not a failure), re-issue the same call once or twice, then stop and tell
+him it is still running. A `blocked` status means the agent asks him something — report
+that, never answer for him.
 
 `done` ends a *turn*: an agent that parked a background shell goes `done` and resumes later.
 Before reporting an outcome, confirm the **external effect** the brief asked for (PR state,
@@ -275,11 +233,15 @@ conversation, do not wait at all — file it as an issue (`capture`).
 
 ## Rules
 
-- Only on his explicit request. Never open a pane as a side effect of some other task.
-- Never close a workspace, tab or pane you did not open, unless he asked.
-- Never `herdr server stop`, never kill the herdr process — that takes down every
-  agent on the machine.
-- Never `--takeover` on `agent attach`, and never attach at all from here; you
-  cannot drive a TUI. Read and prompt instead.
-- Do not answer an agent's approval/question dialog for him.
-- Don't inspect panes he didn't ask about just because you can.
+- Only on his explicit request. Never open a tab as a side effect of some other task.
+- Never close or kill a terminal, tab or space you did not open, unless he asked.
+- **Never** `hc server stop|restart`, `hc update`, `hc machine update` or kill the
+  core process — one core serves every agent on the machine, and a restart ends or
+  replaces them all. launchd owns the core; do not start one by hand either.
+- Never `hc attach`; read and send instead.
+- Never `hc send --force`, and do not answer an agent's approval/question dialog for him.
+- Don't inspect terminals he didn't ask about just because `hc ls` lists them — it
+  includes his plain shells.
+- Classic `herdr` CLI panes (the `herdr` row source in `rd agents` / `agw agents`) are
+  being retired; if `rd read|say` reaches one, treat it like any other agent, but do not
+  start new work there. <!-- TODO(Wave 7): drop classic -->
