@@ -29,8 +29,8 @@ The script also appends a coverage block — full backlog snapshot beyond what `
 
 If `COVERAGE_AVAILABLE=false` or the blocks are absent, fall back to /summary + watchdog data only.
 
-The script also appends a read-only agents-overview block — every Claude Code /
-herdr agent the platform (`agw agents`) is tracking across every project, not just this repo. Unlike
+The script also appends a read-only agents-overview block — every Claude Code
+agent (Herdr tab or plain session) the platform (`agw agents`) is tracking across every project, not just this repo. Unlike
 the blocks above it is plain text, not key=value: a first line of counts
 (`agents: N needs_you · N working · N idle · N stale · N done`),
 then zero or more lines shaped `<project> · <recommendation> · <title> ·

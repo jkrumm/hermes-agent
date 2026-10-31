@@ -43,7 +43,7 @@ minor or already solved. If he raised it, it goes in.
 
 | The memo asks for | Where it goes |
 |-|-|
-| An interactive agent in a visible pane ("neuer tab", "mit cf") | `herdr` — write the brief to a file, then `herdr agent prompt <pane> "$(cat file)"` |
+| An interactive agent in a visible tab ("neuer tab", "mit cf") | `herdr` skill — write the brief to a file, then `hc send <agent> "$(cat file)"` (or `rd wave <repo> "read <file> and do what it says"`) |
 | Repo work that needs the source (fix, debug, investigate) | `capture` → a GitHub issue; the owner starts the work |
 | A todo / reminder / issue | `capture` (TickTick or GitHub) — one line per item, his action, not his prose |
 | A durable idea to develop | `obsidian` — his thinking, structured, in his vault |

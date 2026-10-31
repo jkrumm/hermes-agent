@@ -49,7 +49,7 @@ silently.
   `agents-overview.py --slack-body` → `slack:C0BVDE5R562` #agents (Block Kit via
   `chat.postMessage`). Paused 2026-09-08 18:45 after reposting the same blocked pane ~35
   times in two days; retired 2026-09-11. Replaced by the same `agw agents` snapshot in the
-  herdr overview pane, the morning briefing (`agents-overview.py --briefing`), and Argo's
+  herdr overview pane (itself retired with classic herdr, 2026-10-31), the morning briefing (`agents-overview.py --briefing`), and Argo's
   `/agents` page.
   Its code (`render_slack()`, `agents-overview.py --slack-body`, the
   `fetch_agents()`/`fingerprint()`/`delta()` change-detection chain, the

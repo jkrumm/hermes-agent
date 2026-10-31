@@ -14,7 +14,7 @@ being scheduled, or when an ask you are about to hand over implies a reboot.
 
 - **Live work that would lose a turn** —
   `agw agents --text | head -3` (`working` episodes lose
-their turn; `idle`/`done` panes lose nothing), plus
+their turn; `idle`/`done` terminals lose nothing), plus
   `pgrep -fl 'claude -p|claude --bg'` for background daemons. A window with zero
 `working` is cheap — say so, that is what makes the ask easy to accept.
 - **LaunchAgents** — `ls ~/Library/LaunchAgents/` and

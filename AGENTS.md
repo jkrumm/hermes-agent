@@ -8,7 +8,7 @@ history and per-file detail live in `docs/*.md`; each section here points at its
 VCS source of truth for Johannes's Hermes Agent setup, Mac Mini-only. Everything here is
 symlinked into `~/.hermes/` — edit at either end, git sees it here.
 
-Hermes has one role — **narrate, answer, route** (spec: `dotfiles/docs/agent-platform.md` §Hermes): it reports one line per item, answers questions, and files work as a GitHub issue (`capture`); herdr tabs / `rd wave` only when the owner asks. It never lands PRs, starts unattended agents or authors skills. The reporting contract lives in `SOUL.md` and nowhere else — no per-skill report formats. See *Repo work is filed* below.
+Hermes has one role — **narrate, answer, route** (spec: `dotfiles/docs/agent-platform.md` §Hermes): it reports one line per item, answers questions, and files work as a GitHub issue (`capture`); Herdr tabs / `rd wave` only when the owner asks. It never lands PRs, starts unattended agents or authors skills. The reporting contract lives in `SOUL.md` and nowhere else — no per-skill report formats. See *Repo work is filed* below.
 
 Audio (TTS + STT) is the **agent-workflows audio door** (`~/SourceRoot/agent-workflows`,
 `packages/audio`), an OpenAI-compatible loopback service on the mini at `http://127.0.0.1:7792/v1`
@@ -84,7 +84,7 @@ repo's `AGENTS.md`/`CLAUDE.md`, `.claude/rules/` or `.claude/skills/`. So repo w
 not done**: a GitHub issue (`capture`); the owner starts the work.
 Hermes does not land PRs, `gh pr merge`, or start a `claude` session.
 
-**One door per verb:** repo work → a GitHub issue (`capture`); panes / long visible work → `herdr` + `rd`
+**One door per verb:** repo work → a GitHub issue (`capture`); tabs / long visible work → `herdr` skill (`hc` + `rd`)
 (`rd wave`, never `claude --bg` / `claude -p`, and only when the owner asks).
 
 **No approval stack.** Config of `plugins:` is empty; `HERMES_PLUGINS` in the Makefile is empty.
@@ -108,23 +108,32 @@ module. Detail: **`docs/scheduled-jobs.md`**.
 ## Herdr — the interactive lane Hermes may drive
 
 **Herdr is Johannes's own visible workspace, and Hermes may drive it on his explicit request.** The `herdr` skill
-(`skills/herdr/SKILL.md`) is the door: open a tab/pane in a repo workspace, run a
-command, read a pane back, start an interactive Claude Code session with the
-dotfiles launchers (`c`/`cf`/`cs`, typed into the pane's zsh — `herdr agent start`
-uses herdr's own bare `claude` and loses the house flags), prompt it, steer it.
+(`skills/herdr/SKILL.md`) is the door. Herdr is the app (spaces → tabs → terminals, MacBook) over **herdr-core**
+(launchd service `com.jkrumm.herdr-core` on the mini), driven with `hc`; agents are placed with `rd`. The skill covers:
+read terminals (`hc ls`, `hc read`, `rd agents`), start an agent (`rd work|wave`, which picks the Max account and
+places the tab — a raw `hc run … claude` inherits the core's environment instead), prompt and steer it
+(`hc send`, `rd say`, `hc interrupt`), wait on it (`hc wait`). Layout rules it carries: one space per project;
+orchestrator tabs visible, workers hidden children. Manuals stay current in the tools: `hc --skill`,
+`herdr-app --skill`.
 
-Every herdr verb is allowed. The command guard that once blocked agent-starting herdr verbs
-produced the failure it existed to prevent — asked to "open a herdr pane in <repo> with `cf`",
+Every `hc`/`rd` verb is allowed except the ones that touch the core itself. The command guard that once blocked agent-starting
+verbs produced the failure it existed to prevent — asked to "open a herdr pane in <repo> with `cf`",
 Hermes was refused, silently substituted a different lane and reported success for work never
 asked for. That guard is gone (see *No approval prompts, no command guards* below); lane choice
-is SOUL.md guidance.
+is SOUL.md guidance. The skill's own rules are the only gate: never `hc server stop|restart`,
+`hc update` or `hc machine update` (one core serves every agent), never `hc send --force`
+(a `blocked` agent needs the owner), never `hc attach`.
 
-Hermes runs **outside** any pane: no `HERDR_ENV`, no `$HERDR_PANE_ID`, so the skill
-forbids `--current` and focus-dependent targeting and requires explicit
-`w1E` / `w1E:t9` / `w1E:p4` ids. Two gotchas baked into the skill: `pane read`
-returns **plain text, not JSON** (don't pipe it to `jq`), and the terminal tool's
-180 s timeout means `agent prompt --wait` above ~150000 ms kills the call, not the
-agent — prompt without waiting, then poll `agent get`.
+Hermes runs **outside** any terminal: no `$HC_TERMINAL_ID`, so the skill requires an explicit
+target (`t7` or a name) on every `hc read|get|wait|interrupt` — omitted, it means "the calling
+terminal", which is none. Two gotchas baked into the skill: `hc read` returns **plain text, not
+JSON** (don't pipe it to `jq`), and the terminal tool's 180 s timeout means an `hc wait` above
+~150 s kills the call, not the agent — wait in short slices, don't poll in a script.
+
+**Retired with classic herdr** (`dotfiles/docs/herdr-core.md` §Port design): the overview *pane*
+(`make agent-overview`) — the app's sidebar status dots and agents list replace it; `herdr-groups` — `jk-spaces` folders
+replace it; `desk` = `herdr --remote` — the app on the MacBook replaces it, `ssh -t mini hc` is the terminal-only fallback.
+Classic `herdr` panes still show up in `rd agents` / `agw agents` until dotfiles Wave 7.
 
 ## Secrets — native `secrets.command` over the headless cache (v0.19.0+)
 
@@ -279,10 +288,10 @@ endpoint") exempts `agw podcast` — there is no native tool for this pipeline.
 
 ## Agents overview (agents)
 
-Read-only cross-project Claude Code/herdr status via `agw agents` (an unjournaled read; the LLM
+Read-only cross-project Claude Code status (hc terminals, classic herdr panes until Wave 7, plain `claude` sessions) via `agw agents` (an unjournaled read; the LLM
 refresh is `agw overview`) — conversational read (`agw agents --text`, see `skills/herdr`) and a
-morning-briefing feed (`scripts/agents-overview.py`). Never starts an agent, never steers a pane — that's
-`herdr`. **`docs/agents-overview.md`**.
+morning-briefing feed (`scripts/agents-overview.py`). Never starts an agent, never steers a terminal — that's
+the `herdr` skill. **`docs/agents-overview.md`**.
 
 **`agw` transport:** `agents-overview.py`, `project-narratives.py` and `prose.py` reach
 the platform only through `scripts/agw_run.py` (shells out to `agw … --format json`, `AGW_CALLER=hermes`,

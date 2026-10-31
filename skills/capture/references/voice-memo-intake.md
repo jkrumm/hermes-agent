@@ -43,7 +43,7 @@ OpenAI-compatible in both directions: `http://127.0.0.1:7792/v1` (loopback, bear
 
 ## Handing it to an agent lane — verbatim
 
-**When the destination is a herdr pane or a GitHub issue, the transcript goes in as it
+**When the destination is a Herdr tab or a GitHub issue, the transcript goes in as it
 stands.** Write it to `/tmp/hermes-prompt-<topic>.txt` with `write_file`, then
 prompt with `"$(cat /tmp/hermes-prompt-<topic>.txt)"`. No numbered list, no
 summary, no cleanup, no "improvements". Your digest is lossy: the agent has the

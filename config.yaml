@@ -64,7 +64,7 @@ agent:
   gateway_auto_continue_freshness: 3600
   image_input_mode: auto
   # kanban + delegation: off (agent-platform Wave 2). Repo work is filed as a GitHub issue,
-  # long visible work goes through herdr/`rd` — never a Hermes child agent or board.
+  # long visible work goes through the `herdr` skill (`hc`/`rd`) — never a Hermes child agent or board.
   disabled_toolsets:
     - kanban
     - delegation

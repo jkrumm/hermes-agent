@@ -230,5 +230,5 @@ status` asserts the live set matches it.
 Hermes triages well but reads a repo badly — it has no access to a repo's `AGENTS.md`/`CLAUDE.md`,
 `.claude/rules/` or `.claude/skills/`. For anything that needs real repo context (a bug fix,
 an investigation, a PR), Hermes files a GitHub issue (`capture`) and answers in one line; the owner starts
-the work. Herdr tabs / `rd wave` only on request.
+the work. Herdr tabs (`hc`/`rd`, the `herdr` skill) / `rd wave` only on request.
 Details: `AGENTS.md` §Repo work is filed.

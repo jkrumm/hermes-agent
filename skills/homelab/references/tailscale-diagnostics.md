@@ -33,11 +33,11 @@ Owns the "why can't device X reach service Y" class of problem on Johannes's tai
 |-|-|-|-|-|
 | 7730 | http://127.0.0.1:4050 | no | rb (learning tracker, colima container) | src tag:mac, tag:client, tag:phone → dst tag:mac, tcp:7730 |
 | 8443 | http://localhost:5173 | yes | IU dashboard (colima container) | funnel capability via tag:iu-dashboard-funnel (whole-device attr, never port-scoped) |
-| 8788 | http://127.0.0.1:8787 | no | Collie (herdr web bridge) | src tag:phone → dst tag:mac, tcp:8788 |
+| 8788 | http://127.0.0.1:8787 | no | Collie (phone bridge to herdr-core) | src tag:phone → dst tag:mac, tcp:8788 |
 
 ## Collie specifics
-- herdr plugin web bridge: bridge on `127.0.0.1:8787`, launchd agent `herdr.collie`, log `~/.config/herdr/plugins/config/herdr.collie/collie.log`, ctl script `~/.config/herdr/plugins/github/herdr.collie-<hash>/scripts/collie-ctl.sh`
-- Config `.env` in the plugin config dir: `COLLIE_SKIP_SERVE=1` (serve is declared state, never imperative), `COLLIE_PUBLIC_HOSTS=mini.<tailnet>.ts.net:8788,mini.<tailnet>.ts.net`
+- standalone phone bridge to herdr-core (`COLLIE_MUX=herdr-core`, not a herdr plugin): bridge on `127.0.0.1:8787`, launchd agent `com.jkrumm.collie`, log `~/Library/Logs/collie.log`; manage it with `make collie-status` in dotfiles
+- Config `.env` at `~/.config/collie/.env`: `COLLIE_SKIP_SERVE=1` (serve is declared state, never imperative), `COLLIE_PUBLIC_HOSTS=mini.<tailnet>.ts.net:8788,mini.<tailnet>.ts.net`
 - **"rebind guard"** in health pushes = collie's Host-header allowlist (EXACT string match, ported form `:8788` is load-bearing — bare name alone 403s phone requests while loopback still works)
 - Phone URL: `https://mini.<tailnet>.ts.net:8788` (http → 400, wrong Host → 403)
 - Deliberately NEVER funneled: one bridge call types arbitrary keystrokes into a live terminal pane (shell-equivalent as jkrumm). Port is the access-control decision — dedicated port per service keeps ACL grants scoped.
