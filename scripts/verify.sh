@@ -36,8 +36,12 @@ fi
 
 # The agw inference gateway (:7794) — every model call goes through it with the `hermes=` door token.
 # Not Hermes' own messaging gateway above.
-if out=$(/bin/bash "$CHECK" health 2>&1); then ok "inference gateway answering ($out)"; else bad "inference gateway: $out"; fi
-if out=$(/bin/bash "$CHECK" token 2>&1); then ok "inference gateway: $out"; else bad "inference gateway: $out"; fi
+while IFS= read -r line; do
+  case "$line" in
+    "ok "*) ok "${line#ok }" ;;
+    "fail "*) bad "${line#fail }" ;;
+  esac
+done < <(/bin/bash "$CHECK")
 
 # /api/status is public by design, so "answers 200" alone would pass an ungated serve.
 serve=$(curl -s -m 5 http://127.0.0.1:9119/api/status 2>/dev/null || true)

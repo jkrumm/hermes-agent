@@ -264,17 +264,8 @@ status:
 	@curl -fsS http://127.0.0.1:7792/health >/dev/null 2>&1 \
 		&& echo "    ✓ audio door (TTS/STT)" \
 		|| echo "    ✗ audio door [not reachable — agent-workflows audio LaunchAgent on :7792]"
-	@if out=$$(/bin/bash scripts/inference-gateway-check.sh health 2>&1); then \
-		echo "    ✓ inference gateway (:7794, $$out)"; \
-		if tout=$$(/bin/bash scripts/inference-gateway-check.sh token 2>&1); then \
-			echo "    ✓ inference gateway door token ($$tout)"; \
-		else \
-			echo "    ✗ inference gateway door token [$$tout — every model call and TTS/STT would 401]"; \
-		fi; \
-	else \
-		echo "    ✗ inference gateway [$$out — agent-workflows gateway LaunchAgent on :7794; every model call would fail]"; \
-		echo "    ✗ inference gateway door token [skipped: inference gateway unreachable]"; \
-	fi
+	@# agw inference gateway: health, then the door token (script owns the sequencing and wording)
+	@/bin/bash scripts/inference-gateway-check.sh | sed -e 's/^ok /    ✓ /' -e 's/^fail /    ✗ /'
 	@# `hermes serve` auth. Counted, not spot-checked: the launcher refuses below the
 	@# full set (an absent username silently skips the provider), so a partial seed
 	@# shows up as exit 78 there and as this line here.
