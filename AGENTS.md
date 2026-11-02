@@ -58,7 +58,7 @@ rewritten by accretion. Detection is manual (`ls ~/.hermes/skills` against `HERM
 mechanism + adoption path: **`docs/symlinks-and-agents.md`**.
 
 **Host-level scripts** (user LaunchAgents, not symlinked): `hermes-liveness.sh` (300s — gateway
-state + Slack connected + the live pid belongs to launchd's job), `hermes-backup.sh` (daily
+state + Slack connected + the live pid belongs to launchd's job + the inference gateway answers and accepts Hermes' door token, via `scripts/inference-gateway-check.sh`, shared with `make verify`/`status`), `hermes-backup.sh` (daily
 03:00 — rsync to homelab, `mkdir`-lock against overlap), and the `hermes serve` pair —
 `hermes-serve-launch.sh` (KeepAlive) + `hermes-serve-liveness.sh` (300s), see *Hermes Desktop*
 below.
@@ -551,7 +551,7 @@ beyond the skills-index restart noted in *Editing Rules*.
 ## Verify & Monitor
 
 - **`make verify`** — gateway pid alive, `gateway_state.json` slack + api_server
-  `connected`, API `/health` 200 on the tailnet bind (`op://hermes/gateway/host`), `hermes serve`
+  `connected`, API `/health` 200 on the tailnet bind (`op://hermes/gateway/host`), the inference gateway (`:7794`) healthy and accepting the door token, `hermes serve`
   answering on `:9119` **and gated** (`auth_required`, unauthenticated ws-ticket 401), all patches
   applied. Exit 0 = healthy.
 - **Heartbeat:** `hermes-liveness.sh` (300 s LaunchAgent) pushes the Uptime Kuma push monitor

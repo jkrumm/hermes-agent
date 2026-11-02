@@ -2,7 +2,8 @@
 # Hermes liveness ping — LLM-free.
 # Reads ~/.hermes/gateway_state.json, verifies gateway is running AND Slack is
 # connected AND the live pid is a descendant of launchd's ai.hermes.gateway job
-# (an orphan gateway never keeps the monitor green), then pings the UptimeKuma
+# (an orphan gateway never keeps the monitor green) AND the agw inference gateway answers and
+# accepts Hermes' door token (scripts/inference-gateway-check.sh), then pings the UptimeKuma
 # push URL on success. Run every 5 min by
 # the com.jkrumm.hermes-liveness LaunchAgent (launchd/, installed by `make setup`);
 # UK monitor interval should be ~360s.
@@ -108,5 +109,12 @@ for _ in {1..8}; do
   WALK_PID=$(ps -o ppid= -p "$WALK_PID" 2>/dev/null | tr -d ' ')
 done
 [[ "$SUPERVISED" == "1" ]] || skip "pid $PID is not a descendant of launchd job pid $LAUNCHD_PID (orphan gateway)"
+
+# Every model call goes through the agw inference gateway (127.0.0.1:7794) with the `hermes=` door
+# token. Hermes can be "running + Slack connected" while the gateway is down or the token was
+# rotated, and every turn then fails — so withhold the heartbeat. The check is a separate bash
+# script run as a subprocess (shared with verify.sh / `make status`; no zsh-vs-bash sourcing); each
+# curl inside it is --max-time bound (5 s + 10 s), well inside the 5-min tick.
+GW_REASON=$(/bin/bash "${0:A:h}/inference-gateway-check.sh" all 2>&1) || skip "inference gateway: $GW_REASON"
 
 /usr/bin/curl -fsS --max-time 10 "$PUSH_URL" >/dev/null
