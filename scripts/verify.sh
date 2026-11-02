@@ -4,6 +4,7 @@
 # and `hermes serve` (Desktop backend): answering AND gated (auth_required, ticket mint refused).
 # Exit 0 = live and healthy. Read-only — safe to run any time (`make verify`).
 set -uo pipefail
+CHECK="$(cd "$(dirname "$0")" && pwd)/inference-gateway-check.sh"
 cd "$(dirname "$0")/.."
 
 STATE="$HOME/.hermes/gateway_state.json"
@@ -35,8 +36,8 @@ fi
 
 # The agw inference gateway (:7794) — every model call goes through it with the `hermes=` door token.
 # Not Hermes' own messaging gateway above.
-if out=$(/bin/bash "$PWD/scripts/inference-gateway-check.sh" health 2>&1); then ok "inference gateway answering ($out)"; else bad "inference gateway: $out"; fi
-if out=$(/bin/bash "$PWD/scripts/inference-gateway-check.sh" token 2>&1); then ok "inference gateway: $out"; else bad "inference gateway: $out"; fi
+if out=$(/bin/bash "$CHECK" health 2>&1); then ok "inference gateway answering ($out)"; else bad "inference gateway: $out"; fi
+if out=$(/bin/bash "$CHECK" token 2>&1); then ok "inference gateway: $out"; else bad "inference gateway: $out"; fi
 
 # /api/status is public by design, so "answers 200" alone would pass an ungated serve.
 serve=$(curl -s -m 5 http://127.0.0.1:9119/api/status 2>/dev/null || true)
