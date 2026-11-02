@@ -39,8 +39,8 @@ under `custom`/`gpt-5.6-luna`; the brain moved to `deepseek-v4.1-flash` on 2026-
 
 It is **pinned** to the current brain — `hermes cron edit 8fe7be4985d9 --provider custom
 --model deepseek-v4.1-flash` — which clears both snapshots and drops the authority to the pin:
-the job no longer follows a later global model change. The 2026-10-08 Haiku brain
-(`claude-haiku-5-5-eu`) was the previous pin; the 2026-10-20 switch to `deepseek-v4.1-flash` on
+the job no longer follows a later global model change. The 2026-10-08 Haiku 5.5 brain
+was the previous pin; the 2026-10-20 switch to `deepseek-v4.1-flash` on
 `chat_completions` re-points it. `make status` (`scripts/check-cron-registry.py`) fails when a
 job's pinned model differs from `model.default` in `config.yaml`, so a stale pin cannot hide.
 Re-pin deliberately if the brain moves again; leaving it unpinned means it stops and asks rather than

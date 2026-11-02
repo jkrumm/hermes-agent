@@ -1,5 +1,5 @@
 diff --git a/agent/auxiliary_client.py b/agent/auxiliary_client.py
-index 4df052c093..ad72d7b938 100644
+index 4df052c093..1f894c23fb 100644
 --- a/agent/auxiliary_client.py
 +++ b/agent/auxiliary_client.py
 @@ -641,9 +641,13 @@ def _is_codex_spark(model: Optional[str], provider: Optional[str] = None) -> boo
@@ -18,18 +18,20 @@ index 4df052c093..ad72d7b938 100644
  
  
  # Routes (host + model) that rejected ``temperature`` at runtime; the next call omits it up front
-@@ -657,6 +661,25 @@ def remember_temperature_rejection(
+@@ -657,6 +661,28 @@ def remember_temperature_rejection(
      _TEMPERATURE_REJECTED_ROUTES.add((_route_key(provider, base_url), _bare_model(rejected_kwargs.get("model"))))
  
  
 +# LOCAL MODIFICATION (patches/auxiliary-client-iu-openai-leg-quirks.patch)
++# IU directly, or the local inference gateway that passes the same leg through.
 +_IU_UNIFIED_ENDPOINT_HOST = "unified-endpoint-main.app.iu-it.org"
++_INFERENCE_GATEWAY_AUTHORITY = "127.0.0.1:7794"
 +
 +
 +def _is_iu_openai_leg(base_url: Optional[str]) -> bool:
-+    """True for the IU unified endpoint's OpenAI-compatible leg (``…/openai/v1``), exact
-+    hostname + path — never containment, so a lookalike host or the gateway's own
-+    ``/anthropic`` leg don't match. Identical predicate to
++    """True for the IU unified endpoint's OpenAI-compatible leg (``…/openai/v1``), directly or
++    through the local inference gateway, exact authority + path — never containment, so a
++    lookalike host or either endpoint's ``/anthropic`` leg don't match. Identical predicate to
 +    ``run_agent.AIAgent._is_iu_unified_endpoint_openai_leg`` and the host check in
 +    ``agent.transports.chat_completions._apply_iu_reasoning_effort`` — keep all three in
 +    sync; they must not drift to different rigor."""
@@ -37,14 +39,15 @@ index 4df052c093..ad72d7b938 100644
 +        parsed = urlparse(str(base_url or "").strip())
 +    except Exception:
 +        return False
-+    return ((parsed.hostname or "").lower() == _IU_UNIFIED_ENDPOINT_HOST
++    return (((parsed.hostname or "").lower() == _IU_UNIFIED_ENDPOINT_HOST
++              or (parsed.netloc or "").lower() == _INFERENCE_GATEWAY_AUTHORITY)
 +             and (parsed.path or "").rstrip("/").endswith("/openai/v1"))
 +
 +
  def _fixed_temperature_for_model(
      model: Optional[str], base_url: Optional[str] = None, provider: Optional[str] = None,
  ) -> Optional[float] | object:
-@@ -5738,15 +5761,24 @@ def get_auxiliary_extra_body() -> dict:
+@@ -5738,15 +5764,24 @@ def get_auxiliary_extra_body() -> dict:
      return _nous_extra_body() if auxiliary_is_nous else {}
  
  
@@ -73,7 +76,7 @@ index 4df052c093..ad72d7b938 100644
          return {"max_completion_tokens": value}
      return {"max_tokens": value}
  
-@@ -6765,7 +6797,7 @@ def _build_call_kwargs(
+@@ -6765,7 +6800,7 @@ def _build_call_kwargs(
              kwargs["temperature"] = temperature
      provider_norm = str(provider or "").strip().lower()
      if max_tokens is not None and _forwards_max_tokens(provider, provider_norm, model, effective_base, task):
@@ -82,7 +85,7 @@ index 4df052c093..ad72d7b938 100644
      if tools:
          kwargs["tools"] = _dedupe_tool_names(tools, provider, model)
      # Provider profiles are the source of truth for reasoning wire shapes (top-level, nested body,
-@@ -6792,6 +6824,18 @@ def _build_call_kwargs(
+@@ -6792,6 +6827,18 @@ def _build_call_kwargs(
          merged_extra = without_unsupported_response_format(merged_extra, provider_norm, effective_base, model, task)
      if merged_extra:
          kwargs["extra_body"] = merged_extra
@@ -101,7 +104,7 @@ index 4df052c093..ad72d7b938 100644
      # Anthropic Messages adapters take reasoning via a private kwarg that plain OpenAI SDK clients
      # would reject; Portal Claude is dual-wire, so include it only when the catalog id selects
      # /v1/messages. A profile declaring api_mode=anthropic_messages (commandcode-anthropic) is on
-@@ -7083,7 +7127,8 @@ def _create_with_progress(
+@@ -7083,7 +7130,8 @@ def _create_with_progress(
          retry_kwargs.pop("max_tokens", None)
          retry_kwargs.pop("max_completion_tokens", None)
          retry_kwargs.update(

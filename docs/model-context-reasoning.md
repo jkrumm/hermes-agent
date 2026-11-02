@@ -4,7 +4,7 @@ Numbers here are **probed against the live IU endpoint**, not read off a model c
 
 | | Value | How it was established |
 |-|-|-|
-| Brain, `claude-haiku-5-5-eu` (since 2026-10-08) | Bedrock **eu-west-1**, native `/anthropic` leg, `anthropic_messages` | modelpick 2026-10-08. Not in `/v1/models` — probe by name. `claude-haiku-5-5` (no suffix) is us-east-1: never. Adaptive thinking, `output_config.effort` honoured at every level; `high` 15/15 at ~1.6 s median, `medium` 14/15, `xhigh`/`max` think 50–100 s+ on long outputs. Output cap 128k (thinking counts toward `max_tokens`). Input price doubles+ above 100k tokens ($0.10/$0.50 → $0.50/$2.50 per MTok) |
+| Former brain, Haiku 5.5 EU (2026-10-08 → 10-20) | Bedrock **eu-west-1**, native `/anthropic` leg, `anthropic_messages` | modelpick 2026-10-08. The lanes that still run Haiku 5.5 use `claude-haiku-5-5` on the gateway since it replaced IU's EU route. Adaptive thinking, `output_config.effort` honoured at every level; `high` 15/15 at ~1.6 s median, `medium` 14/15, `xhigh`/`max` think 50–100 s+ on long outputs. Output cap 128k (thinking counts toward `max_tokens`). Input price doubles+ above 100k tokens ($0.10/$0.50 → $0.50/$2.50 per MTok) |
 | Context, `deepseek-v4.1-flash` (former brain and compression; no longer routed) | **1,000,000** | probed 2026-09-13. `/chat/completions` 200; `/responses` **404** ("No suitable backend") despite `/models` listing Responses |
 | Input cap, `gpt-5.6-luna` (fallback + title_generation until 2026-09-23; not re-probed for `gpt-6-luna`) | **922,000 tokens** | 900k accepted; 1.1M → `context_length_exceeded`, "configured limit of 922000 tokens". Matches Microsoft's Foundry note that the 1.05M window is a *combined* input+reasoning+output budget. |
 | `/v1/models` metadata | `ContextSize: "105000"` | **Wrong** — 110k, 260k, 520k and 900k prompts all succeed. Don't configure from it. |
@@ -66,8 +66,8 @@ fell off, which is what a `hermes update` does.
 | Lane | Model | Why not the brain |
 |-|-|-|
 | `title_generation` | `gpt-6-luna`, OpenAI leg, `reasoning_effort: low` | `title_generator.py:268` hardcodes `temperature=0.3`; gpt-5.x 503s on any non-default temperature — upstream's `_is_openai_default_temperature_only` omits it for gpt-5.x, `patches/auxiliary-client-iu-openai-leg-quirks.patch` extends that to gpt-6.x (gpt-6-luna refuses 0.3, probed 2026-09-23) |
-| `approval` | `claude-haiku-5-5-eu` (was `claude-haiku-4-5` until 2026-10-08, which approved `rm -rf ~/SourceRoot` in a probe), **native `/anthropic` leg** (`${ANTHROPIC_BASE_URL}`, `api_mode: anthropic_messages`) | same 503 shape (`approval_smart.py` hardcodes `temperature=0`), and this gates every risky terminal command. Measured **0.9s native vs 3.0s** for the same model through the OpenAI-compat shim. `provider` stays `custom`, never `anthropic`, so the auxiliary client never reaches for `~/.claude` OAuth |
-| `vision` | `gemini-3.5-flash`, IU OpenAI leg | moved off Google AI Studio direct 2026-09-13 — no deliberate reason for the direct route was ever recorded here, and modelpick flagged it as two generations stale. See `modelpick/docs/decisions/vision-and-image.md` |
+| `approval` | `claude-haiku-5-5` (was `claude-haiku-4-5` until 2026-10-08, which approved `rm -rf ~/SourceRoot` in a probe), **native `/anthropic` leg** (`${ANTHROPIC_BASE_URL}`, `api_mode: anthropic_messages`) | same 503 shape (`approval_smart.py` hardcodes `temperature=0`), and this gates every risky terminal command. Measured **0.9s native vs 3.0s** for the same model through the OpenAI-compat shim. `provider` stays `custom`, never `anthropic`, so the auxiliary client never reaches for `~/.claude` OAuth |
+| `vision` | `claude-sonnet-5-5`, **native `/anthropic` leg** (`${ANTHROPIC_BASE_URL}`, `api_mode: anthropic_messages`) | on the leg that spends Claude credit first, not through the OpenAI-compat shim. Needs no context pin: nothing on the vision path resolves a window |
 
 `compression` is `gpt-6-luna` (`reasoning_effort: high`, OpenAI leg) since 2026-10-09, replacing DeepSeek — the last DeepSeek slot. It needs the
 850k-token context; the gpt-6 tools+effort refusal is irrelevant since compression calls carry no tools. Probed: a 279k-token prompt at `high` returned in 6.2 s. `auxiliary.web_extract` and `auxiliary.session_search` were removed
@@ -95,6 +95,24 @@ then 100% on later calls), which discounts reads but not the tier. **Owner decis
 the 240k trigger stays; the extra cost of long threads is fine.
 
 The startup warning `model.context_length pins … 1,000,000 but provider advertises 200,000` is
-stale metadata, not a real limit: a direct probe on 2026-10-08 sent `claude-haiku-5-5-eu` 599,017
+stale metadata, not a real limit: a direct probe on 2026-10-08 sent Haiku 5.5 EU 599,017
 and 749,017 input tokens on the IU Anthropic route and both returned 200. The 1M pin is correct,
 and the 240k trigger fires well inside the window.
+
+## What `127.0.0.1` changes
+
+The gateway's loopback address makes `is_local_endpoint` true, which Hermes reads as "a local
+model server". Read on v0.22.2, and exercised against the live gateway through a scratch tree:
+
+| Site | On the gateway | Effect |
+|-|-|-|
+| Context length (`model_metadata.py:2010,2075,2334`) | never reached | Every lane that uses a window has a pin: `model.context_length`, `fallback_providers[0].context_length`, `auxiliary.{compression,title_generation,approval}.context_length`, and the `models:` tables on the route entries. `tests/test_gateway_provider.py` fails if a slot reaches a probe |
+| `query_ollama_num_ctx` (`agent_init.py:2165`) | runs once per process and TTL | `detect_local_server_type` walks the LM Studio, Ollama, llama.cpp and vLLM paths, none answers 200, so the server type stays unknown and no `num_ctx` is sent. `/openai/v1/props` falls into the gateway's passthrough and comes back 501, which writes a zero-token `outcome: error` row: noise on the hermes lane, not a failed turn |
+| Non-stream stale timeout (`run_agent.py:589`, `chat_completion_helpers.py:846`) | not tighter | `inf` for a model without a reasoning floor. `deepseek-v4.1-flash` keeps its 600 s floor, the same path as on IU. `HERMES_API_TIMEOUT` (1800 s) stays the request timeout |
+| Codex-only floors (`chat_completion_helpers.py:846,1190`) | not reached | Every slot pins `chat_completions` or `anthropic_messages` |
+| Stream timeouts (`chat_completion_helpers.py:2911,3903`) | more patient | Read 120 s → 1800 s, stale detector → 900 s (`agent.local_stream_stale_timeout`), so a stalled stream takes longer to give up |
+| Auxiliary first-token window (`auxiliary_stream_watchdog.py:150`) | gone | A silent auxiliary stream waits out the task's `timeout` instead of the cloud patience |
+| Reasoning replay (`message_sanitization.py:723`) | unchanged | `provider: custom` already selects the local carriers before the host is read |
+| Managed llama.cpp (`conversation_loop.py:459`, `chat_completion_local.py`) | unchanged | Guarded by `is_managed_endpoint`, which is false |
+| Unexplained context rejection (`turn_overflow.py:413`) | **changed** | A "too large" error with no 4+ digit number, on a request under the window's rejection fraction, now fails the turn as retryable instead of compressing. Hermes assumes a busy local slot. Upstream errors normally quote the token count, which skips this branch |
+

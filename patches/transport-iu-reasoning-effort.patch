@@ -1,8 +1,8 @@
 diff --git a/agent/transports/chat_completions.py b/agent/transports/chat_completions.py
-index 1bb9fcb2b9..98d0f57787 100644
+index 1bb9fcb2b9..fcb7a7fc7d 100644
 --- a/agent/transports/chat_completions.py
 +++ b/agent/transports/chat_completions.py
-@@ -265,6 +265,158 @@ _GEMINI_SIGNATURE_HOSTS = ("generativelanguage.googleapis.com", "aiplatform.goog
+@@ -265,6 +265,163 @@ _GEMINI_SIGNATURE_HOSTS = ("generativelanguage.googleapis.com", "aiplatform.goog
  _GEMINI_SIGNATURE_PROVIDERS = frozenset({"gemini", "vertex", "copilot"})
  
  
@@ -13,13 +13,17 @@ index 1bb9fcb2b9..98d0f57787 100644
 +# in agent/auxiliary_client.py (``_is_iu_openai_leg``) and run_agent.py
 +# (``_is_iu_unified_endpoint_openai_leg``). All local patches over upstream, so
 +# there is no shared module to hang one constant off — keep the three in sync.
++# The local inference gateway (127.0.0.1:7794) mirrors IU's path layout and passes this
++# leg through, so every rule below holds there too. Exact authority, port included: a
++# different loopback service must not inherit this leg's quirks.
 +_IU_UNIFIED_ENDPOINT_HOST = "unified-endpoint-main.app.iu-it.org"
++_INFERENCE_GATEWAY_AUTHORITY = "127.0.0.1:7794"
 +# Efforts the IU gateway accepts, per model family. Probed against the live
 +# endpoint 2026-08-14 (gpt-5.x / Anthropic) and 2026-09-13 (deepseek / glm):
 +#   gpt-5.6-luna + 'max'  -> "Unsupported value: 'reasoning_effort' does not
 +#                            support 'max' with this model. Supported values
 +#                            are: 'none', 'low', 'medium', 'high', 'xhigh'."
-+#   claude-sonnet-4-6-eu + 'xhigh' -> "effort='xhigh' is not supported by this
++#   claude-sonnet-4-6 + 'xhigh' -> "effort='xhigh' is not supported by this
 +#                            model" (LiteLLM -> Anthropic); none/low/medium/high OK.
 +#   deepseek-v4.1-flash: accepts low/high/xhigh/max, and — unlike gpt-5.x —
 +#                            accepts function tools and an effort in the same
@@ -72,17 +76,18 @@ index 1bb9fcb2b9..98d0f57787 100644
 +
 +
 +def _is_iu_openai_leg(base_url: Any) -> bool:
-+    """True for the IU unified endpoint's OpenAI-compatible leg (``…/openai/v1``), exact
-+    hostname + path — never containment, so a lookalike host
-+    (``unified-endpoint-main.app.iu-it.org.example.test``) or the gateway's own
-+    ``/anthropic`` leg don't match. Identical predicate to
++    """True for the IU unified endpoint's OpenAI-compatible leg (``…/openai/v1``), directly or
++    through the local inference gateway, exact authority + path — never containment, so a
++    lookalike host (``unified-endpoint-main.app.iu-it.org.example.test``) or either
++    endpoint's ``/anthropic`` leg don't match. Identical predicate to
 +    ``agent.auxiliary_client._is_iu_openai_leg`` and
 +    ``run_agent.AIAgent._is_iu_unified_endpoint_openai_leg`` — keep all three in sync."""
 +    try:
 +        parsed = urlparse(str(base_url or "").strip())
 +    except Exception:
 +        return False
-+    return ((parsed.hostname or "").lower() == _IU_UNIFIED_ENDPOINT_HOST
++    return (((parsed.hostname or "").lower() == _IU_UNIFIED_ENDPOINT_HOST
++              or (parsed.netloc or "").lower() == _INFERENCE_GATEWAY_AUTHORITY)
 +             and (parsed.path or "").rstrip("/").endswith("/openai/v1"))
 +
 +
@@ -161,7 +166,7 @@ index 1bb9fcb2b9..98d0f57787 100644
  def _model_consumes_thought_signature(model: Any, base_url: Any = None, provider: Any = None) -> bool:
      """True for Gemini routes, which require tool-call ``extra_content`` (thought_signature) replay.
  
-@@ -561,7 +713,12 @@ class ChatCompletionsTransport(ProviderTransport):
+@@ -561,7 +718,12 @@ class ChatCompletionsTransport(ProviderTransport):
              provider=params.get("provider_name"),
          )
          if _profile:
@@ -175,7 +180,7 @@ index 1bb9fcb2b9..98d0f57787 100644
  
          sanitized = _swap_developer_role(sanitized, params.get("model_lower", (model or "").lower()))
          api_kwargs = _base_kwargs(model, sanitized, tools, params)
-@@ -625,9 +782,14 @@ class ChatCompletionsTransport(ProviderTransport):
+@@ -625,9 +787,14 @@ class ChatCompletionsTransport(ProviderTransport):
              api_kwargs["extra_body"] = extra_body
          if params.get("request_overrides"):
              api_kwargs.update(params["request_overrides"])

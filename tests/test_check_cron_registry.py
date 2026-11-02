@@ -182,10 +182,10 @@ jobs["cc7900c424a9"]["model"] = ""
 check("no errors", ccr.compare_pins(jobs, BRAIN), [])
 
 print("\n14. compare_pins() — brain-drift audit pinned to the dead Haiku model is drift")
-jobs = {"8fe7be4985d9": {**mk_job("8fe7be4985d9", "Brain drift audit"), "model": "claude-haiku-5-5-eu"}}
+jobs = {"8fe7be4985d9": {**mk_job("8fe7be4985d9", "Brain drift audit"), "model": "claude-haiku-5-5"}}
 errors = ccr.compare_pins(jobs, BRAIN)
 check("one error", len(errors), 1)
-check_true("names both models", "claude-haiku-5-5-eu" in errors[0] and BRAIN in errors[0])
+check_true("names both models", "claude-haiku-5-5" in errors[0] and BRAIN in errors[0])
 
 print("\n15. compare_pins() — unreadable config.yaml is reported, not silently passed")
 errors = ccr.compare_pins(jobs, None)

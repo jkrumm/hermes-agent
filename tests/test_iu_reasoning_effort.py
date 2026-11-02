@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Regression suite for the four IU-unified-endpoint patches.
 
+Every predicate covers the IU OpenAI leg directly and through the local inference
+gateway (``GATEWAY`` below), which passes that leg through; the last section pins the
+gateway half, since live traffic only reaches it there.
+
 * ``patches/runtime-provider-iu-responses-api.patch`` — routes the IU
   endpoint's OpenAI leg onto the Responses API for a gpt-5.x model with no
   explicit ``api_mode`` (dormant on the current config, every live slot pins
@@ -20,10 +24,12 @@
   gpt-5.x on the IU leg (not covered by this suite — see ``docs/patches.md``).
 
 Run:  ~/.hermes/hermes-agent/venv/bin/python3 tests/test_iu_reasoning_effort.py
+``HERMES_SRC`` points it at another checkout (a scratch tree holding unreleased patches).
 """
+import os
 import sys
 
-sys.path.insert(0, "/Users/jkrumm/.hermes/hermes-agent")
+sys.path.insert(0, os.environ.get("HERMES_SRC", os.path.expanduser("~/.hermes/hermes-agent")))
 
 from agent.transports.chat_completions import (  # noqa: E402
     ChatCompletionsTransport,
@@ -33,7 +39,9 @@ from agent.transports.chat_completions import (  # noqa: E402
 IU = "https://unified-endpoint-main.app.iu-it.org/openai/v1"
 LUNA = "gpt-5.6-luna"
 LUNA6 = "gpt-6-luna"
-CLAUDE = "claude-sonnet-4-6-eu"
+GATEWAY = "http://127.0.0.1:7794/openai/v1"
+GATEWAY_ANTHROPIC = "http://127.0.0.1:7794/anthropic"
+CLAUDE = "claude-sonnet-4-6"
 DEEPSEEK = "deepseek-v4.1-flash"
 GLM = "glm-5.3-flash"
 UNKNOWN = "some-future-model-v9"
@@ -69,7 +77,7 @@ for effort in ("none", "low", "medium", "high", "xhigh"):
 # 'max' is in Hermes' config enum but refused by the endpoint for gpt-5.6.
 check("luna max clamps to xhigh", effort_for(LUNA, {"enabled": True, "effort": "max"}), "xhigh")
 
-# The Anthropic fallback rides the same host and refuses xhigh.
+# Anthropic ids on this leg refuse xhigh.
 check("claude xhigh clamps to high", effort_for(CLAUDE, {"enabled": True, "effort": "xhigh"}), "high")
 check("claude max clamps to high", effort_for(CLAUDE, {"enabled": True, "effort": "max"}), "high")
 check("claude high", effort_for(CLAUDE, {"enabled": True, "effort": "high"}), "high")
@@ -255,6 +263,57 @@ check("aux luna: temperature stripped", "temperature" in _aux, False)
 check("aux deepseek high", aux_kwargs(DEEPSEEK, "high").get("reasoning_effort"), "high")
 check("aux deepseek medium clamps to low", aux_kwargs(DEEPSEEK, "medium").get("reasoning_effort"), "low")
 check("aux luna + tools -> effort dropped", "reasoning_effort" in aux_kwargs(LUNA, "high", tools=TOOLS), False)
+
+print("the same leg through the local inference gateway")
+OTHER_LOOPBACK = "http://127.0.0.1:7795/openai/v1"
+LOOKALIKE = "http://127.0.0.1.evil.test:7794/openai/v1"
+IU_EXPLICIT_PORT = IU.replace(".org/", ".org:443/")
+
+check("gateway: gpt-6 + tools -> none",
+      effort_for(LUNA6, {"enabled": True, "effort": "high"}, base_url=GATEWAY, tools=TOOLS), "none")
+check("gateway: deepseek + tools -> emitted",
+      effort_for(DEEPSEEK, {"enabled": True, "effort": "high"}, base_url=GATEWAY, tools=TOOLS), "high")
+check("gateway: luna max clamps to xhigh",
+      effort_for(LUNA, {"enabled": True, "effort": "max"}, base_url=GATEWAY), "xhigh")
+check("gateway, trailing slash: clamp still applies",
+      effort_for(LUNA, {"enabled": True, "effort": "max"}, base_url=GATEWAY + "/"), "xhigh")
+check("IU with an explicit port still matches",
+      effort_for(LUNA, {"enabled": True, "effort": "max"}, base_url=IU_EXPLICIT_PORT), "xhigh")
+check("other loopback port untouched",
+      effort_for(LUNA, {"enabled": True, "effort": "high"}, base_url=OTHER_LOOPBACK), None)
+check("lookalike gateway host untouched",
+      effort_for(LUNA, {"enabled": True, "effort": "high"}, base_url=LOOKALIKE), None)
+check("gateway /anthropic leg untouched",
+      effort_for(LUNA, {"enabled": True, "effort": "high"}, base_url=GATEWAY_ANTHROPIC), None)
+
+# DeepSeek's 65536 floor, the reason this patch exists: rejected as max_tokens.
+check("gateway: deepseek -> max_completion_tokens",
+      max_tokens_param_for(DEEPSEEK, GATEWAY), {"max_completion_tokens": 65536})
+check("IU with an explicit port -> max_completion_tokens",
+      max_tokens_param_for(DEEPSEEK, IU_EXPLICIT_PORT), {"max_completion_tokens": 65536})
+check("other loopback port -> max_tokens",
+      max_tokens_param_for(DEEPSEEK, OTHER_LOOPBACK), {"max_tokens": 65536})
+check("gateway /anthropic leg -> max_tokens",
+      max_tokens_param_for(DEEPSEEK, GATEWAY_ANTHROPIC), {"max_tokens": 65536})
+
+check("gateway: aux -> max_completion_tokens",
+      auxiliary_max_tokens_param(16000, model=DEEPSEEK, base_url=GATEWAY), {"max_completion_tokens": 16000})
+check("IU with an explicit port: aux -> max_completion_tokens",
+      auxiliary_max_tokens_param(16000, model=DEEPSEEK, base_url=IU_EXPLICIT_PORT), {"max_completion_tokens": 16000})
+check("other loopback port: aux -> max_tokens",
+      auxiliary_max_tokens_param(16000, model=DEEPSEEK, base_url=OTHER_LOOPBACK), {"max_tokens": 16000})
+
+_gw = aux_kwargs(LUNA, "low", base_url=GATEWAY)
+check("gateway aux: effort top-level", _gw.get("reasoning_effort"), "low")
+check("gateway aux: no extra_body.reasoning", "reasoning" in (_gw.get("extra_body") or {}), False)
+check("gateway aux: temperature stripped", "temperature" in _gw, False)
+check("gateway aux: luna + tools -> effort dropped",
+      "reasoning_effort" in aux_kwargs(LUNA, "high", base_url=GATEWAY, tools=TOOLS), False)
+
+check("gateway openai leg -> responses", _detect_api_mode_for_url(GATEWAY), "codex_responses")
+check("gateway openai leg, trailing slash", _detect_api_mode_for_url(GATEWAY + "/"), "codex_responses")
+check("gateway anthropic leg", _detect_api_mode_for_url(GATEWAY_ANTHROPIC), "anthropic_messages")
+check("other loopback port not forced", _detect_api_mode_for_url(OTHER_LOOPBACK), None)
 
 print()
 if failures:

@@ -4,7 +4,7 @@ Two incidents, and the second one is the more instructive.
 
 > **2026-09-13 update: this incident is historical, and its "gpt-5.6-luna is the brain" framing
 > no longer matches the live config.** `model.default` is now `deepseek-v4.1-flash`, and `gpt-5.6-luna`
-> is the **fallback** model instead of `claude-sonnet-4-6-eu`. The specific bug this incident
+> is the **fallback** model instead of `claude-sonnet-4-6`. The specific bug this incident
 > documents — an unrecognised host silently downgrading a persisted `codex_responses` — is
 > still real and the patch that prevents it is still applied, but it now only matters for a
 > gpt-5.x model on this endpoint (the fallback, or `title_generation`), never for the brain:
@@ -32,7 +32,7 @@ Every turn then went out on `/v1/chat/completions` carrying both function tools 
   gpt-5.6-luna in /v1/chat/completions. To use function tools, use /v1/responses
   or set reasoning_effort to 'none'."
 12:25:34 INFO agent.chat_completion_helpers: Fallback activated:
-  gpt-5.6-luna → claude-sonnet-4-6-eu (custom)
+  gpt-5.6-luna → claude-sonnet-4-6 (custom)
 ```
 
 Three retries per turn, then the whole conversation on the Anthropic fallback — with
@@ -40,7 +40,7 @@ Three retries per turn, then the whole conversation on the Anthropic fallback �
 throughout. **Supervisor health told you nothing about request health.**
 
 At 12:44:09 a line reads `Fallback activated: gpt-5.6-luna-does-not-exist →
-claude-sonnet-4-6-eu`. That is the deliberate probe AGENTS.md prescribes for proving
+claude-sonnet-4-6`. That is the deliberate probe AGENTS.md prescribes for proving
 the fallback chain still engages after touching either `api_mode`. It is evidence of
 a test, not of a broken model name.
 

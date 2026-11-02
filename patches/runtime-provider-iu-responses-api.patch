@@ -1,8 +1,8 @@
 diff --git a/hermes_cli/runtime_provider.py b/hermes_cli/runtime_provider.py
-index 07936db273..177709af5d 100644
+index 07936db273..c47aa27e3e 100644
 --- a/hermes_cli/runtime_provider.py
 +++ b/hermes_cli/runtime_provider.py
-@@ -114,6 +114,20 @@ def _detect_api_mode_for_url(base_url: str) -> Optional[str]:
+@@ -114,6 +114,22 @@ def _detect_api_mode_for_url(base_url: str) -> Optional[str]:
      """
      normalized = (base_url or "").strip().lower().rstrip("/")
      hostname = base_url_hostname(base_url)
@@ -15,10 +15,12 @@ index 07936db273..177709af5d 100644
 +    # be stripped to keep tool calls working. The path prefix is part of the
 +    # match: only the OpenAI-compatible leg of the gateway speaks Responses,
 +    # the /anthropic leg is handled by the suffix rules below. Kept out of
-+    # _HOST_MANDATED_API_MODES because that map keys on hostname alone.
-+    if hostname == "unified-endpoint-main.app.iu-it.org" and normalized.endswith(
++    # _HOST_MANDATED_API_MODES because that map keys on hostname alone. The
++    # local inference gateway passes the same leg through, matched exactly:
++    # a different loopback service must not inherit this.
++    if (hostname == "unified-endpoint-main.app.iu-it.org" and normalized.endswith(
 +        "/openai/v1"
-+    ):
++    )) or normalized == "http://127.0.0.1:7794/openai/v1":
 +        return "codex_responses"
      mandated = _HOST_MANDATED_API_MODES.get(hostname) or ("codex_responses" if is_official_openai_host(base_url) else None)
      if mandated:
