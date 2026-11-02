@@ -6,7 +6,7 @@
 #
 #   health  GET /health answers within 5 s with status "ok"           (prints "build <id>")
 #   token   GET /anthropic/v1/models with the `hermes=` door token    (a catalog read: no usage row,
-#           answers 2xx within 10 s                                    no pick, costs nothing)
+#           fails only on 401/403 or no answer within 10 s             no pick, costs nothing)
 #   all     both, health first (default)
 #
 # Prints ONE line (the reason on failure, a detail on success) and exits 0 / 1. The token is read from
@@ -19,9 +19,15 @@ TOKENS="${HERMES_DOOR_TOKENS_FILE:-$HOME/.agent-workflows/data/door-tokens}"
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 
 health() {
-  local body status build
-  body=$(curl -sS --max-time 5 "$BASE/health" 2>&1) \
-    || { echo "inference gateway ($BASE) not answering: ${body:-no response}" | head -c 200; echo; return 1; }
+  local out code body status build
+  # -s without -S keeps curl's own error text out of the body jq parses; the status code rides on the last line.
+  out=$(curl -s --max-time 5 -w '\n%{http_code}' "$BASE/health" 2>/dev/null) || out=""
+  code="${out##*$'\n'}"
+  body="${out%$'\n'*}"
+  if [[ -z "$out" || "$code" == "000" ]]; then
+    echo "inference gateway ($BASE) not answering within 5 s"; return 1
+  fi
+  [[ "$code" == 2?? ]] || { echo "inference gateway /health -> HTTP $code"; return 1; }
   status=$(jq -r '.status // ""' <<<"$body" 2>/dev/null)
   [[ "$status" == "ok" ]] || { echo "inference gateway /health status=${status:-unparseable}"; return 1; }
   build=$(jq -r '.build // "unknown"' <<<"$body")
@@ -37,11 +43,13 @@ token() {
   # printf is a builtin (no argv); the config reaches curl on stdin.
   code=$(printf 'header = "authorization: Bearer %s"\n' "$tok" \
     | curl -sS -o /dev/null -w '%{http_code}' --max-time 10 -K - "$BASE/anthropic/v1/models" 2>/dev/null) || code=""
+  # The gateway authenticates before it forwards, so any answer but 401/403 proves the token: an
+  # upstream 429/5xx is the provider's problem, not a refused credential.
   case "$code" in
     2??) echo "door token accepted (HTTP $code)" ;;
     401|403) echo "door token refused (HTTP $code)"; return 1 ;;
     ""|000) echo "inference gateway token probe got no response within 10 s"; return 1 ;;
-    *) echo "inference gateway token probe -> HTTP $code"; return 1 ;;
+    *) echo "door token accepted (upstream HTTP $code)" ;;
   esac
 }
 

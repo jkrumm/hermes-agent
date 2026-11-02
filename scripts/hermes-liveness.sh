@@ -115,6 +115,11 @@ done
 # rotated, and every turn then fails — so withhold the heartbeat. The check is a separate bash
 # script run as a subprocess (shared with verify.sh / `make status`; no zsh-vs-bash sourcing); each
 # curl inside it is --max-time bound (5 s + 10 s), well inside the 5-min tick.
-GW_REASON=$(/bin/bash "${0:A:h}/inference-gateway-check.sh" all 2>&1) || skip "inference gateway: $GW_REASON"
+# Retried once after 5 s so a gateway restart (deploy, KeepAlive) does not flip the monitor.
+GW_CHECK="${0:A:h}/inference-gateway-check.sh"
+if ! GW_REASON=$(/bin/bash "$GW_CHECK" all 2>&1); then
+  sleep 5
+  GW_REASON=$(/bin/bash "$GW_CHECK" all 2>&1) || skip "inference gateway: $GW_REASON"
+fi
 
 /usr/bin/curl -fsS --max-time 10 "$PUSH_URL" >/dev/null
