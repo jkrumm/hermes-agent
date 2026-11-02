@@ -265,8 +265,11 @@ status:
 		&& echo "    ✓ audio door (TTS/STT)" \
 		|| echo "    ✗ audio door [not reachable — agent-workflows audio LaunchAgent on :7792]"
 	@grep -qE '^hermes=.{32,}' "$(HOME)/.agent-workflows/data/door-tokens" 2>/dev/null \
-		&& echo "    ✓ audio door token (hermes line present)" \
-		|| echo "    ✗ audio door token [no hermes= line in ~/.agent-workflows/data/door-tokens — TTS/STT would 401]"
+		&& echo "    ✓ door token (hermes line present)" \
+		|| echo "    ✗ door token [no hermes= line in ~/.agent-workflows/data/door-tokens — every model call and TTS/STT would 401]"
+	@curl -fsS --max-time 5 http://127.0.0.1:7794/health >/dev/null 2>&1 \
+		&& echo "    ✓ inference gateway (:7794)" \
+		|| echo "    ✗ inference gateway [not reachable — agent-workflows gateway LaunchAgent on :7794; every model call would fail]"
 	@# `hermes serve` auth. Counted, not spot-checked: the launcher refuses below the
 	@# full set (an absent username silently skips the provider), so a partial seed
 	@# shows up as exit 78 there and as this line here.

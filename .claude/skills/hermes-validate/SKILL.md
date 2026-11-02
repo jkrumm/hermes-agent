@@ -172,9 +172,9 @@ is a `skills_list`.
 - An auxiliary model 404/`not found` (title generation, compression) → non-blocking, but
   check the model name in `config.yaml` still exists on the endpoint. Auxiliaries are split
   by task, not all one model: `compression` is `gpt-6-luna` (like the fallback),
-  `title_generation` is `gpt-6-luna`, `vision` is `gemini-3.5-flash`, `approval` is
-  `claude-haiku-5-5-eu`. A log line naming any other id (e.g. a retired `gemini-2.5-flash*` or
-  `claude-sonnet-4-6-eu`) is stale config, not a bug in the current model.
+  `title_generation` is `gpt-6-luna`, `vision` is `claude-sonnet-5-5`, `approval` is
+  `claude-haiku-5-5`. A log line naming any other id (e.g. a retired `gemini-2.5-flash*` or
+  `claude-sonnet-4-6`) is stale config, not a bug in the current model.
 
 ---
 
@@ -271,7 +271,7 @@ Then re-send the same test message and compare `api_calls` and `time` in `agent.
 | v0.19.1 cron delivery target (in-process) | `scheduler-skip-resolver-for-slack-ids` | — | — | Working — `slack:C0ASRUD7K1U` resolved to `{'chat_id': 'C0ASRUD7K1U', 'thread_id': None}`, un-mangled by the channel directory |
 | v0.21.6+669 in-process sweep (2026-10-11) | slack mrkdwn, `tts-tool-audio-title`, STT, cron allowlist | — | — | Working — `format_message('* eins\n  * zwei')` → `-` bullets at both levels; forced `elevenlabs/v3` returned title `Kurzer Test nach Update` and renamed the file; STT gave back the exact sentence; cron scanner: argo/karakeep/research `OK` live vs `Blocked` pristine, evil host blocked in both |
 | v0.21.6+669 Slack TTS + thread (method B) | `slack-media-inline-reply-anchor`, threading | 5 | 32.5s | Working — text and `tts_<timestamp>.mp3` share `thread_ts`. A timestamp name is correct with the live `elevenlabs/flash-v2.5`: Flash sends no title header. `/reply` continuation reused the session (one row, mc 14) and recalled `12:30` in 2.6s, Haiku 5.5 EU, no fallback |
-| v0.22.2 post-update sweep (2026-10-15) | slack mrkdwn, `tts-tool-audio-title`, cron allowlist, brain | — | — | Working — `format_message('* eins\n  * zwei')` → `- eins\n  - zwei`; forced `elevenlabs/v3` returned title `Kurzer Test nach Update` and renamed the file; cron scanner argo/karakeep/research `OK` live vs `Blocked` pristine, evil host blocked in both; method A `pong` from `claude-haiku-5-5-eu`, no fallback |
+| v0.22.2 post-update sweep (2026-10-15) | slack mrkdwn, `tts-tool-audio-title`, cron allowlist, brain | — | — | Working — `format_message('* eins\n  * zwei')` → `- eins\n  - zwei`; forced `elevenlabs/v3` returned title `Kurzer Test nach Update` and renamed the file; cron scanner argo/karakeep/research `OK` live vs `Blocked` pristine, evil host blocked in both; method A `pong` from Haiku 5.5, no fallback |
 | v0.22.2 + deepseek-v4.1-flash brain sweep (2026-10-20) | slack mrkdwn, `tts-tool-audio-title`, STT, cron allowlist, threading, routing | 6 | 25.7s | Working — `format_message('* eins\n  * zwei')` → `- eins\n  - zwei`; forced `elevenlabs/v3` title `Kurzer Test nach Update`, STT returned the exact sentence; cron scanner argo/research `OK` live vs `Blocked` pristine, evil host blocked in both. Method B: `text_to_speech` + MEDIA delivered in-thread (5.8s, 2 calls), `/reply` reused the session (mc 7) and recalled the question (1.7s). Method A watchdog-count query: `skill_view` + 4 curls, 6 calls, correct answer. All on `deepseek-v4.1-flash`, no fallback, no errors after restart |
 
 **In-process recipe for `format_message()`** — worth keeping, because two things block the

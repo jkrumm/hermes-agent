@@ -88,6 +88,11 @@ the listener is reachable, never that the model route works.
 
 ## Model routing on the IU endpoint
 
+Every model call goes through the local inference gateway (`curl -s 127.0.0.1:7794/health`, LaunchAgent
+`com.jkrumm.agent-workflows-gateway`), which passes the OpenAI leg through to IU. A gateway that is
+down fails every lane at once, and a `401` means the `hermes=` door-token line is missing. The rest
+of this section reads the same as on IU directly.
+
 The brain (`deepseek-v4.1-flash`) runs `api_mode: chat_completions` on the IU OpenAI-compatible leg
 (`${OPENAI_BASE_URL}`, since 2026-10-20) and needs no Responses-API workaround: DeepSeek accepts
 tools and `reasoning_effort` on the same wire, so `agent.reasoning_effort: high` is sent on every

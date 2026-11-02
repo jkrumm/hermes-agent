@@ -24,30 +24,22 @@ SLACK_CHANNEL_HERMES=op://hermes/slack/channel-hermes
 SLACK_HOME_CHANNEL=op://hermes/slack/channel-hermes
 SLACK_CHANNEL_INBOX=op://hermes/slack/channel-inbox
 
-# gpt-6-luna fallback/compression/title_generation and
-# gemini-3.5-flash vision — all on the IU unified endpoint's OpenAI-compatible leg.
-# Same key as ANTHROPIC_*; the base is the OpenAI-compat surface (…/openai/v1).
-OPENAI_API_KEY=op://common/anthropic/API_KEY
-OPENAI_BASE_URL=https://unified-endpoint-main.app.iu-it.org/openai/v1
+# Every model call goes through the local inference gateway (agent-workflows, :7794),
+# which mirrors IU's path layout: the OpenAI leg (brain, fallback, compression,
+# title_generation) below, the Anthropic leg (vision, approval) further down.
+OPENAI_BASE_URL=http://127.0.0.1:7794/openai/v1
 
-# The SAME key under the names config.yaml's `key_env` hints point at.
-# `hermes model` / the provider setup wrote both into a plaintext ~/.hermes/.env
-# via save_env_value() (hermes_cli/config.py — custom_endpoint_key_env() derives the
-# name from the endpoint identity: `custom` → HERMES_CUSTOM_CUSTOM_API_KEY, the
-# host → HERMES_CUSTOM_UNIFIED_ENDPOINT_MAIN_APP_IU_IT_ORG_API_KEY). The runtime
-# resolves key_env through get_env_prefer_dotenv(): .env first, then the secret
-# scope `secrets.command` populated — so declaring them here is what lets that
-# .env not exist. Never run `hermes model` on the mini: it recreates the file.
-HERMES_CUSTOM_CUSTOM_API_KEY=op://common/anthropic/API_KEY
-HERMES_CUSTOM_UNIFIED_ENDPOINT_MAIN_APP_IU_IT_ORG_API_KEY=op://common/anthropic/API_KEY
+# Not here: the gateway keys. The hermes door token (`hermes=` line of
+# ~/.agent-workflows/data/door-tokens) opens the gateway, and `secrets.command` in
+# config.yaml emits it as OPENAI_API_KEY, ANTHROPIC_API_KEY and the two `key_env`
+# names, HERMES_CUSTOM_CUSTOM_API_KEY and
+# HERMES_CUSTOM_UNIFIED_ENDPOINT_MAIN_APP_IU_IT_ORG_API_KEY. The runtime resolves
+# key_env through get_env_prefer_dotenv(): .env first, then the secret scope
+# `secrets.command` populated, so that .env need not exist. Never run `hermes model`
+# on the mini: it recreates the file (custom_endpoint_key_env() derives those names).
 
-# Anthropic — the approval classifier only (auxiliary.approval: claude-haiku-5-5-eu,
-# native /anthropic leg). Every other auxiliary (compression, title_generation,
-# vision) is on the IU OpenAI leg above; Google AI Studio direct (GEMINI_API_KEY)
-# was retired 2026-09-13 — vision now runs gemini-3.5-flash through the same
-# unified endpoint as everything else, no separate key.
-ANTHROPIC_API_KEY=op://common/anthropic/API_KEY
-ANTHROPIC_BASE_URL=op://common/anthropic/BASE_URL
+# No `/v1`: the Anthropic SDK appends it.
+ANTHROPIC_BASE_URL=http://127.0.0.1:7794/anthropic
 
 # Tavily — web search, extract, crawl (replaces browser-based search)
 TAVILY_API_KEY=op://hermes/tavily/API_KEY

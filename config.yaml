@@ -19,15 +19,31 @@ providers:
     model: deepseek-v4.1-flash
     discover_models: false
     api_mode: chat_completions
+    # Sent on every request of this route, auxiliaries included: the gateway binds a pool and
+    # attributes the row by it. Declared per route URL, so each gateway leg needs an entry.
+    session_affinity_header: x-agw-session
     models:
       deepseek-v4.1-flash:
         context_length: 1000000
-      claude-haiku-5-5-eu:
+      claude-haiku-5-5:
         context_length: 1000000
       gpt-6-luna:
         context_length: 850000
     context_length: 850000
     key_env: HERMES_CUSTOM_CUSTOM_API_KEY
+  # The gateway's Anthropic leg (auxiliary.vision, auxiliary.approval). No lane selects this
+  # entry by name: it exists because the affinity header is looked up by route URL.
+  gateway-anthropic:
+    name: Gateway Anthropic
+    base_url: ${ANTHROPIC_BASE_URL}
+    api_key: ${ANTHROPIC_API_KEY}
+    discover_models: false
+    api_mode: anthropic_messages
+    session_affinity_header: x-agw-session
+    models:
+      claude-haiku-5-5:
+        context_length: 1000000
+    key_env: ANTHROPIC_API_KEY
 fallback_providers:
   - provider: custom
     model: gpt-6-luna
@@ -180,11 +196,11 @@ auxiliary:
   vision:
     provider: custom
     model: claude-sonnet-5-5
-    base_url: ${OPENAI_BASE_URL}
-    api_key: ${OPENAI_API_KEY}
+    base_url: ${ANTHROPIC_BASE_URL}
+    api_key: ${ANTHROPIC_API_KEY}
     timeout: 120
     download_timeout: 30
-    api_mode: chat_completions
+    api_mode: anthropic_messages
   compression:
     # timeout is a hang guard, not a budget (~/.claude/rules/agent-limits.md): the aux client
     # applies it as an absolute ceiling on top of the stream idle check, and a high-effort
@@ -213,11 +229,11 @@ auxiliary:
     # so the auxiliary client never reaches for ~/.claude OAuth credentials — the
     # key is supplied explicitly. Idle while approvals.mode is 'off' — kept routed
     # so flipping back to smart doesn't regress to the 503 path.
-    # claude-haiku-5-5-eu since 2026-10-08: haiku-4-5 APPROVED `rm -rf ~/SourceRoot`
+    # Haiku 5.5 since 2026-10-08: haiku-4-5 APPROVED `rm -rf ~/SourceRoot`
     # in a probe; 5.5 denied it. The adapter strips temperature=0 for 5.x, and the
     # 16-token verdict did not starve under default adaptive thinking.
     provider: custom
-    model: claude-haiku-5-5-eu
+    model: claude-haiku-5-5
     base_url: ${ANTHROPIC_BASE_URL}
     api_key: ${ANTHROPIC_API_KEY}
     timeout: 30
@@ -683,7 +699,10 @@ secrets:
     server_url: ''
   command:
     enabled: true
-    command: "{ $HOME/.local/bin/secrets-run export --env-file=$HOME/.hermes/.env.tpl | sed 's/^export //'; sed -n 's/^hermes=/AUDIO_DOOR_TOKEN=/p' $HOME/.agent-workflows/data/door-tokens 2>/dev/null; true; }"
+    # The hermes door token opens both local doors (audio :7792, inference gateway :7794) and is
+    # not a 1Password ref. Read once, printed under every name that needs it. Keep it `$t`, never
+    # `${t}`: config loading expands `${...}` before this reaches the shell.
+    command: "{ $HOME/.local/bin/secrets-run export --env-file=$HOME/.hermes/.env.tpl | sed 's/^export //'; t=$(sed -n 's/^hermes=//p' $HOME/.agent-workflows/data/door-tokens 2>/dev/null); [ -z \"$t\" ] || printf '%s=%s\\n' AUDIO_DOOR_TOKEN \"$t\" OPENAI_API_KEY \"$t\" ANTHROPIC_API_KEY \"$t\" HERMES_CUSTOM_CUSTOM_API_KEY \"$t\" HERMES_CUSTOM_UNIFIED_ENDPOINT_MAIN_APP_IU_IT_ORG_API_KEY \"$t\"; true; }"
     helper_timeout_seconds: 15
     override_existing: true
 paste_collapse_threshold: 5
@@ -729,11 +748,14 @@ known_plugin_toolsets:
   cli:
     - spotify
 custom_providers:
+  # The name and key_env are the entry's identity from the direct-IU days, kept so the persisted
+  # credential-pool key does not move; the route is the gateway's OpenAI leg.
   - name: Unified-endpoint-main.app.iu-it.org
-    base_url: https://unified-endpoint-main.app.iu-it.org/openai/v1
+    base_url: ${OPENAI_BASE_URL}
     key_env: HERMES_CUSTOM_UNIFIED_ENDPOINT_MAIN_APP_IU_IT_ORG_API_KEY
     model: gpt-6-luna
     api_mode: chat_completions
+    session_affinity_header: x-agw-session
     models:
       gpt-6-luna:
         context_length: 850000

@@ -143,31 +143,36 @@ No plaintext `~/.hermes/.env`, no launch wrapper. `config.yaml`:
 secrets:
   command:
     enabled: true
-    command: "$HOME/.local/bin/secrets-run export --env-file=$HOME/.hermes/.env.tpl | sed 's/^export //'"
+    command: "{ <secrets-run export --env-file=$HOME/.hermes/.env.tpl | sed 's/^export //'>; <door token, below>; true; }"
     helper_timeout_seconds: 15
     override_existing: true
 ```
 
 `secrets-run` is the dotfiles shim over the age-encrypted offline cache; `.env.tpl` stays the
-single list of `KEY=op://vault/item/field` refs. The `sed` exists because `export` emits
-`export K='V'` while the bulk parser wants `K=V`. 0.29s for 29 refs (28 since 2026-09-14) (default budget 3s), and
+list of `KEY=op://vault/item/field` refs. The `sed` exists because `export` emits
+`export K='V'` while the bulk parser wants `K=V`. 0.29s for 29 refs (default budget 3s), and
 secrets resolve for **every** hermes invocation — gateway, CLI, cron.
 
-- **Not a 1Password ref: the audio door token.** `AUDIO_DOOR_TOKEN` comes from the local
-  `~/.agent-workflows/data/door-tokens` file (`hermes=` line): the `command` above is wrapped as
-  `{ secrets-run … | sed …; sed -n 's/^hermes=/AUDIO_DOOR_TOKEN=/p' <file> 2>/dev/null; true; }`.
-  A missing file degrades to an unset variable (TTS/STT 401), graded by `make status` ("audio door token").
-  Rotation: edit the file, restart the gateway **and** `com.jkrumm.hermes-serve`.
+- **Not a 1Password ref: the door token, five names.** The `hermes=` line of the local
+  `~/.agent-workflows/data/door-tokens` opens the audio door (:7792) and the inference gateway
+  (:7794). The `command` reads it once into `t` and prints `AUDIO_DOOR_TOKEN`, `OPENAI_API_KEY`,
+  `ANTHROPIC_API_KEY`, `HERMES_CUSTOM_CUSTOM_API_KEY` and
+  `HERMES_CUSTOM_UNIFIED_ENDPOINT_MAIN_APP_IU_IT_ORG_API_KEY`. Write it `$t`, never `${t}`: config
+  loading expands `${...}` first. A chained `sed` cannot do this, the first substitution changes
+  the line the second one matches. A missing file leaves all five unset (every model call and
+  TTS/STT 401), graded by `make status` ("door token"), and pinned by
+  `tests/test_gateway_provider.py`. Rotation: edit the file, restart the gateway **and**
+  `com.jkrumm.hermes-serve`.
 - **Not `secrets.onepassword`**: it needs an interactive `op` session (hangs headless) or a
   standing `OP_SERVICE_ACCOUNT_TOKEN` (a live credential on an always-on box). The sealed cache
   is strictly stronger — its contents are the explicit `dotfiles-private/headless.refs` allowlist.
 - **Fail-soft, monitored.** The `command` source can't abort startup; it degrades to "no secrets
   applied" + a warning. `hermes-liveness.sh` covers both halves — total failure via
   `platforms.slack.state == "connected"`, partial via `KEY=` count vs rendered count.
-- Manual check: `Command helper: applied 28 secrets` in `hermes gateway status`, `✓ secrets (28
-  refs …)` from `make status`.
+- Manual check: `Command helper: applied 28 secrets` in `hermes gateway status` (23 refs + the 5
+  door-token names), `✓ secrets (23 refs …)` from `make status`.
 - **Never run `hermes model` on the mini** — it writes a plaintext `~/.hermes/.env`
-  (`save_env_value`) that duplicates two `.env.tpl` names on the same op ref; deleted 2026-09-07,
+  (`save_env_value`) that shadows the door-token names (`.env` wins over the secret scope); deleted 2026-09-07,
   and `hermes-backup.sh` excludes it so a recreated one never reaches homelab.
 - **launchd works** — `ai.hermes.gateway` is genuinely supervised. The plist is stock (wraps
   `venv/bin/python -m hermes_cli.main gateway run --external-supervisor` in
@@ -388,8 +393,8 @@ Re-apply: `cd ~/.hermes/hermes-agent && git apply ~/SourceRoot/hermes-agent/patc
 `config.yaml` needs a gateway restart** (`launchctl kickstart -k gui/$(id -u)/ai.hermes.gateway`)
 — modules are imported once at startup and `config.yaml` is read at startup too: a running
 process serves whatever model/patch state it started with, regardless of what `config.yaml` or
-these patched files say on disk. The 2026-10-08 brain switch (`claude-haiku-5-5-eu` on
-`anthropic_messages`) is live — gateway restarted that day.
+these patched files say on disk. The 2026-10-08 brain switch (Haiku 5.5 on
+`anthropic_messages`) was live only after the gateway restart that day.
 
 **No approval prompts, no command guards (owner decision 2026-09-14) — do not re-add either.**
 Hermes runs like Claude Code with `--dangerously-skip-permissions` and is steered by
@@ -419,7 +424,7 @@ published source disagrees in some direction. Re-probe after an endpoint change.
 | | Value | How established |
 |-|-|-|
 | Brain, `deepseek-v4.1-flash` (2026-10-20, trial) | DeepSeek first-party via Requesty (the 1017 snapshot), `/openai/v1`, `chat_completions`, `high` | modelpick bench:fast 2026-10-19: 15/15 at every effort, `high` 1.4 s median; flat $0.30/$1.20, no 100k cliff. Revert to Haiku 5.5 EU: the `anthropic_messages` block in bfa33c3 |
-| Former brain, `claude-haiku-5-5-eu` (2026-10-08 → 10-20) | Bedrock eu-west-1, native `/anthropic` leg, `anthropic_messages`, `high` | modelpick bench: `high` 15/15 ~1.6 s; `xhigh`/`max` think 50–100 s+. Not in `/v1/models`. 5x price above 100k input. Still the `approval` lane |
+| Former brain, Haiku 5.5 EU (2026-10-08 → 10-20) | Bedrock eu-west-1, native `/anthropic` leg, `anthropic_messages`, `high` | modelpick bench: `high` 15/15 ~1.6 s; `xhigh`/`max` think 50–100 s+. 5x price above 100k input. The `approval` lane runs `claude-haiku-5-5` on the gateway's Anthropic leg |
 | Context, `deepseek-v4.1-flash` (brain since 2026-10-20) | **1,000,000** | probed 2026-09-13; `/responses` 404s ("No suitable backend") despite `/models` listing it — `chat_completions` is the only wire that works |
 | Input cap, `gpt-5.6-luna` (former fallback, title) | **922,000** | 900k ok; 1.1M → `context_length_exceeded` (a *combined* input+reasoning+output budget). **Not re-probed for `gpt-6-luna`** — config keeps 850,000 |
 | `/v1/models` metadata | `ContextSize: "105000"` | **Wrong** — 110k/260k/520k/900k all succeed. Never configure from it |
@@ -428,8 +433,17 @@ published source disagrees in some direction. Re-probe after an endpoint change.
 | Efforts, deepseek-v4.1-flash (brain) | `low, high, xhigh, max` | accepts tools + effort together on `chat_completions` — unlike gpt-5.x, no strip needed |
 | Efforts, Anthropic leg | `none, low, medium, high` | `xhigh` refused by the IU LiteLLM gateway |
 
+**Every model call goes through the local inference gateway** (`127.0.0.1:7794`, agent-workflows):
+`OPENAI_BASE_URL` is its `/openai/v1`, `ANTHROPIC_BASE_URL` its `/anthropic`, the key is the door
+token, and it passes the OpenAI leg through to IU, so the probed numbers above hold. Each gateway
+route has a `session_affinity_header: x-agw-session` entry (`providers.custom`, the legacy
+`custom_providers` entry, `providers.gateway-anthropic`): the lookup is by route URL, so a leg
+without an entry would silently send no session. The four IU-leg patches match the gateway's
+exact authority as well as IU's host. What `127.0.0.1` changes in Hermes' local-endpoint logic:
+`docs/model-context-reasoning.md`.
+
 **The brain runs `chat_completions` (DeepSeek V4.1 Flash, since 2026-10-20) with `reasoning_effort` on every turn; the Responses dance was a gpt-5.x-only problem
-DeepSeek never needed. The approval lane stays on Haiku 5.5 EU over `anthropic_messages`, where upstream's `_is_pre_thinking_haiku` carries the effort.** `/v1/chat/completions` refuses any effort on gpt-5.x once the request
+DeepSeek never needed. The approval lane stays on Haiku 5.5 over `anthropic_messages`, where upstream's `_is_pre_thinking_haiku` carries the effort.** `/v1/chat/completions` refuses any effort on gpt-5.x once the request
 carries function tools — and Hermes always sends tools — but DeepSeek takes tools and
 `reasoning_effort` together on the same wire with no such refusal (probed 2026-09-13). So the
 brain needs no Responses routing at all: `model.api_mode: chat_completions`,
@@ -457,13 +471,12 @@ are attached (the 503-avoidance tradeoff), which is accepted, not a bug.
   default 200,000 (compression is gpt-6-luna; the Haiku brain caches natively).
 
 **Auxiliary lanes are separately routed, not the brain** — `title_generation` (`gpt-6-luna`)
-and `approval` (`claude-haiku-5-5-eu`) are pinned off non-brain models because both hardcode a
+and `approval` (`claude-haiku-5-5`) are pinned off non-brain models because both hardcode a
 `temperature` the flagship rejects; upstream's `_is_openai_default_temperature_only` (v0.21.4)
 omits `temperature` for any gpt-5.x/o-series id on every endpoint, and the aux patch extends it to gpt-6.x. `approval`
 runs the **native `/anthropic` leg**, 0.9s vs 3.0s through the OpenAI-compat shim, `provider`
-stays `custom` so it never reaches for `~/.claude` OAuth. `vision` moved off Google AI Studio
-direct onto the same IU leg (`gemini-3.5-flash`, EU-resident per the IU catalog) — no documented
-reason for the direct route was ever found; see `modelpick/docs/decisions/vision-and-image.md`.
+stays `custom` so it never reaches for `~/.claude` OAuth. `vision` is `claude-sonnet-5-5` on the
+same Anthropic leg, so it spends Claude credit first.
 `auxiliary.web_extract` and `auxiliary.session_search` are gone — upstream stopped reading them
 (`config_defaults.py`: "no longer use an auxiliary LLM... ignored"), so the blocks were dead
 weight. **`delegation.*` (subagent routing) exists but is unused** — a Hermes child gets no
