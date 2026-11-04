@@ -86,3 +86,4 @@ End the reply with exactly one fenced block tagged `iris`, **nothing after the c
 - `spoken` — **one sentence** for TTS in the memo's language: no markdown, no URLs, no ids, numbers as you would say them.
 - The block is **always** present on an Iris turn — also on failure (`error`), on a refusal, and when the reply is one line. If you fail to do the work at all, still emit the block.
 - Don't mention the block in prose; don't wrap it in anything else.
+- **Last check before you send:** is the memo English? Then the reply, `headline` and `spoken` are English too — `{"kind": "task", "headline": "Passport photo reminder, due Sunday", "spoken": "Reminder set: renew the passport photo by Sunday."}`. German memo, German block. Only `kind` is always English.
