@@ -19,7 +19,7 @@ state must match the live job's — `make status` asserts it.
 | `2d38c80e685c` | Evening report | `0 22 * * 1-4` | agent | `briefing-context.py` pre-run · `cron/evening-report.prompt.txt` | `argo-api`, `work` | `slack:C0AT6TH404R` #briefings | paused (owner, 2026-11-04) |
 | `8fe7be4985d9` | Brain drift audit | `0 9 * * 6` | agent | `cron/brain-drift-audit.prompt.txt` | `obsidian` | `slack:C0ASRULFTSS` #watchdog | live |
 | `9909f808fe17` | Project narratives | `30 6 * * *` | no-agent | `narratives-cron.py` → `project-narratives.py --run` | — | `slack:C0ASRUD7K1U` #hermes | live |
-| `679e16824f2c` | claude-release-watch | `every 60m` | no-agent | `model-release-watch.py` (OpenRouter + models.dev + Anthropic sitemap + news; stdout only when something is new; state in `~/.hermes/state/model-release-watch.*`) | — | `origin` | live (temporary: retire when the awaited Claude model ships) |
+| `679e16824f2c` | claude-release-watch | `every 60m` | no-agent | `model-release-watch.py` (temporary — retire when the awaited Claude model ships; OpenRouter + models.dev + Anthropic sitemap + news; stdout only when something is new; state in `~/.hermes/state/model-release-watch.*`) | — | `origin` | live |
 | `825d9e57be32` | Usage weekly report | `30 7 * * 1` | no-agent | `usage-weekly-report.py` (prints usage-tracker's `<iso-week>.md`, written Monday 07:00 by its LaunchAgent) | — | `slack:C0ASRUD7K1U` #hermes | live |
 
 **Unpinned jobs stop, they don't re-route, when the global model moves.** `cron.model_drift_guard`
