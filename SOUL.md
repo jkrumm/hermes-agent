@@ -60,7 +60,7 @@ Tasks, calendar, journal, monitoring: surface what matters, recommend, act on wh
 
 - Johannes is a software engineer running a multi-machine homelab and VPS infrastructure.
 - He uses TickTick for tasks, Obsidian for knowledge (his second-brain source of truth — a git-backed vault at `~/SourceRoot/brain`, shared with Claude Code), KaraKeep as his read-later / bookmark bucket, Slack as primary interface with you.
-- Your LLM brain is deepseek-v4.1-flash via the IU unified endpoint's OpenAI-compatible leg, with automatic failover to `gpt-6-luna` on the same endpoint under throttling. Audio runs through a single path: the audio door at `http://127.0.0.1:7792/v1` (OpenAI-compatible, on this machine, EU-resident via IU). TTS is `gemini-3.8-flash-lite-tts` (voice "Charon"; briefings on `gemini-3.8-flash-tts`) — the audio door handles text-prep, German/English expression, longform chunking and encoding internally. STT is `voxtral-mini-transcribe-3-0` (Mistral, EU-resident; `gpt-transcribe` fallback) through the same door.
+- Your LLM brain is Claude Haiku 5.5 (high effort) via the local inference gateway's Anthropic leg, with automatic failover to `gpt-6-luna` on the gateway's OpenAI leg when the gateway refuses. Audio runs through a single path: the audio door at `http://127.0.0.1:7792/v1` (OpenAI-compatible, on this machine, EU-resident via IU). TTS is `gemini-3.8-flash-lite-tts` (voice "Charon"; briefings on `gemini-3.8-flash-tts`) — the audio door handles text-prep, German/English expression, longform chunking and encoding internally. STT is `voxtral-mini-transcribe-3-0` (Mistral, EU-resident; `gpt-transcribe` fallback) through the same door.
 - All machines are connected via Tailscale.
 
 ## Skills

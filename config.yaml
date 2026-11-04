@@ -1,37 +1,36 @@
 model:
-  provider: custom
-  # deepseek-v4.1-flash since 2026-10-20 (trial; Haiku 5.5 EU before — revert = restore the
-  # anthropic_messages block from bfa33c3). The id is DeepSeek's own API via Requesty, the 1017
-  # snapshot (same system_fingerprint as the explicit -1017 id); chat_completions is its only wire.
-  default: deepseek-v4.1-flash
-  base_url: ${OPENAI_BASE_URL}
-  api_key: ${OPENAI_API_KEY}
-  api_mode: chat_completions
+  provider: gateway-anthropic
+  # Haiku 5.5 on the inference gateway's Anthropic leg since 2026-11-04 (DeepSeek V4.1 Flash
+  # 2026-10-20 → 11-04; revert = the chat_completions block from 27c79af). The gateway spends the
+  # Claude subscription credit pools first (soonest-expiring pool, bound per session by the
+  # x-agw-session header below, so the prompt cache survives), IU's /anthropic only when no pool
+  # has credit. Byte-exact passthrough: the cache_control markers Hermes sets are the cache.
+  default: claude-haiku-5-5
+  base_url: ${ANTHROPIC_BASE_URL}
+  api_key: ${ANTHROPIC_API_KEY}
+  api_mode: anthropic_messages
   # Explicit so model_tools/auxiliary lookups don't fall back to a hardcoded catalog entry
   # (they don't read custom_providers).
   context_length: 1000000
   tool_use_enforcement: true
 providers:
+  # The gateway's OpenAI leg: the failover (gpt-6-luna) and any lane that still wants it.
   custom:
     name: Custom
     base_url: ${OPENAI_BASE_URL}
     api_key: ${OPENAI_API_KEY}
-    model: deepseek-v4.1-flash
+    model: gpt-6-luna
     discover_models: false
     api_mode: chat_completions
     # Sent on every request of this route, auxiliaries included: the gateway binds a pool and
     # attributes the row by it. Declared per route URL, so each gateway leg needs an entry.
     session_affinity_header: x-agw-session
     models:
-      deepseek-v4.1-flash:
-        context_length: 1000000
-      claude-haiku-5-5:
-        context_length: 1000000
       gpt-6-luna:
         context_length: 850000
     context_length: 850000
     key_env: HERMES_CUSTOM_CUSTOM_API_KEY
-  # The gateway's Anthropic leg (auxiliary.vision, auxiliary.approval). No lane selects this
+  # The gateway's Anthropic leg: the brain and every Claude auxiliary lane. No lane selects this
   # entry by name: it exists because the affinity header is looked up by route URL.
   gateway-anthropic:
     name: Gateway Anthropic
@@ -42,6 +41,8 @@ providers:
     session_affinity_header: x-agw-session
     models:
       claude-haiku-5-5:
+        context_length: 1000000
+      claude-sonnet-5-5:
         context_length: 1000000
     key_env: ANTHROPIC_API_KEY
 fallback_providers:
@@ -84,10 +85,9 @@ agent:
   disabled_toolsets:
     - kanban
     - delegation
-  # high: deepseek-v4.1-flash (1017) honours reasoning_effort on DeepSeek's own route — 15/15
-  # at every level, high 1.4 s median (modelpick bench:fast 2026-10-19); it takes tools and
-  # effort together on chat_completions, and transport-iu-reasoning-effort leaves DeepSeek's
-  # effort untouched. (The 2026-09 `max` was set when the Fireworks route ignored effort.)
+  # high: Haiku 5.5 on the native Anthropic leg — 15/15 on the bench at ~1.6 s median; medium
+  # dropped a task, xhigh/max think 50-100 s+ on long outputs (modelpick, 2026-10-08). Upstream's
+  # _thinking_kwargs sends it as adaptive thinking + output_config.effort (no local patch).
   reasoning_effort: high
 terminal:
   backend: local
@@ -168,15 +168,19 @@ tool_loop_guardrails:
 compression:
   enabled: true
   threshold: 0.5
-  threshold_tokens: 240000
+  # Under Haiku 5.5's 100k long-prompt line: past it the gateway bills the whole request at 5x
+  # (agw routes: longPromptTokens). Compacting at 90k keeps every turn at the base rate.
+  threshold_tokens: 90000
   target_ratio: 0.2
   protect_last_n: 20
   hygiene_hard_message_limit: 400
   protect_first_n: 3
   abort_on_summary_failure: false
   codex_gpt55_autoraise: true
+# auto = 1h for human-paced sources (Slack, CLI, desktop), 5m for cron/api/subagents; 1h writes
+# cost 2x vs 1.25x but a person stepping away 5-60 min otherwise re-writes the whole prefix.
 prompt_caching:
-  cache_ttl: 5m
+  cache_ttl: auto
 openrouter:
   response_cache: true
   response_cache_ttl: 300
@@ -204,15 +208,16 @@ auxiliary:
   compression:
     # timeout is a hang guard, not a budget (~/.claude/rules/agent-limits.md): the aux client
     # applies it as an absolute ceiling on top of the stream idle check, and a high-effort
-    # gpt-6-luna summary of a long thread can legitimately think past 120s.
+    # summary of a long thread can legitimately think past 120s. Haiku 5.5 high on the Anthropic
+    # leg = agw's cheap.summarize seat: the Claude credit pays, not the capped IU key.
     provider: custom
-    model: gpt-6-luna
-    base_url: ${OPENAI_BASE_URL}
-    api_key: ${OPENAI_API_KEY}
+    model: claude-haiku-5-5
+    base_url: ${ANTHROPIC_BASE_URL}
+    api_key: ${ANTHROPIC_API_KEY}
     timeout: 1800
     reasoning_effort: high
-    api_mode: chat_completions
-    context_length: 850000
+    api_mode: anthropic_messages
+    context_length: 1000000
   skills_hub:
     provider: auto
     model: ''
@@ -246,18 +251,16 @@ auxiliary:
     api_key: ''
     timeout: 30
   title_generation:
-    # title_generator.py hardcodes temperature=0.3 and the auxiliary client sends effort as
-    # extra_body.reasoning — both 503 on this leg for gpt-5.x/gpt-6.x. Neither reaches the wire
-    # only because of patches/auxiliary-client-iu-openai-leg-quirks.patch; if titles start
-    # failing after an update, that patch fell off.
+    # agw's cheap.title seat: Haiku 5.5, effort none, on the Anthropic leg. title_generator.py
+    # hardcodes temperature=0.3; the Anthropic adapter drops it for 5.x.
     provider: custom
-    model: gpt-6-luna
-    base_url: ${OPENAI_BASE_URL}
-    api_key: ${OPENAI_API_KEY}
+    model: claude-haiku-5-5
+    base_url: ${ANTHROPIC_BASE_URL}
+    api_key: ${ANTHROPIC_API_KEY}
     timeout: 30
-    reasoning_effort: low
-    api_mode: chat_completions
-    context_length: 850000
+    reasoning_effort: none
+    api_mode: anthropic_messages
+    context_length: 1000000
   triage_specifier:
     provider: auto
     model: ''

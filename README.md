@@ -1,6 +1,6 @@
 # Hermes Agent — Mac Mini M2 Pro
 
-Personal AI assistant running 24/7 on Mac Mini. Slack as interface, deepseek-v4.1-flash as brain on the IU OpenAI-compatible leg over `chat_completions` (`gpt-6-luna` failover), twenty skill domains (`HERMES_SKILLS` in the Makefile is the count).
+Personal AI assistant running 24/7 on Mac Mini. Slack as interface, Claude Haiku 5.5 (high) as brain on the agent-workflows inference gateway's Anthropic leg (`gpt-6-luna` failover), twenty skill domains (`HERMES_SKILLS` in the Makefile is the count).
 
 For repo-operating detail (repo work, secrets, patches, model routing), see `AGENTS.md`.
 
@@ -18,9 +18,9 @@ Mac Mini M2 Pro — Hermes Agent (always-on)
   │     STT: gpt-transcribe (German/English steered).
   ├→ Homelab — Docker containers, CouchDB, backups (via Tailscale)
   ├→ VPS — Production apps, ClickStack (via Tailscale)
-  └→ IU unified endpoint — deepseek-v4.1-flash (brain, OpenAI-compatible /openai/v1, chat_completions),
-        gpt-6-luna (compression + fallback + title_generation),
-        gemini-3.5-flash (vision)
+  └→ inference gateway (http://127.0.0.1:7794, agent-workflows) — Claude credit pools first, IU after:
+        claude-haiku-5-5 (brain, compression, title_generation, approval) and claude-sonnet-5-5 (vision)
+        over /anthropic; gpt-6-luna (fallback) over /openai/v1
 ```
 
 ## Channel Architecture

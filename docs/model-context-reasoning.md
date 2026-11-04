@@ -1,5 +1,13 @@
 # Model, context window and reasoning effort
 
+> **2026-11-04 — the brain is Claude Haiku 5.5 (`high`) on the inference gateway's Anthropic leg, and
+> every auxiliary lane except the `gpt-6-luna` failover moved with it.** The gateway spends the
+> Claude credit pools first (`agent-workflows/docs/gateway.md`). Rows below about DeepSeek and the
+> `gpt-6-luna` title/compression lanes are history; the OpenAI leg now carries only the failover.
+> Compaction is 90,000 tokens (Haiku bills the whole request at 5x above 100k), the cache TTL is
+> `auto` (1h for human-paced sources), and `model.provider` is `gateway-anthropic` — `custom`
+> would resolve to the OpenAI leg.
+
 Numbers here are **probed against the live IU endpoint**, not read off a model card — every published source disagrees with it in some direction. Re-probe rather than trust this table after an endpoint change.
 
 | | Value | How it was established |
@@ -35,7 +43,7 @@ retired.** It forces the IU OpenAI leg onto `codex_responses` only when a slot's
 compression, title_generation, vision), so the patch's forced detection never fires. It stays
 applied as the safety net for the next time this endpoint runs a gpt-5.x model with no explicit
 `api_mode` — dropping it would silently reopen the tools+effort 400 for that future case.
-Diagnosis tell if the fallback *is* active: `Fallback activated: deepseek-v4.1-flash →
+Diagnosis tell if the fallback *is* active: `Fallback activated: claude-haiku-5-5 →
 gpt-6-luna` on every turn in `~/.hermes/logs/agent.log` (expected under throttling — the
 fallback then runs with **no** reasoning effort while tools are attached, the 503-avoidance
 tradeoff `transport-iu-reasoning-effort.patch` makes, not a fault); one line above it,
@@ -57,7 +65,7 @@ fell off, which is what a `hermes update` does.
 
 **The key is `agent.reasoning_effort`, not `model.reasoning_effort`.** `resolve_reasoning_config()` (`hermes_constants.py`) reads `agent.reasoning_overrides` then `agent.reasoning_effort`, and nothing reads the `model` section's copy. `model.reasoning_effort` has been removed from `config.yaml` entirely (2026-09-13) rather than kept as a synced-but-dead mirror — it carried `medium` for months while `resolve_reasoning_config(live config) → None` read the real, live key instead, i.e. no future reader can act on a value nothing consults. Per-model overrides go in `agent.reasoning_overrides`.
 
-**Compaction triggers at 240,000 tokens**, set as an absolute `compression.threshold_tokens` rather than as a ratio, because the ratio alone is not readable: `auxiliary.compression.context_length` is 850,000 (kept below the brain's real 1,000,000 window — DeepSeek does prompt-cache here, 92–96% of input on live sessions (modelpick `hermes-brain.md` §2026-09-13 correction)), the configured `threshold` is upstream's 0.50, and the *lower* of the two governs. Two ratio traps worth knowing before touching those numbers — a window **under 512K** gets its threshold floored at **0.75** by `_SMALL_CTX_THRESHOLD_PERCENT` (so the old `256000` + `threshold: 0.18` pair really triggered at 192k, not the 46k the arithmetic suggests; 850,000 is comfortably above the floor either way), and the auxiliary compression model's own `context_length` **clamps the trigger down to itself** (`conversation_compression.py`, `if aux_context < threshold`) — which is why `auxiliary.compression.context_length` stays a deliberate 850,000, not the model's full window or the default 200,000. Staying under 240k also keeps prompts below the **272k mark where OpenAI bills input at 2× and output at 1.5×** for the gpt-5.x-family models still in play (fallback, title_generation).
+**Compaction triggered at 240,000 tokens until 2026-11-04 (now 90,000, see the note at the top)**, set as an absolute `compression.threshold_tokens` rather than as a ratio, because the ratio alone is not readable: `auxiliary.compression.context_length` is 850,000 (kept below the brain's real 1,000,000 window — DeepSeek does prompt-cache here, 92–96% of input on live sessions (modelpick `hermes-brain.md` §2026-09-13 correction)), the configured `threshold` is upstream's 0.50, and the *lower* of the two governs. Two ratio traps worth knowing before touching those numbers — a window **under 512K** gets its threshold floored at **0.75** by `_SMALL_CTX_THRESHOLD_PERCENT` (so the old `256000` + `threshold: 0.18` pair really triggered at 192k, not the 46k the arithmetic suggests; 850,000 is comfortably above the floor either way), and the auxiliary compression model's own `context_length` **clamps the trigger down to itself** (`conversation_compression.py`, `if aux_context < threshold`) — which is why `auxiliary.compression.context_length` stays a deliberate 850,000, not the model's full window or the default 200,000. Staying under 240k also keeps prompts below the **272k mark where OpenAI bills input at 2× and output at 1.5×** for the gpt-5.x-family models still in play (fallback, title_generation).
 
 ## Auxiliary lanes are separately routed — they are not the brain
 
@@ -65,11 +73,11 @@ fell off, which is what a `hermes update` does.
 
 | Lane | Model | Why not the brain |
 |-|-|-|
-| `title_generation` | `gpt-6-luna`, OpenAI leg, `reasoning_effort: low` | `title_generator.py:268` hardcodes `temperature=0.3`; gpt-5.x 503s on any non-default temperature — upstream's `_is_openai_default_temperature_only` omits it for gpt-5.x, `patches/auxiliary-client-iu-openai-leg-quirks.patch` extends that to gpt-6.x (gpt-6-luna refuses 0.3, probed 2026-09-23) |
+| `title_generation` (until 2026-11-04; now Haiku 5.5 `none`, Anthropic leg) | `gpt-6-luna`, OpenAI leg, `reasoning_effort: low` | `title_generator.py:268` hardcodes `temperature=0.3`; gpt-5.x 503s on any non-default temperature — upstream's `_is_openai_default_temperature_only` omits it for gpt-5.x, `patches/auxiliary-client-iu-openai-leg-quirks.patch` extends that to gpt-6.x (gpt-6-luna refuses 0.3, probed 2026-09-23) |
 | `approval` | `claude-haiku-5-5` (was `claude-haiku-4-5` until 2026-10-08, which approved `rm -rf ~/SourceRoot` in a probe), **native `/anthropic` leg** (`${ANTHROPIC_BASE_URL}`, `api_mode: anthropic_messages`) | same 503 shape (`approval_smart.py` hardcodes `temperature=0`), and this gates every risky terminal command. Measured **0.9s native vs 3.0s** for the same model through the OpenAI-compat shim. `provider` stays `custom`, never `anthropic`, so the auxiliary client never reaches for `~/.claude` OAuth |
 | `vision` | `claude-sonnet-5-5`, **native `/anthropic` leg** (`${ANTHROPIC_BASE_URL}`, `api_mode: anthropic_messages`) | on the leg that spends Claude credit first, not through the OpenAI-compat shim. Needs no context pin: nothing on the vision path resolves a window |
 
-`compression` is `gpt-6-luna` (`reasoning_effort: high`, OpenAI leg) since 2026-10-09, replacing DeepSeek — the last DeepSeek slot. It needs the
+`compression` was `gpt-6-luna` (`reasoning_effort: high`, OpenAI leg) from 2026-10-09 to 2026-11-04 (now Haiku 5.5 `high`, Anthropic leg), replacing DeepSeek — the last DeepSeek slot. It needs the
 850k-token context; the gpt-6 tools+effort refusal is irrelevant since compression calls carry no tools. Probed: a 279k-token prompt at `high` returned in 6.2 s. `auxiliary.web_extract` and `auxiliary.session_search` were removed
 entirely (2026-09-13): upstream stopped reading either — `config_defaults.py` notes both "no
 longer use an auxiliary LLM... [existing config] ignored" — so the blocks were dead weight, not

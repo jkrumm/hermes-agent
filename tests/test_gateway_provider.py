@@ -98,8 +98,19 @@ dict_only = {"providers": config["providers"]}
 check("the providers dict alone carries it",
       get_custom_provider_session_affinity_header(OPENAI, config=dict_only), "x-agw-session")
 
+print("brain on the Anthropic leg, selected by provider name")
+# `provider: custom` resolves to providers.custom (the OpenAI leg) and ignores model.base_url:
+# the brain would silently run through the chat-completions shim, uncached by a native leg.
+check("brain provider", config["model"]["provider"], "gateway-anthropic")
+check("brain wire", config["model"]["api_mode"], "anthropic_messages")
+check("brain base", config["model"]["base_url"], ANTHROPIC)
+check("brain model", config["model"]["default"], "claude-haiku-5-5")
+check("cache ttl follows the pacing of the source", config["prompt_caching"]["cache_ttl"], "auto")
+check("compaction stays under Haiku's 100k long-prompt line", config["compression"]["threshold_tokens"] <= 100000, True)
+
 print("vision and approval on the Anthropic leg")
-for lane, model in (("vision", "claude-sonnet-5-5"), ("approval", "claude-haiku-5-5")):
+for lane, model in (("vision", "claude-sonnet-5-5"), ("approval", "claude-haiku-5-5"),
+                    ("compression", "claude-haiku-5-5"), ("title_generation", "claude-haiku-5-5")):
     section = config["auxiliary"][lane]
     check(f"{lane} model", section["model"], model)
     check(f"{lane} wire", section["api_mode"], "anthropic_messages")
@@ -109,10 +120,10 @@ print("context windows never reach a loopback probe")
 # Same order get_model_context_length reads them: an explicit pin first, then the route's
 # models table, so these slots cannot fall through to /models, /api/show or the catalog.
 PINS = (
-    ("brain", raw_config["model"], "deepseek-v4.1-flash", OPENAI, 1000000),
+    ("brain", raw_config["model"], "claude-haiku-5-5", ANTHROPIC, 1000000),
     ("fallback", raw_config["fallback_providers"][0], "gpt-6-luna", OPENAI, 850000),
-    ("compression", raw_config["auxiliary"]["compression"], "gpt-6-luna", OPENAI, 850000),
-    ("title", raw_config["auxiliary"]["title_generation"], "gpt-6-luna", OPENAI, 850000),
+    ("compression", raw_config["auxiliary"]["compression"], "claude-haiku-5-5", ANTHROPIC, 1000000),
+    ("title", raw_config["auxiliary"]["title_generation"], "claude-haiku-5-5", ANTHROPIC, 1000000),
     ("approval", raw_config["auxiliary"]["approval"], "claude-haiku-5-5", ANTHROPIC, 1000000),
 )
 for slot, section, model, url, window in PINS:

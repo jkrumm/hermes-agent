@@ -70,7 +70,7 @@ dotfiles' doctor. Logs declared, never globbed, in `dotfiles/scripts/log-rotate.
 
 **Scheduled jobs are LaunchAgents, never macOS crontab** — a `crontab -` *write* needs Full
 Disk Access and hangs forever on the headless mini. Done 2026-08-02 — no hermes entries in
-`crontab -l`. All 4 live `hermes cron` jobs (ids, schedules, delivery) + reasoning:
+`crontab -l`. All live `hermes cron` jobs (ids, schedules, delivery) + reasoning:
 **`docs/scheduled-jobs.md`**.
 
 **Per-repo agent skills** (`.claude/skills/`, committed, no symlink — Claude Code and OpenCode both load them): `/hermes-validate`
@@ -423,60 +423,55 @@ published source disagrees in some direction. Re-probe after an endpoint change.
 
 | | Value | How established |
 |-|-|-|
-| Brain, `deepseek-v4.1-flash` (2026-10-20, trial) | DeepSeek first-party via Requesty (the 1017 snapshot), `/openai/v1`, `chat_completions`, `high` | modelpick bench:fast 2026-10-19: 15/15 at every effort, `high` 1.4 s median; flat $0.30/$1.20, no 100k cliff. Revert to Haiku 5.5 EU: the `anthropic_messages` block in bfa33c3 |
-| Former brain, Haiku 5.5 EU (2026-10-08 → 10-20) | Bedrock eu-west-1, native `/anthropic` leg, `anthropic_messages`, `high` | modelpick bench: `high` 15/15 ~1.6 s; `xhigh`/`max` think 50–100 s+. 5x price above 100k input. The `approval` lane runs `claude-haiku-5-5` on the gateway's Anthropic leg |
-| Context, `deepseek-v4.1-flash` (brain since 2026-10-20) | **1,000,000** | probed 2026-09-13; `/responses` 404s ("No suitable backend") despite `/models` listing it — `chat_completions` is the only wire that works |
-| Input cap, `gpt-5.6-luna` (former fallback, title) | **922,000** | 900k ok; 1.1M → `context_length_exceeded` (a *combined* input+reasoning+output budget). **Not re-probed for `gpt-6-luna`** — config keeps 850,000 |
-| `/v1/models` metadata | `ContextSize: "105000"` | **Wrong** — 110k/260k/520k/900k all succeed. Never configure from it |
-| Efforts, gpt-5.6 family | `none, low, medium, high, xhigh` | `max` refused here; `minimal` isn't a gpt-5.6 value |
-| Efforts, `gpt-6-luna` (fallback, title) | `none, low, medium, high, xhigh` | probed 2026-09-23; `max` refused, only default `temperature` (1); with tools it needs an **explicit** `none` — omitting the key 503s too, unlike gpt-5.6 |
-| Efforts, deepseek-v4.1-flash (brain) | `low, high, xhigh, max` | accepts tools + effort together on `chat_completions` — unlike gpt-5.x, no strip needed |
+| Brain, `claude-haiku-5-5` (2026-11-04) | gateway `/anthropic` leg, `anthropic_messages`, `high`; `model.provider: gateway-anthropic` | modelpick bench: `high` 15/15 ~1.6 s; `xhigh`/`max` think 50–100 s+. The gateway spends the Claude subscription credit pools first, IU's `/anthropic` only when none has credit. Revert to DeepSeek: the `chat_completions` block in 27c79af |
+| Former brains | Haiku 5.5 EU on IU direct (2026-10-08 → 10-20); `deepseek-v4.1-flash` (2026-10-20 → 11-04) | DeepSeek: 15/15 at every effort, 1.0 M window, `/responses` 404s — `chat_completions` is its only wire |
+| Pricing line | **100k input tokens** | Haiku 5.5 bills the *whole request* at 5x above it (`agw routes`, `longPromptTokens`) — hence compaction at 90k |
+| Context, Haiku 5.5 | 1,000,000 (pinned) | the gateway's `/models` advertises 200k; the pin wins, `agent.context_pin` logs a harmless warning per run |
+| Input cap, `gpt-5.6-luna` (former fallback) | **922,000** | 900k ok; 1.1M → `context_length_exceeded` (a *combined* input+reasoning+output budget). **Not re-probed for `gpt-6-luna`** — config keeps 850,000 |
+| `/v1/models` metadata (OpenAI leg) | `ContextSize: "105000"` | **Wrong** — 110k/260k/520k/900k all succeed. Never configure from it |
+| Efforts, `gpt-6-luna` (fallback) | `none, low, medium, high, xhigh` | probed 2026-09-23; `max` refused, only default `temperature` (1); with tools it needs an **explicit** `none` — omitting the key 503s too, unlike gpt-5.6 |
 | Efforts, Anthropic leg | `none, low, medium, high` | `xhigh` refused by the IU LiteLLM gateway |
 
 **Every model call goes through the local inference gateway** (`127.0.0.1:7794`, agent-workflows):
 `OPENAI_BASE_URL` is its `/openai/v1`, `ANTHROPIC_BASE_URL` its `/anthropic`, the key is the door
-token, and it passes the OpenAI leg through to IU, so the probed numbers above hold. Each gateway
-route has a `session_affinity_header: x-agw-session` entry (`providers.custom`, the legacy
-`custom_providers` entry, `providers.gateway-anthropic`): the lookup is by route URL, so a leg
-without an entry would silently send no session. The four IU-leg patches match the gateway's
-exact authority as well as IU's host. What `127.0.0.1` changes in Hermes' local-endpoint logic:
-`docs/model-context-reasoning.md`.
+token. Spec: `agent-workflows/docs/gateway.md`. **Claude is primary everywhere:** the brain,
+`compression` (agw's `cheap.summarize`), `title_generation` (`cheap.title`, effort `none`), `approval`
+and `vision` (Sonnet 5.5) run on the Anthropic leg, so the credit pools pay. The OpenAI leg carries
+only the failover `gpt-6-luna` (IU key). Each leg needs a `session_affinity_header: x-agw-session`
+entry (`providers.custom`, the legacy `custom_providers` entry, `providers.gateway-anthropic`): the
+lookup is by route URL, so a leg without an entry would send no session — the gateway binds a
+session to one credit org, and **prompt caches are per org**, so no session means no cache.
+Byte-exact passthrough: the `cache_control` markers Hermes sets are the cache. `prompt_caching.cache_ttl: auto` =
+1h for human-paced sources (Slack, CLI, desktop), 5m for cron/api. Verify in `agent.log`:
+`cache=N/M (100%)` from the second call on. **Select the leg by `model.provider`, not `model.base_url`:**
+`provider: custom` resolves to `providers.custom` (the OpenAI leg) and silently sends Haiku
+through the chat-completions shim (`chatcmpl-` ids, `OpenAI client created … /openai/v1`);
+the native leg returns `msg_` ids.
 
-**The brain runs `chat_completions` (DeepSeek V4.1 Flash, since 2026-10-20) with `reasoning_effort` on every turn; the Responses dance was a gpt-5.x-only problem
-DeepSeek never needed. The approval lane stays on Haiku 5.5 over `anthropic_messages`, where upstream's `_is_pre_thinking_haiku` carries the effort.** `/v1/chat/completions` refuses any effort on gpt-5.x once the request
-carries function tools — and Hermes always sends tools — but DeepSeek takes tools and
-`reasoning_effort` together on the same wire with no such refusal (probed 2026-09-13). So the
-brain needs no Responses routing at all: `model.api_mode: chat_completions`,
-`patches/transport-iu-reasoning-effort.patch` strips the effort for a gpt-5.x model id and
-forces an explicit `none` for gpt-6.x (the fallback, `gpt-6-luna`), never touches DeepSeek's. **Tell if the fallback is active:**
-`Fallback activated: deepseek-v4.1-flash → gpt-6-luna` in `~/.hermes/logs/agent.log` — expected
-under throttling, not a misconfiguration; the fallback runs with no reasoning effort while tools
-are attached (the 503-avoidance tradeoff), which is accepted, not a bug.
-
+**`model.api_mode: anthropic_messages` carries the effort** through upstream's `_thinking_kwargs`
+(Haiku 5.5+ is adaptive; `_is_pre_thinking_haiku` is false) — no local patch. The failover
+`gpt-6-luna` stays on `chat_completions`, where `patches/transport-iu-reasoning-effort.patch`
+strips the effort for gpt-5.x and forces an explicit `none` for gpt-6.x while tools are attached.
+**Tell if the fallback is active:** `Fallback activated: claude-haiku-5-5 → gpt-6-luna` in
+`~/.hermes/logs/agent.log` — expected when the gateway answers 402/5xx, not a misconfiguration.
 - **`agent.log` is not rotated per process** — slice every read at the current process start
   (`pgrep -f "hermes_cli.main gateway run"` → `ps -o lstart=`). `skills/hermes-gateway/` owns
   this. **Hermes may not restart its own gateway.**
 - **The live key is `agent.reasoning_effort`, not `model.reasoning_effort`** (the latter was a
   dead, never-read mirror and has been removed from `config.yaml`).
 - **`patches/runtime-provider-iu-responses-api.patch` is dormant on the current config** — every
-  slot on this endpoint now sets an explicit `api_mode` (`chat_completions`), which always wins
-  over the patch's forced host-detection. Kept applied: it is the fallback the moment anything
-  here is switched back to a gpt-5.x model with no explicit `api_mode`, and a stale
-  `Ignoring persisted custom api_mode=codex_responses for non-OpenAI endpoint` log line still
-  means a patch fell off a `hermes update`, not that this one is broken.
-- **Compaction triggers at 240,000 tokens** (absolute — the *lower* of ratio and absolute
-  governs). A window **under 512K** floors its threshold at **0.75**, and the auxiliary
-  compression model's own `context_length` clamps the trigger to itself — hence
-  `auxiliary.compression.context_length: 850000`, not the model's real 1,000,000 or the
-  default 200,000 (compression is gpt-6-luna; the Haiku brain caches natively).
+  slot on the OpenAI leg sets an explicit `api_mode`, which always wins over the patch's forced
+  host-detection. A stale `Ignoring persisted custom api_mode=codex_responses for non-OpenAI
+  endpoint` log line still means a patch fell off a `hermes update`.
+- **Compaction triggers at 90,000 tokens** (absolute — the *lower* of ratio and absolute governs),
+  under Haiku 5.5's 100k long-prompt line. Compaction invalidates the cached prefix once per
+  compaction; that is cheaper than the 5x rate on every turn above 100k.
 
-**Auxiliary lanes are separately routed, not the brain** — `title_generation` (`gpt-6-luna`)
-and `approval` (`claude-haiku-5-5`) are pinned off non-brain models because both hardcode a
-`temperature` the flagship rejects; upstream's `_is_openai_default_temperature_only` (v0.21.4)
-omits `temperature` for any gpt-5.x/o-series id on every endpoint, and the aux patch extends it to gpt-6.x. `approval`
-runs the **native `/anthropic` leg**, 0.9s vs 3.0s through the OpenAI-compat shim, `provider`
-stays `custom` so it never reaches for `~/.claude` OAuth. `vision` is `claude-sonnet-5-5` on the
-same Anthropic leg, so it spends Claude credit first.
+**Auxiliary lanes are separately routed, not the brain** — all on the Anthropic leg, `provider`
+`custom` so the auxiliary client never reaches for `~/.claude` OAuth: `compression` (Haiku 5.5
+`high`), `title_generation` (Haiku 5.5 `none`; the CLI exits before the async title lands, the
+gateway does not), `approval` (Haiku 5.5; 0.9 s native vs 3.0 s through the OpenAI shim; Haiku 4.5
+approved `rm -rf ~/SourceRoot` in a probe, 5.5 denied it) and `vision` (Sonnet 5.5).
 `auxiliary.web_extract` and `auxiliary.session_search` are gone — upstream stopped reading them
 (`config_defaults.py`: "no longer use an auxiliary LLM... ignored"), so the blocks were dead
 weight. **`delegation.*` (subagent routing) exists but is unused** — a Hermes child gets no
