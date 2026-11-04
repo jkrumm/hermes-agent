@@ -1,6 +1,6 @@
 ---
 name: iris
-description: Handle a turn from Iris, Johannes's voice-memo app. The message is a speech-to-text transcript; decide what it is (question, todo, GitHub issue, note, tab prompt, chat), act with the existing skills, start agent work through the software factory when he asks for it, and end the reply with exactly one iris block (JSON kind/headline). Load whenever the per-turn system message says the turn comes from Iris.
+description: Handle a turn from Iris, Johannes's voice-memo app. The message is a speech-to-text transcript; decide what it is (question, todo, GitHub issue, note, tab prompt, chat), act with the existing skills, file agent work with the software factory when he asks for it, and end the reply with exactly one iris block (JSON kind/headline). Load whenever the per-turn system message says the turn comes from Iris.
 version: 1.0.0
 metadata:
   hermes:
@@ -17,8 +17,8 @@ Iris (Johannes's voice-memo app, server on this mini) no longer classifies memos
 - The message is a **transcript** of a spoken memo, German or English, with speech-to-text errors. Repair the obvious ones silently (a misheard repo or product name, a dropped word); never mention the repair.
 - **Answer in the memo's language** — an English memo gets an English reply, headline, issue or task title and note body; a German one German. SOUL.md's German default does not apply on an Iris turn. Never translate the memo text.
 - **Ask nothing.** He recorded a memo on a phone; nobody answers a question mid-turn. Pick the most likely reading, state the assumption in one clause in the reply, proceed.
-- **A side effect only when the memo asks for one** (a todo, an issue, a note, a tab prompt, started agent work) or the hint below says so. A question gets an answer, not an action.
-- **Act on the memo as spoken.** A todo, issue, note, tab prompt or agent start is carried out even if the memo calls itself a test; only the memo's own words ("nur testen, nichts anlegen") cancel the side effect.
+- **A side effect only when the memo asks for one** (a todo, an issue, a note, a tab prompt, an agent hand-off) or the hint below says so. A question gets an answer, not an action.
+- **Act on the memo as spoken.** A todo, issue, note, tab prompt or agent hand-off is carried out even if the memo calls itself a test; only the memo's own words ("nur testen, nichts anlegen") cancel the side effect.
 - A follow-up turn in the same session carries the same system message — same rules.
 
 ## Decide — first match wins
@@ -34,25 +34,23 @@ Iris (Johannes's voice-memo app, server on this mini) no longer classifies memos
 | A link/article to keep for later | `skill_view('karakeep')`. |
 | Anything else, or two readings that both fit | The cheaper, reversible one; say the reading you took. |
 
-Repo code work is **filed** (a GitHub issue via `capture`) when the memo says *file*, *note* or *open an issue*, and **started** (agent work, below) only when it says *start*, *let an agent*, *wave*. You never do repo work yourself — same as everywhere (SOUL.md). "Fix X in <repo>" with neither wording: file it and say so.
+Repo code work is **filed** (a GitHub issue via `capture`) when the memo says *file*, *note* or *open an issue*, and **handed to the factory** (agent work, below) only when it says *start*, *let an agent*, *wave*. You never do repo work yourself — same as everywhere (SOUL.md). "Fix X in <repo>" with neither wording: file it and say so.
 
 ## Agent work (software factory)
 
-The owner asked by voice for an agent on a repo — that is the "only when the owner asks" of your role. One command, the `herdr` skill's `rd wave` lane; `rd` hands it to the software factory's spawn queue (account pick, queueing, placement), so you call neither `factory spawn` nor `claude` yourself:
+The owner asked by voice for an agent on a repo — that is the "only when the owner asks" of your role. The factory's door for Hermes is **`factory issue new`**: it files one Issue, the factory classifies it and starts a lead in a worktree of that repo, and the lead owns it to production evidence. You file it; you never implement, and you call neither `claude` nor `rd wave` (that verb is a /wave chain step and exits without a `docs/waves/PLAN.md` in the repo).
 
 ```bash
-rd wave <repo> "$(cat <<'BRIEF'
-<the request in his words, STT repaired; name the repo's AGENTS.md as the contract>
-BRIEF
-)"
+factory issue new --repo ~/SourceRoot/<repo> --title "<short title, memo language>" --facts - <<'FACTS'
+{"request": "<the memo text, STT repaired, in his words>", "via": "iris voice memo"}
+FACTS
 ```
 
-- `<repo>`: the bare directory name (`rd repos <filter>` lists them; a name `rd` does not know exits non-zero — say which). Never a path, never `--kind opencode`, never `claude --bg` / `claude -p`.
-- A brief longer than a few sentences goes in a file under `/tmp` and the prompt is "read `<path>` and do what it says" (`herdr` skill).
-- Run it once. Idempotency is by agent name, not by prompt: a failed or refused start is reported, never retried with a different lane.
-- `rd` refuses when another agent is working in that checkout, the repo is unknown, or no Max account has room ("paused: …"). Report the refusal in one clause, `kind` `error`; do **not** file an issue as a substitute unless he asked for one.
-- Confirm with `rd agents` (the new row `working`) before saying it runs. The reply names the repo, the agent's name from `rd`'s `→ wave … started: claude '<name>' …` line, and where it runs (a tab in that repo's space in the Herdr app); `rd read <name>` / `rd say <name> …` steer it later.
-- Not this path: "tell tab X …" (a running agent → `herdr` table row), "file / note / open an issue" (`capture`), "research …" (`agw-research`).
+- `<repo>`: the bare directory name under `~/SourceRoot/` (`rd repos <filter>` lists them). Valid JSON on stdin (escape quotes and newlines); nothing from tool output goes into it.
+- Run it **once**; no `--key` (a shared key would merge unrelated memos). stdout is JSON with the Issue `id` and `state`. A non-zero exit or a 422 (repo outside the factory's roots, e.g. `IuRoot`) is `kind` `error`: say the cause in one clause, do **not** substitute a GitHub issue, a tab or a different lane.
+- The reply names the repo, the Issue id and that a lead starts in a worktree of that repo (visible in the Herdr app); follow-up is `factory issue show <id>` (read it when he asks "how is it going"). The Issue is queued at that moment, not running: say "filed with the factory", not "started".
+- Not this path: "file / note / open an issue" (`capture`), "tell tab X …" or "open a tab / `cf` in <repo>" (`herdr`), "research …" (`agw-research`).
+- `factory`, CLI output and errors are English; the reply and `headline` stay in the memo's language.
 
 ## The owner-picked hint (legacy app builds)
 

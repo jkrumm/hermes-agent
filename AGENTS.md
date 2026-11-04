@@ -8,7 +8,7 @@ history and per-file detail live in `docs/*.md`; each section here points at its
 VCS source of truth for Johannes's Hermes Agent setup, Mac Mini-only. Everything here is
 symlinked into `~/.hermes/` — edit at either end, git sees it here.
 
-Hermes has one role — **narrate, answer, route** (spec: `dotfiles/docs/agent-platform.md` §Hermes): it reports one line per item, answers questions, and files work as a GitHub issue (`capture`); Herdr tabs / `rd wave` only when the owner asks. It never lands PRs, starts unattended agents or authors skills. The reporting contract lives in `SOUL.md` and nowhere else — no per-skill report formats. See *Repo work is filed* below.
+Hermes has one role — **narrate, answer, route** (spec: `dotfiles/docs/agent-platform.md` §Hermes): it reports one line per item, answers questions, and files work as a GitHub issue (`capture`); Herdr tabs / `rd wave` only when the owner asks, and an explicit voice request via Iris to start an agent on a repo goes to the software factory (`factory issue new`: Hermes files, the factory's lead works). It never lands PRs, starts agents on its own or authors skills. The reporting contract lives in `SOUL.md` and nowhere else — no per-skill report formats. See *Repo work is filed* below.
 
 Audio (TTS + STT) is the **agent-workflows audio door** (`~/SourceRoot/agent-workflows`,
 `packages/audio`), an OpenAI-compatible loopback service on the mini at `http://127.0.0.1:7792/v1`
@@ -200,7 +200,7 @@ bound to the host iris uses. Verify and rotation steps: **`docs/gateway-http-api
 
 **Iris turns (Wave 21, 2026-11-04):** Iris no longer classifies voice memos — every memo except mode
 Transcribe goes to Hermes as a session turn whose per-turn `system_message` says "This turn comes from Iris…
-Load skill_view('iris')". `skills/iris/` decides (answer / `capture` / `obsidian` note / `herdr` tab prompt / agent work via `rd wave` when the memo says *start*) and
+Load skill_view('iris')". `skills/iris/` decides (answer / `capture` / `obsidian` note / `herdr` tab prompt / agent work via `factory issue new` when the memo says *start*) and
 ends the reply with one ```` ```iris ```` JSON block (`kind`, `headline` only) that Iris parses; legacy builds
 append `The owner picked: Journal.|Chat.|Tab.`. Brain notes use `skills/iris/scripts/iris-note.py` (Inbox, journal
 frontmatter, commit via `scripts/brain-commit.sh`'s brain-sync lock). SOUL.md has one routing row; Slack unaffected.
