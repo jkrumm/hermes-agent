@@ -44,7 +44,7 @@ the first pass.
 | `cron/`, `scripts/`, `hooks/` | `~/.hermes/…` | Hermes-driven cron + pre-run scripts (must live under `HERMES_HOME/scripts/`) + host-level shell scripts |
 | `plugins/{name}/` | `~/.hermes/plugins/{name}/` | **`HERMES_PLUGINS`** is the source of truth. **None today.** A new one must **also** be enabled once — `hermes plugins enable <name>`; the symlink alone is inert. |
 | `config/` | `~/.hermes/config/` | **empty** — kept for tracked agent-facing config |
-| `skills/{name}/` | `~/.hermes/skills/{name}/` | **`HERMES_SKILLS` in the Makefile is the source of truth** — 21 dirs (agent-platform Wave 2, 2026-10-04; was 126). Retired skills live on as `<skill>/references/*.md` or in git history; roster: docs. |
+| `skills/{name}/` | `~/.hermes/skills/{name}/` | **`HERMES_SKILLS` in the Makefile is the source of truth** — 21 dirs (agent-platform Wave 2, 2026-10-04; was 126; `iris` added 2026-11-04). Retired skills live on as `<skill>/references/*.md` or in git history; roster: docs. |
 | `USER.md` | `~/.hermes/memories/USER.md` | **copied** — Hermes writes to it |
 
 **Skill audit (2026-10-10, `docs/skills-audit.md`):** per-skill verdicts, usage evidence and the Hermes↔global wiring map. Upstream-bundled skills with no usage record are retired by `skills.disabled` in `config.yaml` (reversible; never deleted). `make skills-set-check` (in `make status`) asserts repo `skills/`, live symlinks and `HERMES_SKILLS` are one set.
@@ -197,6 +197,14 @@ app on the mini) is its consumer. The argo dashboard chat was removed 2026-10-30
 
 Rotate the key, then restart the gateway and iris. Mismatch = **401**; connection-refused = not
 bound to the host iris uses. Verify and rotation steps: **`docs/gateway-http-api.md`**.
+
+**Iris turns (Wave 21, 2026-11-04):** Iris no longer classifies voice memos — every memo except mode
+Transcribe goes to Hermes as a session turn whose per-turn `system_message` says "This turn comes from Iris…
+Load skill_view('iris')". `skills/iris/` decides (answer / `capture` / `obsidian` note / `herdr` tab prompt) and
+ends the reply with one ```` ```iris ```` JSON block (`kind`, `headline`, `spoken`) that Iris parses; legacy builds
+append `The owner picked: Journal.|Chat.|Tab.`. Brain notes use `skills/iris/scripts/iris-note.py` (Inbox, journal
+frontmatter, commit via `scripts/brain-commit.sh`'s brain-sync lock). SOUL.md has one routing row; Slack unaffected.
+Tool events for Iris's `actions`: SSE `tool.started|completed|failed`, field `tool_name`. **`docs/gateway-http-api.md`**.
 
 ## Hermes Desktop (`hermes serve`)
 

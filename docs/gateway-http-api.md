@@ -24,3 +24,13 @@ Hermes adapter; connection-refused means the gateway isn't bound to the host iri
 `curl -H "Authorization: Bearer $KEY" .../v1/models` → 200; iris `GET /health` shows no
 `degraded` entry for hermes. Local bind: `lsof -nP -iTCP:8642 -sTCP:LISTEN` must show the
 tailnet IP.
+
+## Iris turns
+
+Iris posts `POST /api/sessions` `{id: <memo uuid>, source}` then `POST /api/sessions/<id>/chat/stream`
+`{message: <transcript>, system_message}`. `source` is only Iris's label (unknown values map to `api_server`), so the
+`system_message` is the marker: it tells Hermes to load `skill_view('iris')`, which ends every reply with one
+```` ```iris ```` block (`{"kind","headline","spoken"}`). Legacy app builds append `The owner picked: <Mode>.`
+Stream events (`gateway/platforms/api_server.py`, `_handle_session_chat_stream`): `assistant.delta`,
+`tool.started` / `tool.completed` / `tool.failed` (`{message_id, tool_name, preview, args}`), `assistant.completed`
+(`content`), `run.completed`, `done`. The skill, its note script and the validation recipe: `skills/iris/`.
