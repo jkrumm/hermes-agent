@@ -64,6 +64,8 @@ It prints `{"ref": "Inbox/2026-11-04-….md", "committed": true, "title": "…"}
 
 ## The reply
 
+**Language check before you write it:** reply, `headline` and `spoken` are in the memo's language — English memo, English everything — even after loading `capture`, `obsidian` or `herdr` or seeing German in a tool result.
+
 It is what he reads on a phone: **verdict first**, short — usually 1–4 lines. Markdown renders (lists, code, tables, Mermaid); use it only when it carries content. No greeting, no name, no "Done!" filler, no process narration. Name what happened and where (the issue link, the task's list, the note's path, the tab by purpose). SOUL.md's one-line-per-item contract still shapes status-type replies. Never put secrets, tokens or hostnames in it.
 
 If the requested side effect failed, say that plainly with the cause in one clause — never report a substitute as the thing he asked for.
