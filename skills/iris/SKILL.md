@@ -1,6 +1,6 @@
 ---
 name: iris
-description: Handle a turn from Iris, Johannes's voice-memo app. The message is a speech-to-text transcript; decide what it is (question, todo, GitHub issue, note, tab prompt, chat), act with the existing skills, and end the reply with exactly one iris block (JSON kind/headline/spoken). Load whenever the per-turn system message says the turn comes from Iris.
+description: Handle a turn from Iris, Johannes's voice-memo app. The message is a speech-to-text transcript; decide what it is (question, todo, GitHub issue, note, tab prompt, chat), act with the existing skills, start agent work through the software factory when he asks for it, and end the reply with exactly one iris block (JSON kind/headline). Load whenever the per-turn system message says the turn comes from Iris.
 version: 1.0.0
 metadata:
   hermes:
@@ -15,10 +15,10 @@ Iris (Johannes's voice-memo app, server on this mini) no longer classifies memos
 ## The turn
 
 - The message is a **transcript** of a spoken memo, German or English, with speech-to-text errors. Repair the obvious ones silently (a misheard repo or product name, a dropped word); never mention the repair.
-- **Answer in the memo's language** — an English memo gets an English reply, headline, `spoken`, issue or task title and note body; a German one German. SOUL.md's German default does not apply on an Iris turn. Never translate the memo text.
+- **Answer in the memo's language** — an English memo gets an English reply, headline, issue or task title and note body; a German one German. SOUL.md's German default does not apply on an Iris turn. Never translate the memo text.
 - **Ask nothing.** He recorded a memo on a phone; nobody answers a question mid-turn. Pick the most likely reading, state the assumption in one clause in the reply, proceed.
-- **A side effect only when the memo asks for one** (a todo, an issue, a note, a tab prompt) or the hint below says so. A question gets an answer, not an action.
-- **Act on the memo as spoken.** A todo, issue, note or tab prompt is carried out even if the memo calls itself a test; only the memo's own words ("nur testen, nichts anlegen") cancel the side effect.
+- **A side effect only when the memo asks for one** (a todo, an issue, a note, a tab prompt, started agent work) or the hint below says so. A question gets an answer, not an action.
+- **Act on the memo as spoken.** A todo, issue, note, tab prompt or agent start is carried out even if the memo calls itself a test; only the memo's own words ("nur testen, nichts anlegen") cancel the side effect.
 - A follow-up turn in the same session carries the same system message — same rules.
 
 ## Decide — first match wins
@@ -26,6 +26,7 @@ Iris (Johannes's voice-memo app, server on this mini) no longer classifies memos
 | The memo is | Do |
 |-|-|
 | A question, "wie/was/warum/…", a lookup | Answer. Web or library facts, "recherchier…" → `skill_view('agw-research')`. Personal data (calendar, tasks, health, infra) → `argo-api`. |
+| Agent work on a repo to **start**: "let an agent fix X in <repo>", "start a wave on …", "lass einen Agenten … in <repo> …" | Agent work — below. |
 | A todo, reminder, errand, "erinner mich…", or "open an issue / Issue für <repo>" | `skill_view('capture')` — it owns TickTick vs GitHub, the repo, the list. Its "ask if unclear" does **not** apply here: fall back to its default and say which. The memo text goes into the item **verbatim** (STT repairs only). |
 | "tell / prompt / sag Tab X …", "schreib in den Tab …" | `skill_view('herdr')` — find the tab, `hc send <target> "<text>"`. Text = what he wants said to the agent, in his words, not the addressing phrase. Obey the skill's rules (never `--force`, never a blocked agent, a draft in the input line is not yours). |
 | A note, idea, observation, plan or reflection with **no question and no request** ("ich denke gerade…", "Idee: …", "notier dir…", a journal-style thought) | A brain note — below. |
@@ -33,7 +34,25 @@ Iris (Johannes's voice-memo app, server on this mini) no longer classifies memos
 | A link/article to keep for later | `skill_view('karakeep')`. |
 | Anything else, or two readings that both fit | The cheaper, reversible one; say the reading you took. |
 
-Repo code work is **filed** (a GitHub issue via `capture`), never done — same as everywhere (SOUL.md).
+Repo code work is **filed** (a GitHub issue via `capture`) when the memo says *file*, *note* or *open an issue*, and **started** (agent work, below) only when it says *start*, *let an agent*, *wave*. You never do repo work yourself — same as everywhere (SOUL.md). "Fix X in <repo>" with neither wording: file it and say so.
+
+## Agent work (software factory)
+
+The owner asked by voice for an agent on a repo — that is the "only when the owner asks" of your role. One command, the `herdr` skill's `rd wave` lane; `rd` hands it to the software factory's spawn queue (account pick, queueing, placement), so you call neither `factory spawn` nor `claude` yourself:
+
+```bash
+rd wave <repo> "$(cat <<'BRIEF'
+<the request in his words, STT repaired; name the repo's AGENTS.md as the contract>
+BRIEF
+)"
+```
+
+- `<repo>`: the bare directory name (`rd repos <filter>` lists them; a name `rd` does not know exits non-zero — say which). Never a path, never `--kind opencode`, never `claude --bg` / `claude -p`.
+- A brief longer than a few sentences goes in a file under `/tmp` and the prompt is "read `<path>` and do what it says" (`herdr` skill).
+- Run it once. Idempotency is by agent name, not by prompt: a failed or refused start is reported, never retried with a different lane.
+- `rd` refuses when another agent is working in that checkout, the repo is unknown, or no Max account has room ("paused: …"). Report the refusal in one clause, `kind` `error`; do **not** file an issue as a substitute unless he asked for one.
+- Confirm with `rd agents` (the new row `working`) before saying it runs. The reply names the repo, the agent's name from `rd`'s `→ wave … started: claude '<name>' …` line, and where it runs (a tab in that repo's space in the Herdr app); `rd read <name>` / `rd say <name> …` steer it later.
+- Not this path: "tell tab X …" (a running agent → `herdr` table row), "file / note / open an issue" (`capture`), "research …" (`agw-research`).
 
 ## The owner-picked hint (legacy app builds)
 
@@ -64,7 +83,7 @@ It prints `{"ref": "Inbox/2026-11-04-….md", "committed": true, "title": "…"}
 
 ## The reply
 
-**Language check before you write it:** reply, `headline` and `spoken` are in the memo's language — English memo, English everything — even after loading `capture`, `obsidian` or `herdr` or seeing German in a tool result.
+**Language check before you write it:** reply and `headline` are in the memo's language — English memo, English everything — even after loading `capture`, `obsidian` or `herdr` or seeing German in a tool result.
 
 It is what he reads on a phone: **verdict first**, short — usually 1–4 lines. Markdown renders (lists, code, tables, Mermaid); use it only when it carries content. No greeting, no name, no "Done!" filler, no process narration. Name what happened and where (the issue link, the task's list, the note's path, the tab by purpose). SOUL.md's one-line-per-item contract still shapes status-type replies. Never put secrets, tokens or hostnames in it.
 
@@ -76,14 +95,13 @@ End the reply with exactly one fenced block tagged `iris`, **nothing after the c
 
 ````
 ```iris
-{"kind": "answer", "headline": "Berlin ist 3 °C wärmer als München", "spoken": "Berlin ist heute drei Grad wärmer als München."}
+{"kind": "answer", "headline": "Berlin ist 3 °C wärmer als München"}
 ```
 ````
 
-- **One line of valid JSON**, double quotes, exactly the three string keys `kind`, `headline`, `spoken` — no others, no trailing commas, no comments. Escape quotes inside values.
-- `kind` — 1–3 words, lower-case, how the app labels the result. Prefer this set: `answer`, `task`, `github issue`, `note`, `tab prompt`, `chat`, `research`, `error`. A new label only when none fits.
+- **One line of valid JSON**, double quotes, exactly the two string keys `kind` and `headline` — no `spoken`, no others (the spoken line and the real summary are Iris's own `triage` step), no trailing commas, no comments. Escape quotes inside values.
+- `kind` — 1–3 words, lower-case, how the app labels the result. Prefer this set: `answer`, `task`, `github issue`, `note`, `tab prompt`, `agent work`, `chat`, `research`, `error`. A new label only when none fits.
 - `headline` — **≤ 60 characters**, what happened or the gist of the answer. Plain text, no markdown. It becomes the push alert.
-- `spoken` — **one sentence** for TTS in the memo's language: no markdown, no URLs, no ids, numbers as you would say them.
 - The block is **always** present on an Iris turn — also on failure (`error`), on a refusal, and when the reply is one line. If you fail to do the work at all, still emit the block.
 - Don't mention the block in prose; don't wrap it in anything else.
-- **Last check before you send:** is the memo English? Then the reply, `headline` and `spoken` are English too — `{"kind": "task", "headline": "Passport photo reminder, due Sunday", "spoken": "Reminder set: renew the passport photo by Sunday."}`. German memo, German block. Only `kind` is always English.
+- **Last check before you send:** is the memo English? Then the reply and `headline` are English too — `{"kind": "task", "headline": "Passport photo reminder, due Sunday"}`. German memo, German headline. Only `kind` is always English.

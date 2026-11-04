@@ -30,7 +30,7 @@ tailnet IP.
 Iris posts `POST /api/sessions` `{id: <memo uuid>, source}` then `POST /api/sessions/<id>/chat/stream`
 `{message: <transcript>, system_message}`. `source` is only Iris's label (unknown values map to `api_server`), so the
 `system_message` is the marker: it tells Hermes to load `skill_view('iris')`, which ends every reply with one
-```` ```iris ```` block (`{"kind","headline","spoken"}`). Legacy app builds append `The owner picked: <Mode>.`
+```` ```iris ```` block (`{"kind","headline"}`; the spoken line is Iris's own `triage`). Legacy app builds append `The owner picked: <Mode>.`
 Stream events (`gateway/platforms/api_server.py`, `_handle_session_chat_stream`): `assistant.delta`,
 `tool.started` / `tool.completed` / `tool.failed` (`{message_id, tool_name, preview, args}`), `assistant.completed`
 (`content`), `run.completed`, `done`. The skill, its note script and the validation recipe: `skills/iris/`.

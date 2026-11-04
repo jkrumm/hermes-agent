@@ -200,8 +200,8 @@ bound to the host iris uses. Verify and rotation steps: **`docs/gateway-http-api
 
 **Iris turns (Wave 21, 2026-11-04):** Iris no longer classifies voice memos — every memo except mode
 Transcribe goes to Hermes as a session turn whose per-turn `system_message` says "This turn comes from Iris…
-Load skill_view('iris')". `skills/iris/` decides (answer / `capture` / `obsidian` note / `herdr` tab prompt) and
-ends the reply with one ```` ```iris ```` JSON block (`kind`, `headline`, `spoken`) that Iris parses; legacy builds
+Load skill_view('iris')". `skills/iris/` decides (answer / `capture` / `obsidian` note / `herdr` tab prompt / agent work via `rd wave` when the memo says *start*) and
+ends the reply with one ```` ```iris ```` JSON block (`kind`, `headline` only) that Iris parses; legacy builds
 append `The owner picked: Journal.|Chat.|Tab.`. Brain notes use `skills/iris/scripts/iris-note.py` (Inbox, journal
 frontmatter, commit via `scripts/brain-commit.sh`'s brain-sync lock). SOUL.md has one routing row; Slack unaffected.
 Tool events for Iris's `actions`: SSE `tool.started|completed|failed`, field `tool_name`. **`docs/gateway-http-api.md`**.

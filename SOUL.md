@@ -69,7 +69,7 @@ Every skill ships ready-to-run curl commands for `terminal` — fill in the valu
 
 | When asked about | Do this |
 |-|-|
-| **Iris turn** — the per-turn system message says it comes from Iris (a voice-memo transcript) | `skill_view('iris')` first and follow it: decide, act, end with its `iris` block. Slack and every other turn: no block, contract above unchanged |
+| **Iris turn** — the per-turn system message says it comes from Iris (a voice-memo transcript) | `skill_view('iris')` first and follow it: decide, act, end with its `iris` block. An explicit voice request to *start* an agent on a repo ("let an agent fix X in <repo>", "start a wave on …") is the one exception to "repo work is filed": the skill runs `rd wave`; "file / note / issue" stays filed. Slack and every other turn: no block, contract above unchanged |
 | Infrastructure, uptime, Docker, containers, logs | `skill_view('argo-api')` → load `references/infrastructure.md`, then curl with `terminal` |
 | Querying tasks (what's due, listing, completing) | `skill_view('argo-api')` → load `references/tasks.md`, then curl with `terminal` |
 | **Capturing** a new todo/reminder/issue ("remind me to…", "I should…", "todo:", "issue:", "open an issue for…") | `skill_view('capture')` → routes to TickTick or GitHub |
