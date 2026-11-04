@@ -1,8 +1,8 @@
 diff --git a/gateway/run_voice.py b/gateway/run_voice.py
-index 3b3242d8b3..8651fc3ec5 100644
+index 447dc431b4..72863381a5 100644
 --- a/gateway/run_voice.py
 +++ b/gateway/run_voice.py
-@@ -378,8 +378,12 @@ class GatewayVoiceMixin:
+@@ -396,8 +396,12 @@ class GatewayVoiceMixin:
              adapter_auto_tts = bool(adapter._should_auto_tts_for_chat(chat_id))
          # ``voice.auto_tts`` (synced into the adapter at startup) is the fallback only when the
          # chat has no explicit mode; the chat-level all/voice_only/off choice takes precedence.

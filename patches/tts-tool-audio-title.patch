@@ -1,5 +1,5 @@
 diff --git a/tools/tts_tool.py b/tools/tts_tool.py
-index b60cdf372f..60a99e62b7 100644
+index e224aeccab..8511e9654f 100644
 --- a/tools/tts_tool.py
 +++ b/tools/tts_tool.py
 @@ -226,16 +226,22 @@ def _select_builtin_engine(provider: str) -> tuple:
@@ -28,7 +28,7 @@ index b60cdf372f..60a99e62b7 100644
  
  
  def _finalize_voice_delivery(
-@@ -367,15 +373,48 @@ def _tool_failure(prefix: str, provider: str, exc: BaseException) -> str:
+@@ -412,15 +418,48 @@ def _tool_failure(prefix: str, provider: str, exc: BaseException) -> str:
      return tool_error(error_msg, success=False)
  
  
@@ -78,7 +78,7 @@ index b60cdf372f..60a99e62b7 100644
      try:
          if command_provider_config is not None:
              logger.info("Generating speech with command TTS provider '%s'...", provider)
-@@ -395,7 +434,7 @@ def _text_to_speech_single(
+@@ -440,7 +479,7 @@ def _text_to_speech_single(
              provider, error = _select_builtin_engine(provider)
              if error:
                  return error
@@ -87,7 +87,7 @@ index b60cdf372f..60a99e62b7 100644
          if not os.path.exists(file_str) or os.path.getsize(file_str) == 0:
              return _error_json(f"TTS generation produced no output (provider: {provider})")
  
-@@ -403,6 +442,18 @@ def _text_to_speech_single(
+@@ -448,6 +487,18 @@ def _text_to_speech_single(
          file_str = _repair_ogg_container(file_str)
          file_str, voice_compatible = _finalize_voice_delivery(
              file_str, provider, command_provider_config, want_opus)
@@ -106,7 +106,7 @@ index b60cdf372f..60a99e62b7 100644
          logger.info("TTS audio saved: %s (%s bytes, provider: %s)", file_str, f"{os.path.getsize(file_str):,}", provider)
          return json.dumps({
              "success": True, "file_path": file_str, "media_tag": _media_tag([file_str], voice_compatible),
-@@ -492,7 +543,7 @@ def text_to_speech_tool(
+@@ -544,7 +595,7 @@ def text_to_speech_tool(
          encoded_paths, chunk_results = _synthesize_chunks(
              chunks, base_path, generated_artifacts, provider=provider, tts_config=tts_config,
              command_provider_config=command_provider_config, want_opus=want_opus,
@@ -116,10 +116,10 @@ index b60cdf372f..60a99e62b7 100644
          delivery_base = base_path.with_suffix(Path(encoded_paths[0]).suffix)
          final_paths, combined_chunks = _build_audio_delivery_files(
 diff --git a/tools/tts_tool_openai.py b/tools/tts_tool_openai.py
-index aa10ff3607..9857d81e7b 100644
+index 7db694305e..30541187ee 100644
 --- a/tools/tts_tool_openai.py
 +++ b/tools/tts_tool_openai.py
-@@ -94,13 +94,24 @@ def _openai_extra_body(oai_config: dict[str, Any]) -> dict[str, Any]:
+@@ -95,13 +95,24 @@ def _openai_extra_body(oai_config: dict[str, Any]) -> dict[str, Any]:
  def _generate_openai_tts(
      text: str, output_path: str, tts_config: dict[str, Any], *, api_key: Optional[str] = None,
      base_url: Optional[str] = None, model: Optional[str] = None, voice: Optional[str] = None,
@@ -146,7 +146,7 @@ index aa10ff3607..9857d81e7b 100644
      fallback_base: Optional[str] = None
      is_managed = False
      explicit_base_url = base_url is not None
-@@ -138,17 +149,25 @@ def _generate_openai_tts(
+@@ -139,17 +150,25 @@ def _generate_openai_tts(
          create_kwargs["extra_body"] = extra_body
      client = _origin()._import_openai_client()(api_key=api_key, base_url=base_url)
      try:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression suite for the four IU-unified-endpoint patches.
+"""Regression suite for the IU / inference-gateway OpenAI-leg patches (the failover lane).
 
 Every predicate covers the IU OpenAI leg directly and through the local inference
 gateway (``GATEWAY`` below), which passes that leg through; the last section pins the
@@ -14,14 +14,10 @@ gateway half, since live traffic only reaches it there.
   accepts on this gateway, for the main-loop model only (brain + fallback) —
   deny-by-default for tools+effort (only claude/deepseek/glm are probed to
   accept both; an unrecognized id gets no effort at all, not the gpt-5 ladder).
-* ``patches/run-agent-iu-max-completion-tokens.patch`` — always
-  ``max_completion_tokens`` (never ``max_tokens``) on the IU OpenAI leg for the
-  main-loop model, regardless of model-id prefix.
-* ``patches/auxiliary-client-iu-openai-leg-quirks.patch`` — the same
-  max_completion_tokens substitution for the auxiliary path
-  (compression/title_generation/vision), covering every reachable call site
-  of ``auxiliary_max_tokens_param``; this file also strips ``temperature`` for
-  gpt-5.x on the IU leg (not covered by this suite — see ``docs/patches.md``).
+* ``patches/utils-max-completion-tokens-gpt6.patch`` — ``gpt-6`` joins
+  ``model_forces_max_completion_tokens``, so the failover ``gpt-6-luna`` gets
+  ``max_completion_tokens`` in ``run_agent`` and the auxiliary client (the URL-based
+  run-agent / auxiliary-client patches were retired 2026-11-04).
 
 Run:  ~/.hermes/hermes-agent/venv/bin/python3 tests/test_iu_reasoning_effort.py
 ``HERMES_SRC`` points it at another checkout (a scratch tree holding unreleased patches).
@@ -172,8 +168,9 @@ check("deepseek + tools: effort on the wire", build(DEEPSEEK, TOOLS).get("reason
 # The endpoint 400s on this key — neither upstream nor the patch may send it.
 check("no extra_body.reasoning", (build(LUNA, None).get("extra_body") or {}).get("reasoning"), None)
 
-print("max_completion_tokens on the IU OpenAI leg — run_agent._max_tokens_param")
+print("max_completion_tokens for the failover — run_agent._max_tokens_param and the auxiliary client")
 from run_agent import AIAgent  # noqa: E402
+from agent.auxiliary_client import auxiliary_max_tokens_param  # noqa: E402
 
 
 def max_tokens_param_for(model, base_url):
@@ -184,37 +181,15 @@ def max_tokens_param_for(model, base_url):
     return agent._max_tokens_param(65536)
 
 
-check("deepseek on IU leg -> max_completion_tokens",
-      max_tokens_param_for(DEEPSEEK, IU), {"max_completion_tokens": 65536})
-check("luna on IU leg -> max_completion_tokens",
-      max_tokens_param_for(LUNA, IU), {"max_completion_tokens": 65536})
-check("deepseek on unrelated host -> max_tokens (unaffected)",
-      max_tokens_param_for(DEEPSEEK, "https://openrouter.ai/api/v1"), {"max_tokens": 65536})
-check("deepseek on IU /anthropic leg -> max_tokens (leg untouched)",
-      max_tokens_param_for(DEEPSEEK, "https://unified-endpoint-main.app.iu-it.org/anthropic"),
-      {"max_tokens": 65536})
-
-print("max_completion_tokens on the IU OpenAI leg — the auxiliary path (compression/title/vision)")
-from agent.auxiliary_client import auxiliary_max_tokens_param, _build_call_kwargs  # noqa: E402
-
-check("compression (deepseek) aux param -> max_completion_tokens",
-      auxiliary_max_tokens_param(16000, model=DEEPSEEK, base_url=IU), {"max_completion_tokens": 16000})
-check("title_generation (luna) aux param -> max_completion_tokens",
-      auxiliary_max_tokens_param(64, model=LUNA, base_url=IU), {"max_completion_tokens": 64})
-check("vision (gemini) aux param -> max_completion_tokens",
-      auxiliary_max_tokens_param(4000, model="gemini-3.5-flash", base_url=IU), {"max_completion_tokens": 4000})
-check("unrelated custom endpoint -> max_tokens (unaffected)",
-      auxiliary_max_tokens_param(4000, model=DEEPSEEK, base_url="https://openrouter.ai/api/v1"), {"max_tokens": 4000})
-# _build_call_kwargs itself never forwards a cap for provider=custom on this leg today
-# (_forwards_max_tokens gates it) — so no key at all is the correct, unchanged shape here;
-# the fix above only matters for the other reachable call sites (fast-lane cap, credit-limited
-# 402 retry, same-provider fallback rebuild) that call auxiliary_max_tokens_param directly.
-_aux_kwargs = _build_call_kwargs(
-    "custom", DEEPSEEK, [{"role": "user", "content": "hi"}], base_url=IU, max_tokens=16000,
-    reasoning_config={"enabled": True, "effort": "high"},
-)
-check("no cap key from _build_call_kwargs on this route today",
-      "max_tokens" in _aux_kwargs or "max_completion_tokens" in _aux_kwargs, False)
+FAILOVER = "gpt-6-luna"
+check("failover on the gateway OpenAI leg -> max_completion_tokens",
+      max_tokens_param_for(FAILOVER, GATEWAY), {"max_completion_tokens": 65536})
+check("gpt-6 on IU direct -> max_completion_tokens",
+      max_tokens_param_for(FAILOVER, IU), {"max_completion_tokens": 65536})
+check("aux client, failover model -> max_completion_tokens",
+      auxiliary_max_tokens_param(16000, model=FAILOVER), {"max_completion_tokens": 16000})
+check("a non-OpenAI id is unaffected -> max_tokens",
+      max_tokens_param_for("claude-haiku-5-5", GATEWAY_ANTHROPIC), {"max_tokens": 65536})
 
 print("api_mode routing for the IU endpoint")
 from hermes_cli.runtime_provider import (  # noqa: E402
@@ -243,27 +218,6 @@ check(
 )
 check("unknown relay untouched", _detect_api_mode_for_url("https://relay.test/v1"), None)
 
-# Auxiliary path (patches/auxiliary-client-iu-openai-leg-quirks.patch): _build_call_kwargs must put
-# the effort top-level and never leave extra_body.reasoning, which this leg rejects.
-from agent.auxiliary_client import _build_call_kwargs  # noqa: E402
-
-
-def aux_kwargs(model, effort, base_url=IU, tools=None):
-    return _build_call_kwargs(
-        provider="custom", model=model, messages=[{"role": "user", "content": "hi"}],
-        temperature=0.3, max_tokens=None, tools=tools, timeout=30,
-        extra_body=None, reasoning_config={"enabled": True, "effort": effort}, base_url=base_url,
-    )
-
-
-_aux = aux_kwargs(LUNA, "low")
-check("aux luna: effort top-level", _aux.get("reasoning_effort"), "low")
-check("aux luna: no extra_body.reasoning", "reasoning" in (_aux.get("extra_body") or {}), False)
-check("aux luna: temperature stripped", "temperature" in _aux, False)
-check("aux deepseek high", aux_kwargs(DEEPSEEK, "high").get("reasoning_effort"), "high")
-check("aux deepseek medium clamps to low", aux_kwargs(DEEPSEEK, "medium").get("reasoning_effort"), "low")
-check("aux luna + tools -> effort dropped", "reasoning_effort" in aux_kwargs(LUNA, "high", tools=TOOLS), False)
-
 print("the same leg through the local inference gateway")
 OTHER_LOOPBACK = "http://127.0.0.1:7795/openai/v1"
 LOOKALIKE = "http://127.0.0.1.evil.test:7794/openai/v1"
@@ -285,30 +239,6 @@ check("lookalike gateway host untouched",
       effort_for(LUNA, {"enabled": True, "effort": "high"}, base_url=LOOKALIKE), None)
 check("gateway /anthropic leg untouched",
       effort_for(LUNA, {"enabled": True, "effort": "high"}, base_url=GATEWAY_ANTHROPIC), None)
-
-# DeepSeek's 65536 floor, the reason this patch exists: rejected as max_tokens.
-check("gateway: deepseek -> max_completion_tokens",
-      max_tokens_param_for(DEEPSEEK, GATEWAY), {"max_completion_tokens": 65536})
-check("IU with an explicit port -> max_completion_tokens",
-      max_tokens_param_for(DEEPSEEK, IU_EXPLICIT_PORT), {"max_completion_tokens": 65536})
-check("other loopback port -> max_tokens",
-      max_tokens_param_for(DEEPSEEK, OTHER_LOOPBACK), {"max_tokens": 65536})
-check("gateway /anthropic leg -> max_tokens",
-      max_tokens_param_for(DEEPSEEK, GATEWAY_ANTHROPIC), {"max_tokens": 65536})
-
-check("gateway: aux -> max_completion_tokens",
-      auxiliary_max_tokens_param(16000, model=DEEPSEEK, base_url=GATEWAY), {"max_completion_tokens": 16000})
-check("IU with an explicit port: aux -> max_completion_tokens",
-      auxiliary_max_tokens_param(16000, model=DEEPSEEK, base_url=IU_EXPLICIT_PORT), {"max_completion_tokens": 16000})
-check("other loopback port: aux -> max_tokens",
-      auxiliary_max_tokens_param(16000, model=DEEPSEEK, base_url=OTHER_LOOPBACK), {"max_tokens": 16000})
-
-_gw = aux_kwargs(LUNA, "low", base_url=GATEWAY)
-check("gateway aux: effort top-level", _gw.get("reasoning_effort"), "low")
-check("gateway aux: no extra_body.reasoning", "reasoning" in (_gw.get("extra_body") or {}), False)
-check("gateway aux: temperature stripped", "temperature" in _gw, False)
-check("gateway aux: luna + tools -> effort dropped",
-      "reasoning_effort" in aux_kwargs(LUNA, "high", base_url=GATEWAY, tools=TOOLS), False)
 
 check("gateway openai leg -> responses", _detect_api_mode_for_url(GATEWAY), "codex_responses")
 check("gateway openai leg, trailing slash", _detect_api_mode_for_url(GATEWAY + "/"), "codex_responses")

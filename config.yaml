@@ -711,7 +711,7 @@ secrets:
 paste_collapse_threshold: 5
 paste_collapse_threshold_fallback: 5
 paste_collapse_char_threshold: 2000
-_config_version: 50
+_config_version: 52
 homelab_api:
   base_url: https://argo.jkrumm.com/api
   api_key: ${HOMELAB_API_KEY}

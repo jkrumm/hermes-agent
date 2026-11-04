@@ -1,0 +1,19 @@
+diff --git a/utils.py b/utils.py
+index 8d3193114f..cb8137c6b2 100644
+--- a/utils.py
++++ b/utils.py
+@@ -838,9 +838,12 @@ def base_url_path(base_url: str) -> str:
+ 
+ 
+ def model_forces_max_completion_tokens(model: str) -> bool:
+-    """True for OpenAI families that reject ``max_tokens`` (HTTP 400 ``unsupported_parameter``)."""
++    """True for OpenAI families that reject ``max_tokens`` (HTTP 400 ``unsupported_parameter``).
++
++    LOCAL MODIFICATION (patches/utils-max-completion-tokens-gpt6.patch): ``gpt-6`` too — the failover
++    ``gpt-6-luna`` on the inference gateway's OpenAI leg rejects ``max_tokens`` like gpt-5.x does."""
+     m = (model or "").strip().lower().rsplit("/", 1)[-1]
+-    return m.startswith(("gpt-4o", "gpt-4.1", "gpt-5", "o1", "o3", "o4"))
++    return m.startswith(("gpt-4o", "gpt-4.1", "gpt-5", "gpt-6", "o1", "o3", "o4"))
+ 
+ 
+ def base_url_origin(base_url: str) -> tuple[str, str, int]:

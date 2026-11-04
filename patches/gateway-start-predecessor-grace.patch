@@ -1,9 +1,9 @@
-diff --git a/gateway/run.py b/gateway/run.py
-index a9e9855ec9..2bba041f1f 100644
---- a/gateway/run.py
-+++ b/gateway/run.py
-@@ -5083,6 +5083,29 @@ async def _start_gateway_replace_existing_instance(existing_pid: int, replace: b
-     Returns False when startup must abort (refused, permission denied, target still alive)."""
+diff --git a/gateway/run_bootstrap.py b/gateway/run_bootstrap.py
+index 3eef00fbdd..ac47a29f3a 100644
+--- a/gateway/run_bootstrap.py
++++ b/gateway/run_bootstrap.py
+@@ -33,6 +33,29 @@ async def _start_gateway_replace_existing_instance(existing_pid: int, replace: b
+     from gateway.run import (_clear_takeover_marker_quiet, _replace_target_belongs_to_other_profile, _wait_for_pid_exit, get_hermes_home, suppress)
      from gateway.status import get_process_start_time, remove_pid_file, terminate_pid
      if not replace:
 +        # LOCAL MODIFICATION (patches/gateway-start-predecessor-grace.patch): a

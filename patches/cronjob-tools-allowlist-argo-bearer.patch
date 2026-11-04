@@ -1,5 +1,5 @@
 diff --git a/tools/cronjob_prompt_scan.py b/tools/cronjob_prompt_scan.py
-index 90077d9832..73a6c38f4d 100644
+index 90077d9832..5fadfb7618 100644
 --- a/tools/cronjob_prompt_scan.py
 +++ b/tools/cronjob_prompt_scan.py
 @@ -72,15 +72,18 @@ def _zwj_has_emoji_neighbour(text: str, idx: int) -> bool:
