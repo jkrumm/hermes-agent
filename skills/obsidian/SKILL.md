@@ -191,7 +191,7 @@ The `capture` skill routes; this is the shared model:
 
 ## Guardrails
 
-- **Do not write journal entries.** The voice-first journal is a separate, paused subsystem with its own tone rules and ingest pipeline — currently blocked pending a new vault target (see `journal/PRD.md`). If asked to journal, say it isn't wired up yet rather than improvising an entry.
+- **Do not write journal entries** — except notes from an Iris voice-memo turn, which `skill_view('iris')` owns (script `skills/iris/scripts/iris-note.py` → `Inbox/`, tags `[journal, iris]`; it commits through `brain-commit.sh`, so the Sync guardrail below is met). Everything else: the voice-first journal is a separate, paused subsystem with its own tone rules and ingest pipeline — currently blocked pending a new vault target (see `journal/PRD.md`). If asked to journal, say it isn't wired up yet rather than improvising an entry.
 - **Never write to the vault root**; unclassified → `Inbox/`.
 - **The `daily:*` and `template:*`/`templates` CLI verbs are dead.** Their backing core plugins (`daily-notes`, `templates`) are disabled and the `02_Daily/`/`09_Templates/` folders were removed 2026-08-02. Never call them. If asked to "add to my daily note", say daily notes were retired rather than improvising a location.
 - **`wiki/` and `Inbox/`** — prefer `append`/`property:set` over rewriting a whole file.
