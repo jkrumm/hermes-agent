@@ -163,6 +163,7 @@ secrets resolve for **every** hermes invocation — gateway, CLI, cron.
   TTS/STT 401), graded by `make status` ("door token"), and pinned by
   `tests/test_gateway_provider.py`. Rotation: edit the file, restart the gateway **and**
   `com.jkrumm.hermes-serve`.
+- **The gateway also renders `serve.env.tpl`** (second `secrets-run export` in the same command, fail-soft). Since v0.22.7 the gateway mounts the dashboard listener itself, and with `dashboard.public_url` set it exits at startup (`SystemExit: Refusing to bind dashboard…`, no log line — only a traceback from inside `start_gateway`) unless `HERMES_DASHBOARD_BASIC_AUTH_*` are in its env. A crash loop at "Stopping gateway..." 1 s after "Mounted plugin API routes" is this.
 - **Not `secrets.onepassword`**: it needs an interactive `op` session (hangs headless) or a
   standing `OP_SERVICE_ACCOUNT_TOKEN` (a live credential on an always-on box). The sealed cache
   is strictly stronger — its contents are the explicit `dotfiles-private/headless.refs` allowlist.

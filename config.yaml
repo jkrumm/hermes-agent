@@ -705,7 +705,10 @@ secrets:
     # The hermes door token opens both local doors (audio :7792, inference gateway :7794) and is
     # not a 1Password ref. Read once, printed under every name that needs it. Keep it `$t`, never
     # `${t}`: config loading expands `${...}` before this reaches the shell.
-    command: "{ $HOME/.local/bin/secrets-run export --env-file=$HOME/.hermes/.env.tpl | sed 's/^export //'; t=$(sed -n 's/^hermes=//p' $HOME/.agent-workflows/data/door-tokens 2>/dev/null); [ -z \"$t\" ] || printf '%s=%s\\n' AUDIO_DOOR_TOKEN \"$t\" OPENAI_API_KEY \"$t\" ANTHROPIC_API_KEY \"$t\" HERMES_CUSTOM_CUSTOM_API_KEY \"$t\" HERMES_CUSTOM_UNIFIED_ENDPOINT_MAIN_APP_IU_IT_ORG_API_KEY \"$t\"; true; }"
+    # The second export is serve.env.tpl: since v0.22.7 the gateway mounts the dashboard listener itself
+    # and, with dashboard.public_url set, exits at startup unless the basic-auth provider's three
+    # variables are in ITS env. Own render, own failure: an unresolved ref drops only these three.
+    command: "{ $HOME/.local/bin/secrets-run export --env-file=$HOME/.hermes/.env.tpl | sed 's/^export //'; $HOME/.local/bin/secrets-run export --env-file=$HOME/.hermes/serve.env.tpl 2>/dev/null | sed 's/^export //'; t=$(sed -n 's/^hermes=//p' $HOME/.agent-workflows/data/door-tokens 2>/dev/null); [ -z \"$t\" ] || printf '%s=%s\\n' AUDIO_DOOR_TOKEN \"$t\" OPENAI_API_KEY \"$t\" ANTHROPIC_API_KEY \"$t\" HERMES_CUSTOM_CUSTOM_API_KEY \"$t\" HERMES_CUSTOM_UNIFIED_ENDPOINT_MAIN_APP_IU_IT_ORG_API_KEY \"$t\"; true; }"
     helper_timeout_seconds: 15
     override_existing: true
 paste_collapse_threshold: 5
