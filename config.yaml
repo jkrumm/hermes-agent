@@ -167,10 +167,11 @@ tool_loop_guardrails:
     idempotent_no_progress: 5
 compression:
   enabled: true
-  threshold: 0.5
-  # Under Haiku 5.5's 100k long-prompt line: past it the gateway bills the whole request at 5x
-  # (agw routes: longPromptTokens). Compacting at 90k keeps every turn at the base rate.
-  threshold_tokens: 90000
+  # Owner decision 2026-11-04: compact late. Haiku 5.5 has a 1M window and the 5x rate above 100k
+  # input (agw routes: longPromptTokens) is accepted; compaction at 90k was this session's own
+  # cost guess and cut threads short. Ratio and absolute agree so the lower of the two is 650k.
+  threshold: 0.65
+  threshold_tokens: 650000
   target_ratio: 0.2
   protect_last_n: 20
   hygiene_hard_message_limit: 400

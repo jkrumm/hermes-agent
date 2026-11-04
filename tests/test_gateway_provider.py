@@ -106,7 +106,7 @@ check("brain wire", config["model"]["api_mode"], "anthropic_messages")
 check("brain base", config["model"]["base_url"], ANTHROPIC)
 check("brain model", config["model"]["default"], "claude-haiku-5-5")
 check("cache ttl follows the pacing of the source", config["prompt_caching"]["cache_ttl"], "auto")
-check("compaction stays under Haiku's 100k long-prompt line", config["compression"]["threshold_tokens"] <= 100000, True)
+check("compaction fires late, inside the 1M window with room for the summary pass", 500000 <= config["compression"]["threshold_tokens"] <= 750000, True)
 
 print("vision and approval on the Anthropic leg")
 for lane, model in (("vision", "claude-sonnet-5-5"), ("approval", "claude-haiku-5-5"),

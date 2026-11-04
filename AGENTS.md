@@ -423,7 +423,7 @@ published source disagrees in some direction. Re-probe after an endpoint change.
 |-|-|-|
 | Brain, `claude-haiku-5-5` (2026-11-04) | gateway `/anthropic` leg, `anthropic_messages`, `high`; `model.provider: gateway-anthropic` | modelpick bench: `high` 15/15 ~1.6 s; `xhigh`/`max` think 50–100 s+. The gateway spends the Claude subscription credit pools first, IU's `/anthropic` only when none has credit. Revert to DeepSeek: the `chat_completions` block in 27c79af |
 | Former brains | Haiku 5.5 EU on IU direct (2026-10-08 → 10-20); `deepseek-v4.1-flash` (2026-10-20 → 11-04) | DeepSeek: 15/15 at every effort, 1.0 M window, `/responses` 404s — `chat_completions` is its only wire |
-| Pricing line | **100k input tokens** | Haiku 5.5 bills the *whole request* at 5x above it (`agw routes`, `longPromptTokens`) — hence compaction at 90k |
+| Pricing line | **100k input tokens** | Haiku 5.5 bills the *whole request* at 5x above it (`agw routes`, `longPromptTokens`). **Accepted by the owner (2026-11-04)**: long threads cost more and that is fine, so compaction is late (650k), not under the line |
 | Context, Haiku 5.5 | 1,000,000 (pinned) | the gateway's `/models` advertises 200k; the pin wins, `agent.context_pin` logs a harmless warning per run |
 | Input cap, `gpt-5.6-luna` (former fallback) | **922,000** | 900k ok; 1.1M → `context_length_exceeded` (a *combined* input+reasoning+output budget). **Not re-probed for `gpt-6-luna`** — config keeps 850,000 |
 | `/v1/models` metadata (OpenAI leg) | `ContextSize: "105000"` | **Wrong** — 110k/260k/520k/900k all succeed. Never configure from it |
@@ -461,9 +461,7 @@ strips the effort for gpt-5.x and forces an explicit `none` for gpt-6.x while to
   slot on the OpenAI leg sets an explicit `api_mode`, which always wins over the patch's forced
   host-detection. A stale `Ignoring persisted custom api_mode=codex_responses for non-OpenAI
   endpoint` log line still means a patch fell off a `hermes update`.
-- **Compaction triggers at 90,000 tokens** (absolute — the *lower* of ratio and absolute governs),
-  under Haiku 5.5's 100k long-prompt line. Compaction invalidates the cached prefix once per
-  compaction; that is cheaper than the 5x rate on every turn above 100k.
+- **Compaction triggers at 650,000 tokens** (absolute, ratio 0.65 of the 1M pin agrees; the *lower* of the two governs). Owner decision 2026-11-04 — an earlier 90k guess to stay under Haiku's 100k 5x line cut threads short and was reverted. Above 100k each request bills at 5x; prompt caching (reads at 0.1x of the base rate) keeps that bounded. Compaction invalidates the cached prefix once per compaction.
 
 **Auxiliary lanes are separately routed, not the brain** — all on the Anthropic leg, `provider`
 `custom` so the auxiliary client never reaches for `~/.claude` OAuth: `compression` (Haiku 5.5
