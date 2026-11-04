@@ -170,7 +170,7 @@ secrets resolve for **every** hermes invocation — gateway, CLI, cron.
 - **Fail-soft, monitored.** The `command` source can't abort startup; it degrades to "no secrets
   applied" + a warning. `hermes-liveness.sh` covers both halves — total failure via
   `platforms.slack.state == "connected"`, partial via `KEY=` count vs rendered count.
-- Manual check: `Command helper: applied 28 secrets` in `hermes gateway status` (23 refs + the 5
+- Manual check: `Command helper: applied 31 secrets` in `hermes gateway status` (23 refs + the 3 serve refs + the 5
   door-token names), `✓ secrets (23 refs …)` from `make status`.
 - **Never run `hermes model` on the mini** — it writes a plaintext `~/.hermes/.env`
   (`save_env_value`) that shadows the door-token names (`.env` wins over the secret scope); deleted 2026-09-07,
