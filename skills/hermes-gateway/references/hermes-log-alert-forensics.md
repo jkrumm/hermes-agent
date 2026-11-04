@@ -90,8 +90,8 @@ real; escalate.
   out". **Treat the traceback as noise, not as severity** — read the retry, not
   the log level. A fix belongs as a `patches/*.patch` entry in hermes-agent
   (add the two openai classes to the transient set), never as a
-  `request_timeout_seconds` override in `config.yaml` — and that patch has since LANDED
-  (`patches/stream-error-transient-openai-classes.patch`, `make patch-check` green), so the live
+  `request_timeout_seconds` override in `config.yaml` — and upstream has since LANDED
+  that fix (v0.22.7 lists `openai.APIConnectionError` itself; the local patch was retired), so the live
   handler already classifies both openai classes as transient. Triage consequence: an ERROR-level
   `Streaming failed before delivery` can no longer come from the running code — compare the line
   against the current process start and expect the producer to be a process that booted before the

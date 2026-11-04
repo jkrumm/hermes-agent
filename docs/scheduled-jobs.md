@@ -15,11 +15,11 @@ state must match the live job's — `make status` asserts it.
 
 | Job id | Name | Schedule | Mode | Script / prompt | Skills | Delivery | State |
 |-|-|-|-|-|-|-|-|
-| `cc7900c424a9` | Morning briefing | `0 7 * * 1-5` | agent | `briefing-context.py` pre-run · `cron/morning-briefing.prompt.txt` | `argo-api`, `work` | `slack:C0AT6TH404R` #briefings | live |
-| `2d38c80e685c` | Evening report | `0 22 * * 1-4` | agent | `briefing-context.py` pre-run · `cron/evening-report.prompt.txt` | `argo-api`, `work` | `slack:C0AT6TH404R` #briefings | live |
+| `cc7900c424a9` | Morning briefing | `0 7 * * 1-5` | agent | `briefing-context.py` pre-run · `cron/morning-briefing.prompt.txt` | `argo-api`, `work` | `slack:C0AT6TH404R` #briefings | paused (owner, 2026-11-04) |
+| `2d38c80e685c` | Evening report | `0 22 * * 1-4` | agent | `briefing-context.py` pre-run · `cron/evening-report.prompt.txt` | `argo-api`, `work` | `slack:C0AT6TH404R` #briefings | paused (owner, 2026-11-04) |
 | `8fe7be4985d9` | Brain drift audit | `0 9 * * 6` | agent | `cron/brain-drift-audit.prompt.txt` | `obsidian` | `slack:C0ASRULFTSS` #watchdog | live |
 | `9909f808fe17` | Project narratives | `30 6 * * *` | no-agent | `narratives-cron.py` → `project-narratives.py --run` | — | `slack:C0ASRUD7K1U` #hermes | live |
-| `679e16824f2c` | claude-release-watch | `every 60m` | no-agent | `model-release-watch.py` (OpenRouter + models.dev + Anthropic sitemap + news; stdout only when something is new; state in `~/.hermes/state/model-release-watch.*`) | — | `origin` | live |
+| `679e16824f2c` | claude-release-watch | `every 60m` | no-agent | `model-release-watch.py` (OpenRouter + models.dev + Anthropic sitemap + news; stdout only when something is new; state in `~/.hermes/state/model-release-watch.*`) | — | `origin` | live (temporary: retire when the awaited Claude model ships) |
 | `825d9e57be32` | Usage weekly report | `30 7 * * 1` | no-agent | `usage-weekly-report.py` (prints usage-tracker's `<iso-week>.md`, written Monday 07:00 by its LaunchAgent) | — | `slack:C0ASRUD7K1U` #hermes | live |
 
 **Unpinned jobs stop, they don't re-route, when the global model moves.** `cron.model_drift_guard`
@@ -27,11 +27,9 @@ state must match the live job's — `make status` asserts it.
 the global provider/model no longer matches the resolved one — no inference call, one alert, then
 silent until resolved. Remediation is a deliberate pin: `hermes cron edit <job_id> --provider <p>
 --model <m>`. Only jobs created (or inference-edited) after the snapshot feature carry snapshots,
-so `8fe7be4985d9` — pinned `custom`/`deepseek-v4.1-flash` on 2026-09-19 after the 09-13 brain
-rollout skipped its 09-19 run, and re-pinned `custom`/Haiku 5.5 after the 2026-10-08
-brain switch (its 2026-10-10 run had fired on the retired model and 404'd) — is the one live job
-that is guarded *and* pinned; the older rows carry no snapshot and still follow the global default
-silently.
+so no live job is both guarded and pinned today: `8fe7be4985d9` carries neither a pin nor a
+snapshot (checked in `cron/jobs.json` 2026-11-04) and follows the global default — Haiku 5.5 on
+the gateway's Anthropic leg — as do the older rows.
 
 ## Retired
 
