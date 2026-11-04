@@ -23,7 +23,7 @@ OpenAI-compatible in both directions: `http://127.0.0.1:7792/v1` (loopback, bear
    curl -s -m 280 -w "\nHTTP=%{http_code}\n" \
      -X POST http://127.0.0.1:7792/v1/audio/transcriptions \
      -H "Authorization: Bearer $AUDIO_DOOR_TOKEN" \
-     -F "file=@/tmp/memo.m4a" -F "model=voxtral-mini-transcribe-3-0" -F "language=de" \
+     -F "file=@/tmp/memo.m4a" -F "model=audio.stt.voxtral-mini" -F "language=de" \
      -o /tmp/transcript.json
    ```
 

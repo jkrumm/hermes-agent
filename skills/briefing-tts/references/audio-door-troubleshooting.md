@@ -56,7 +56,7 @@ Bad `response_format`, `style`/`delivery` value, or an upload over the limit —
 curl -s -o /tmp/test.mp3 -D /tmp/test.hdr -w "HTTP %{http_code} size=%{size_download}\n" \
   -X POST http://127.0.0.1:7792/v1/audio/speech \
   -H "Authorization: Bearer $AUDIO_DOOR_TOKEN" -H "Content-Type: application/json" \
-  -d '{"model":"gemini-3.8-flash-lite-tts","voice":"Charon","input":"Hallo Test.","response_format":"mp3"}'
+  -d '{"model":"audio.tts.gemini-flash-lite","voice":"Charon","input":"Hallo Test.","response_format":"mp3"}'
 
 file /tmp/test.mp3
 # Should say: /tmp/test.mp3: MPEG ADTS, layer III ...

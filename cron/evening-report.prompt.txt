@@ -128,7 +128,7 @@ out = os.path.expanduser("~/.hermes/cache/audio/<filename>.mp3")
 os.makedirs(os.path.dirname(out), exist_ok=True)
 req = urllib.request.Request(
     "http://127.0.0.1:7792/v1/audio/speech",
-    data=json.dumps({"model": "gemini-3.8-flash-tts", "voice": "Charon", "input": TEXT, "response_format": "mp3"}).encode(),
+    data=json.dumps({"model": "audio.tts.gemini-flash", "voice": "Charon", "input": TEXT, "response_format": "mp3"}).encode(),
     headers={"Content-Type": "application/json", "Authorization": "Bearer " + os.environ["AUDIO_DOOR_TOKEN"]}, method="POST")
 with urllib.request.urlopen(req, timeout=180) as r:
     open(out, "wb").write(r.read())

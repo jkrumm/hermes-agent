@@ -352,7 +352,7 @@ tts:
     voice_id: pNInz6obpgDQGcFmaJgB
     model_id: eleven_multilingual_v2
   openai:
-    model: gemini-3.8-flash-lite-tts
+    model: audio.tts.gemini-flash-lite
     voice: Charon
     base_url: http://127.0.0.1:7792/v1
     api_key: ${AUDIO_DOOR_TOKEN}
@@ -380,7 +380,7 @@ stt:
     model: base
     language: ''
   openai:
-    model: voxtral-mini-transcribe-3-0
+    model: audio.stt.voxtral-mini
     base_url: http://127.0.0.1:7792/v1
     api_key: ${AUDIO_DOOR_TOKEN}
   mistral:

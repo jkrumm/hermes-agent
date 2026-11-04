@@ -29,13 +29,14 @@ local door-token file (see `references/audio-door-troubleshooting.md`); never pr
 
 | Use | `model` | What the door does | Latency |
 |-|-|-|-|
-| Briefings, long-form, anything worth listening to | `gemini-3.8-flash-tts` | prep LLM (spoken-form numbers, ≤~1,000-char sentence-aligned chunks, `<short pause>`/`<long pause>` tags, **title**), per-chunk synth, one continuous MP3 | ~5 s for ~30 s of audio |
-| Short replies, confirmations | `gemini-3.8-flash-lite-tts` | one synthesis call, deterministic number normalisation, no title | first audio ~0.7 s |
+| Briefings, long-form, anything worth listening to | `audio.tts.gemini-flash` (Gemini 3.8 Flash TTS) | prep LLM (spoken-form numbers, ≤~1,000-char sentence-aligned chunks, `<short pause>`/`<long pause>` tags, **title**), per-chunk synth, one continuous MP3 | ~5 s for ~30 s of audio |
+| Short replies, confirmations | `audio.tts.gemini-flash-lite` (Gemini 3.8 Flash-Lite TTS) | one synthesis call, deterministic number normalisation, no title | first audio ~0.7 s |
 
 Voice is `Charon` for both (Gemini prebuilt voices; request shapes, tag vocabulary and traps:
 `modelpick/docs/gemini-tts.md`). The chat/desktop/Slack-reply path uses Flash-Lite through
-`config.yaml` → `tts.openai`; this skill is the briefing path and pins `gemini-3.8-flash-tts`
-explicitly. Gemini has no `speed` parameter — pace is the door's constant style string.
+`config.yaml` → `tts.openai`; this skill is the briefing path and pins `audio.tts.gemini-flash`
+explicitly. `model` is an agent-workflows **route id** (`agw routes`), so the concrete Gemini
+version is chosen centrally in the route table, never in this repo. Gemini has no `speed` parameter — pace is the door's constant style string.
 ElevenLabs ids (`elevenlabs/v3`, `elevenlabs/flash-v2.5`, voice `Mark`) still work as a fallback.
 
 ---
@@ -46,7 +47,7 @@ ElevenLabs ids (`elevenlabs/v3`, `elevenlabs/flash-v2.5`, voice `Mark`) still wo
 
 ```json
 {
-  "model": "gemini-3.8-flash-tts",
+  "model": "audio.tts.gemini-flash",
   "voice": "Charon",
   "input": "the whole briefing text — do not pre-chunk",
   "response_format": "mp3"
@@ -115,7 +116,7 @@ os.makedirs(AUDIO_DIR, exist_ok=True)
 text = """Guten Morgen. Heute ist ... (the whole briefing, plain prose, no markdown)"""
 
 payload = json.dumps({
-    "model": "gemini-3.8-flash-tts",
+    "model": "audio.tts.gemini-flash",
     "voice": "Charon",
     "input": text,
     "response_format": "mp3",
@@ -145,7 +146,7 @@ For a short phrase, a curl one-liner on Flash-Lite:
 ```bash
 curl -s -X POST http://127.0.0.1:7792/v1/audio/speech \
   -H "Authorization: Bearer $AUDIO_DOOR_TOKEN" -H "Content-Type: application/json" \
-  -d '{"model":"gemini-3.8-flash-lite-tts","voice":"Charon","input":"Erledigt.","response_format":"mp3"}' \
+  -d '{"model":"audio.tts.gemini-flash-lite","voice":"Charon","input":"Erledigt.","response_format":"mp3"}' \
   -o /tmp/short.mp3
 ```
 
