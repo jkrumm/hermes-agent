@@ -19,7 +19,7 @@ LAUNCHD_DIR   := $(HERMES_REPO)/launchd
 LAUNCHAGENTS  := $(HOME)/Library/LaunchAgents
 # com.jkrumm.hermes-triage left with the act-loop it ran (2026-09-09); nothing replaced it.
 # hermes-serve{,-liveness}: `hermes serve` for Hermes Desktop, restored 2026-10-15
-# (owner decision — Desktop, Slack, the :8642 API and the CLI are the surfaces).
+# (owner decision — Desktop, the :8642 API (Iris) and the CLI are the surfaces).
 HERMES_PLISTS := com.jkrumm.hermes-liveness com.jkrumm.hermes-backup \
                  com.jkrumm.hermes-serve com.jkrumm.hermes-serve-liveness
 # Labels this repo used to install and no longer does. `_agents` unloads and
@@ -320,7 +320,7 @@ status:
 	fi
 	@# No approval prompts, no command guards (owner decision 2026-09-14):
 	@# approvals.mode 'off', approve for every unattended context, the
-	@# protected-instruction gate off (tirith left core upstream in config v50). A drift back is the 5-minute-Slack-button
+	@# protected-instruction gate off (tirith left core upstream in config v50). A drift back is the 5-minute-approval-button
 	@# stall again, so it is graded, not remembered.
 	@"$(HERMES_DIR)/hermes-agent/venv/bin/python3" -c 'import yaml,sys;\
 c=yaml.safe_load(open("$(HERMES_REPO)/config.yaml"));a=c.get("approvals") or {};\
@@ -483,7 +483,7 @@ skills-set-check:
 	done; \
 	[ "$$bad" = 0 ] && echo "    ✓ live skill set matches HERMES_SKILLS ($$(echo "$$declared" | wc -l | tr -d ' '))" || true
 
-# Probes the live gateway (process, Slack, API server, /health, patches). Exit 0 = healthy.
+# Probes the live gateway (process, API server, /health, patches). Exit 0 = healthy.
 .PHONY: verify
 verify:
 	@./scripts/verify.sh

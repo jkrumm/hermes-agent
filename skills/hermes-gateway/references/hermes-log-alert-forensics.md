@@ -1,8 +1,8 @@
 # Hermes log alert forensics
 
-_Use when a Hermes log ERROR line shows up in `#alerts` or while reading the logs._
+_Use when a Hermes log ERROR line shows up in an alert or while reading the logs._
 
-A Hermes ERROR line reaches you through `#alerts` or a log read. There is no poller, card or
+A Hermes ERROR line reaches you through an alert relay or a log read. There is no poller, card or
 ledger item behind it; this skill is the triage for the
 line itself — deciding whether it is a real fault, and then reporting or filing it.
 

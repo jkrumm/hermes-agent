@@ -1,6 +1,6 @@
 # Hermes Agent — Mac Mini M2 Pro
 
-Personal AI assistant running 24/7 on Mac Mini. Slack as interface, Claude Haiku 5.5 (high) as brain on the agent-workflows inference gateway's Anthropic leg (`gpt-6-luna` failover), twenty skill domains (`HERMES_SKILLS` in the Makefile is the count).
+Personal AI assistant running 24/7 on Mac Mini. Chat through Iris, Claude Haiku 5.5 (high) as brain on the agent-workflows inference gateway's Anthropic leg (`gpt-6-luna` failover), twenty skill domains (`HERMES_SKILLS` in the Makefile is the count).
 
 For repo-operating detail (repo work, secrets, patches, model routing), see `AGENTS.md`.
 
@@ -9,7 +9,9 @@ For repo-operating detail (repo work, secrets, patches, model routing), see `AGE
 ## Architecture
 
 ```
-Slack (Socket Mode)
+Iris (chat + voice memos) ──→ API server :8642 (tailnet)
+Hermes Desktop ─────────→ `hermes serve` :9119 (behind the Caddy door)
+CLI (`hermes chat`)
   ↓
 Mac Mini M2 Pro — Hermes Agent (always-on)
   ├→ audio door (http://127.0.0.1:7792/v1) — OpenAI-compatible audio via IU (agent-workflows audio process, loopback).
@@ -23,38 +25,18 @@ Mac Mini M2 Pro — Hermes Agent (always-on)
         over /anthropic; gpt-6-luna (fallback) over /openai/v1
 ```
 
-## Channel Architecture
+## Surfaces
 
-`allow_bots: all` + channel membership = ACL. Hermes processes every message in channels it's been invited to — human or bot. Keep external bots out of `#hermes`.
-
-| Channel | ID | Hermes | External bots | Role |
-|-|-|-|-|-|
-| `#hermes` | C0ASRUD7K1U | read + write | HomeLab bot | Main conversation, HomeLab-triggered checks, the project-narratives digest (cron `9909f808fe17`, moved here 2026-09-11) |
-| `#inbox` | C0AT6TB49HP | read + write | HomeLab bot | Johannes + HomeLab drops (voice memos, links, digests) → Hermes processes |
-| `#alerts` | C0AS1LAUQ3C | read only (`require_mention_channels`) | HomeLab bot, VPS app (A0BV9MG54TD), Argo app (A0BV9MFTM9R), external monitors | Silenced — no per-message LLM turn, and nothing polls it out-of-band any more. Mentioning Hermes here directly still works |
-| `#updates` | C0ARZJD824W | read only (`require_mention_channels`) | HomeLab bot | Silenced — Hermes was echoing its own pipeline's posts |
-| `#media` | C0AS5GUH5U4 | read only (`require_mention_channels`) | — | Podcast/image completions — Hermes is the producer, not a conversant |
-| `#watchdog` | C0ASRULFTSS | write only | — | Hermes's own proactive monitoring results — today the weekly brain drift audit (cron `8fe7be4985d9`, Saturdays 09:00) |
-| `#briefings` | C0AT6TH404R | write only | — | Morning/evening audio reports (cron `cc7900c424a9`, `2d38c80e685c`) |
-| `#agents` | C0BVDE5R562 | write only | — | Idle — the scheduled agents-overview digest was retired (paused 2026-09-08); read the same snapshot with `agw agents --text` or in the morning briefing |
-
-### Trigger Matrix
-
-| Source | Channel | What happens |
+| Surface | How | Role |
 |-|-|-|
-| Johannes message | `#hermes` | Hermes responds immediately |
-| Johannes voice memo / link | `#inbox` | Hermes transcribes / extracts + processes |
-| HomeLab bot drops digest/capture | `#inbox` | Hermes processes it the same as a manual drop |
-| Docker / UptimeKuma alert | `#alerts` | Hermes calls argo-api, checks state, responds or escalates |
-| External monitor alert | `#alerts` | Hermes triages, checks context, notifies if critical |
-| Cron job | `#hermes` / `#briefings` | Hermes posts proactive update or audio briefing |
+| Iris | Phone voice-memo/chat app; calls the API server on `:8642` (pull-only, Hermes cannot push to it) | Chat and voice memos |
+| Hermes Desktop | `hermes serve` (`:9119`, `com.jkrumm.hermes-serve`) | Desktop chat on the MacBook |
+| CLI | `hermes chat` on the mini | Ad-hoc use and tests |
+| ntfy | Topics `updates` (project narratives, brain drift audit, usage weekly report) and `models` (model release watch) | Notices. Hermes has no ntfy platform: each cron job runs with `--deliver local` and publishes itself through `scripts/ntfy-publish.sh` |
 
-### Bot Membership Rules
-
-- **Hermes bot**: invited to all channels above
-- **HomeLab bot**: `#hermes` + `#inbox` + `#alerts` — never `#watchdog`
-- **Other external monitors**: `#alerts` only
-- **Adding a new integration**: invite it to `#alerts` (reactive) or `#inbox` (data drops) — never `#hermes`
+There is no Slack gateway any more (removed 2026-11): no bot, tokens or channels. Fleet and Issue
+state is read through the `factory` CLI (`factory read overview|issues|issue <id>|asks|health|sessions`),
+and agent work is filed with `factory issue new`.
 
 ## Files
 
@@ -90,30 +72,13 @@ hermes --version  # should show v0.21.0+ (the version this repo's patches target
 ### 3. 1Password Vault
 
 Create vault `hermes` in 1Password (account `tkrumm`) with items:
-- `slack` — fields: `bot-token`, `app-token`
 - `github` — field: `token` (PAT scoped to homelab/homelab-private/vps/dotfiles)
 
 Existing items reused:
 - `op://common/anthropic/API_KEY` — Anthropic (fallback LLM + auxiliary)
 - `op://common/anthropic/BASE_URL` — Anthropic API base URL
 
-### 4. Create Slack App
-
-1. Go to https://api.slack.com/apps → Create New App → **From an app manifest**
-2. Paste `slack-app-manifest.json` (this repo's root — the source of truth for scopes, event
-   subscriptions and Socket Mode; do not hand-type a scope list, it drifts)
-3. Install to workspace, copy Bot Token + App Token to 1Password `hermes/slack`
-
-### 5. Create Slack Channels
-
-Create these channels and invite the Hermes bot — see the Channel Architecture table above for
-the full set incl. `#alerts`, `#updates`, `#media`, `#agents`:
-- `#hermes` — interactive, main conversation
-- `#inbox` — captures, voice memos, links
-- `#watchdog` — infra alerts
-- `#briefings` — morning/evening audio reports
-
-### 6. Deploy Config
+### 4. Deploy Config
 
 ```bash
 # Mac Mini-only — symlinks all hermes config files and installs the
@@ -131,13 +96,13 @@ TCC prompt, so it can be driven by an agent on the headless mini rather than onl
 human at the screen. Re-run after editing skills or cron scripts. A LaunchAgent whose
 rendered plist is unchanged is left alone, so re-running never bounces a healthy job.
 
-### 7. Run Hermes Setup
+### 5. Run Hermes Setup
 
 ```bash
-hermes setup  # interactive — confirm LLM provider, voice, Slack
+hermes setup  # interactive — confirm LLM provider, voice
 ```
 
-### 8. Start the Gateway
+### 6. Start the Gateway
 
 ```bash
 hermes gateway install   # registers the LaunchAgent (label: ai.hermes.gateway) and starts the gateway
@@ -161,16 +126,16 @@ Verify it's up:
 
 ```bash
 curl -s "http://$(secrets-run read op://hermes/gateway/host):8642/health"
-tail -20 ~/.hermes/logs/gateway.log  # watch for successful Slack connection
+tail -20 ~/.hermes/logs/gateway.log  # watch for the API server platform coming up
 ```
 
-### 9. Verify
+### 7. Verify
 
-- [x] Send message in `#hermes` on Slack — get a response
-- [x] Send voice memo in Slack — get transcribed via the audio door (`gpt-4o-transcribe`)
+- [x] Send a message in Iris (or `hermes chat -q "ping"`) — get a response
+- [x] Send a voice memo in Iris — get transcribed via the audio door (`gpt-4o-transcribe`)
 - [x] TTS audio generation — ElevenLabs (flash-v2.5 / v3, voice Mark) via the audio door, MP3 output
 - [x] Backup agent — daily 03:00 rsync to `homelab:/mnt/hdd/backups/hermes/`, pings UK
-- [x] Liveness agent — every 5 min, pings UK if gateway running + Slack connected
+- [x] Liveness agent — every 5 min, pings UK if gateway running + API server connected
 
 ### Secrets — no `.env`, no wrapper
 
@@ -212,7 +177,7 @@ with Full Disk Access); `make status` flags them until it succeeds.
 
 | When | Script | What |
 |-|-|-|
-| every 300s (`StartInterval`) | `scripts/hermes-liveness.sh` | Read `~/.hermes/gateway_state.json`. If `gateway_state == "running"` AND `platforms.slack.state == "connected"` AND PID alive AND the agw inference gateway (`:7794`) answers and accepts the `hermes=` door token (`scripts/inference-gateway-check.sh`) → curl the push URL (resolved via `secrets-run read op://hermes/uptime-kuma/agent-push-url`). UK monitor `Hermes Agent - Push` (interval 360s). |
+| every 300s (`StartInterval`) | `scripts/hermes-liveness.sh` | Read `~/.hermes/gateway_state.json`. If `gateway_state == "running"` AND `platforms.api_server.state == "connected"` AND PID alive AND the agw inference gateway (`:7794`) answers and accepts the `hermes=` door token (`scripts/inference-gateway-check.sh`) → curl the push URL (resolved via `secrets-run read op://hermes/uptime-kuma/agent-push-url`). UK monitor `Hermes Agent - Push` (interval 360s). |
 | 03:00 daily (`StartCalendarInterval`) | `scripts/hermes-backup.sh` | rsync `~/.hermes/` → `homelab:/mnt/hdd/backups/hermes/` (excludes `audio_cache/`, `image_cache/`, `cache/`, `sandboxes/`, `sessions/`, `hermes-agent/`, `*.lock`, `*.pid`). Holds a `mkdir` single-instance lock so overlapping runs can't race `rsync --delete`. On success → curl the push URL (resolved via `secrets-run read op://hermes/uptime-kuma/backup-push-url`). UK monitor `Hermes Backup - Push` (interval 25h). |
 
 **Push URLs** live in 1Password (`op://hermes/uptime-kuma/{agent,backup,watchdog}-push-url`) and are resolved **on demand** by each script via `secrets-run read` — the drop-in `op` shim (encrypted cache on the Mac mini, biometric `op` on the MacBook), so no plaintext `~/.hermes/.env` is needed. launchd hands a job a minimal `PATH` (as cron did), so the scripts prepend `/opt/homebrew/bin` (secrets-run's cache backend needs `sops`+`jq`). Scripts no-op silently if the URL can't be resolved — UK alerts on the missing heartbeat. The watchdog push URL (`UPTIME_PUSH_WATCHDOG`) has no pinger since the out-of-band watchdog poller was retired.
@@ -221,8 +186,8 @@ with Full Disk Access); `make status` flags them until it succeeds.
 
 **Restic / B2:** Duplicati already mounts `/mnt:/source/mnt`, so `/mnt/hdd/backups/hermes/` is picked up by the existing B2 backup job.
 
-Every Hermes cron job (four — morning briefing, evening report, brain drift audit, project
-narratives) is listed with its id in the registry table in `docs/scheduled-jobs.md`; `make
+Every Hermes cron job (morning briefing and evening report, both paused; brain drift audit, project
+narratives, model release watch, usage weekly report) is listed with its id in the registry table in `docs/scheduled-jobs.md`; `make
 status` asserts the live set matches it.
 
 ## Repo work is filed
@@ -230,5 +195,5 @@ status` asserts the live set matches it.
 Hermes triages well but reads a repo badly — it has no access to a repo's `AGENTS.md`/`CLAUDE.md`,
 `.claude/rules/` or `.claude/skills/`. For anything that needs real repo context (a bug fix,
 an investigation, a PR), Hermes files a GitHub issue (`capture`) and answers in one line; the owner starts
-the work. Herdr tabs (`hc`/`rd`, the `herdr` skill) / `rd wave` only on request.
+the work. Herdr tabs (`hc`/`rd`, the `herdr` skill) only on request; larger plans go to the factory (`factory issue new`).
 Details: `AGENTS.md` §Repo work is filed.

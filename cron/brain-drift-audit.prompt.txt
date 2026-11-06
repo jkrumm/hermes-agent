@@ -12,3 +12,5 @@ Read-only means read-only: no file writes in the vault, no git commands that cha
 STEP 3 — report. Lead with the NEW findings, ranked worst first, with file:line anchors and the drift type. Then a one-line count of still-open and resolved. If nothing is new and nothing resolved, reply with a single line saying the vault held steady and give the open count — do not restate the standing findings.
 
 Propose only. Never edit, never commit. Every rewrite is a human decision.
+
+STEP 4 — publish. Pipe the final report from STEP 3 (the exact text, nothing added) to ntfy with the terminal tool, for example: printf '%s\n' "<report>" | ~/.hermes/scripts/ntfy-publish.sh updates --title "Brain drift audit" . If the command exits non-zero, say so in one line. Then end the turn.

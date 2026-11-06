@@ -64,6 +64,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import agw_run  # noqa: E402
+import ntfy_notify  # noqa: E402
 
 STATE_PATH = Path.home() / ".hermes" / "project-narratives-state.json"
 SOURCE_ROOT = Path.home() / "SourceRoot"
@@ -637,6 +638,13 @@ def _cmd_run(restrict: set[str] | None) -> int:
 
     for line in revised_lines:
         print(line)
+    if not revised_lines:
+        return 0
+    try:
+        ntfy_notify.publish("updates", "Project narratives", "\n".join(revised_lines))
+    except ntfy_notify.NtfyError as e:
+        print(f"project-narratives: {e}", file=sys.stderr)
+        return 1
     return 0
 
 

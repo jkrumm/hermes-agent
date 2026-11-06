@@ -4,8 +4,8 @@
 <dict>
   <key>Label</key><string>com.jkrumm.hermes-liveness</string>
   <!-- Liveness heartbeat for the Hermes gateway. Reads
-       ~/.hermes/gateway_state.json, asserts the gateway is running AND Slack is
-       connected AND every ref in .env.tpl still renders, then pings the
+       ~/.hermes/gateway_state.json, asserts the gateway is running AND the API server
+       platform is connected AND every ref in .env.tpl still renders, then pings the
        UptimeKuma push URL. LLM-free, no network beyond the ping.
 
        This was a macOS crontab entry until 2026-08-02. It is a LaunchAgent now

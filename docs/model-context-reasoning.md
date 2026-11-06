@@ -91,13 +91,13 @@ There is **no config key to drop `temperature` on its own** — `_fixed_temperat
 
 ## Core-tool deferral is on and wanted
 
-`tools.tool_search.enabled: auto`. 4 of 21 tools defer behind a 3-tool bridge — measured **−19.8% (~2,150 tokens) off the cached tool prefix every turn** on the real Slack toolset, not upstream's headline −49% (that is the desktop/GUI surface). It costs +1 turn when a deferred tool is actually needed. `threshold_pct: 10` in `config.yaml` is now a *listing budget*, not an activation gate. Deferral can never empty `tools`, so it does not interact with the reasoning-effort patches. Watch `cronjob_manage`: it is 69% of the deferred mass and upstream measured 16/18 discovery — if Hermes ever claims it can't schedule something, drop that one name from `tools.tool_search.defer` rather than disabling the feature.
+`tools.tool_search.enabled: auto`. 4 of 21 tools defer behind a 3-tool bridge — measured **−19.8% (~2,150 tokens) off the cached tool prefix every turn** on the real gateway toolset, not upstream's headline −49% (that is the desktop/GUI surface). It costs +1 turn when a deferred tool is actually needed. `threshold_pct: 10` in `config.yaml` is now a *listing budget*, not an activation gate. Deferral can never empty `tools`, so it does not interact with the reasoning-effort patches. Watch `cronjob_manage`: it is 69% of the deferred mass and upstream measured 16/18 discovery — if Hermes ever claims it can't schedule something, drop that one name from `tools.tool_search.defer` rather than disabling the feature.
 
 ## Brain on Haiku 5.5 EU — the 100k price cliff vs the 240k compaction trigger (accepted)
 
 Input is $0.10/MTok (output $0.50) up to 100k tokens and $0.50/$2.50 above it — 5×. Compaction
 triggers at 240k, so every API call between 100k and 240k is billed at the high tier; sessions
-that live there (long Slack threads, briefings with tool dumps — the 2026-10-08 06:30 briefing
+that live there (long chat threads, briefings with tool dumps — the 2026-10-08 06:30 briefing
 ran 46k → 124k) pay 5× on the whole prompt. Prompt caching is working (live: `cache=26214/38953`,
 then 100% on later calls), which discounts reads but not the tier. **Owner decision 2026-10-09: accept the cliff** —
 the 240k trigger stays; the extra cost of long threads is fine.

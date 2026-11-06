@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Probes the live gateway: process, Slack + API server connected, API /health, the agw inference
+# Probes the live gateway: process, API server connected, API /health, the agw inference
 # gateway + door token, local patches —
 # and `hermes serve` (Desktop backend): answering AND gated (auth_required, ticket mint refused).
 # Exit 0 = live and healthy. Read-only — safe to run any time (`make verify`).
@@ -19,11 +19,9 @@ fi
 
 pid=$(jq -r '.pid // 0' "$STATE")
 state=$(jq -r '.gateway_state // ""' "$STATE")
-slack=$(jq -r '.platforms.slack.state // ""' "$STATE")
 api=$(jq -r '.platforms.api_server.state // ""' "$STATE")
 
 if [[ "$state" == "running" && "$pid" =~ ^[0-9]+$ && "$pid" -gt 0 ]] && kill -0 "$pid" 2>/dev/null; then ok "gateway running (pid alive)"; else bad "gateway_state=$state pid=$pid"; fi
-if [[ "$slack" == "connected" ]]; then ok "slack connected"; else bad "slack=$slack"; fi
 if [[ "$api" == "connected" ]]; then ok "api_server connected"; else bad "api_server=$api"; fi
 
 host=$(timeout 10 "$HOME/.local/bin/secrets-run" read op://hermes/gateway/host 2>/dev/null || true)

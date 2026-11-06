@@ -34,7 +34,7 @@ The evidence chain below doubles as the failure matrix: each step names the tran
 5. Enumerate recently changed media files in both the completed-download source and the host-side Jellyfin library. Prefer a deterministic, read-only file listing with path, size, and mtime. Do not inspect only one capitalization or one guessed subdirectory.
 6. Verify container mount configuration before interpreting paths. `/media/shows` inside Jellyfin and `/media/Shows` inside torrent-app may be separate container paths backed by the same host directory; container path spelling alone does not establish a bug.
 7. Query Jellyfin for both top-level items and episodes/files, including `Path` and `DateCreated`. A successful library sync means Jellyfin read its configured library; it does not prove torrent-app imported anything.
-8. Search the media notification channel for the app's `Ready to Watch` message when the Slack/API surface is available.
+8. Search the media notification channel for the app's `Ready to Watch` message when the API surface is available.
 9. Correlate timestamps. A qBittorrent outage only explains a missing import if it overlaps the relevant completion/processing window; an outage earlier than completion is background context, not the root cause.
 10. Stop at diagnosis unless the user asks to repair. If the title is identifiable from files, name it. If not, say the evidence cannot identify it rather than inventing a title.
 

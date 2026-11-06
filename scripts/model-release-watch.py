@@ -11,7 +11,8 @@ the last run. Empty stdout = nothing new (the cron job then delivers nothing).
 State: ~/.hermes/state/model-release-watch.json  (seen ids only — no LLM, no server)
 Log:   ~/.hermes/state/model-release-watch.log   (one line per run)
 
-Output uses Slack mrkdwn (*bold*), not **markdown**.
+Output is Markdown (**bold**, [text](url)). Anything printed is also published to the ntfy
+topic `models` (a publish failure exits non-zero); empty output publishes nothing.
 """
 
 import email.utils
@@ -24,6 +25,9 @@ import time
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ntfy_notify  # noqa: E402
 
 STATE_DIR = os.path.expanduser("~/.hermes/state")
 STATE_FILE = os.path.join(STATE_DIR, "model-release-watch.json")
@@ -106,7 +110,7 @@ def fetch_json(url, attempts=3):
         try:
             req = urllib.request.Request(
                 url,
-                headers={"User-Agent": "hermes-model-watch/1.0 (+slack)",
+                headers={"User-Agent": "hermes-model-watch/1.0",
                          "Accept": "application/json"},
             )
             with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
@@ -239,6 +243,12 @@ def parse_sitemap(xml):
     return [(u, lm or "") for u, lm in entries if "/news/" in u]
 
 
+def emit(text):
+    """Print the notice (the cron output keeps it) and publish it to ntfy topic `models`."""
+    print(text)
+    ntfy_notify.publish("models", "Model release watch", text)
+
+
 def main():
     os.makedirs(STATE_DIR, exist_ok=True)
     try:
@@ -256,6 +266,10 @@ def main():
         return 0
     try:
         return run()
+    except ntfy_notify.NtfyError as e:
+        log(f"FAIL ntfy publish: {e}")
+        print(f"model-release-watch: {e}", file=sys.stderr)
+        return 1
     finally:
         try:
             os.unlink(LOCK_FILE)
@@ -290,7 +304,7 @@ def run():
         if now - float(st.get("fail_notice_at") or 0) > FAIL_NOTICE_AFTER:
             st["fail_notice_at"] = now
             save_state(st)
-            print("⚠️ *model-watch* — beide Quellen nicht erreichbar (OpenRouter, models.dev). "
+            emit("⚠️ **model-watch** — beide Quellen nicht erreichbar (OpenRouter, models.dev). "
                   "Watcher läuft weiter, nächster Versuch in 15 min.")
         return 0
 
@@ -400,7 +414,7 @@ def run():
 
     if not seeded:
         log(f"seeded: or={seen_or} md={seen_md} news={len(st['news'])}")
-        print("✅ *Claude-Watch* scharf — Baseline: "
+        emit("✅ **Claude-Watch** scharf — Baseline: "
               f"{seen_or} OpenRouter-Modelle, {seen_md} models.dev-Claude-Einträge, "
               f"{len(st['news'])} Anthropic-News-URLs, {len(st['wire'])} Wire-Meldungen. "
               "Meldet neue Claude-Modelle, Reset-/Limit-Posts und Launch-Schlagzeilen, alle 15 min.")
@@ -439,13 +453,13 @@ def run():
         items.sort(key=lambda g: 0 if "fable" in g["id"].lower() else 1)  # Fable first
         log(f"NEW {len(items)}: " + " | ".join(g["id"] for g in items)[:400])
 
-        out.append(f"🆕 *Neues Modell* — {utc(time.time())}" if len(items) == 1
-                   else f"🆕 *{len(items)} neue Modelle* — {utc(time.time())}")
+        out.append(f"🆕 **Neues Modell** — {utc(time.time())}" if len(items) == 1
+                   else f"🆕 **{len(items)} neue Modelle** — {utc(time.time())}")
         out.append("")
         for g in items[:MAX_LINES]:
             parts = [f"_{' + '.join(g['srcs'])}_"]
             parts += [g[f] for f in ("date", "ctx", "price") if g[f]]
-            out.append(f"• *{g['display']}* — " + " · ".join(parts))
+            out.append(f"• **{g['display']}** — " + " · ".join(parts))
         if len(items) > MAX_LINES:
             out.append(f"… +{len(items) - MAX_LINES} weitere")
 
@@ -456,16 +470,16 @@ def run():
         near = [r for r in reset_news if release_ts - 2 * 86400 <= r[0] <= release_ts + 3 * 86400]
         wire_reset_ts = float(st.get("wire_reset_ts") or 0)
         if not near and release_ts - 2 * 86400 <= wire_reset_ts <= release_ts + 3 * 86400:
-            out.append("↳ *Reset mitgekommen:* ja — Reset-Meldung im News-Wire "
+            out.append("↳ **Reset mitgekommen:** ja — Reset-Meldung im News-Wire "
                        f"({utc(wire_reset_ts)}), siehe unten")
             near = None
         elif near:
             ts, url, lm = max(near)
             cited_reset_url = url
-            out.append(f"↳ *Reset mitgekommen:* ja — `{url.rsplit('/', 1)[-1]}` "
+            out.append(f"↳ **Reset mitgekommen:** ja — `{url.rsplit('/', 1)[-1]}` "
                        f"({lm[:10]}) → {url}")
         else:
-            out.append("↳ *Reset mitgekommen:* nein — kein Reset-/Higher-Limits-Post "
+            out.append("↳ **Reset mitgekommen:** nein — kein Reset-/Higher-Limits-Post "
                        "zum Release (geprüft: anthropic.com/news)")
 
     if new_news and cited_reset_url:
@@ -474,10 +488,10 @@ def run():
         new_news.sort(key=lambda x: (0 if x[1] == "reset" else 1, -x[0]))
         if out:
             out.append("")
-        out.append("📰 *Anthropic-News*")
+        out.append("📰 **Anthropic-News**")
         for ts, kind, slug, url, lm in new_news[:6]:
             icon = "🎁" if kind == "reset" else "🚀"
-            out.append(f"{icon} *{slug}* — {lm[:10]} → {url}")
+            out.append(f"{icon} **{slug}** — {lm[:10]} → {url}")
         if len(new_news) > 6:
             out.append(f"… +{len(new_news) - 6} weitere")
         log("NEWS: " + " | ".join(n[2] for n in new_news)[:300])
@@ -486,14 +500,14 @@ def run():
         new_wire.sort(key=lambda x: (0 if x["is_reset"] else 1, -(x["ts"] or 0)))
         if out:
             out.append("")
-        out.append("📡 *News-Wire*")
+        out.append("📡 **News-Wire**")
         for it in new_wire[:WIRE_MAX_LINES]:
             icon = "🎁" if it["is_reset"] else "•"
             src = f"{it['src']}, " if it["src"] else ""
             date = (datetime.fromtimestamp(it["ts"], timezone.utc).strftime("%b %d")
                     if it["ts"] else "?")
             title = it["title"] if len(it["title"]) <= 120 else it["title"][:117] + "…"
-            out.append(f"{icon} <{it['link']}|*{title}*> — {src}{date}")
+            out.append(f"{icon} [**{title}**]({it['link']}) — {src}{date}")
         if len(new_wire) > WIRE_MAX_LINES:
             out.append(f"… +{len(new_wire) - WIRE_MAX_LINES} weitere")
         log("WIRE: " + " | ".join(norm_title(i["title"]) for i in new_wire)[:300])
@@ -502,7 +516,7 @@ def run():
         out.append("")
         out.append(f"_Teilausfall ({len(errors)}): Details in "
                    "~/.hermes/state/model-release-watch.log_")
-    print("\n".join(out))
+    emit("\n".join(out))
     return 0
 
 if __name__ == "__main__":

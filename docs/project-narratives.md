@@ -3,8 +3,8 @@
 `scripts/project-narratives.py` keeps one narrative page per active repo at
 `~/SourceRoot/brain/wiki/engineering/projects/<project>.md`: what the project
 is, where it stands, how it got there. Driven by the `agw narrative` workflow
-(agent-workflows; the same `agw_run.py` transport `agents-overview.py` and `prose.py`
-use, caller `hermes`) — see `docs/agents-overview.md` for the sibling pattern.
+(agent-workflows; the same `agw_run.py` transport `prose.py`
+uses, caller `hermes`).
 
 ## Less is more
 
@@ -88,9 +88,9 @@ untouched until a project's `needs_revision()` gate re-fires for real.
 
 | Flag | Does |
 |-|-|
-| `--run` | The cron entry point — the full gated pipeline above, commits. Prints `<project>: <summary>` per revised project, nothing when none (stdout is the Slack body under `--no-agent`). |
+| `--run` | The cron entry point — the full gated pipeline above, commits. Prints `<project>: <summary>` per revised project, nothing when none (stdout stays in the cron output; the lines are also published to ntfy topic `updates`, and a failed publish exits 1). |
 | `--bootstrap a,b,c` | Forces `since=null` and `previousPage=None` for the named projects (ignores the gate entirely), writes pages + regenerates the index + lints, but **never commits** — prints the written page paths so Johannes reviews the `git diff` by hand. |
-| `--briefing` | Prints `narrative: <project> — <summary>` for every project revised in the last 26h (from state — no `agw` call), or nothing. Feeds `briefing-context.py` → the morning briefing's "Agenten & Projekte" block. |
+| `--briefing` | Prints `narrative: <project> — <summary>` for every project revised in the last 26h (from state — no `agw` call), or nothing. Feeds `briefing-context.py` → the morning briefing's "Projekte" block. |
 | `--dry-run` | Lists which projects would be revised this run and why (`HEAD moved (<old> -> <new>)`, `newer Claude Code session`, or `never revised`) — no `agw` call, no writes. |
 | `--projects a,b` | Restricts discovery to exactly this set, combinable with any mode above. |
 
@@ -101,7 +101,7 @@ The command, kept for a re-install:
 
 ```bash
 hermes cron create "30 6 * * *" --name "Project narratives" \
-  --script narratives-cron.py --no-agent --deliver slack:C0BVDE5R562
+  --script narratives-cron.py --no-agent --deliver local --failure-deliver local
 # registered 2026-09-07 as job 9909f808fe17 — edit with `hermes cron edit 9909f808fe17`, never re-create
 ```
 

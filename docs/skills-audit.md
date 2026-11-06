@@ -60,8 +60,8 @@ Claude Code session in the IuRoot repo and carries only the three lessons a hand
 | Fact | Hermes-specific | Shared (one home) |
 |-|-|-|
 | herdr CLI semantics, status meanings, safety rules | no `--current`, workspace by repo label, launchers typed into the pane, 180 s cap, draft-in-input-line, branch restore | dotfiles `herdr` + `remote-dev` own the CLI; Hermes keeps a deliberate copy because it cannot load them. Differing facts reconciled this wave; draft/branch/integration rules ported *to* dotfiles |
-| podcast | `agw podcast` / `agw run wait` via the terminal (exit 10 = still running), Slack announce, no `MEDIA:` for long audio | request fields / series / pipeline live in dotfiles `podcast` and agent-workflows' `podcast` workflow; model roster lives in its route table only |
-| research | `agw research` via the terminal, German Slack presentation | agent-workflows' `research` workflow; dotfiles `research` is the MCP view |
+| podcast | `agw podcast` / `agw run wait` via the terminal (exit 10 = still running), no `MEDIA:` for long audio | request fields / series / pipeline live in dotfiles `podcast` and agent-workflows' `podcast` workflow; model roster lives in its route table only |
+| research | `agw research` via the terminal, German presentation | agent-workflows' `research` workflow; dotfiles `research` is the MCP view |
 | homelab / homelab-ops | the whole tier A/B verb model | stack facts live in `homelab-private` (self-contained: not referenced from here) |
 
 ## Retired terms

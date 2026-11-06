@@ -9,7 +9,7 @@ Source-of-truth for the morning briefing prompt. **This file is documentation, n
 | Schedule | `0 7 * * 1-5` (07:00 weekdays, Europe/Berlin) |
 | Skills | `argo-api`, `work` |
 | Pre-run script | `briefing-context.py` (lives in `~/.hermes/scripts/`, source in `scripts/` here) |
-| Deliver | `slack:C0AT6TH404R` (#briefings) |
+| Deliver | `local` (job is paused; resuming needs a delivery surface choice — an ntfy topic or Iris) |
 | Name | `Morning briefing` |
 
 ## Create / Update
@@ -21,7 +21,7 @@ hermes cron create "0 7 * * 1-5" "$(cat ~/SourceRoot/hermes-agent/cron/morning-b
   --skill work \
   --script briefing-context.py \
   --name "Morning briefing" \
-  --deliver slack:C0AT6TH404R
+  --deliver local --failure-deliver local
 
 # Trigger immediately for testing
 hermes cron run <job_id>
@@ -39,23 +39,23 @@ The prompt is kept as a separate `.prompt.txt` file (sibling to this doc) so it 
 Every weekday at 07:00 a fresh Hermes session:
 
 1. Pre-run script (`briefing-context.py`) emits `BRIEFING_CITY=…` + `BRIEFING_SUPPRESSED=true|false` from `briefing-state.json`. On vacation the agent short-circuits with `[SILENT]`.
-2. Fires 11 parallel curls/`gh` calls — `/summary`, both Docker summaries, personal calendar, **IU work calendar (`/m365/calendar/upcoming`)**, weather (city from script), recent #alerts, `/daily-metrics` (Garmin), `/workouts` (strength), open PRs, open issues
-3. Composes a structured Slack mrkdwn body (English, emoji-headed sections, bullet lists) — including a `:weight_lifter: Health & Training` section with last workout, recovery (HRV / Body Battery / resting HR), brief sleep, and a synthesized coaching line
+2. Fires 11 parallel curls/`gh` calls — `/summary`, both Docker summaries, personal calendar, **IU work calendar (`/m365/calendar/upcoming`)**, weather (city from script), `/daily-metrics` (Garmin), `/workouts` (strength), open PRs, open issues
+3. Composes a structured Markdown body (English, emoji-headed sections, bullet lists) — including a `:weight_lifter: Health & Training` section with last workout, recovery (HRV / Body Battery / resting HR), brief sleep, and a synthesized coaching line
 4. Composes a separate German narrative (~150–200 words, conversational, four paragraphs incl. *Körper & Training*)
 5. Calls TTS on the narrative → MP3 + `MEDIA:` tag
-6. Returns the structured text body + `MEDIA:` tag — Slack delivers both text and audio attachment
+6. Returns the structured text body + `MEDIA:` tag — the delivery surface gets both text and audio attachment
 
 ## Tone & Format
 
-**Text body (Slack mrkdwn, English):**
-- Sections: Weather → Schedule → Infrastructure → Alerts → Health & Training → GitHub → Tasks
-- Emoji shortcode headers (`:sunny:`, `:date:`, `:hammer_and_wrench:`, `:rotating_light:`, `:weight_lifter:`, `:octocat:`, `:checkered_flag:`)
+**Text body (Markdown, English):**
+- Sections: Weather → Schedule → Infrastructure → Health & Training → GitHub → Tasks
+- Emoji shortcode headers (`:sunny:`, `:date:`, `:hammer_and_wrench:`, `:weight_lifter:`, `:octocat:`, `:checkered_flag:`)
 - Bullet lists with `-`, project emojis for tasks (`:briefcase:`, `:house:`, `:innocent:`)
 - Concise: short dates ("Apr 17"), one-line bullets where possible
 
 **Audio narrative (German, separate text — only fed to TTS):**
 - Warm conversational, no greeting / no name
-- Four paragraphs: Wetter+Termine, Infrastruktur+Alerts, **Körper+Training**, Aufgaben+GitHub
+- Four paragraphs: Wetter+Termine, Infrastruktur, **Körper+Training**, Aufgaben+GitHub
 - Times spoken naturally ("Viertel nach neun"); weights spelled out ("neunzig Kilo")
 - ~150–200 words / ~70–90s spoken
 

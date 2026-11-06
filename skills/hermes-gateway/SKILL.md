@@ -1,10 +1,10 @@
 ---
 name: hermes-gateway
-description: Diagnose Hermes's own gateway — "are you healthy", "why do I see so many gateway shutting down messages", model-routing failures, reasoning-effort or function-tool rejections from the IU endpoint, Slack or API-server connectivity, a config change that appears not to take effect. Separates supervisor health from request health and forbids reporting a stale log line as a current fault.
+description: Diagnose Hermes's own gateway — "are you healthy", "why do I see so many gateway shutting down messages", model-routing failures, reasoning-effort or function-tool rejections from the IU endpoint, API-server connectivity, a config change that appears not to take effect. Separates supervisor health from request health and forbids reporting a stale log line as a current fault.
 version: 1.0.0
 metadata:
   hermes:
-    tags: [hermes, gateway, self, health, healthy, launchd, shutdown, sigterm, restart, model, routing, api-mode, responses, chat-completions, reasoning-effort, luna, fallback, slack-connection, api-server]
+    tags: [hermes, gateway, self, health, healthy, launchd, shutdown, sigterm, restart, model, routing, api-mode, responses, chat-completions, reasoning-effort, luna, fallback, api-server]
     related_skills: [homelab-ops, argo-api]
 ---
 
@@ -173,7 +173,7 @@ Confirm it before calling anything a hang:
    restart itself — the same `kickstart` on an idle gateway produces zero refusals.
 
 **Count the refusals with `grep -a "ERROR gateway.run: Another gateway instance"`.** A plain
-`grep -c` on the message text also matches the *inbound-message echo* of the Slack card that
+`grep -c` on the message text also matches the *inbound-message echo* of the card that
 reported it (`INFO gateway.run: inbound message: … msg='gateway.run: Another gateway instance…'`),
 so the count comes out high by one per card and looks like a longer storm than it was.
 
@@ -253,6 +253,6 @@ See `references/model-routing.md` for the 2026-08-14 incident in full.
 Read the matching file when the situation fits:
 
 - `references/checkpoint-store-forensics.md` — Use when a checkpointmanager ERROR or store alert fires
-- `references/hermes-log-alert-forensics.md` — Use when a Hermes log ERROR line shows up in #alerts or a log read
+- `references/hermes-log-alert-forensics.md` — Use when a Hermes log ERROR line shows up in an alert or a log read
 - `references/hermes-model-audit.md` — Use when auditing Hermes's own brain model performance
 - `references/supervised-restart-forensics.md` — Diagnose supervised restarts: kill deadline vs drain

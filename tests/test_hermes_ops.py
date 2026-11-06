@@ -98,13 +98,30 @@ elif "/uptime-kuma/monitors" in url:
 elif "/summary" in url:
     body = json.dumps({"uptimeKuma": {}, "dockerHomelab": {"counts": {}},
                         "dockerVps": {"counts": {}}})
-elif "/slack/channels/" in url:
-    body = json.dumps({"messages": [], "has_more": False})
 
 status = os.environ.get("OPS_TEST_CURL_STATUS", "200")
 sys.stdout.write(body + "\\n" + status)
 sys.exit(0)
 """
+
+# `factory read health|asks` stub: OPS_TEST_FACTORY_EXIT != 0 prints the CLI's error JSON on stdout.
+FAKE_FACTORY = """#!/usr/bin/env python3
+import json, os, sys
+
+log = os.environ.get("OPS_TEST_FACTORY_LOG")
+if log:
+    with open(log, "a") as f:
+        f.write(json.dumps(sys.argv[1:]) + "\\n")
+rc = int(os.environ.get("OPS_TEST_FACTORY_EXIT", "0"))
+if rc:
+    print(json.dumps({"error": {"kind": "auth", "message": "no FACTORY_TOKEN set"}}))
+    sys.exit(rc)
+what, fmt = sys.argv[2], sys.argv[4]
+if fmt == "json":
+    print(json.dumps({"items": [what]}))
+else:
+    print("\\n".join(f"{what} row {i}" for i in range(5)))
+""" 
 
 FAKE_LAUNCHCTL = """#!/usr/bin/env python3
 import json, os, sys
@@ -174,6 +191,7 @@ class Harness:
         _write_exec(self.bin / "curl", FAKE_CURL)
         _write_exec(self.bin / "launchctl", FAKE_LAUNCHCTL)
         _write_exec(self.bin / "make", FAKE_MAKE)
+        _write_exec(self.bin / "factory", FAKE_FACTORY)
 
         self.home = self.root / "home"
         (self.home / ".local" / "bin").mkdir(parents=True)
@@ -843,6 +861,46 @@ def test_redeploy_vps_stacks(h: Harness):
 
 # =============================================================================
 
+def test_alerts_reads_the_factory(h: Harness):
+    failures = []
+    total = passed = 0
+
+    def case(name, ok, detail=""):
+        nonlocal total, passed
+        total += 1
+        if ok:
+            passed += 1
+        else:
+            failures.append(f"{name}: {detail}")
+
+    log = h.new_log("factory")
+    proc = h.run(["alerts", "3"], env_extra={"OPS_TEST_FACTORY_LOG": str(log)})
+    case("plain: exit 0", proc.returncode == 0, proc.stderr)
+    case("plain: both sections, capped at n lines",
+         "== health ==" in proc.stdout and "== asks ==" in proc.stdout
+         and "health row 2" in proc.stdout and "health row 3" not in proc.stdout
+         and "2 more line(s)" in proc.stdout, proc.stdout)
+    calls = [json.loads(l) for l in _log_text(log).splitlines()]
+    case("plain: only health and asks are read",
+         calls == [["read", "health", "--format", "plain"], ["read", "asks", "--format", "plain"]], str(calls))
+    case("no Slack/argo read", "slack" not in _log_text(log).lower(), _log_text(log))
+
+    proc = h.run(["alerts", "--json"])
+    try:
+        data = json.loads(proc.stdout)
+        case("json: one object with both reads",
+             proc.returncode == 0 and data.get("ok") is True
+             and data["health"] == {"items": ["health"]} and data["asks"] == {"items": ["asks"]}, proc.stdout)
+    except json.JSONDecodeError as exc:
+        case("json: parseable", False, f"{exc}: {proc.stdout!r}")
+
+    proc = h.run(["alerts"], env_extra={"OPS_TEST_FACTORY_EXIT": "3"})
+    case("CLI failure: non-zero, CLI error JSON printed, no fallback",
+         proc.returncode == 3 and "no FACTORY_TOKEN set" in proc.stderr and "exit 3" in proc.stderr,
+         f"rc={proc.returncode} stderr={proc.stderr!r}")
+    return total, passed, failures
+
+
 def main() -> int:
     h = Harness()
     try:
@@ -858,6 +916,7 @@ def main() -> int:
             ("9. container ssh fallback", test_container_ssh_fallback(h)),
             ("10. redeploy vps stack list", test_redeploy_vps_stacks(h)),
             ("11. env-check probes the cron env", test_env_check_probes_the_cron_environment(h)),
+            ("12. alerts reads the factory", test_alerts_reads_the_factory(h)),
         ]
     finally:
         h.cleanup()

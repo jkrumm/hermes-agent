@@ -1,17 +1,17 @@
 # `hermes serve` — the Hermes Desktop backend
 
-**Restored 2026-10-15** (owner decision: Hermes Desktop on the MacBook, Slack, the `:8642` API
-server and the CLI are the surfaces; Collie stays as it is). It had been torn down on 2026-09-07
+**Restored 2026-10-15** (owner decision: Hermes Desktop on the MacBook, the `:8642` API
+server (Iris) and the CLI are the surfaces; Collie stays as it is). It had been torn down on 2026-09-07
 together with the third-party WebUI clone in `797af74`; the WebUI stays gone. This revision is
 adapted to v0.22.2's serve and auth model.
 
-Upstream's **own** desktop client (`apps/desktop/`, Electron) does not talk to the Slack gateway
+Upstream's **own** desktop client (`apps/desktop/`, Electron) does not talk to the messaging gateway
 and **cannot** use the OpenAI-compatible API on `:8642`. It speaks to `hermes serve`: a
 JSON-RPC/WebSocket backend whose load-bearing routes are `GET /api/status` (public, auth
 discovery), `POST /api/auth/ws-ticket` (single-use, 30 s WebSocket ticket, needs a session
 cookie) and `WS /api/ws` (the live session; the ticket rides the `hermes-gateway-ticket.<t>`
 subprotocol next to `hermes-gateway-v1`). `:8642` has none of these. **It is a separate process
-from `hermes gateway`, and upstream expects both to run.** Slack does not move to it.
+from `hermes gateway`, and upstream expects both to run.**
 
 | Piece | Where |
 |-|-|
@@ -78,7 +78,7 @@ serve that came up ungated answers 200 and looks healthy. `hermes-serve-liveness
 serve-side, and serve imports patched modules once at startup. After `hermes update` or a patch
 change, restart both the gateway and `launchctl kickstart -k gui/$(id -u)/com.jkrumm.hermes-serve`.
 
-> **Two long-lived front-ends share one `~/.hermes` and one `state.db`**: the Slack gateway and
+> **Two long-lived front-ends share one `~/.hermes` and one `state.db`**: the messaging gateway and
 > `hermes serve`. Upstream sanctions the pair. If sessions start vanishing, interleaving or
 > locking, suspect this first; `hermes serve --isolated` is the documented escape.
 

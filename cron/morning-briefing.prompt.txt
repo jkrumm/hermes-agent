@@ -1,6 +1,6 @@
-You are generating Johannes's morning briefing. It is a weekday at 07:00 Europe/Berlin. Do not greet, do not address Johannes by name. The output goes to Slack #briefings as a structured message PLUS an audio attachment.
+You are generating Johannes's morning briefing. It is a weekday at 07:00 Europe/Berlin. Do not greet, do not address Johannes by name. The output is a structured text message PLUS an audio attachment. The delivery surface is decided before this job is resumed (it is paused).
 
-The Slack text body and the audio narrative are TWO DIFFERENT TEXTS. The text body is a scannable German-language Slack mrkdwn document. The audio narrative is a warm conversational German monologue. Compose both, but only the text + a single MEDIA: tag goes in your final response.
+The text body and the audio narrative are TWO DIFFERENT TEXTS. The text body is a scannable German-language Markdown document. The audio narrative is a warm conversational German monologue. Compose both, but only the text + a single MEDIA: tag goes in your final response.
 
 ## Step 0 — Read script context
 
@@ -12,7 +12,7 @@ A pre-run script appears at the top of this prompt as a `## Script Output` block
 The script may also append a watchdog summary block (only present after the watchdog cron has primed its DB):
 
 - `WATCHDOG_AVAILABLE=true|false` — present if the watchdog DB exists.
-- `WATCHDOG_OPEN=[…]` — currently open watchdog items (UK monitors down past gate, Docker unhealthy past gate, stale PRs/issues, Hermes cron failures, Slack flap patterns), each with `[<source>] <title> (open <Nh|Nd>)` shape.
+- `WATCHDOG_OPEN=[…]` — currently open watchdog items (UK monitors down past gate, Docker unhealthy past gate, stale PRs/issues, Hermes cron failures), each with `[<source>] <title> (open <Nh|Nd>)` shape.
 - `WATCHDOG_RESOLVED_7D=[…]` — counts of items resolved in the last 7 days, by source.
 
 These augment the Infrastructure section (Step 2). If absent or empty, ignore.
@@ -29,16 +29,6 @@ The script also appends a coverage block — full backlog snapshot beyond what `
 
 If `COVERAGE_AVAILABLE=false` or the blocks are absent, fall back to /summary + watchdog data only.
 
-The script also appends a read-only agents-overview block — every Claude Code
-agent (Herdr tab or plain session) the platform (`agw agents`) is tracking across every project, not just this repo. Unlike
-the blocks above it is plain text, not key=value: a first line of counts
-(`agents: N needs_you · N working · N idle · N stale · N done`),
-then zero or more lines shaped `<project> · <recommendation> · <title> ·
-<standing> · <blocker>` for every agent whose recommendation is not `watch` or
-`close` (i.e. everything worth a human glance). If `agw` was unreachable this
-run, the line reads `agents overview unavailable` instead — treat that as "no
-data", never as "no agents". This feeds the Agenten & Projekte section (Step 2).
-
 The script also appends zero or more `narrative: <project> — <summary>` lines —
 projects whose vault narrative page (`wiki/engineering/projects/<project>.md`) was
 revised by the daily narratives cron in roughly the last day. Absent entirely on a
@@ -50,7 +40,7 @@ If the script block is missing or malformed, fall back to `Munich` and proceed. 
 
 **Important:** call the `terminal` tool directly with each shell command. Do NOT wrap calls in `execute_code` — that path is slower and prevents proper parallelization.
 
-Two skills are loaded. `argo-api` is the hub for every personal domain below (tasks, schedule, weather, infrastructure, slack, garmin-health, strength) — it documents the argo base URL and auth pattern, and its `references/*.md` carry the per-domain endpoint detail. `work` covers IU calendar + Teams + Jira + Confluence + GitLab. Follow what they specify; every path you need is also named inline below, so do **not** spend turns opening reference files unless a call fails. Issue all twelve calls as twelve `terminal` tool invocations in a single parallel batch:
+Two skills are loaded. `argo-api` is the hub for every personal domain below (tasks, schedule, weather, infrastructure, garmin-health, strength) — it documents the argo base URL and auth pattern, and its `references/*.md` carry the per-domain endpoint detail. `work` covers IU calendar + Teams + Jira + Confluence + GitLab. Follow what they specify; every path you need is also named inline below, so do **not** spend turns opening reference files unless a call fails. Issue all eleven calls as eleven `terminal` tool invocations in a single parallel batch:
 
 1. Argo `/summary` — combined tasks + uptime overview (see `argo-api` → `references/tasks.md` + `references/infrastructure.md`)
 2. Argo `/docker/homelab/summary` — Mac Mini Docker stack (see `argo-api` → `references/infrastructure.md`)
@@ -58,20 +48,19 @@ Two skills are loaded. `argo-api` is the hub for every personal domain below (ta
 4. Argo `/calendar?days=1` — today's **personal** Google calendar (see `argo-api` → `references/schedule.md`)
 5. Argo `/m365/calendar/upcoming?days=1` — today's **IU work** Outlook calendar (see `work` skill). On `503 M365 not authenticated …`, do not retry — surface a single bullet "IU-Kalender nicht verfügbar (Token abgelaufen — `bun m365:auth:prod` ausführen)" under Termine heute and continue.
 6. Argo `/weather/forecast?city=$BRIEFING_CITY` — forecast for the resolved city (see `argo-api` → `references/weather.md`)
-7. Argo `/slack/channels/C0AS1LAUQ3C/messages?limit=20` — last 20 messages from #alerts (see `argo-api` → `references/slack.md`)
-8. Argo `/daily-metrics?order=desc&limit=14` — last ~14 days of Garmin daily metrics: HRV, body battery, resting HR, sleep, stress (see `argo-api` → `references/garmin-health.md`). Response is `{data: [...], total: N}` — read `response.data` for the row array. Use the most-recent record where the relevant field is non-null — Garmin sync timing means today's row may be partial at 07:00.
-9. Argo `/workouts?sort=date&order=desc&limit=10` — last 10 strength workouts with sets, total volume, est. 1RM (see `argo-api` → `references/strength.md`). Response is `{data: [...], total: N}` — read `response.data`.
-10. Argo `/atlassian/jira/current-sprint?onlyMine=true` — IU sprint commitments assigned to Johannes (see `work` skill). On `503`, surface "Jira Sprint nicht verfügbar (Token abgelaufen)" and continue.
-11. Argo `/gitlab/merge-requests?scope=reviews_for_me&state=opened` — IU GitLab MRs awaiting Johannes's review (see `work` skill). On `503`, surface "GitLab MRs nicht verfügbar (PAT abgelaufen)" and continue.
-12. Argo `/gitlab/merge-requests?scope=created_by_me&state=opened` — Johannes's own open MRs at IU (see `work` skill). Used to compute the **"ready to merge"** subset: MRs where `mergeStatus == "can_be_merged" && hasConflicts == false && draft == false`. This is the briefing's 3-field heuristic (does not call `/approvals` per MR for cost reasons) — see the `work` skill's `references/gitlab-mr.md` ("Two levels") for the distinction from the full 5-field check.
+7. Argo `/daily-metrics?order=desc&limit=14` — last ~14 days of Garmin daily metrics: HRV, body battery, resting HR, sleep, stress (see `argo-api` → `references/garmin-health.md`). Response is `{data: [...], total: N}` — read `response.data` for the row array. Use the most-recent record where the relevant field is non-null — Garmin sync timing means today's row may be partial at 07:00.
+8. Argo `/workouts?sort=date&order=desc&limit=10` — last 10 strength workouts with sets, total volume, est. 1RM (see `argo-api` → `references/strength.md`). Response is `{data: [...], total: N}` — read `response.data`.
+9. Argo `/atlassian/jira/current-sprint?onlyMine=true` — IU sprint commitments assigned to Johannes (see `work` skill). On `503`, surface "Jira Sprint nicht verfügbar (Token abgelaufen)" and continue.
+10. Argo `/gitlab/merge-requests?scope=reviews_for_me&state=opened` — IU GitLab MRs awaiting Johannes's review (see `work` skill). On `503`, surface "GitLab MRs nicht verfügbar (PAT abgelaufen)" and continue.
+11. Argo `/gitlab/merge-requests?scope=created_by_me&state=opened` — Johannes's own open MRs at IU (see `work` skill). Used to compute the **"ready to merge"** subset: MRs where `mergeStatus == "can_be_merged" && hasConflicts == false && draft == false`. This is the briefing's 3-field heuristic (does not call `/approvals` per MR for cost reasons) — see the `work` skill's `references/gitlab-mr.md` ("Two levels") for the distinction from the full 5-field check.
 
 **Response shapes** — full field reference lives in the `work` skill's `references/response-shapes.md`. Key fields for this prompt: `/atlassian/jira/current-sprint` returns `{board, sprint: null | {name, endDate, ...}, issues: Issue[]}` where each Issue has `key`, `summary`, `statusCategory` ("todo"|"in-progress"|"done"|"unknown"), `priority`. Both GitLab MR calls return `{mergeRequests: MR[]}` where each MR has `iid`, `title`, `projectPath`, `mergeStatus`, `hasConflicts`, `draft`, `author.username`, `jiraKeys`. **Never** `jq 'length'` on the wrapper objects — use `jq '.mergeRequests | length'` and `jq '.issues | length'`.
 
 If any individual call fails, continue and note the gap in the affected section.
 
-## Step 2 — Compose the Slack text body (German, mrkdwn)
+## Step 2 — Compose the text body (German, Markdown)
 
-Use this exact structure, in this order. Each section starts with an emoji shortcode header on its own line, followed by `-` bullets. Use Slack mrkdwn: `**bold**` for emphasis, `` `code` `` for technical values, `:emoji:` shortcodes (which render as graphical emoji in Slack).
+Use this exact structure, in this order. Each section starts with an emoji shortcode header on its own line, followed by `-` bullets. Use Markdown: `**bold**` for emphasis, `` `code` `` for technical values, `:emoji:` shortcodes .
 
 ```
 :sunny: Wetter — <BRIEFING_CITY>
@@ -87,10 +76,6 @@ Use this exact structure, in this order. Each section starts with an emoji short
 - Homelab Docker: <running>/<total> Container, <unhealthy summary or "alle gesund">
 - VPS Docker: <running>/<total> Container, <unhealthy summary or "alle gesund">
 - Watchdog: <if WATCHDOG_OPEN=[…] non-empty: "<N> offen — <top 3 titles, comma-separated, truncate each at 60 chars>"; if empty: "alles ruhig"; omit bullet entirely if WATCHDOG_AVAILABLE=false>
-
-:rotating_light: Aktuelle Warnungen (letzte 24h)
-- <distinct alert text from #alerts messages, deduplicated, max 5>
-(If none: a single line "- Keine Warnungen in den letzten 24 Stunden.")
 
 :weight_lifter: Gesundheit & Training
 - **Heute: <coaching headline — Push | Pull | Beine | Hinge | Mobilität/Ruhe>** — <one-sentence why, ≤ 14 words>
@@ -111,22 +96,10 @@ Use this exact structure, in this order. Each section starts with an emoji short
 - <if GITHUB_FRESH_48H non-empty: "Neu (letzte 48h): <list of repo#N: title>" — flag freshly-captured items so they don't get lost>
 (If `GITHUB_AVAILABLE=false`: a single line "- GitHub-Daten nicht verfügbar." — never "alles sauber". Else if `GITHUB_TOTAL=0 PRs, 0 issues`: a single line "- Alles sauber über alle Repos.")
 
-:robot_face: Agenten & Projekte
-- <N> Agenten: <needsYou> brauchen dich, <working> arbeiten, <stale> hängen fest
-- <project> — <was zu tun ist, auf Deutsch> — <warum, aus `standing`, ein Halbsatz>
-(One line per agent from the script's agents-overview block whose recommendation is
-`answer`, `ship`, `merge`, or `review` — ignore `continue`/`stale`/every other value.
-"Was zu tun ist": `answer` → "Frage beantworten", `ship` → "committen/pushen",
-`merge` → "PR mergen", `review` → "PR reviewen". At most 6 lines total including
-the counts line — if more agents qualify, keep the 5 most urgent (answer first,
-then ship/merge/review by recency) and drop the rest silently, no "…weitere" note.
-No filler, no restating the counts line in prose. If zero agents qualify: single
-line "- Keine Agenten brauchen dich gerade." after the counts line. If the script
-output says "agents overview unavailable": single line "- Agenten-Übersicht nicht
-verfügbar." and skip the counts line.)
-(If the script output has `narrative:` lines, add at most one further line per
-project below the agent lines, German: "<project>: <summary>". Otherwise add
-nothing — no placeholder, no "keine Updates" line.)
+:robot_face: Projekte
+(One line per `narrative:` line in the script output, German: "<project>: <summary>", at
+most 5. If there are none, omit this whole section — no header, no placeholder, no "keine
+Updates" line.)
 
 :checkered_flag: Aufgaben — <X> überfällig, <Y> heute fällig, <Z> ohne Datum im Backlog
 **Überfällig**
@@ -143,12 +116,11 @@ nothing — no placeholder, no "keine Updates" line.)
 ```
 
 Style rules for the text body:
-- Use `-` for bullets (NEVER `*` — breaks the mrkdwn converter)
+- Use `-` for bullets (NEVER `*`)
 - Project emojis: `:briefcase:` for Arbeit, `:house:` for Privat, `:innocent:` for Dev (match existing Hermes style); pick a sensible emoji for any other project name
 - Dates as "17. Apr", not ISO (use German month abbreviations: Jan Feb Mär Apr Mai Jun Jul Aug Sep Okt Nov Dez)
 - Mark high-priority tasks (`priority: 5`) with "Hoch" in the parens
 - Cap each task subgroup at 8 items; if more, end the group with "- … und N weitere"
-- For #alerts: extract just the meaningful text, dedupe identical lines, drop emoji-prefixes from the source messages
 - Keep each bullet to one line where possible
 
 ### Coaching headline (Health & Training, FIRST bullet)
@@ -185,7 +157,7 @@ Heute ist <Wochentag>, der <Datum> <Monat>. <Optional one-line opener — only i
 
 <Wetter & Termine — 2 sentences max>
 
-<Infrastruktur & Alerts — 1–2 sentences>
+<Infrastruktur — 1–2 sentences>
 
 <Training — see rules below, 2 sentences max, leads with what to do TODAY>
 
@@ -198,7 +170,7 @@ Heute ist <Wochentag>, der <Datum> <Monat>. <Optional one-line opener — only i
 
 **Wetter & Termine:** weather from `daily_7d[0]`. Mention temp range, condition, rain probability if > 30%, UV warning if max > 6, wind gusts if > 50 km/h. Use the resolved city name ("In München" / "In Berlin"). Then today's events with times spoken naturally ("neun Uhr sechsunddreißig"). Merge personal + IU work meetings into one sentence chronologically; mark work meetings naturally in German ("zehn Uhr IU-Standup", "vierzehn Uhr Architecture Review mit dem Team") so they sound distinct from personal events without a hard label. If no events on either calendar: "Heute keine Termine." If only the M365 call failed and personal calendar succeeded, list personal events normally and skip silently — don't read the auth-error bullet aloud.
 
-**Infrastruktur & Alerts:** one sentence on infra ("Alle Systeme grün" / "garmin-sync ist seit drei Tagen unhealthy"). One sentence on alerts ("Keine Alerts in der Nacht" / "Ein neuer Alert: …"). If everything's fine: "Infra ist ruhig, keine Alerts."
+**Infrastruktur:** one sentence on infra ("Alle Systeme grün" / "garmin-sync ist seit drei Tagen unhealthy"). If everything's fine: "Infra ist ruhig."
 
 **Training (lead with today's plan, NOT yesterday's recap):**
 - Sentence 1 — what to do today: "Heute steht **Pull** an: Klimmzüge, gestern war Bank, vier Tage Pause hatten die Klimmzüge." Or "Heute lieber Mobility: HRV ist drei Tage in Folge unter dem Wochenschnitt." Match the coaching headline from Step 2.
@@ -210,7 +182,7 @@ Heute ist <Wochentag>, der <Datum> <Monat>. <Optional one-line opener — only i
 - One sentence on sprint state, leading with whichever signal is sharpest: "Im Sprint laufen drei Tickets, top eins **EP-17849 Booking refactor** in Progress." Or "Sprint läuft ruhig, alle Tickets noch im Todo."
 - One sentence on MRs, only if non-zero: "**Drei MRs warten auf deinen Review**, davon eine mergebereit (`!1234`)." or "Eine MR ist mergebereit, kannst direkt mergen." Lead with whichever number is higher; mergeable-by-you beats review-from-you in urgency.
 - Keep it tight: two sentences max, no preamble, no "auf der Arbeit" framing — Johannes knows which calendar this is.
-- If the work calls 503'd, skip silently (the Slack body already surfaces it as a bullet — don't read errors aloud).
+- If the work calls 503'd, skip silently (the text body already surfaces it as a bullet — don't read errors aloud).
 
 **Aufgaben & GitHub (must list specific tasks, not vague):**
 - Sentence 1 — task counts + the top three by urgency, numbered: "Neun überfällige Aufgaben. Top drei: erstens **Cases für LoA vorbereiten** seit drei Wochen offen, zweitens **Auto-Service-Termin**, drittens **Tüv München buchen**."
@@ -248,11 +220,11 @@ with urllib.request.urlopen(req, timeout=180) as r:
 PY
 ```
 
-the audio door (`gemini-3.8-flash-tts`, voice Charon) runs its prep pass (spoken-form numbers, sentence-aligned chunks, pause tags, title) and joins the chunks itself — send the whole text in one request, no pause or chunking arguments. The script prints the file path; use it for the `MEDIA:` tag. On an HTTP 5xx retry once; if it still fails, send the Slack body without a `MEDIA:` tag and say the audio failed in one line.
+the audio door (`gemini-3.8-flash-tts`, voice Charon) runs its prep pass (spoken-form numbers, sentence-aligned chunks, pause tags, title) and joins the chunks itself — send the whole text in one request, no pause or chunking arguments. The script prints the file path; use it for the `MEDIA:` tag. On an HTTP 5xx retry once; if it still fails, send the text body without a `MEDIA:` tag and say the audio failed in one line.
 
 ## Step 5 — Final response
 
-Output the Slack text body from Step 2, then a blank line, then the `MEDIA:` tag on its own line. Nothing else — no commentary, no headers, no metadata. Example shape:
+Output the text body from Step 2, then a blank line, then the `MEDIA:` tag on its own line. Nothing else — no commentary, no headers, no metadata. Example shape:
 
 ```
 :sunny: Wetter — Munich
@@ -268,9 +240,6 @@ Output the Slack text body from Step 2, then a blank line, then the `MEDIA:` tag
 - Homelab Docker: 33/33 Container, 1 unhealthy (`garmin-sync`)
 - VPS Docker: 16/16 Container, alle gesund
 
-:rotating_light: Aktuelle Warnungen (letzte 24h)
-- Keine Warnungen in den letzten 24 Stunden.
-
 :weight_lifter: Gesundheit & Training
 - **Heute: Pull** — 4 days since last pull-ups, push was yesterday, recovery on the upswing.
 - Erholungstrend: HRV 94ms vs 7-Tage-Schnitt 80ms (↑), RHR 45bpm vs 7-Tage-Schnitt 47bpm (↓ gut), Body Battery Tagesstart 66
@@ -285,9 +254,8 @@ Output the Slack text body from Step 2, then a blank line, then the `MEDIA:` tag
 - 0 offene PRs
 - 1 offenes Issue (homelab: feat(weather): Add city/location parameter)
 
-:robot_face: Agenten & Projekte
-- 1 Agenten: 1 brauchen dich, 2 arbeiten, 9 hängen fest
-- agent-workflows — Frage beantworten — Podcast fertig, wartet auf Entscheidung zum Upload
+:robot_face: Projekte
+- agent-workflows: Podcast-Pipeline um Kapitelmarken erweitert
 
 :checkered_flag: Aufgaben — 9 überfällig, 0 heute fällig
 **Überfällig**

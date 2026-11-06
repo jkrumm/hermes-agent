@@ -1,6 +1,6 @@
 # Gateway HTTP exposure (iris and the CLI)
 
-The gateway runs an OpenAI-compatible HTTP API alongside Slack. Its consumer is **iris**
+The gateway runs an OpenAI-compatible HTTP API (the Slack platform is gone; Iris is the chat surface). Its consumer is **iris**
 (the voice and chat app on the mini, which delivers memos into Hermes sessions); the argo
 dashboard chat that used to be the other consumer was removed 2026-10-30, so the
 `tag:vps → tag:mac :8642` ACL grant is gone. Controlled by four env vars (framework keys in

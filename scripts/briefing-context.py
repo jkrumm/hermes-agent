@@ -16,7 +16,6 @@ from pathlib import Path
 
 STATE_FILE = Path(__file__).parent / "briefing-state.json"
 COVERAGE_SCRIPT = Path(__file__).parent / "briefing-coverage.py"
-AGENTS_OVERVIEW_SCRIPT = Path(__file__).parent / "agents-overview.py"
 PROJECT_NARRATIVES_SCRIPT = Path(__file__).parent / "project-narratives.py"
 
 
@@ -41,12 +40,6 @@ def emit_coverage() -> None:
     _run_subscript(COVERAGE_SCRIPT, timeout=30)
 
 
-def emit_agents_overview() -> None:
-    """Append the read-only agents-overview digest (fetch only, no refresh —
-    a fresh LLM pass can run past this script's own timeout budget)."""
-    _run_subscript(AGENTS_OVERVIEW_SCRIPT, timeout=15, args=["--briefing", "--no-refresh"])
-
-
 def emit_project_narratives() -> None:
     """Append `narrative: <project> — <summary>` lines for projects the
     daily cron revised in the last 26h (state read only — no job call, no
@@ -61,7 +54,6 @@ def main() -> None:
         print("BRIEFING_CITY=Munich")
         print("BRIEFING_SUPPRESSED=false")
         emit_coverage()
-        emit_agents_overview()
         emit_project_narratives()
         return
     except json.JSONDecodeError as e:
@@ -70,7 +62,6 @@ def main() -> None:
         print("BRIEFING_CITY=Munich")
         print("BRIEFING_SUPPRESSED=false")
         emit_coverage()
-        emit_agents_overview()
         emit_project_narratives()
         return
 
@@ -88,7 +79,6 @@ def main() -> None:
     print(f"BRIEFING_CITY={city}")
     print("BRIEFING_SUPPRESSED=false")
     emit_coverage()
-    emit_agents_overview()
     emit_project_narratives()
 
 

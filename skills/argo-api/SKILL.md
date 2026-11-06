@@ -1,16 +1,16 @@
 ---
 name: argo-api
-description: Call the argo REST API (https://argo.jkrumm.com/api) for TickTick tasks, Gmail, Calendar, Docker (homelab + VPS), UptimeKuma, Slack, weather, Garmin Health, Strength tracking, WalkingPad treadmill stats, AI usage/cost, user profile, and read-only SQL — use curl with Bearer $HOMELAB_API_KEY
+description: Call the argo REST API (https://argo.jkrumm.com/api) for TickTick tasks, Gmail, Calendar, Docker (homelab + VPS), UptimeKuma, weather, Garmin Health, Strength tracking, WalkingPad treadmill stats, AI usage/cost, user profile, and read-only SQL — use curl with Bearer $HOMELAB_API_KEY
 version: 1.5.1
 metadata:
   hermes:
-    tags: [ticktick, tasks, gmail, calendar, docker, uptime, slack, weather, garmin, strength, workouts, weight, profile, walking-pad, walkingpad, treadmill, steps, usage, cost, spend, tokens, sql, homelab, api]
+    tags: [ticktick, tasks, gmail, calendar, docker, uptime, weather, garmin, strength, workouts, weight, profile, walking-pad, walkingpad, treadmill, steps, usage, cost, spend, tokens, sql, homelab, api]
     related_skills: [capture, work, karakeep, obsidian, reading, agw-research]
 ---
 
 # Argo API
 
-Personal integration layer for TickTick, Gmail, Calendar, Docker, UptimeKuma, Slack, weather, fitness tracking, and user profile over a single authenticated REST API. Use `curl` with `$HOMELAB_API_KEY` from the environment (env var name kept for shell/cron compatibility — the value is the argo API key).
+Personal integration layer for TickTick, Gmail, Calendar, Docker, UptimeKuma, weather, fitness tracking, and user profile over a single authenticated REST API. Use `curl` with `$HOMELAB_API_KEY` from the environment (env var name kept for shell/cron compatibility — the value is the argo API key).
 
 **Base URL:** `https://argo.jkrumm.com/api`
 **Auth:** `Authorization: Bearer $HOMELAB_API_KEY` (available in env)
@@ -19,7 +19,7 @@ Personal integration layer for TickTick, Gmail, Calendar, Docker, UptimeKuma, Sl
 **OpenAPI spec:** `https://argo.jkrumm.com/api/openapi/json`
 **Discovery:** `GET /` — public root returning `{name, version, description, docs, auth, tags[]}`. Use for bootstrap orientation; read `/openapi/json` for the full surface.
 
-When asked about tasks, schedule, emails, infrastructure status, or Slack messages — use this API. Do not say you lack tooling; use curl via the terminal.
+When asked about tasks, schedule, emails, or infrastructure status — use this API. (Fleet and agent-work state is not here: `fleet` skill. Hermes does not use Slack.) Do not say you lack tooling; use curl via the terminal.
 
 ## Response envelope — listing endpoints
 
@@ -51,7 +51,7 @@ tag is infrastructure Hermes deliberately does **not** call.
 | **Garmin Health** | `/daily-metrics/*`, `/activities/*`, `/recovery/*`, `/training-load`, `/fitness-direction`, `/weight-log/*`, `/user-profile` | `references/garmin-health.md` |
 | **Strength** | `/workouts/*` (incl. all 13 `/workouts/summary/*` analytics), `/workout-sets/*`, `/exercises` | `references/strength.md` |
 | **WalkingPad** | `/walking-pad/*` — treadmill sessions, live snapshot, achievements, analytics | `references/walking-pad.md` |
-| **Productivity** | `/ticktick/*`, `/gmail/*`, `/calendar`, `/slack/*` | `references/{tasks,schedule,slack}.md` |
+| **Productivity** | `/ticktick/*`, `/gmail/*`, `/calendar` | `references/{tasks,schedule}.md` |
 | **Infrastructure** | `/docker/*`, `/uptime-kuma/*` | `references/infrastructure.md` |
 | **External Data** | `/weather/*` | `references/weather.md` |
 | **Reading** | `/reading/*` — Hardcover shelf (ratings, genres, statuses, want-to-read) | **`reading` skill** (top-level) |
@@ -97,18 +97,6 @@ tag is infrastructure Hermes deliberately does **not** call.
 | Method | Path | Description |
 |-|-|-|
 | GET | `/calendar` | Upcoming events across all personal calendars (30-day window) |
-
-### Productivity — Slack
-| Method | Path | Key params | Description |
-|-|-|-|-|
-| GET | `/slack/channels` | `type?`, `exclude_archived?` | List channels, groups, DMs |
-| GET | `/slack/channels/{channelId}/messages` | `oldest?`, `latest?` | Message history with pagination |
-| POST | `/slack/channels/{channelId}/messages` | `text` | Send message to channel |
-| GET | `/slack/channels/{channelId}/messages/{threadTs}/thread` | — | Thread replies |
-| POST | `/slack/channels/{channelId}/messages/{threadTs}/reply` | `text` | Reply to thread |
-| GET | `/slack/search` | `query` (supports Slack operators: `in:#channel`, `from:@user`) | Full-text search |
-| GET | `/slack/users` | — | Workspace users (cached 5 min) |
-| GET | `/slack/unreads` | — | Channels with unread messages, sorted by count |
 
 ### Infrastructure — UptimeKuma
 | Method | Path | Description |
@@ -265,7 +253,6 @@ curl -s -X POST -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: ap
   - `references/tasks.md` — TickTick CRUD workflows, priority/date codes, project resolution
   - `references/schedule.md` — Calendar + Gmail search syntax, event/email formatting
   - `references/weather.md` — Forecast thresholds, geocoding, response guidance
-  - `references/slack.md` — Search operators, known channel IDs, response formatting
   - `references/garmin-health.md` — Daily metrics, recovery, training-load, fitness-direction, weight log, user profile (field semantics, trend arrows, null handling)
   - `references/strength.md` — Workouts, sets, full `/workouts/summary/*` analytics suite (e1RM, INOL, ACWR, volume landmarks, readiness, deload-signal)
   - `references/walking-pad.md` — WalkingPad treadmill sessions, live snapshot, achievements, analytics (field semantics, response formatting)
@@ -274,7 +261,6 @@ curl -s -X POST -H "Authorization: Bearer $HOMELAB_API_KEY" -H "Content-Type: ap
 - Endpoint groups without a domain reference yet: `/query` (SQL escape hatch), `/health`, `/oauth/*`. Call them via this skill.
 - Only load this skill when no domain reference matches, or you need the complete endpoint list
 - `/summary` is the most efficient first call for morning briefings or status checks
-- Slack search supports Slack operator syntax (`in:#hermes`, `from:@johannes`) + optional `sort`, `sortDir`, `count`, `page` paging params
 - `/query` accepts arbitrary read-only SQL (JSON body: `{"sql": "SELECT …"}`). Use sparingly — prefer named endpoints when one exists.
 - **Query param convention:** canonical names are camelCase (`dateFrom`, `dateTo`, `workoutId`, `sortDir`) and json-server-style underscored aliases (`_order`, `_sort`, `_start`, `_end`, `date_from`) still work as backwards-compat. Prefer canonical names in new code; keep legacy in the morning-briefing cron prompt for stability.
 - **Request body fields** are snake_case where the schema says so (`exercise_id`, `weight_kg`, `set_number`, `set_type`, `birth_date`, `height_cm`, `goal_weight_kg`); response field naming is unchanged from each endpoint's source.

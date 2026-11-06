@@ -50,7 +50,7 @@ the CLI cannot tell Hermes from any other shell).
 ## Flow — submit, then wait
 
 ```bash
-# The question goes in through a quoted heredoc — never interpolate Slack text into the command line.
+# The question goes in through a quoted heredoc — never interpolate chat text into the command line.
 Q=$(cat <<'QUESTION'
 Did Bun change its test runner API in the latest version?
 QUESTION
@@ -119,7 +119,7 @@ mapping is `citations[]`.
 
 ---
 
-## Presenting the answer (Slack, German by default)
+## Presenting the answer (German by default)
 
 - **Lead with the answer, in German** (SOUL rule — narrate substance in German even when
   the report is English; keep proper nouns / product names / APIs / versions as-is).
@@ -129,7 +129,7 @@ mapping is `citations[]`.
 - **Always cite.** End with a short `Quellen:` list (`output.sources[]`, or the most
   relevant `output.citations[]`). The whole point of this path over a guess is that it's
   sourced — never strip the citations.
-- **Say in Slack when the evidence is weak — every time.** `output.status: "partial"` means
+- **Say so in the reply when the evidence is weak — every time.** `output.status: "partial"` means
   citations were dropped or nothing could be retrieved: open with that ("Teilweise belegt —
   …") and treat unbacked prose as unconfirmed. Name the low-confidence citations as such,
   and list `output.unverified[]` topics as "nicht belegt". A `partial` report presented as a

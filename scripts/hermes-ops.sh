@@ -46,9 +46,6 @@ set -euo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 ARGO_BASE="https://argo.jkrumm.com/api"
-# #alerts. A Slack channel id is not a secret (unlike a tailnet IP or a token) and
-# hardcoding it is what keeps `alerts` from needing a free-form channel argument.
-ALERTS_CHANNEL="C0AS1LAUQ3C"
 REF_API_KEY="op://common/api/SECRET"
 
 SECRETS_RUN="$HOME/.local/bin/secrets-run"
@@ -666,26 +663,35 @@ for line in d.get("lines", []):
 PY
 }
 
+# The factory's current health lines and open asks, read through the `factory` CLI
+# (`factory read health` + `asks`, the /v1 read API). No fallback: when the CLI fails
+# its own error JSON is printed and this exits non-zero. n caps the lines per section.
 cmd_alerts() {
   local n="${1:-40}"
   valid_int "count" "$n"
-  AUDIT_TARGET="slack/${ALERTS_CHANNEL}"
-  local body
-  body=$(argo_get "/slack/channels/${ALERTS_CHANNEL}/messages?limit=${n}")
-  JSON="$JSON" python3 - "$body" <<'PY'
-import datetime as dt, json, os, sys
-d = json.loads(sys.argv[1])
-msgs = d.get("messages", [])
+  AUDIT_TARGET="factory/health,asks"
+  need factory
+  need timeout
+  local fmt=plain health asks rc
+  [ "$JSON" = 1 ] && fmt=json
+  health=$(timeout "$HTTP_TIMEOUT" factory read health --format "$fmt" 2>&1) \
+    || { rc=$?; remote_err "factory read health failed (exit $rc): $health"; }
+  asks=$(timeout "$HTTP_TIMEOUT" factory read asks --format "$fmt" 2>&1) \
+    || { rc=$?; remote_err "factory read asks failed (exit $rc): $asks"; }
+  JSON="$JSON" N="$n" python3 - "$health" "$asks" <<'PY'
+import json, os, sys
+health, asks = sys.argv[1], sys.argv[2]
+n = int(os.environ["N"])
 if os.environ["JSON"] == "1":
     print(json.dumps({"verb": "alerts", "ok": True, "tier": "A",
-                      "count": len(msgs), "hasMore": d.get("has_more"),
-                      "messages": msgs}, indent=2))
+                      "health": json.loads(health), "asks": json.loads(asks)}, indent=2))
     sys.exit()
-for m in msgs:
-    ts = dt.datetime.fromtimestamp(float(m["ts"]), dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
-    print(f"{ts}  {(m.get('text') or '').splitlines()[0][:160]}")
-print(f"\n{len(msgs)} message(s), newest first. Timestamps are UTC; uptime-kuma "
-      "container logs are +02:00 — convert before correlating.")
+for title, body in (("health", health), ("asks", asks)):
+    lines = body.splitlines()
+    print(f"== {title} ==")
+    print("\n".join(lines[:n]) if lines else "(nothing open)")
+    if len(lines) > n:
+        print(f"... {len(lines) - n} more line(s)")
 PY
 }
 
@@ -930,7 +936,7 @@ cmd_kuma_db() {
       # The token IS the credential — the push URL built from it can write
       # heartbeats. Only a 4-char prefix is selected, which is enough to match a
       # monitor against a local ~/.config/uptime-kuma/*-push-url file without
-      # ever moving the secret into a log or a Slack message.
+      # ever moving the secret into a log or a message.
       sql="SELECT id, name, active, interval, substr(push_token,1,4) || '...' AS token_prefix FROM monitor WHERE type = 'push' ORDER BY id;"
       ;;
     created-dates)
@@ -1264,7 +1270,7 @@ TIER A — read-only, safe to allowlist (no --why, no --confirm)
   monitors [filter]             All monitors, name-filtered, with uptime1d/30d
   containers <host>             Container state/health/restart counts
   logs <host> <container> [n]   Container logs, default n=200
-  alerts [n]                    #alerts messages, newest first, default n=40
+  alerts [n]                    The factory's health lines + open asks (`factory read`), n lines each, default 40
   env-check                     `op run --env-file=.env.tpl -- true` on homelab + vps.
                                 One dangling 1Password ref breaks ALL three homelab
                                 crons and corrupts the next uk-sync. Check it first.

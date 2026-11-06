@@ -30,7 +30,7 @@ Do not equate `container=running`, UptimeKuma `UP`, or a scheduler message such 
    - `GET /api/downloads`
    - `GET /api/downloads/global/history?hours=24`
    - `GET /api/health/vpn`
-   The token is stored by the frontend under `localStorage` key `torrent_app_token`; never expose its value in Slack or logs.
+   The token is stored by the frontend under `localStorage` key `torrent_app_token`; never expose its value in chat or logs.
 7. Correlate the app queue with qBittorrent state: existence, state (`downloading`, `paused`, `stalled`, etc.), progress, download rate, tracker status, peers, category, and save path.
 
 ## Interpreting common results

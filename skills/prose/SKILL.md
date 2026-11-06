@@ -15,7 +15,7 @@ You write on the brain (deepseek-v4.1-flash, `chat_completions`); the `agw prose
 ## When to use
 
 - **Yes:** vault pages, reports, summaries, articles, docs, written briefings — anything Johannes reads as text and that is longer than a short chat reply.
-- **No:** chat replies (Slack answers follow SOUL.md directly), TTS scripts (`briefing-tts`, `podcast` have their own voice rules — rewritten prose reads wrong aloud), status lines, one-liners.
+- **No:** chat replies (they follow SOUL.md directly), TTS scripts (`briefing-tts`, `podcast` have their own voice rules — rewritten prose reads wrong aloud), status lines, one-liners.
 
 ## How
 

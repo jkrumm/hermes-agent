@@ -1,7 +1,7 @@
 #!/bin/zsh
 # Hermes liveness ping — LLM-free.
-# Reads ~/.hermes/gateway_state.json, verifies gateway is running AND Slack is
-# connected AND the live pid is a descendant of launchd's ai.hermes.gateway job
+# Reads ~/.hermes/gateway_state.json, verifies gateway is running AND the API server
+# platform (:8642, Iris' surface) is connected AND the live pid is a descendant of launchd's ai.hermes.gateway job
 # (an orphan gateway never keeps the monitor green) AND the agw inference gateway answers and
 # accepts Hermes' door token (scripts/inference-gateway-check.sh), then pings the UptimeKuma
 # push URL on success. Run every 5 min by
@@ -68,8 +68,8 @@ PUSH_URL=$(timeout 10 "$SECRETS_RUN" read op://hermes/uptime-kuma/agent-push-url
 # Secrets are resolved by the gateway itself via config.yaml `secrets.command`
 # (v0.19.0+). That source fails SOFT — a broken/incomplete cache yields a gateway
 # that starts anyway and then can't authenticate. Total failure is already caught
-# below (Slack won't be "connected"), but PARTIAL resolution — e.g. the Slack
-# tokens render while HOMELAB_API_KEY doesn't — would otherwise ping a healthy
+# below (the API server won't be "connected"), but PARTIAL resolution — e.g. the API
+# server key renders while HOMELAB_API_KEY doesn't — would otherwise ping a healthy
 # heartbeat while every argo call 401s. Assert the cache renders every ref the
 # template asks for; a shortfall skips the ping and UK alerts.
 #
@@ -91,7 +91,7 @@ if [[ -f "$TPL" ]]; then
 fi
 
 GATEWAY_STATE=$(timeout 5 /usr/bin/jq -r '.gateway_state // ""' "$STATE")
-SLACK_STATE=$(timeout 5 /usr/bin/jq -r '.platforms.slack.state // ""' "$STATE")
+API_STATE=$(timeout 5 /usr/bin/jq -r '.platforms.api_server.state // ""' "$STATE")
 PID=$(timeout 5 /usr/bin/jq -r '.pid // 0' "$STATE")
 
 # A restart (make deploy, hermes update) drains in-flight turns first — planned, not a failure
@@ -106,8 +106,8 @@ if [[ "$GATEWAY_STATE" != "running" ]]; then
   skip "gateway_state=$GATEWAY_STATE"
 fi
 
-if [[ "$SLACK_STATE" != "connected" ]]; then
-  skip "slack=$SLACK_STATE"
+if [[ "$API_STATE" != "connected" ]]; then
+  skip "api_server=$API_STATE"
 fi
 
 if ! kill -0 "$PID" 2>/dev/null; then
@@ -140,7 +140,7 @@ done
 [[ "$SUPERVISED" == "1" ]] || skip "pid $PID is not a descendant of launchd job pid $LAUNCHD_PID (orphan gateway)"
 
 # Every model call goes through the agw inference gateway (127.0.0.1:7794) with the `hermes=` door
-# token. Hermes can be "running + Slack connected" while the gateway is down or the token was
+# token. Hermes can be "running + API server connected" while the gateway is down or the token was
 # rotated, and every turn then fails — so withhold the heartbeat. The check is a separate bash
 # script run as a subprocess (shared with verify.sh / `make status`; no zsh-vs-bash sourcing); each
 # curl inside it is --max-time bound (5 s + 10 s), well inside the 5-min tick.

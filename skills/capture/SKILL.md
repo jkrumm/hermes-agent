@@ -35,6 +35,7 @@ You decide where it lands. No double-tracking — one item, one home.
 **Not a task at all? Redirect — don't force it into TickTick/GitHub:**
 - A **link/article/video to read or keep later**, or a snippet to re-find → the `karakeep` skill (read-later bucket).
 - A **durable idea / knowledge note** to develop → the `obsidian` skill (the vault).
+- A request to **have an agent do the work now** ("let an agent …", "start an agent on …") → the `fleet` skill (one factory Issue). A GitHub issue stays the answer to "file / note / open an issue".
 - A request to **research something now and report back** (not a task to remember) → the `agw-research` skill (cited answer via `agw research`). Note the split: "research X" / "recherchier mal" = answer now → `agw-research`; **"remind me to research X / look into Y later"** = a task to track → TickTick (the `Research Z` row above).
 
 Capture owns *actionable* items (do-this) and *concrete code changes*. "Keep / read later" is reference; "note this idea" is knowledge — both have their own skills.
@@ -59,7 +60,7 @@ Walk top to bottom. First match wins.
 
 A capture maps to a repo when it:
 - **Names the repo explicitly** ("homelab", "dotfiles", "basalt-ui").
-- **Names a service/domain owned by that repo** — e.g. "the slack patch" or "the morning briefing prompt" → `hermes-agent`; "rollhook deploy logs" → `rollhook`.
+- **Names a service/domain owned by that repo** — e.g. "the briefing prompt" or "the gateway patches" → `hermes-agent`; "rollhook deploy logs" → `rollhook`.
 - **Names a file/path** that lives in a known repo.
 
 If the repo identity is genuinely ambiguous between two candidates, ask.

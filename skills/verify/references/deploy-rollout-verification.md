@@ -77,7 +77,7 @@ dead is still a failed rollout.
 
 No ledger row tracks the rollout, so the proof above is
 the deliverable: report what shipped and the evidence — pull rc, artifact mtime, process
-start time, probe results — and name the real defect, not the symptom. A stale Slack line
+start time, probe results — and name the real defect, not the symptom. A stale status line
 is a snapshot, not a second finding.
 
 ## Pitfalls

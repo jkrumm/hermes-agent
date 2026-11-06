@@ -8,7 +8,7 @@ history and per-file detail live in `docs/*.md`; each section here points at its
 VCS source of truth for Johannes's Hermes Agent setup, Mac Mini-only. Everything here is
 symlinked into `~/.hermes/` — edit at either end, git sees it here.
 
-Hermes has one role — **narrate, answer, route** (spec: `dotfiles/docs/agent-platform.md` §Hermes): it reports one line per item, answers questions, and files work as a GitHub issue (`capture`); Herdr tabs / `rd wave` only when the owner asks, and an explicit voice request via Iris to start an agent on a repo goes to the software factory (`factory issue new`: Hermes files, the factory's lead works). It never lands PRs, starts agents on its own or authors skills. The reporting contract lives in `SOUL.md` and nowhere else — no per-skill report formats. See *Repo work is filed* below.
+Hermes has one role — **narrate, answer, route** (spec: `dotfiles/docs/agent-platform.md` §Hermes): it reports one line per item, answers questions, and files code work as a GitHub issue (`capture`), and an explicit request to start an agent on a repo (Iris voice or chat) goes to the software factory (`fleet` skill → `factory issue new`: Hermes files, the factory's lead works). Fleet state is read through the same skill (`factory read`). It never lands PRs, runs agents itself or authors skills. Hermes does not use Slack (retired 2026-11). The reporting contract lives in `SOUL.md` and nowhere else — no per-skill report formats. See *Repo work is filed* below.
 
 Audio (TTS + STT) is the **agent-workflows audio door** (`~/SourceRoot/agent-workflows`,
 `packages/audio`), an OpenAI-compatible loopback service on the mini at `http://127.0.0.1:7792/v1`
@@ -22,7 +22,7 @@ prompts use the same door.
 TTS = Gemini 3.8 via the door's native lane, voice Charon. **`model` is an agw route id, never a literal model id** — the route table owns the concrete id: `audio.tts.gemini-flash-lite` for chat replies (`tts.openai`), `audio.tts.gemini-flash` for
 briefings (`skills/briefing-tts`, prep on). Streaming clients (CLI voice `OpenAIStreamer`, desktop
 `speak-stream` relay, spoken summary) already send `response_format: pcm` and get the progressive
-stream; Slack/file replies stay whole-file mp3 + `X-Audio-Title`. ElevenLabs ids stay selectable as a
+stream; Non-streaming replies stay whole-file mp3 + `X-Audio-Title`. ElevenLabs ids stay selectable as a
 fallback. STT = `audio.stt.voxtral-mini` (Voxtral Mini Transcribe, EU; the door falls back to `gpt-transcribe`). Door rows for caller `hermes` carry lane `hermes` (since 2026-11-04); the prep/summary text calls are gateway rows under the door caller — join on `run_id`. Request shapes and traps: `modelpick/docs/gemini-tts.md`;
 rationale: `modelpick/docs/decisions/audio-stack.md`.
 
@@ -44,7 +44,7 @@ the first pass.
 | `cron/`, `scripts/`, `hooks/` | `~/.hermes/…` | Hermes-driven cron + pre-run scripts (must live under `HERMES_HOME/scripts/`) + host-level shell scripts |
 | `plugins/{name}/` | `~/.hermes/plugins/{name}/` | **`HERMES_PLUGINS`** is the source of truth. **None today.** A new one must **also** be enabled once — `hermes plugins enable <name>`; the symlink alone is inert. |
 | `config/` | `~/.hermes/config/` | **empty** — kept for tracked agent-facing config |
-| `skills/{name}/` | `~/.hermes/skills/{name}/` | **`HERMES_SKILLS` in the Makefile is the source of truth** — 21 dirs (agent-platform Wave 2, 2026-10-04; was 126; `iris` added 2026-11-04). Retired skills live on as `<skill>/references/*.md` or in git history; roster: docs. |
+| `skills/{name}/` | `~/.hermes/skills/{name}/` | **`HERMES_SKILLS` in the Makefile is the source of truth** — 22 dirs (agent-platform Wave 2, 2026-10-04; was 126; `iris` added 2026-11-04, `fleet` 2026-11-07). Retired skills live on as `<skill>/references/*.md` or in git history; roster: docs. |
 | `USER.md` | `~/.hermes/memories/USER.md` | **copied** — Hermes writes to it |
 
 **Skill audit (2026-10-10, `docs/skills-audit.md`):** per-skill verdicts, usage evidence and the Hermes↔global wiring map. Upstream-bundled skills with no usage record are retired by `skills.disabled` in `config.yaml` (reversible; never deleted). `make skills-set-check` (in `make status`) asserts repo `skills/`, live symlinks and `HERMES_SKILLS` are one set.
@@ -58,7 +58,7 @@ rewritten by accretion. Detection is manual (`ls ~/.hermes/skills` against `HERM
 mechanism + adoption path: **`docs/symlinks-and-agents.md`**.
 
 **Host-level scripts** (user LaunchAgents, not symlinked): `hermes-liveness.sh` (300s, both liveness pushers run under `jobrun --timeout 270` with every call bounded, a failed check pushes `status=down&msg=<reason>`, except `gateway_state=draining` (planned restart: ping withheld, monitor not told down) — `docs/symlinks-and-agents.md`; gateway
-state + Slack connected + the live pid belongs to launchd's job + the inference gateway answers and accepts Hermes' door token, via `scripts/inference-gateway-check.sh`, shared with `make verify`/`status`), `hermes-backup.sh` (daily
+state + API server connected + the live pid belongs to launchd's job + the inference gateway answers and accepts Hermes' door token, via `scripts/inference-gateway-check.sh`, shared with `make verify`/`status`), `hermes-backup.sh` (daily
 03:00 — rsync to homelab, `mkdir`-lock against overlap), and the `hermes serve` pair —
 `hermes-serve-launch.sh` (KeepAlive) + `hermes-serve-liveness.sh` (300s), see *Hermes Desktop*
 below.
@@ -84,15 +84,20 @@ repo's `AGENTS.md`/`CLAUDE.md`, `.claude/rules/` or `.claude/skills/`. So repo w
 not done**: a GitHub issue (`capture`); the owner starts the work.
 Hermes does not land PRs, `gh pr merge`, or start a `claude` session.
 
-**One door per verb:** repo work → a GitHub issue (`capture`); tabs / long visible work → `herdr` skill (`hc` + `rd`)
-(`rd wave`, never `claude --bg` / `claude -p`, and only when the owner asks).
+## Factory, Argo, herdr: one path each
+
+| Need | Path |
+|-|-|
+| Read fleet / Issue / ask / health state ("how is X going", "what needs me", "what ran overnight", "any alerts") | `fleet` skill → `factory read overview|issues|issue|asks|health|sessions` (read-only token `FACTORY_READ_TOKEN` in `.env.tpl`, wired once Issue 209 lands — pending Issue 209) |
+| File agent work ("do X", "let an agent …") | `fleet` skill → `factory issue new` (unix socket, no token) |
+| File a GitHub issue / todo | `capture` |
+| Personal data and service state (TickTick, Gmail, calendar, Docker, Kuma) | `argo-api` (not factory state) |
+| Steer an existing terminal | `herdr` skill (`hc`), only when the owner asks |
+| Notify the owner | cron jobs: `scripts/ntfy-publish.sh <topic>`; turns: the reply (Iris / CLI) |
+
+Hermes never reads Slack, the agw/rd agent lists or the Herdr pane list for fleet status, and never starts a `claude` session (`claude --bg` / `claude -p`).
 
 **No approval stack.** Config of `plugins:` is empty; `HERMES_PLUGINS` in the Makefile is empty.
-
-**`slack.allow_bots: all` is deliberate — do not "fix" it.** The trust boundary is the
-workspace, not human-vs-bot: HomeLab/VPS/Argo post from inside the tailnet and live `#alerts`
-auto-triage depends on it. `require_mention_channels` silences `#media`/`#updates`/`#alerts`/`#agents` (pure-echo
-channels; in `#agents` Hermes answers only when mentioned, so it never replies to automated agent posts) — inbound-only, `hermes send` and cron deliveries still post there.
 
 **Tests** (`~/.hermes/hermes-agent/venv/bin/python3`): `test_cron_allowlist.py`.
 
@@ -105,35 +110,15 @@ coverage).
 fails closed on an exhausted recursion budget) — keep entry points thin, logic in an imported
 module. Detail: **`docs/scheduled-jobs.md`**.
 
-## Herdr — the interactive lane Hermes may drive
+## Herdr — steering existing terminals
 
-**Herdr is Johannes's own visible workspace, and Hermes may drive it on his explicit request.** The `herdr` skill
-(`skills/herdr/SKILL.md`) is the door. Herdr is the app (spaces → tabs → terminals, MacBook) over **herdr-core**
-(launchd service `com.jkrumm.herdr-core` on the mini), driven with `hc`; agents are placed with `rd`. The skill covers:
-read terminals (`hc ls`, `hc read`, `rd agents`), start an agent (`rd work|wave`, which picks the Max account and
-places the tab — a raw `hc run … claude` inherits the core's environment instead), prompt and steer it
-(`hc send`, `rd say`, `hc interrupt`), wait on it (`hc wait`). Layout rules it carries: one space per project;
-orchestrator tabs visible, workers hidden children. Manuals stay current in the tools: `hc --skill`,
-`herdr-app --skill`.
-
-Every `hc`/`rd` verb is allowed except the ones that touch the core itself. The command guard that once blocked agent-starting
-verbs produced the failure it existed to prevent — asked to "open a herdr pane in <repo> with `cf`",
-Hermes was refused, silently substituted a different lane and reported success for work never
-asked for. That guard is gone (see *No approval prompts, no command guards* below); lane choice
-is SOUL.md guidance. The skill's own rules are the only gate: never `hc server stop|restart`,
-`hc update` or `hc machine update` (one core serves every agent), never `hc send --force`
-(a `blocked` agent needs the owner), never `hc attach`.
-
-Hermes runs **outside** any terminal: no `$HC_TERMINAL_ID`, so the skill requires an explicit
-target (`t7` or a name) on every `hc read|get|wait|interrupt` — omitted, it means "the calling
-terminal", which is none. Two gotchas baked into the skill: `hc read` returns **plain text, not
-JSON** (don't pipe it to `jq`), and the terminal tool's 180 s timeout means an `hc wait` above
-~150 s kills the call, not the agent — wait in short slices, don't poll in a script.
-
-**Retired with classic herdr** (`dotfiles/docs/herdr-core.md` §Port design): the overview *pane*
-(`make agent-overview`) — the app's sidebar status dots and agents list replace it; `herdr-groups` — `jk-spaces` folders
-replace it; `desk` = `herdr --remote` — the app on the MacBook replaces it, `ssh -t mini hc` is the terminal-only fallback.
-Classic `herdr` panes still show up in `rd agents` / `agw agents` until dotfiles Wave 7.
+On the owner's explicit request Hermes may read and steer terminals that already exist, through the `herdr` skill
+(`skills/herdr/SKILL.md`): `hc ls|read|get`, `hc send`, `hc interrupt`, `hc wait` (herdr-core is the launchd service
+`com.jkrumm.herdr-core` on the mini). **Starting agent work is not part of it** — that is the `fleet` skill
+(`factory issue new`). Safety rules are the only gate (guidance, not command guards): never `hc server stop|restart`,
+`hc update` or `hc machine update` (one core serves every agent), never `hc send --force` (a `blocked` agent needs the
+owner), never `hc attach`. Hermes runs outside any terminal, so every `hc read|get|wait|interrupt` takes an explicit
+target; `hc read` is plain text (no `jq`); the terminal tool's 180 s timeout means `hc wait` stays below ~150 s.
 
 ## Secrets — native `secrets.command` over the headless cache (v0.19.0+)
 
@@ -169,7 +154,7 @@ secrets resolve for **every** hermes invocation — gateway, CLI, cron.
   is strictly stronger — its contents are the explicit `dotfiles-private/headless.refs` allowlist.
 - **Fail-soft, monitored.** The `command` source can't abort startup; it degrades to "no secrets
   applied" + a warning. `hermes-liveness.sh` covers both halves — total failure via
-  `platforms.slack.state == "connected"`, partial via `KEY=` count vs rendered count.
+  `platforms.api_server.state == "connected"`, partial via `KEY=` count vs rendered count.
 - Manual check: `Command helper: applied 31 secrets` in `hermes gateway status` (23 refs + the 3 serve refs + the 5
   door-token names), `✓ secrets (23 refs …)` from `make status`.
 - **Never run `hermes model` on the mini** — it writes a plaintext `~/.hermes/.env`
@@ -184,7 +169,7 @@ Rationale + what this replaced: **`docs/secrets-command.md`**.
 
 ## Gateway HTTP Exposure (iris)
 
-The gateway runs an OpenAI-compatible HTTP API alongside Slack; **iris** (the voice and chat
+The gateway runs an OpenAI-compatible HTTP API alongside the CLI and Desktop; **iris** (the voice and chat
 app on the mini) is its consumer. The argo dashboard chat was removed 2026-10-30 and its
 `tag:vps → tag:mac :8642` ACL grant with it. Four env vars (framework keys in
 `hermes_cli/config.py`), resolved at startup from `.env.tpl` via `secrets.command`:
@@ -200,16 +185,16 @@ bound to the host iris uses. Verify and rotation steps: **`docs/gateway-http-api
 
 **Iris turns (Wave 21, 2026-11-04):** Iris no longer classifies voice memos — every memo except mode
 Transcribe goes to Hermes as a session turn whose per-turn `system_message` says "This turn comes from Iris…
-Load skill_view('iris')". `skills/iris/` decides (answer / `capture` / `obsidian` note / `herdr` tab prompt / agent work via `factory issue new` when the memo says *start*) and
+Load skill_view('iris')". `skills/iris/` decides (answer / `capture` / `obsidian` note / `herdr` tab prompt to an existing terminal / `fleet`: read fleet state, or file agent work via `factory issue new` when the memo says *start*) and
 ends the reply with one ```` ```iris ```` JSON block (`kind`, `headline` only) that Iris parses; legacy builds
 append `The owner picked: Journal.|Chat.|Tab.`. Brain notes use `skills/iris/scripts/iris-note.py` (Inbox, journal
-frontmatter, commit via `scripts/brain-commit.sh`'s brain-sync lock). SOUL.md has one routing row; Slack unaffected.
+frontmatter, commit via `scripts/brain-commit.sh`'s brain-sync lock). SOUL.md has one routing row; CLI and Desktop unaffected.
 Tool events for Iris's `actions`: SSE `tool.started|completed|failed`, field `tool_name`. **`docs/gateway-http-api.md`**.
 
 ## Hermes Desktop (`hermes serve`)
 
 **Owner decision 2026-10-15** (supersedes 2026-09-07's "Collie + Slack are the surfaces"): the
-surfaces are Hermes Desktop on the MacBook, Slack, the `:8642` API server and the CLI; Collie
+surfaces are Hermes Desktop on the MacBook, the `:8642` API server (Iris) and the CLI (Slack was retired later, 2026-11); Collie
 stays as it is. Desktop cannot use `:8642` (no `/api/ws`) — it talks to `hermes serve`, a second
 always-on process beside the gateway: LaunchAgent `com.jkrumm.hermes-serve` (KeepAlive) on
 loopback `:9119`, behind the dotfiles Caddy door `hermes-api.test` ⇒
@@ -297,17 +282,12 @@ allowlist patches (see *Local Modifications*).
 `agw-research`, **not** a single `/v1/audio/speech` call like `briefing-tts`: `agw podcast … --format json`
 exits 10 with the `runId` after ~110 s, `agw run wait <runId>` is called again until exit 0, `agw
 podcast-publish <runId> --commit` repeats only the upload. **No secret in this repo** — `agw` reads its own
-config (`~/.config/agw/env`). The run posts its own Slack notice. SOUL.md's TTS rule 4 ("NEVER curl an audio
+config (`~/.config/agw/env`). SOUL.md's TTS rule 4 ("NEVER curl an audio
 endpoint") exempts `agw podcast` — there is no native tool for this pipeline.
 
-## Agents overview (agents)
+## agw transport
 
-Read-only cross-project Claude Code status (hc terminals, classic herdr panes until Wave 7, plain `claude` sessions) via `agw agents` (an unjournaled read; the LLM
-refresh is `agw overview`) — conversational read (`agw agents --text`, see `skills/herdr`) and a
-morning-briefing feed (`scripts/agents-overview.py`). Never starts an agent, never steers a terminal — that's
-the `herdr` skill. **`docs/agents-overview.md`**.
-
-**`agw` transport:** `agents-overview.py`, `project-narratives.py` and `prose.py` reach
+`project-narratives.py` and `prose.py` reach
 the platform only through `scripts/agw_run.py` (shells out to `agw … --format json`, `AGW_CALLER=hermes`,
 no credential, no base-URL env knob). A run that outlives the CLI's wait budget exits 10; `agw_run.run`
 resumes it with `agw run wait <runId>` and prints a progress line to stderr per resume (the cron
@@ -383,8 +363,6 @@ file they no longer touch — read the table's left column, not the patch name.
 | `tools/tts_tool_openai.py` + `tools/tts_tool.py` | `tts-tool-audio-title` | name saved audio from the gateway's `X-Audio-Title` header instead of `tts_<timestamp>.mp3` |
 | `gateway/run_voice.py` | `gateway-auto-tts-voice-only` | auto-TTS answers **voice input only**, so alerts stop coming back as MP3s. `/voice all` per chat still speaks everything |
 | `hermes_cli/web_routers/audio.py` | `serve-speak-summary` | Desktop relay read-aloud summarization in `hermes serve`. **Active again** since serve was restored 2026-10-15 (dormant 2026-09-07 → 2026-10-15) |
-| `plugins/platforms/slack/adapter.py` | `slack-cannot-reply-to-message` | mrkdwn normalization + `cannot_reply_to_message` retry (drop `thread_ts`, retry flat) |
-| `gateway/platforms/base.py` | `slack-media-inline-reply-anchor` | pass the text reply's anchor to media senders. **Dormant** under `reply_in_thread: true`, kept applied |
 | `tools/cronjob_prompt_scan.py` | `cronjob-tools-allowlist-argo-bearer` | argo/karakeep/hyperdx bearer allowlist plus the loopback audio door (`127.0.0.1:7792`, exact authority) so a legitimate cron curl stops tripping `exfil_curl_auth_header` |
 | `hermes_cli/runtime_provider.py` | `runtime-provider-iu-responses-api` | route the IU `…/openai/v1` leg onto `codex_responses` for any gpt-5.x model with no explicit `api_mode` — **dormant on the current config**, every live slot sets `api_mode` explicitly |
 | `agent/transports/chat_completions.py` | `transport-iu-reasoning-effort` | deny-by-default tools+`reasoning_effort`: keep both only for the probed-safe allowlist (Anthropic/DeepSeek/GLM); strip for everything else, gpt-5.x and any unrecognized model id included; clamp per model family (Anthropic: no `xhigh`; GLM: no `medium`; unrecognized: omitted entirely) |
@@ -405,7 +383,7 @@ these patched files say on disk. The 2026-10-08 brain switch (Haiku 5.5 on
 **No approval prompts, no command guards (owner decision 2026-09-14) — do not re-add either.**
 Hermes runs like Claude Code with `--dangerously-skip-permissions` and is steered by
 **guidance, not gates**: SOUL.md *How you get things done* + the skills. `approvals.mode: 'off'`
-(`smart` turned flagged commands into Slack Approve buttons that stalled the turn 300 s and
+(`smart` turned flagged commands into approval prompts that stalled the turn 300 s and
 failed closed), cron/`-q`/unattended `approve`, `security.protected_instruction_files: false`
 (the `security.tirith_*` keys are gone — upstream removed the bundled tirith scanner, config v50). The local `tirith-hermes-guards` patch
 (pipeline allowlist, `download_then_execute`, `raw_agent_invocation`, `raw_repo_write`) was
@@ -414,11 +392,6 @@ Still blocking: upstream's hardline floor, the gateway-self-restart block, three
 `approvals.deny` globs. `make
 status` grades the config. **When Hermes does the wrong thing, fix SOUL.md or the skill** — make
 the guidance clearer; never answer with a new block.
-
-**Slack threading is a context-window boundary.** `slack.reply_in_thread: true` makes
-`build_session_key()` append `thread_ts` whenever `source.thread_id` is set, so **one thread ==
-one session == one context window**. Continue a topic *inside* its thread; a new top-level
-message is deliberately a clean slate.
 
 Per-file detail, every retired patch and why, the v0.18.x platform rewrite: **`docs/patches.md`**.
 
@@ -448,7 +421,7 @@ entry (`providers.custom`, the legacy `custom_providers` entry, `providers.gatew
 lookup is by route URL, so a leg without an entry would send no session — the gateway binds a
 session to one credit org, and **prompt caches are per org**, so no session means no cache.
 Byte-exact passthrough: the `cache_control` markers Hermes sets are the cache. `prompt_caching.cache_ttl: auto` =
-1h for human-paced sources (Slack, CLI, desktop), 5m for cron/api. Verify in `agent.log`:
+1h for human-paced sources (Iris, CLI, desktop), 5m for cron/api. Verify in `agent.log`:
 `cache=N/M (100%)` from the second call on. **Select the leg by `model.provider`, not `model.base_url`:**
 `provider: custom` resolves to `providers.custom` (the OpenAI leg) and silently sends Haiku
 through the chat-completions shim (`chatcmpl-` ids, `OpenAI client created … /openai/v1`);
@@ -523,7 +496,7 @@ rename.
 `hermes cron edit <job_id> --prompt "$(cat cron/morning-briefing.prompt.txt)" --skill a --skill b`
 (`--clear-skills` applied after `--skill` wins — pass `--skill` alone to replace a set).
 `hermes cron run <job_id>` has **no dry-run and delivers for real** — retarget first
-(`--deliver slack:<test-channel>`), then restore. Detail: **`docs/scheduled-jobs.md`**.
+(`--deliver local`), then restore. Detail: **`docs/scheduled-jobs.md`**.
 
 **Adding a CC slash command:** create `.claude/skills/{name}/SKILL.md` — auto-loaded here, no
 symlink or Makefile change. **Patches:** save the diff under `patches/`, add a table row in
@@ -541,7 +514,7 @@ with `make test-checkpoint` and read the failures before blaming a change.
 
 `make deploy` — the checkout *is* the live config (symlinked into `~/.hermes`), so deploy =
 `make setup` + `launchctl kickstart -k` of `ai.hermes.gateway` **and** `com.jkrumm.hermes-serve` + `make verify`
-(retried ~1 min while Slack reconnects). On failure it rolls back to `HEAD~1` (detached,
+(retried ~1 min while the API server reconnects). On failure it rolls back to `HEAD~1` (detached,
 clean tree only), repeats, and exits non-zero either way; return with `git switch master`.
 It restarts the gateway, which drops in-flight turns — and **Hermes itself may never run
 it** (it may not restart its own gateway). Edits to `SOUL.md` and skills need no deploy
@@ -553,13 +526,13 @@ beyond the skills-index restart noted in *Editing Rules*.
 verified by `make verify`, 5m hold, ship by push. `make version` prints the checkout's HEAD sha (the checkout is
 the live config), which the factory compares with the shipped commit.
 
-- **`make verify`** — gateway pid alive, `gateway_state.json` slack + api_server
+- **`make verify`** — gateway pid alive, `gateway_state.json` api_server
   `connected`, API `/health` 200 on the tailnet bind (`op://hermes/gateway/host`), the inference gateway (`:7794`) healthy and accepting the door token, `hermes serve`
   answering on `:9119` **and gated** (`auth_required`, unauthenticated ws-ticket 401), all patches
   applied. Exit 0 = healthy.
 - **Heartbeat:** `hermes-liveness.sh` (300 s LaunchAgent) pushes the Uptime Kuma push monitor
   at `op://hermes/uptime-kuma/agent-push-url`; the backup job has its own
-  (`backup-push-url`). A red heartbeat means the gateway, Slack or the secret cache is down.
+  (`backup-push-url`). A red heartbeat means the gateway, the API server or the secret cache is down.
 - **OTel:** none — Hermes emits no traces; `service.name` does not apply.
 - **`make logs`** — bounded tail of `gateway.error.log`, `errors.log`, `agent.log`
   (`~/.hermes/logs/`). Slice `agent.log` at the current process start (see *Model, context
@@ -576,4 +549,4 @@ the live config), which the factory compares with the shipped commit.
   anything" debugged a flaky gateway test in the live checkout itself (Wave 3 smoke,
   2026-10-04). The routing table in `SOUL.md` is the control; fix wording there, not with a gate.
 - Gotchas with their own incident write-up live in the sections above (SIGPIPE under
-  `pipefail`, `cron/jobs.json` carrying its own prompt copy, `slack.allow_bots: all`).
+  `pipefail`, `cron/jobs.json` carrying its own prompt copy).

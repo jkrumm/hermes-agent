@@ -5,7 +5,7 @@
   <key>Label</key><string>com.jkrumm.hermes-serve</string>
   <!-- `hermes serve` — the JSON-RPC/WebSocket backend Hermes Desktop connects to,
        on loopback :9119 behind the Caddy door. A second long-lived process against
-       one ~/.hermes next to the Slack gateway; upstream expects serve and gateway to
+       one ~/.hermes next to the messaging gateway; upstream expects serve and gateway to
        coexist (separate commands, separate ports). -->
   <key>ProgramArguments</key>
   <array>

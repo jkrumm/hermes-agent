@@ -152,7 +152,7 @@ tool_loop_guardrails:
   # `hard_stop_enabled: false` only applies to ATTENDED platforms. v0.21.0 added
   # `non_interactive_hard_stop_enabled` (default true), which force-sets
   # hard_stop_enabled=True for any platform outside {cli,tui,desktop,acp,subagent,
-  # api_server} — i.e. Slack and every cron job here. Deliberately left at the new
+  # api_server} — i.e. every cron job here. Deliberately left at the new
   # default: on an unattended always-on box a runaway tool loop burning budget with
   # nobody watching is worse than a truncated task. Set
   # `non_interactive_hard_stop_enabled: false` to restore the old behaviour.
@@ -178,7 +178,7 @@ compression:
   protect_first_n: 3
   abort_on_summary_failure: false
   codex_gpt55_autoraise: true
-# auto = 1h for human-paced sources (Slack, CLI, desktop), 5m for cron/api/subagents; 1h writes
+# auto = 1h for human-paced sources (CLI, desktop), 5m for cron/api/subagents; 1h writes
 # cost 2x vs 1.25x but a person stepping away 5-60 min otherwise re-writes the whole prefix.
 prompt_caching:
   cache_ttl: auto
@@ -332,8 +332,6 @@ display:
       - context_pct
       - cwd
   copy_shortcut: auto
-  tool_progress_overrides:
-    slack: 'off'
   tool_progress: new
   in_app_tips: false
   in_app_tours: false
@@ -513,37 +511,6 @@ curator:
     enabled: true
     keep: 5
 timezone: ''
-slack:
-  # require_mention: false makes EVERY channel Hermes is a member of a free-response
-  # channel — that is the default, not a decision. Three channels take the per-channel
-  # override, all for the same underlying reason: a per-message LLM turn is the wrong
-  # tool for a firehose Hermes doesn't need to read live.
-  #   C0AS5GUH5U4 = #media    (podcast/image completions — Hermes is the producer)
-  #   C0ARZJD824W = #updates  
-  #   C0BVDE5R562 = #agents   (agent digests — mention-only, never answers a bot post)
-  #   C0AS1LAUQ3C = #alerts   (see below)
-  # Silencing is inbound-only: `hermes send` and cron delivery still post here.
-  #
-  # #alerts USED to run a full reasoning_effort:high turn on every inbound alert
-  # message, then post-hoc suppress the reply with NO_REPLY for anything that wasn't
-  # new. Because reply_in_thread makes every alert its own session, that turn had zero
-  # memory of the last time the same alert fired — the same signature could be
-  # (and was) re-triaged dozens of times in a day, reaching the same conclusion every
-  # time, without ever noticing a fix already existed. Alerts now go straight to Slack;
-  # mentioning Hermes directly in #alerts still works for an ad-hoc question.
-  require_mention: false
-  free_response_channels: ''
-  allowed_channels: ''
-  require_mention_channels: C0AS5GUH5U4,C0ARZJD824W,C0AS1LAUQ3C,C0BVDE5R562
-  enabled: true
-  bot_token: ${SLACK_BOT_TOKEN}
-  app_token: ${SLACK_APP_TOKEN}
-  allow_bots: all
-  reply_in_thread: true
-  reply_broadcast: false
-  group_sessions_per_user: true
-  stt_enabled: true
-  home_channel: ${SLACK_CHANNEL_HERMES}
 discord:
   require_mention: true
   free_response_channels: ''
@@ -584,7 +551,7 @@ matrix:
   allowed_rooms: ''
 # No approval prompts and no command guards — the Claude Code
 # --dangerously-skip-permissions equivalent (owner decision 2026-09-14). `smart` turned
-# every flagged command into a Slack Approve button that blocked the turn for `timeout`
+# every flagged command into an Approve button that blocked the turn for `timeout`
 # seconds and then failed closed. Hermes is steered by SOUL.md and its skills, not by
 # gates. What still blocks: upstream's hardline floor and the `deny` globs below —
 # irreversible data loss only. Never re-add a glob that matches reads (`*config.yaml*`
@@ -722,21 +689,6 @@ homelab_api:
 terminal_backend: local
 platform_toolsets:
   cli:
-    - browser
-    - clarify
-    - code_execution
-    - connections
-    - cronjob
-    - file
-    - memory
-    - session_search
-    - skills
-    - terminal
-    - todo
-    - tts
-    - vision
-    - web
-  slack:
     - browser
     - clarify
     - code_execution

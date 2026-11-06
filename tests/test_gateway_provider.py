@@ -150,7 +150,7 @@ def run_helper(door_tokens):
         root = pathlib.Path(home)
         shim = root / ".local/bin/secrets-run"
         shim.parent.mkdir(parents=True)
-        shim.write_text("#!/bin/sh\nprintf \"export SLACK_BOT_TOKEN='xoxb'\\n\"\n")
+        shim.write_text("#!/bin/sh\nprintf \"export SAMPLE_SECRET='sample'\\n\"\n")
         shim.chmod(0o755)
         if door_tokens is not None:
             tokens = root / ".agent-workflows/data/door-tokens"
@@ -167,14 +167,14 @@ parsed = _parse_dotenv_map(out.stdout)
 check("exit 0", out.returncode, 0)
 check("every name gets the token", {k: v for k, v in parsed.items() if k in DOOR_NAMES},
       dict.fromkeys(DOOR_NAMES, TOKEN))
-check("the secrets-run half survives", parsed.get("SLACK_BOT_TOKEN"), "xoxb")
-check("no other caller's token", set(parsed), DOOR_NAMES | {"SLACK_BOT_TOKEN"})
+check("the secrets-run half survives", parsed.get("SAMPLE_SECRET"), "sample")
+check("no other caller's token", set(parsed), DOOR_NAMES | {"SAMPLE_SECRET"})
 
 for label, tokens in (("missing file", None), ("no hermes line", "agw=other\n")):
     out = run_helper(tokens)
     parsed = _parse_dotenv_map(out.stdout)
     check(f"{label}: exit 0", out.returncode, 0)
-    check(f"{label}: names stay unset, nothing empty", set(parsed), {"SLACK_BOT_TOKEN"})
+    check(f"{label}: names stay unset, nothing empty", set(parsed), {"SAMPLE_SECRET"})
 
 print()
 if failures:

@@ -12,16 +12,15 @@ Run this when adding a new skill, after changing SOUL.md/SKILL.md, or when Herme
 
 ## Send a Test Message
 
-Two ways to drive Hermes. Pick by **what you're testing**, not by convenience:
+Two ways to drive Hermes. Pick by **what you're testing**:
 
 | Testing | Use | Why |
 |-|-|-|
-| Routing, skills, SOUL, answer quality | **A — gateway API** | Synchronous, no Slack-auth dependency, no channel noise |
-| Threading, session keying, mrkdwn, TTS/media delivery | **B — Slack API** | The only path that exercises the Slack adapter at all |
+| Routing, skills, SOUL, answer quality, Iris' real path | **A — API server (:8642)** | Synchronous, the same surface Iris calls, no side effects outside the response |
+| A quick one-shot from the mini, tool behaviour, no HTTP plumbing | **B — CLI** | `hermes chat -q` runs one turn in-process |
 
-> Method A runs do **not** write `~/.hermes/sessions/*.jsonl` — that store is the Slack
-> path. Verify method-A routing from the response content plus `gateway.log`/`agent.log`,
-> not the sessions dir.
+There is no Slack path any more. Verify routing from the response content plus
+`gateway.log`/`agent.log` and the session in `state.db` (see "Read the Session Trace").
 
 > **Where secrets come from (v0.19.0+):** there is **no `~/.hermes/.env`** any more — it was
 > retired when Hermes moved to native `secrets.command` resolution. Read values directly from
@@ -29,78 +28,26 @@ Two ways to drive Hermes. Pick by **what you're testing**, not by convenience:
 > This also sidesteps the old `cut -d= -f2-` footgun, since nothing is being parsed out of a
 > dotenv line: `secrets-run read` returns the raw value, `=` chars and all.
 
-### A. Gateway API (recommended — no Slack dependency)
+### A. API server (what Iris calls)
 
 ```bash
 HOST=$(secrets-run read op://hermes/gateway/host)
 KEY=$(secrets-run read op://hermes/gateway/api-server-key)
 curl -s -X POST "http://$HOST:8642/v1/chat/completions" \
   -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" --max-time 180 \
-  -d '{"model":"hermes-agent","messages":[{"role":"user","content":"your test prompt here"}]}' \
+  -d '{"model":"hermes","messages":[{"role":"user","content":"your test prompt here"}]}' \
   | python3 -c "import json,sys; print(json.load(sys.stdin)['choices'][0]['message']['content'])"
 ```
 
-### B. Slack API (arrives in #hermes as the HomeLab bot)
+`model` is the name advertised on `/v1/models` (`API_SERVER_MODEL_NAME=hermes`). To test
+*continuation*, send the earlier turns in `messages`; a request with only the new message is a
+fresh context window.
+
+### B. CLI
 
 ```bash
-HK=$(secrets-run read op://common/api/SECRET)
-CH=$(secrets-run read op://hermes/slack/channel-hermes)
-
-# New thread (fresh context window) — returns {"ts": "...", "channel": "..."}
-curl -s -X POST -H "Authorization: Bearer $HK" -H "Content-Type: application/json" \
-  -d '{"text":"your test prompt here"}' \
-  "https://argo.jkrumm.com/api/slack/channels/$CH/messages"
-
-# Continue that thread (same session) — TS is the ts returned above
-curl -s -X POST -H "Authorization: Bearer $HK" -H "Content-Type: application/json" \
-  -d '{"text":"your follow-up here"}' \
-  "https://argo.jkrumm.com/api/slack/channels/$CH/messages/$TS/reply"
+hermes chat -q "your test prompt here" -Q     # one turn, quiet output (see `hermes chat --help`)
 ```
-
-> **Caveat:** the HomeLab synthetic sender can be rejected with `Unauthorized user: U… (HomeLab) on slack` in `agent.log` (the `allow_bots`/`SLACK_ALLOW_ALL_USERS` path isn't always honoured for it). If that line appears, no session is created — use method A. *(Worked fine at v0.19.0 with `allow_bots: all`.)*
->
-> Method B is the **only** way to exercise the real Slack path: threading, `format_message()`
-> mrkdwn normalization, media/TTS attachment delivery, and session keying. Method A bypasses
-> all of it. The response POST returns the message `ts` — keep it; it is the thread root you
-> look for in `state.db` and the anchor for a continuation reply.
-
-Wait for a response (method B):
-```bash
-until tail -1 ~/.hermes/logs/agent.log | grep -q "response ready"; do sleep 5; done
-tail -3 ~/.hermes/logs/agent.log
-```
-
----
-
-## Sessions are thread-scoped (v0.19.0+)
-
-`platforms.slack.reply_in_thread` is **`true`**, so **one Slack thread == one session ==
-one context window**. `build_session_key()` appends the thread ts whenever
-`source.thread_id` is set, and the Slack adapter sets it to the message's own ts for
-top-level messages. Consequences when validating:
-
-- A **top-level** test message opens its own thread and gets a **fresh context window**.
-  That is the clean-slate case — use it when you want routing tested without carryover.
-- To test *continuation* (memory, follow-ups, compression), reply **inside** the thread.
-  A second top-level message is a different session and will not remember the first.
-- Expect `thread_ts == ts` on your own message. `thread_ts: null` now means something
-  went wrong; before the v0.19.0 flip it meant the opposite.
-- The key carries **no per-user component** in a thread — `isolate_user` is forced off
-  whenever a thread is present, so `group_sessions_per_user: true` doesn't apply here.
-
-Confirm the session your message actually created:
-
-```bash
-sqlite3 -header -column ~/.hermes/state.db \
-  "SELECT substr(session_key,1,66) k, thread_id, message_count mc,
-          datetime(started_at,'unixepoch','localtime') started
-   FROM sessions WHERE session_key LIKE '%slack%'
-   ORDER BY started_at DESC LIMIT 3;"
-```
-
-A healthy post-flip key looks like `agent:main:slack:group:<team>:<C…>:<ts>` with
-`thread_id` populated. A key ending at the channel ID is a pre-flip (or misrouted)
-channel-wide session.
 
 ---
 
@@ -113,13 +60,13 @@ Traces live in **`~/.hermes/state.db`** (`messages` joined to `sessions`).
 > taking the newest file silently hands you a seven-week-old conversation that looks
 > current. Verify with `ls -t ~/.hermes/sessions/*.jsonl | head -1` before ever trusting it.
 
-By thread (the useful form — pass the thread root ts you got back from method B):
+By thread (pass a fragment of the session key):
 
 ```bash
 sqlite3 ~/.hermes/state.db "
 SELECT m.role, COALESCE(m.tool_name,''), substr(REPLACE(COALESCE(m.content,''),char(10),' '),1,150)
 FROM messages m JOIN sessions s ON s.id = m.session_id
-WHERE s.session_key LIKE '%<thread_ts>%'
+WHERE s.session_key LIKE '%<session-key-fragment>%'
 ORDER BY m.timestamp;"
 ```
 
@@ -134,8 +81,7 @@ ORDER BY m.timestamp;"
 ```
 
 Reasoning is in the `reasoning` / `reasoning_content` columns; tool arguments in
-`tool_calls`. A continuation reply arrives prefixed `[Replying to: "…"]`, which is how you
-confirm the parent message was threaded onto the right session.
+`tool_calls`. 
 
 ---
 
@@ -143,7 +89,7 @@ confirm the parent message was threaded onto the right session.
 
 **From `agent.log` response line:**
 ```
-response ready: platform=slack chat=... time=51.7s api_calls=3 response=751 chars
+response ready: platform=api_server chat=... time=51.7s api_calls=3 response=751 chars
 ```
 | Metric | Good | Investigate |
 |-|-|-|
@@ -152,7 +98,7 @@ response ready: platform=slack chat=... time=51.7s api_calls=3 response=751 char
 
 **Healthy trace pattern** (verified 2026-07-24, 3 api_calls, 21.3s):
 ```
-user       |            | [U… | Slack user <@U…>] wie viele offene Watchdog-Items …
+user       |            | wie viele offene Watchdog-Items …
 assistant  |            |
 tool       | skill_view | {"success": true, "name": "argo-api", …}          ← skill hit directly
 tool       | skill_view | {"file": "references/infrastructure.md", …}       ← drilled to the reference
@@ -216,17 +162,15 @@ running process until you restart, no matter what a direct in-process test repor
 
 ```bash
 hermes gateway restart          # launchd-supervised; drains in-flight runs (up to 180s)
-# Wait for Slack to reconnect — poll the state file, not the log
-until [[ "$(jq -r '.platforms.slack.state' ~/.hermes/gateway_state.json)" == "connected" ]]; do sleep 2; done
-jq -r '"pid=\(.pid) gateway=\(.gateway_state) slack=\(.platforms.slack.state)"' ~/.hermes/gateway_state.json
+# Wait for the API server platform to reconnect — poll the state file, not the log
+until [[ "$(jq -r '.platforms.api_server.state' ~/.hermes/gateway_state.json)" == "connected" ]]; do sleep 2; done
+jq -r '"pid=\(.pid) gateway=\(.gateway_state) api_server=\(.platforms.api_server.state)"' ~/.hermes/gateway_state.json
 ```
 
-> Don't wait on `grep -q "Bolt app is running" ~/.hermes/logs/agent.log` — the log is
-> append-only, so it matches a *previous* startup instantly and the loop exits before the
-> new process is up. Poll `gateway_state.json` instead.
+> Poll `gateway_state.json`, not the log: the log is append-only, so a grep matches a
+> *previous* startup instantly and the loop exits before the new process is up.
 
-A restart posts a `⚠️ Gateway shutting down` notice into Slack. That's expected, not a
-fault — but it means restarts are user-visible, so batch them.
+A restart drops in-flight Iris requests (the drain waits for running turns first), so batch restarts.
 
 Then re-send the same test message and compare `api_calls` and `time` in `agent.log`.
 
@@ -241,9 +185,8 @@ Then re-send the same test message and compare `api_calls` and `time` in `agent.
 | Weather UV query (sunscreen) | `weather` | 2 | ~60s | Working |
 | TickTick overdue/due tasks | `tasks` | 3 | ~152s | Working — uses /summary .ticktick, grouped by project |
 | Calendar + unread emails | `schedule` | 3 | ~77s | Working — parallel calendar + emails in one pass |
-| Slack unreads | `slack` | 3 | ~31s | Working — uses /slack/unreads, very fast |
 | Cross-domain (meetings + tasks + weather) | `schedule` + `tasks` + `weather` | 4 | ~121s | Working — loads 3 skills, 3 curl calls, clean combined response |
-| Capture: clear GitHub repo (slack patch → dotfiles) | `capture` | 2 | ~12s | Working — 95% confidence, correct title + body shape |
+| Capture: clear GitHub repo (patch → dotfiles) | `capture` | 2 | ~12s | Working — 95% confidence, correct title + body shape |
 | Capture: TickTick Personal (water plants tomorrow) | `capture` | 2 | ~11s | Working — date math correct, project ID resolved |
 | Capture: IU/Work override (EP-1234 engineering task) | `capture` | 2 | ~9s | Working — hard rule applied, no GitHub even for code work |
 | Capture: Shopping (buy oat milk and bananas) | `capture` | 2 | ~9s | Working — split into 2 tasks per multi-item rule |
@@ -258,52 +201,16 @@ Then re-send the same test message and compare `api_calls` and `time` in `agent.
 | Usage: monthly AI spend | `argo-api` (usage) | — | ~64s | Working — `/usage/headline` + breakdown, per-source + per-model, honest about fixed 7/30/90d windows |
 | Post-update (v0.16.0→v0.18.2) TickTick overdue check | `tasks` (method A) | 4 | ~26s | Working — general agent loop intact after platform-plugin rewrite |
 | Post-update infra status (homelab+vps) | `infrastructure` (method A) | 4 | ~16s | Working — 2× terminal/curl tool calls, clean routing after the platform-plugin rewrite |
-| Post-update Slack formatting check (`*` bullet) | — (method B, real Slack path) | 1 | 5.2s | Working — response posted with `-` bullets (confirms `format_message()` pre-steps ported to `plugins/platforms/slack/adapter.py`). *Recorded `thread_ts: null` — correct then (`reply_in_thread: false`), and the opposite of correct now; see the threading note below.* |
-| Post-update TTS title check ("say out loud") | — (method B, real Slack path) | 2 | 16.2s | Working — `tools.tts_tool: TTS audio saved: .../Update Verification Successful.mp3` (confirms `tts-tool-audio-title.patch` re-applied correctly post-conflict, not `tts_<timestamp>.mp3`); media send via patched `base.py` completed with no errors |
 | Post-audit infra status (method A) | `argo-api` (infrastructure) | 3 | 15.4s | Working — Homelab 36/36 + VPS 29/29, zero approval gates (argo allowlist intact after the tirith rewrite) |
 | Post-audit download-guard block (method A) | `tirith_security` hardening | — | — | Working — `wget -qO /tmp/f URL && chmod +x … && /tmp/f` **blocked** end-to-end, no file created. This shape was a *bypass* before the restart, so it proves the running process carries the hardened guard, not just the file on disk |
-| Post-audit Slack round-trip (method B) | `reply_in_thread: true` | 3 | 21.3s | Working — session key `agent:main:slack:group:<team>:<C…>:<ts>` carries the message ts, reply threaded under it. First live confirmation that one thread == one session == one context window |
-| Post-audit thread continuation (method B, `/reply`) | `reply_in_thread: true` | 1 | 3.9s | Working — reply into the thread **reused** the same session (message_count 8→10, no new session) and correctly recalled the first question. Confirms context carries within a thread; inbound arrives prefixed `[Replying to: "…"]` |
-| v0.19.1 Slack bullets + threading (method B) | — | 2 | 10.9s | Working — session key `…:C0ASRUD7K1U:1785673823.484699` with `thread_id` set. Note the model happened to emit `-` bullets itself, so the *round-trip alone proved nothing* about the patch — see the in-process recipe below |
-| v0.19.1 `format_message()` pre-steps (in-process) | `slack-cannot-reply-to-message.patch` | — | — | Working — `* ` → `- ` at all nesting levels, and `` `:white_check_mark: …` `` backticks stripped. This is the check that actually pins the patch |
-| v0.19.1 TTS + thread continuation (method B, `/reply`) | `tts-tool-audio-title` + `base.py` anchor | — | ~29s | Working — `TTS audio saved: …/Gateway und Dienste prüfen.mp3` (human title, not `tts_<timestamp>`), `[Slack] Delivering 1 non-image MEDIA attachment(s)` then a clean send, no errors. Same session reused (mc 5→9) |
 | v0.19.1 STT round-trip (in-process) | `stt.openai` | — | — | Working — fed the TTS mp3 back to `transcribe_audio()`: `gpt-4o-transcribe` returned accurate German with umlauts intact ("Prüfe Gateway und Dienste… keine Fehler in der Gateway-Logdatei"). Closes the loop Gemini Charon → gpt-4o-transcribe |
-| v0.19.1 cron delivery target (in-process) | `scheduler-skip-resolver-for-slack-ids` | — | — | Working — `slack:C0ASRUD7K1U` resolved to `{'chat_id': 'C0ASRUD7K1U', 'thread_id': None}`, un-mangled by the channel directory |
-| v0.21.6+669 in-process sweep (2026-10-11) | slack mrkdwn, `tts-tool-audio-title`, STT, cron allowlist | — | — | Working — `format_message('* eins\n  * zwei')` → `-` bullets at both levels; forced `elevenlabs/v3` returned title `Kurzer Test nach Update` and renamed the file; STT gave back the exact sentence; cron scanner: argo/karakeep/research `OK` live vs `Blocked` pristine, evil host blocked in both |
-| v0.21.6+669 Slack TTS + thread (method B) | `slack-media-inline-reply-anchor`, threading | 5 | 32.5s | Working — text and `tts_<timestamp>.mp3` share `thread_ts`. A timestamp name is correct with the live `elevenlabs/flash-v2.5`: Flash sends no title header. `/reply` continuation reused the session (one row, mc 14) and recalled `12:30` in 2.6s, Haiku 5.5 EU, no fallback |
-| v0.22.2 post-update sweep (2026-10-15) | slack mrkdwn, `tts-tool-audio-title`, cron allowlist, brain | — | — | Working — `format_message('* eins\n  * zwei')` → `- eins\n  - zwei`; forced `elevenlabs/v3` returned title `Kurzer Test nach Update` and renamed the file; cron scanner argo/karakeep/research `OK` live vs `Blocked` pristine, evil host blocked in both; method A `pong` from Haiku 5.5, no fallback |
-| v0.22.2 + deepseek-v4.1-flash brain sweep (2026-10-20) | slack mrkdwn, `tts-tool-audio-title`, STT, cron allowlist, threading, routing | 6 | 25.7s | Working — `format_message('* eins\n  * zwei')` → `- eins\n  - zwei`; forced `elevenlabs/v3` title `Kurzer Test nach Update`, STT returned the exact sentence; cron scanner argo/research `OK` live vs `Blocked` pristine, evil host blocked in both. Method B: `text_to_speech` + MEDIA delivered in-thread (5.8s, 2 calls), `/reply` reused the session (mc 7) and recalled the question (1.7s). Method A watchdog-count query: `skill_view` + 4 curls, 6 calls, correct answer. All on `deepseek-v4.1-flash`, no fallback, no errors after restart |
-| v0.22.7 + Haiku 5.5 gateway Anthropic leg, compaction 650k (2026-11-04) | routing, threading, audio route ids, mrkdwn, patches | 1–3 | 1.2–12s | Working — method A: infra (homelab 36/36, VPS gap known), tasks, `pong` on `claude-haiku-5-5`, 3 calls/~11s, cache 93–100% (new sessions already read the shared 23k prefix). Method B: `text_to_speech` → titled mp3 delivered in-thread via `audio.tts.gemini-flash-lite`, `/reply` reused the session (mc 7) and recalled `4711`. `format_message('* eins\n  * zwei')` → `- eins\n  - zwei`; `make patch-check` 12/12; no fallback, no errors after the deploy |
+| v0.22.7 + Haiku 5.5 gateway Anthropic leg, compaction 650k (2026-11-04) | routing, audio route ids, patches | 1–3 | 1.2–12s | Working — method A: infra (homelab 36/36, VPS gap known), tasks, `pong` on `claude-haiku-5-5`, 3 calls/~11s, cache 93–100% (new sessions already read the shared 23k prefix). Method B: `text_to_speech` → titled mp3 delivered in-thread via `audio.tts.gemini-flash-lite`, `/reply` reused the session (mc 7) and recalled `4711`. `format_message('* eins\n  * zwei')` → `- eins\n  - zwei`; `make patch-check` 12/12; no fallback, no errors after the deploy |
 
-**In-process recipe for `format_message()`** — worth keeping, because two things block the
-obvious approach: the module uses a relative import (`from .block_kit import …`) that fails
-outside its package, and `SlackAdapter`'s base is abstract. Add the adapter's own directory
-to `sys.path` so the module's `except ImportError` fallback resolves, then subclass to
-satisfy the abstract methods:
-
-```python
-import importlib.util, sys
-sys.path.insert(0, 'plugins/platforms/slack')          # lets `from block_kit import …` resolve
-spec = importlib.util.spec_from_file_location('slack_probe', 'plugins/platforms/slack/adapter.py')
-mod = importlib.util.module_from_spec(spec); sys.modules['slack_probe'] = mod
-spec.loader.exec_module(mod)
-class Stub(mod.SlackAdapter):                          # base is abstract — stub the 4 methods
-    def __init__(self): pass
-    async def connect(self): ...
-    async def disconnect(self): ...
-    async def get_chat_info(self, *a, **k): ...
-    async def send(self, *a, **k): ...
-print(mod.SlackAdapter.__dict__['format_message'](Stub(), '* eins\n* zwei'))
-```
-
-**A Slack round-trip cannot prove a formatting patch.** The model writes whatever markdown
-it likes; if it already emits `-` bullets, the output is identical with or without the
-patch. Drive `format_message()` directly with input that *must* be transformed, and keep
-the round-trip for what only it exercises — threading, session keying, media delivery.
+Rows for the retired Slack path (threading, `format_message()`, Slack media delivery) were dropped with the Slack gateway.
 
 Update this table after each validation run. **Rows are historical, not current spec** —
 they record what was true on the day. The `Skill used` column on pre-2026-06 rows names
-domain skills (`infrastructure`, `tasks`, `schedule`, `weather`, `slack`) that no longer
+domain skills (`infrastructure`, `tasks`, `schedule`, `weather`) that no longer
 exist as directories; those endpoints now live in `argo-api/references/*.md` and route
 through the `argo-api` skill. Don't "fix" an old row to match today — add a new one.
 
@@ -325,8 +232,7 @@ table, which has gone stale before.
 | File | Purpose |
 |-|-|
 | `SOUL.md` | System prompt — skill routing table lives here |
-| `config.yaml` | Model, platform (`reply_in_thread`), secrets, tirith settings |
-| `skills/argo-api/SKILL.md` | Full endpoint reference + `references/*.md` per domain (infrastructure, tasks, schedule, weather, slack, garmin-health, strength, walking-pad, usage) |
+| `config.yaml` | Model, platform toolsets, secrets, approvals |
 | `skills/capture/SKILL.md` | Router: KaraKeep vs Obsidian vs TickTick vs GitHub |
 | `skills/work/SKILL.md` | IU surface — M365, Jira, Confluence, GitLab |
 | `skills/karakeep/SKILL.md` · `skills/obsidian/SKILL.md` | Read-later bucket · second brain |
@@ -334,6 +240,4 @@ table, which has gone stale before.
 | `skills/image-delivery/SKILL.md` | `imgcli private`/`upload` — private by default |
 | `~/.hermes/logs/agent.log` | Structured run log (api_calls, time, inbound messages) |
 | `~/.hermes/logs/gateway.log` | Gateway stdout (startup, tool progress bars) |
-| `~/.hermes/sessions/*.jsonl` | Turn-by-turn traces — **Slack path only** (see method-A note) |
 | `~/.hermes/state.db` | `sessions` table — session keys, thread ids, message counts |
-| `~/.hermes/gateway_state.json` | Live pid + gateway/Slack connection state |

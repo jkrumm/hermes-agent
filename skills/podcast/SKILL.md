@@ -1,6 +1,6 @@
 ---
 name: podcast
-description: Turn source notes (a brain note, a saved article, pasted text) into a long-form, two-host German podcast episode via `agw podcast` (agent-workflows), and publish it into Audiobookshelf. Use when Johannes asks for "mach mir einen Podcast", "Podcast über …", "als Podcast", "Hörbuch/Audio-Briefing zu …", "mach daraus was zum Anhören", or wants a plan/article/research turned into something to listen to (e.g. on a drive). Submit-and-wait (async); the run takes minutes (a writers' room of several models, then per-turn synthesis), and the finished episode is announced here in Slack with its Audiobookshelf link.
+description: Turn source notes (a brain note, a saved article, pasted text) into a long-form, two-host German podcast episode via `agw podcast` (agent-workflows), and publish it into Audiobookshelf. Use when Johannes asks for "mach mir einen Podcast", "Podcast über …", "als Podcast", "Hörbuch/Audio-Briefing zu …", "mach daraus was zum Anhören", or wants a plan/article/research turned into something to listen to (e.g. on a drive). Submit-and-wait (async); the run takes minutes (a writers' room of several models, then per-turn synthesis), and the finished episode is announced in the reply with its Audiobookshelf link.
 version: 2.0.0
 metadata:
   hermes:
@@ -158,7 +158,7 @@ parent run's own steps, NOT the episode price — never report it.
 
 ---
 
-## Presenting the answer (Slack, German by default)
+## Presenting the answer (German by default)
 
 When `status: done`, report:
 - **Title** and **duration** in minutes.
@@ -181,7 +181,7 @@ and never re-run `agw podcast` for a publish failure — that generates a whole 
 episode.
 
 **Do not attach the MP3 via `MEDIA:`** for anything over ~5 minutes of audio —
-Slack's upload size/time makes that a bad experience for a long-form file. Link to
+a chat attachment is a bad experience for a long-form file. Link to
 Audiobookshelf instead.
 
 The mp3 carries chapters and cover art, so once published it's a real episode, not

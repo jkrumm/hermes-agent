@@ -19,5 +19,5 @@ live cache (`state-cache.md`) is the source of truth.
 
 ## Service/domain → repo examples
 
-- "the slack patch" / "the morning briefing prompt" / "a Hermes skill" / "SOUL.md" → `hermes-agent`.
+- "a gateway patch" / "the morning briefing prompt" / "a Hermes skill" / "SOUL.md" → `hermes-agent`.
 - "rollhook deploy logs" → `rollhook`.

@@ -9,7 +9,7 @@ Source-of-truth for the evening report prompt. **This file is documentation, not
 | Schedule | `0 22 * * 1-4` (22:00 Mon–Thu, Europe/Berlin) |
 | Skills | `argo-api`, `work` |
 | Pre-run script | `briefing-context.py` (shared with morning briefing) |
-| Deliver | `slack:C0AT6TH404R` (#briefings) |
+| Deliver | `local` (job is paused; resuming needs a delivery surface choice — an ntfy topic or Iris) |
 | Name | `Evening report` |
 
 The schedule deliberately excludes Friday and Sunday — Friday evening is already weekend, Sunday should not be loaded with anything. Mon–Thu only.
@@ -23,7 +23,7 @@ hermes cron create "0 22 * * 1-4" "$(cat ~/SourceRoot/hermes-agent/cron/evening-
   --skill work \
   --script briefing-context.py \
   --name "Evening report" \
-  --deliver slack:C0AT6TH404R
+  --deliver local --failure-deliver local
 
 # Trigger immediately for testing
 hermes cron run <job_id>
@@ -40,10 +40,10 @@ Mon–Thu at 22:00, a fresh Hermes session:
 
 1. Pre-run script (`briefing-context.py`) emits `BRIEFING_CITY=…` + `BRIEFING_SUPPRESSED=true|false`. On vacation the agent short-circuits with `[SILENT]`.
 2. Fires 6 parallel curls — `/daily-metrics`, `/workouts`, `/calendar?days=2` (personal Google), `/m365/calendar/upcoming?days=2` (IU work Outlook), `/weather/forecast`, `/summary`
-3. Composes a structured Slack mrkdwn body (English, 5 sections) — Today's Training, Recovery & Body, Tomorrow's Schedule, For Tomorrow (max 3 items), Tomorrow's Weather
+3. Composes a structured Markdown body (English, 5 sections) — Today's Training, Recovery & Body, Tomorrow's Schedule, For Tomorrow (max 3 items), Tomorrow's Weather
 4. Composes a separate German narrative (~120–150 words, four paragraphs, calm wind-down tone)
 5. Calls TTS on the narrative → MP3 + `MEDIA:` tag
-6. Returns the structured text body + `MEDIA:` tag — Slack delivers both text and audio attachment
+6. Returns the structured text body + `MEDIA:` tag — the delivery surface gets both text and audio attachment
 
 ## Tone & Format
 
@@ -57,7 +57,7 @@ Mon–Thu at 22:00, a fresh Hermes session:
 
 It exists so the day closes with: what your body did today, what tomorrow looks like, that's it.
 
-**Text body (Slack mrkdwn, English):**
+**Text body (Markdown, English):**
 - Sections: Header (`Evening — Weekday, Mon DD`) → Today's Training → Recovery & Body → Tomorrow's Schedule → For Tomorrow (max 3) → Tomorrow's Weather
 - Emoji shortcode headers (`:waning_crescent_moon:`, `:weight_lifter:`, `:sleeping:`, `:date:`, `:checkered_flag:`, `:partly_sunny:`)
 - Bullet lists with `-`, project emojis for tasks (`:briefcase:`, `:house:`, `:innocent:`)

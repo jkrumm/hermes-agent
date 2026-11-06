@@ -14,16 +14,6 @@ API_SERVER_KEY=op://hermes/gateway/api-server-key
 # Name advertised on /v1/models (default would be 'hermes-agent').
 API_SERVER_MODEL_NAME=hermes
 
-# Slack (create app via manifest: hermes/slack-app-manifest.json)
-SLACK_BOT_TOKEN=op://hermes/slack/bot-token
-SLACK_APP_TOKEN=op://hermes/slack/app-token
-SLACK_ALLOWED_USERS=op://hermes/slack/allowed-user-id
-SLACK_ALLOW_ALL_USERS=true        # Channel membership is the ACL — no per-user ID filtering needed
-# Channel IDs — fill after creating channels (Settings > Copy Channel ID)
-SLACK_CHANNEL_HERMES=op://hermes/slack/channel-hermes
-SLACK_HOME_CHANNEL=op://hermes/slack/channel-hermes
-SLACK_CHANNEL_INBOX=op://hermes/slack/channel-inbox
-
 # Every model call goes through the local inference gateway (agent-workflows, :7794),
 # which mirrors IU's path layout: the OpenAI leg (brain, fallback, compression,
 # title_generation) below, the Anthropic leg (vision, approval) further down.
@@ -48,7 +38,7 @@ TAVILY_API_KEY=op://hermes/tavily/API_KEY
 GITHUB_TOKEN=op://hermes/github/token
 
 # Argo API (formerly homelab API) — single integration layer for TickTick, Gmail,
-# Calendar, Docker, UptimeKuma, Slack. Base URL: https://argo.jkrumm.com/api
+# Calendar, Docker, UptimeKuma. Base URL: https://argo.jkrumm.com/api
 # (env var name HOMELAB_API_KEY kept for shell/cron compatibility)
 HOMELAB_API_KEY=op://common/api/SECRET
 

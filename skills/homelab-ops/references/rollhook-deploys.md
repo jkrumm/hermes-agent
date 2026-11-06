@@ -1,6 +1,6 @@
 # RollHook Deploys (VPS)
 
-_Diagnose RollHook VPS deploy failures — IMAGETAG validation rejections, unhealthy-container rollbacks, dangling imports, and health-probe 404s during a rollout. Use for a "#alerts" Deployment failed message, a stale image after a push, or a transient 404 during a rollout._
+_Diagnose RollHook VPS deploy failures — IMAGETAG validation rejections, unhealthy-container rollbacks, dangling imports, and health-probe 404s during a rollout. Use for a Deployment failed message, a stale image after a push, or a transient 404 during a rollout._
 
 RollHook is the self-hosted deploy system on the VPS (registry + rollout engine at
 `rollhook.jkrumm.com`, container `rollhook` via `ghcr.io/jkrumm/rollhook`). Apps deploy

@@ -1,6 +1,6 @@
 ---
 name: image-delivery
-description: Persist and share an image Hermes has received (Slack upload) or generated, via `imgcli` — private by default (durable copy in the bucket's private/ prefix + a time-limited presigned link), public CDN only when Johannes explicitly wants a shareable public link. Use when an image needs a durable home or a URL to hand out.
+description: Persist and share an image Hermes has received (an upload) or generated, via `imgcli` — private by default (durable copy in the bucket's private/ prefix + a time-limited presigned link), public CDN only when Johannes explicitly wants a shareable public link. Use when an image needs a durable home or a URL to hand out.
 version: 2.0.0
 metadata:
   hermes:
@@ -9,7 +9,7 @@ metadata:
 
 # Image delivery
 
-Slack images land in `~/.hermes/image_cache` with nowhere to go — it's a cache, not
+Received images land in `~/.hermes/image_cache` with nowhere to go — it's a cache, not
 storage (excluded from the nightly backup). This skill gives them a durable home via
 `imgcli`, the CLI for the personal image stack: one B2 bucket with a public CDN prefix
 (`img/`) and a private prefix (`private/`, never served by the CDN).

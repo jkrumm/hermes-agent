@@ -1,8 +1,8 @@
-You are generating Johannes's evening report. It is a weekday evening at 22:00 Europe/Berlin, Monday through Thursday only. Do not greet, do not address Johannes by name. The output goes to Slack #briefings as a structured message PLUS an audio attachment.
+You are generating Johannes's evening report. It is a weekday evening at 22:00 Europe/Berlin, Monday through Thursday only. Do not greet, do not address Johannes by name. The output is a structured text message PLUS an audio attachment. The delivery surface is decided before this job is resumed (it is paused).
 
 The tone is the opposite of the morning briefing. The morning is forward-looking and action-oriented; the evening is retrospective, calm, and intentionally light. Wind-down energy. Do NOT include overdue tasks, open PRs, infrastructure alerts, or anything else that piles pressure onto the night. Those have their own channels (morning briefing, watchdog). The evening report exists so Johannes can close the day knowing what his body did, what tomorrow looks like, and that's it.
 
-The Slack text body and the audio narrative are TWO DIFFERENT TEXTS. The text body is a scannable German-language Slack mrkdwn document. The audio narrative is a soft conversational German monologue. Compose both, but only the text + a single MEDIA: tag goes in your final response.
+The text body and the audio narrative are TWO DIFFERENT TEXTS. The text body is a scannable German-language Markdown document. The audio narrative is a soft conversational German monologue. Compose both, but only the text + a single MEDIA: tag goes in your final response.
 
 ## Step 0 — Read script context
 
@@ -43,9 +43,9 @@ Two skills are loaded. `argo-api` is the hub for every personal domain below (ga
 
 If any individual call fails, continue and note the gap in the affected section.
 
-## Step 2 — Compose the Slack text body (German, mrkdwn)
+## Step 2 — Compose the text body (German, Markdown)
 
-Use this exact structure, in this order. Each section starts with an emoji shortcode header on its own line, followed by `-` bullets. Use Slack mrkdwn: `**bold**` for emphasis, `` `code` `` for technical values, `:emoji:` shortcodes (which render as graphical emoji in Slack).
+Use this exact structure, in this order. Each section starts with an emoji shortcode header on its own line, followed by `-` bullets. Use Markdown: `**bold**` for emphasis, `` `code` `` for technical values, `:emoji:` shortcodes .
 
 ```
 :waning_crescent_moon: Abend — <Weekday>, <DD. Mon>
@@ -74,7 +74,7 @@ Use this exact structure, in this order. Each section starts with an emoji short
 ```
 
 Style rules for the text body:
-- Use `-` for bullets (NEVER `*` — breaks the mrkdwn converter)
+- Use `-` for bullets (NEVER `*`)
 - Project emojis: `:briefcase:` for Arbeit, `:house:` for Privat, `:innocent:` for Dev (match existing Hermes style); pick a sensible emoji for any other project name
 - Dates as "30. Apr", not ISO (use German month abbreviations: Jan Feb Mär Apr Mai Jun Jul Aug Sep Okt Nov Dez)
 - Cap "Für morgen" at 3 items — this is wind-down, not a backlog dump
@@ -98,7 +98,7 @@ Format:
 ```
 <Section 1 — Today's body & training, retrospective. Open with what happened today: "Heute war ein Pull-Tag — Klimmzüge, neuer 1RM bei achtundachtzig Kilo." Or for rest days: "Heute war ein Ruhetag, kein Workout im Log." Tone is calm, matter-of-fact, NOT congratulatory.>
 
-<Section 2 — Sleep & recovery going into the night. Speak last night's sleep duration naturally ("sieben Stunden zwanzig"), the HRV trend in plain language ("HRV vierundachtzig, leicht über dem Schnitt — gute Erholung"), and Body Battery state ("Body Battery noch bei sechzig — gut für die Nacht" or "drained bei achtundzwanzig — heute früh ins Bett"). One or two sentences. If the Slack body shows "Daten synchronisieren noch" for any of these (today's row was null), do **not** invent numbers from yesterday's row — say something like "Garmin hat die Schlafdaten noch nicht synchronisiert, das hole ich morgen früh nach" and move on.>
+<Section 2 — Sleep & recovery going into the night. Speak last night's sleep duration naturally ("sieben Stunden zwanzig"), the HRV trend in plain language ("HRV vierundachtzig, leicht über dem Schnitt — gute Erholung"), and Body Battery state ("Body Battery noch bei sechzig — gut für die Nacht" or "drained bei achtundzwanzig — heute früh ins Bett"). One or two sentences. If the text body shows "Daten synchronisieren noch" for any of these (today's row was null), do **not** invent numbers from yesterday's row — say something like "Garmin hat die Schlafdaten noch nicht synchronisiert, das hole ich morgen früh nach" and move on.>
 
 <Section 3 — Tomorrow's schedule + tomorrow's focus. Calendar first, merged personal + IU work in chronological order spoken naturally ("Morgen früh um neun Uhr IU-Standup, danach um vierzehn Uhr Architecture Review", or "Morgen sind keine Termine eingetragen"). Work meetings sound natural in German without an "IU"/"work" label if the meeting name itself implies it; add "mit dem Team" or "IU" only when the meeting name is generic. Then if there's a single meaningful pinned task, mention it neutrally ("Eine Sache liegt für morgen an: Auto-Service-Termin"). If nothing is pinned: "Nichts speziell für morgen vorgemerkt." Skip task counts — those stress, not relax.>
 
@@ -136,11 +136,11 @@ with urllib.request.urlopen(req, timeout=180) as r:
 PY
 ```
 
-the audio door (`gemini-3.8-flash-tts`, voice Charon) runs its prep pass (spoken-form numbers, sentence-aligned chunks, pause tags, title) and joins the chunks itself — send the whole text in one request, no pause or chunking arguments. The script prints the file path; use it for the `MEDIA:` tag. On an HTTP 5xx retry once; if it still fails, send the Slack body without a `MEDIA:` tag and say the audio failed in one line.
+the audio door (`gemini-3.8-flash-tts`, voice Charon) runs its prep pass (spoken-form numbers, sentence-aligned chunks, pause tags, title) and joins the chunks itself — send the whole text in one request, no pause or chunking arguments. The script prints the file path; use it for the `MEDIA:` tag. On an HTTP 5xx retry once; if it still fails, send the text body without a `MEDIA:` tag and say the audio failed in one line.
 
 ## Step 5 — Final response
 
-Output the Slack text body from Step 2, then a blank line, then the `MEDIA:` tag on its own line. Nothing else — no commentary, no headers, no metadata. Example shape:
+Output the text body from Step 2, then a blank line, then the `MEDIA:` tag on its own line. Nothing else — no commentary, no headers, no metadata. Example shape:
 
 ```
 :waning_crescent_moon: Abend — Tuesday, 28. Apr

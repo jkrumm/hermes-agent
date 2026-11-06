@@ -47,7 +47,7 @@ gelaufen", "walking streak", "did I walk today", "treadmill stats", "pace trend"
 **`/walking-pad/sessions/length-histogram`** → `{metric, buckets: [{bucketStart, bucketWidth, sessions}]}`.
 **`/walking-pad/achievements`** → `{data: [{id, type, session_uuid, value, title, description, confetti, unlocked_at}]}`.
 
-## Response formatting (Slack, German default)
+## Response formatting (German default)
 
 - **Lead with the human numbers**: km (1 dp), total time as `Xh Ym` or `Z min`, step count,
   kcal. Never echo raw `duration_s`/`distance_m`.

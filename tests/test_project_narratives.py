@@ -14,8 +14,7 @@ commit.
 No network, no real vault, no real git/node process — every case builds its
 fixtures under a temp directory and reassigns the module's path globals
 (SOURCE_ROOT, VAULT_ROOT, PROJECTS_DIR, ENGINEERING_INDEX, VAULT_LINT,
-STATE_PATH, CLAUDE_PROJECTS_DIR) before calling into it, mirroring how
-test_agents_overview.py reassigns ao.fetch.
+STATE_PATH, CLAUDE_PROJECTS_DIR) before calling into it.
 
 Run against the live tree:
 
@@ -222,6 +221,11 @@ loaded = pn._load_state()
 check("round-tripped state matches", loaded, state)
 
 
+# Notices go out through scripts/ntfy_notify.py; the suite never publishes for real.
+published: list[tuple[str, str, str]] = []
+pn.ntfy_notify.publish = lambda topic, title, text: published.append((topic, title, text))
+
+
 # --- main(["--run"]) — changed:false ------------------------------------------
 
 print("\n9b. run_narrative_job — argv for agw, output unwrapped, failures degrade to None")
@@ -305,6 +309,8 @@ try:
         rc = pn.main(["--run"])
     check("exit 0", rc, 0)
     check("stdout is the one revised line", out.getvalue().strip(), "weatherorb: Shipped CDN icon mirroring.")
+    check("published to ntfy topic updates", published,
+          [("updates", "Project narratives", "weatherorb: Shipped CDN icon mirroring.")])
     check_true("page written", (pn.PROJECTS_DIR / "weatherorb.md").exists())
     check_true("projects index regenerated", (pn.PROJECTS_DIR / "index.md").exists())
     check_true("engineering index links the projects index", pn.SUBDOMAIN_LINK in pn.ENGINEERING_INDEX.read_text())
@@ -329,6 +335,36 @@ try:
     check("state records the new commit", saved["weatherorb"]["lastCommit"], "sha-abc")
     check("state records the summary", saved["weatherorb"]["summary"], "Shipped CDN icon mirroring.")
 finally:
+    del pn.run_narrative_job
+
+
+print("\n11a. main(['--run']) — a failed ntfy publish exits non-zero, stdout keeps the line")
+_reset_paths()
+_mk_repo("weatherorb")
+_write_engineering_index()
+pn.subprocess.run = make_fake_run([], head_sha="sha-abc", lint_ok=True)
+pn.run_narrative_job = lambda project, cwd, previous_page, since, **kw: {
+    "project": project, "changed": True, "reason": "commits landed",
+    "summary": "Shipped CDN icon mirroring.", "page": page_md, "sections": ["summary"],
+    "inputs": {"commits": 3, "sessions": 1, "sinceUsed": since}, "model": "test",
+}
+_ok_publish = pn.ntfy_notify.publish
+
+
+def _failing_publish(topic, title, text):
+    raise pn.ntfy_notify.NtfyError("ntfy token did not resolve")
+
+
+pn.ntfy_notify.publish = _failing_publish
+try:
+    out, err = io.StringIO(), io.StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        rc = pn.main(["--run"])
+    check("exit 1", rc, 1)
+    check("stdout keeps the revised line", out.getvalue().strip(), "weatherorb: Shipped CDN icon mirroring.")
+    check_true("stderr names the failure", "ntfy token did not resolve" in err.getvalue())
+finally:
+    pn.ntfy_notify.publish = _ok_publish
     del pn.run_narrative_job
 
 

@@ -3,7 +3,7 @@
 _Use when deciding whether an alert is still live._
 
 An alert message is a **timestamped observation**, never a statement about now. A
-digest line, a `#alerts` post and an UptimeKuma notification are all history; the
+digest line, an alert post and an UptimeKuma notification are all history; the
 question "is this still true" is answered only by the source that owns the
 measurement. Answer it before relaying anything as outstanding work.
 
@@ -57,23 +57,14 @@ for r in c.execute('select * from alerts_history order by rowid desc limit 15'):
   Use it for the value now, `alerts_history` for whether it is still firing.
 - The bind mount is root-owned but world-readable, so no sudo is needed.
 
-### Slack-sourced alerts (UptimeKuma, HyperDX, watchdogs)
+### Alert posts (UptimeKuma, HyperDX, watchdogs)
 
-```bash
-set -a; source <(secrets-run export --env-file=$HOME/.hermes/.env.tpl | sed 's/^export //'); set +a
-curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" \
-  "https://argo.jkrumm.com/api/slack/channels/C0AS1LAUQ3C/messages?limit=25"
-```
+Hermes cannot read the posts themselves any more (they still go to Slack until their
+own migration). Work from what the owner relays, then probe the producer as above:
 
-- Firing history for one signature: `GET /slack/search?q=in:%23alerts "<exact alert text>"`.
-  URL-encode the whole query (`urllib.parse.quote`) rather than hand-building it in
-  the shell — a mis-encoded query returns an empty body that surfaces as
-  `JSONDecodeError: Expecting value: line 1 column 1`, which reads like a broken
-  endpoint instead of a malformed query.
 - A `✅`-prefixed message is the recovery pairing; its absence is a reason a row
   can sit open, not evidence the service is down.
-- Past digests live in the digest/card channel, not the alert channel. Diff today's
-  headings against the last few days' before calling anything new.
+- For the factory's own view of open problems: `skill_view('fleet')` (`health` + `asks`).
 
 ### Public services
 

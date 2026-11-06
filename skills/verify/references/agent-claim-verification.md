@@ -106,9 +106,8 @@ unproven, not green.
   eliminates pickup.** When a fix works by renaming a script out of the canonical
   `test`/`lint`/`typecheck` set, report it as a reduction. Claiming the lane can no
   longer be discovered is a claim the mechanism does not support.
-- **Re-read the state before answering a Slack line.** A line is a snapshot posted at a
-  state change, and the state can have moved since. Check the live source first (`agw agents
-  --text`, `gh pr view` / `gh issue view`); the snapshot is not the answer.
+- **Re-read the state before answering a relayed status line.** A line is a snapshot posted at a
+  state change, and the state can have moved since. Check the live source first (`factory read issue <id>`, `gh pr view` / `gh issue view`); the snapshot is not the answer.
 
 ## A PR-required repo's PR waiting on the owner
 

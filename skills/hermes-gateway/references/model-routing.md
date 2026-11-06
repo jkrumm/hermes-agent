@@ -36,7 +36,7 @@ Every turn then went out on `/v1/chat/completions` carrying both function tools 
 ```
 
 Three retries per turn, then the whole conversation on the Anthropic fallback — with
-`hermes gateway status`, `/health`, launchd and the Slack connection all green
+`hermes gateway status`, `/health`, launchd and the API server platform all green
 throughout. **Supervisor health told you nothing about request health.**
 
 At 12:44:09 a line reads `Fallback activated: gpt-5.6-luna-does-not-exist →

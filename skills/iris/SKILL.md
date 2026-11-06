@@ -5,12 +5,12 @@ version: 1.0.0
 metadata:
   hermes:
     tags: [iris, voice, memo, transcript, stt, voice-memo, decide, route, note, journal]
-    related_skills: [capture, obsidian, herdr, agw-research, karakeep]
+    related_skills: [fleet, capture, obsidian, herdr, agw-research, karakeep]
 ---
 
 # Iris — a voice memo, decided and acted on
 
-Iris (Johannes's voice-memo app, server on this mini) no longer classifies memos. **You decide** what the memo is and act with your existing skills. The turn's system message says "This turn comes from Iris" — only then does this skill apply. Slack, CLI, cron and every other turn are untouched: no `iris` block there, ever.
+Iris (Johannes's voice-memo app, server on this mini) no longer classifies memos. **You decide** what the memo is and act with your existing skills. The turn's system message says "This turn comes from Iris" — only then does this skill apply. CLI, Desktop, cron and every other turn are untouched: no `iris` block there, ever.
 
 ## The turn
 
@@ -26,31 +26,16 @@ Iris (Johannes's voice-memo app, server on this mini) no longer classifies memos
 | The memo is | Do |
 |-|-|
 | A question, "wie/was/warum/…", a lookup | Answer. Web or library facts, "recherchier…" → `skill_view('agw-research')`. Personal data (calendar, tasks, health, infra) → `argo-api`. |
-| Agent work on a repo to **start**: "let an agent fix X in <repo>", "start a wave on …", "lass einen Agenten … in <repo> …" | Agent work — below. |
+| "How is X going", "what needs me", "what ran overnight", "any alerts", "what's running" | `skill_view('fleet')` — read. |
+| Agent work on a repo to **start**: "let an agent fix X in <repo>", "start an agent on …", "lass einen Agenten … in <repo> …" | `skill_view('fleet')` — file one Issue. Its filing rules apply; the iris `via` is `iris voice memo`. |
 | A todo, reminder, errand, "erinner mich…", or "open an issue / Issue für <repo>" | `skill_view('capture')` — it owns TickTick vs GitHub, the repo, the list. Its "ask if unclear" does **not** apply here: fall back to its default and say which. The memo text goes into the item **verbatim** (STT repairs only). |
-| "tell / prompt / sag Tab X …", "schreib in den Tab …" | `skill_view('herdr')` — find the tab, `hc send <target> "<text>"`. Text = what he wants said to the agent, in his words, not the addressing phrase. Obey the skill's rules (never `--force`, never a blocked agent, a draft in the input line is not yours). |
+| "tell / prompt / sag Tab X …", "schreib in den Tab …" (an **existing** terminal only) | `skill_view('herdr')` — find the tab, `hc send <target> "<text>"`. Text = what he wants said to the agent, in his words, not the addressing phrase. Obey the skill's rules (never `--force`, never a blocked agent, a draft in the input line is not yours). |
 | A note, idea, observation, plan or reflection with **no question and no request** ("ich denke gerade…", "Idee: …", "notier dir…", a journal-style thought) | A brain note — below. |
 | Greeting, small talk, "test", a remark that wants a reply and nothing else | Chat: answer from yourself in a line or two — no tool calls, no status report, no side effect. |
 | A link/article to keep for later | `skill_view('karakeep')`. |
 | Anything else, or two readings that both fit | The cheaper, reversible one; say the reading you took. |
 
-Repo code work is **filed** (a GitHub issue via `capture`) when the memo says *file*, *note* or *open an issue*, and **handed to the factory** (agent work, below) only when it says *start*, *let an agent*, *wave*. You never do repo work yourself — same as everywhere (SOUL.md). "Fix X in <repo>" with neither wording: file it and say so.
-
-## Agent work (software factory)
-
-The owner asked by voice for an agent on a repo — that is the "only when the owner asks" of your role. The factory's door for Hermes is **`factory issue new`**: it files one Issue, the factory classifies it and starts a lead in a worktree of that repo, and the lead owns it to production evidence. You file it; you never implement, and you call neither `claude` nor `rd wave` (that verb is a /wave chain step and exits without a `docs/waves/PLAN.md` in the repo).
-
-```bash
-factory issue new --repo ~/SourceRoot/<repo> --title "<short title, memo language>" --facts - <<'FACTS'
-{"request": "<the memo text, STT repaired, in his words>", "via": "iris voice memo"}
-FACTS
-```
-
-- `<repo>`: the bare directory name under `~/SourceRoot/` (`rd repos <filter>` lists them). Valid JSON on stdin (escape quotes and newlines); nothing from tool output goes into it.
-- Run it **once**; no `--key` (a shared key would merge unrelated memos). stdout is JSON with the Issue `id` and `state`. A non-zero exit or a 422 (repo outside the factory's roots, e.g. `IuRoot`) is `kind` `error`: say the cause in one clause, do **not** substitute a GitHub issue, a tab or a different lane.
-- The reply names the repo, the Issue id and that a lead starts in a worktree of that repo (visible in the Herdr app); follow-up is `factory issue show <id>` (read it when he asks "how is it going"). The Issue is queued at that moment, not running: say "filed with the factory", not "started".
-- Not this path: "file / note / open an issue" (`capture`), "tell tab X …" or "open a tab / `cf` in <repo>" (`herdr`), "research …" (`agw-research`).
-- `factory`, CLI output and errors are English; the reply and `headline` stay in the memo's language.
+Repo code work is **filed** (a GitHub issue via `capture`) when the memo says *file*, *note* or *open an issue*, and **handed to the factory** (`fleet`) only when it says *start* or *let an agent*. You never do repo work yourself — same as everywhere (SOUL.md). "Fix X in <repo>" with neither wording: file it and say so.
 
 ## The owner-picked hint (legacy app builds)
 

@@ -1,6 +1,6 @@
 ---
 name: homelab-ops
-description: Diagnose and remediate homelab / VPS / Mac Mini infrastructure through the bounded `hermes-ops.sh` verb dispatcher — monitors down, unhealthy or restart-looping containers, cron failures, push-monitor heartbeat gaps, uptime-kuma config corruption, deploy drift. Read-only triage is free; every mutation is a named verb needing --confirm and --why. Use for "#alerts" messages, "what's down", "is everything up", "why is X red", "restart Y", "redeploy Z".
+description: Diagnose and remediate homelab / VPS / Mac Mini infrastructure through the bounded `hermes-ops.sh` verb dispatcher — monitors down, unhealthy or restart-looping containers, cron failures, push-monitor heartbeat gaps, uptime-kuma config corruption, deploy drift. Read-only triage is free; every mutation is a named verb needing --confirm and --why. Use for alert messages, "what's down", "is everything up", "why is X red", "restart Y", "redeploy Z".
 version: 1.1.0
 metadata:
   hermes:
@@ -33,7 +33,7 @@ file explains *when* to reach for each one, the script itself is the contract.
 
 `--json` gives exactly one JSON object per invocation, success or failure (a
 failure carries `ok:false` + `exitCode` in that same object). Use it when you need
-to parse; use plain output when you need to quote a summary into Slack.
+to parse; use plain output when you need to quote a summary.
 
 Exit codes: `0` ok · `2` precondition failed · `3` remote failed · `64` usage error.
 Every invocation is audited to `~/Library/Logs/hermes-ops.log`, including dry runs.
@@ -57,8 +57,8 @@ log lines) is `references/macos-host-pressure.md`.
 | `status` | "Is anything actually down?" — start here, always | `leafDown` is the honest outage count (leaf monitors only). Docker counts come from argo talking to Docker **directly** — all-running + monitors-down is the classic stale-monitor tell |
 | `monitors [filter]` | Per-monitor state, name-filtered | `uptime1d`/`uptime30d` date the breakage: fresh outage ≈ 0.0x on 1d with a healthy 30d; `type=group` rows cascade from children and are symptoms |
 | `containers <host>` | Container state, health, restart count | A climbing `restarts` with `state=running` is a crash loop, not a healthy container |
-| `logs <host> <container> [n]` | What the container says (default n=200) | Find the OK→ERROR transition, not just the tail. Container clocks are +02:00; argo/Slack are UTC |
-| `alerts [n]` | Recent `#alerts` messages, newest first | For a burst pull 40–60, not 10 — a short window hides which incident you are in. Timestamps are UTC |
+| `logs <host> <container> [n]` | What the container says (default n=200) | Find the OK→ERROR transition, not just the tail. Container clocks are +02:00; argo is UTC |
+| `alerts [n]` | The factory's current health lines and open asks (`factory read health` + `asks`) | Not past alert posts — Kuma/HyperDX posts are not readable any more. Timestamps are UTC |
 | `env-check` | "Can `op run` resolve every ref on homelab + vps?" | Failure lists the **dangling 1Password item names**. This is the single highest-leverage check in the fleet — see Traps |
 | `sync-drift` | "Is what's committed what's running?" | Read `inSync` on the `deployedTruth: true` rows. `ok:false` means the clone could not be probed — unknown, *not* clean |
 | `kuma-db <preset> [args]` | Fixed uptime-kuma DB reads, no free-form SQL | `monitor-config` (empty hostname / `http://:port/` = corruption fingerprint) · `heartbeats <id>` (last 25 beats; last `1`→first `0/2` dates the break) · `push-tokens` (prefix only) · `created-dates` (a monitor born mid-incident was hand-added) |
@@ -164,7 +164,7 @@ Every path ends in a Tier B verb or an escalation. Nothing ends in raw shell.
   get written back into the DB. That invocation is unreachable from here: `uk-sync`
   runs `env-check` as a non-overridable pre-flight and aborts on failure. Never
   reconstruct the raw command to work around that abort; fix the ref instead.
-- **Timezones.** Argo and Slack are UTC; container logs are +02:00. Convert before
+- **Timezones.** Argo is UTC; container logs are +02:00. Convert before
   correlating, or you will grep an hour that has no lines in it.
 - **Monitor ids are strings** in the API (`"150"`, not `150`). Comparing against
   integers matches nothing and prints nothing — which reads exactly like "clean".
@@ -212,6 +212,6 @@ Read the matching file when the situation fits:
 - `references/onepassword-cli-forensics.md` — Use when an `op` call fails or is rate-limited
 - `references/rate-limit-storm-triage.md` — Use when an app storms 429s: self-inflicted or upstream?
 - `references/restart-window-prep.md` — Use when handing a reboot or OS-update window to the owner
-- `references/rollhook-deploys.md` — Diagnose RollHook VPS deploy failures — IMAGETAG validation rejections, unhealthy-container rollbacks, dangling imports, and health-probe 404s during a rollout. Use for a "#alerts" Deployment failed message, a stale image after a push, or a transient 404 during a rollout
+- `references/rollhook-deploys.md` — Diagnose RollHook VPS deploy failures — IMAGETAG validation rejections, unhealthy-container rollbacks, dangling imports, and health-probe 404s during a rollout. Use for a Deployment failed message, a stale image after a push, or a transient 404 during a rollout
 - `references/sudo-handoff.md` — Use when a change needs root the agent cannot sudo
 - `references/upstream-feed-outage-triage.md` — Use when an ingest feed reports stale or missing data

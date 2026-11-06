@@ -43,9 +43,8 @@ OpenAI-compatible in both directions: `http://127.0.0.1:7792/v1` (loopback, bear
 
 ## Handing it to an agent lane — verbatim
 
-**When the destination is a Herdr tab or a GitHub issue, the transcript goes in as it
-stands.** Write it to `/tmp/hermes-prompt-<topic>.txt` with `write_file`, then
-prompt with `"$(cat /tmp/hermes-prompt-<topic>.txt)"`. No numbered list, no
+**When the destination is a factory Issue (`fleet`) or a GitHub issue, the transcript goes in as it
+stands** (`facts.request`, or the issue body). No numbered list, no
 summary, no cleanup, no "improvements". Your digest is lossy: the agent has the
 repo, the rules and the domain context you don't, and it extracts the real task
 from his phrasing better than you extract it from his paraphrase. The

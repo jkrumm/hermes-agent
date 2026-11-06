@@ -4,23 +4,31 @@
 
 **This table is the git-tracked source of truth for what is registered.** `cron/jobs.json`
 is gitignored runtime state, so without this list a job created by hand (`hermes cron
-create` from a Slack turn) exists nowhere in git — the brain drift audit lived that way for
+create` from a chat turn) exists nowhere in git — the brain drift audit lived that way for
 three weeks. `make status` asserts the live set against these ids in both directions: a row
 with no live job is a schedule that silently stopped; a live enabled job absent here was never
 written down. Add a row (and the `cron/<name>.md` + `.prompt.txt` pair for an agent job) in
 the same commit that registers it.
+
+**Delivery vocabulary:** `local` (the job delivers nothing through Hermes) or `ntfy:<topic>`
+(deliver is `local` AND the job publishes its own notice to that ntfy topic through
+`~/.hermes/scripts/ntfy-publish.sh`). Hermes has no ntfy platform and its `bot-chat` target is
+Desktop's, not Iris (which is pull-only), so no job uses a Hermes delivery target. `make status`
+asserts the column and that every registered job's `deliver` is `local`. A publish failure makes
+the job fail (non-zero exit), so the failure grade shows it; failure notices are `--failure-deliver
+local` — dotfiles' jobs-grade already grades the Hermes cron jobs and posts to ntfy topic `alerts`.
 
 **State vocabulary:** `live` | `paused (<reason>)` | `retired (<date>, <reason>)`. A row's
 state must match the live job's — `make status` asserts it.
 
 | Job id | Name | Schedule | Mode | Script / prompt | Skills | Delivery | State |
 |-|-|-|-|-|-|-|-|
-| `cc7900c424a9` | Morning briefing | `0 7 * * 1-5` | agent | `briefing-context.py` pre-run · `cron/morning-briefing.prompt.txt` | `argo-api`, `work` | `slack:C0AT6TH404R` #briefings | paused (owner, 2026-11-04) |
-| `2d38c80e685c` | Evening report | `0 22 * * 1-4` | agent | `briefing-context.py` pre-run · `cron/evening-report.prompt.txt` | `argo-api`, `work` | `slack:C0AT6TH404R` #briefings | paused (owner, 2026-11-04) |
-| `8fe7be4985d9` | Brain drift audit | `0 9 * * 6` | agent | `cron/brain-drift-audit.prompt.txt` | `obsidian` | `slack:C0ASRULFTSS` #watchdog | live |
-| `9909f808fe17` | Project narratives | `30 6 * * *` | no-agent | `narratives-cron.py` → `project-narratives.py --run` | — | `slack:C0ASRUD7K1U` #hermes | live |
-| `679e16824f2c` | claude-release-watch | `every 60m` | no-agent | `model-release-watch.py` (temporary — retire when the awaited Claude model ships; OpenRouter + models.dev + Anthropic sitemap + news; stdout only when something is new; state in `~/.hermes/state/model-release-watch.*`) | — | `origin` | live |
-| `825d9e57be32` | Usage weekly report | `30 7 * * 1` | no-agent | `usage-weekly-report.py` (prints usage-tracker's `<iso-week>.md`, written Monday 07:00 by its LaunchAgent) | — | `slack:C0ASRUD7K1U` #hermes | live |
+| `cc7900c424a9` | Morning briefing | `0 7 * * 1-5` | agent | `briefing-context.py` pre-run · `cron/morning-briefing.prompt.txt` | `argo-api`, `work` | `local` | paused (owner, 2026-11-04) |
+| `2d38c80e685c` | Evening report | `0 22 * * 1-4` | agent | `briefing-context.py` pre-run · `cron/evening-report.prompt.txt` | `argo-api`, `work` | `local` | paused (owner, 2026-11-04) |
+| `8fe7be4985d9` | Brain drift audit | `0 9 * * 6` | agent | `cron/brain-drift-audit.prompt.txt` | `obsidian` | `ntfy:updates` | live |
+| `9909f808fe17` | Project narratives | `30 6 * * *` | no-agent | `narratives-cron.py` → `project-narratives.py --run` | — | `ntfy:updates` | live |
+| `679e16824f2c` | claude-release-watch | `every 60m` | no-agent | `model-release-watch.py` (temporary — retire when the awaited Claude model ships; OpenRouter + models.dev + Anthropic sitemap + news; stdout only when something is new; state in `~/.hermes/state/model-release-watch.*`) | — | `ntfy:models` | live |
+| `825d9e57be32` | Usage weekly report | `30 7 * * 1` | no-agent | `usage-weekly-report.py` (prints usage-tracker's `<iso-week>.md`, written Monday 07:00 by its LaunchAgent) | — | `ntfy:updates` | live |
 
 **Unpinned jobs stop, they don't re-route, when the global model moves.** `cron.model_drift_guard`
 (on unless `cron.model_drift_guard: false`) refuses to fire any job whose *creation snapshot* of
@@ -44,23 +52,11 @@ the gateway's Anthropic leg — as do the older rows.
   disabled-but-present in `jobs.json`, which the registry check reports as an unregistered
   live job. Removed 2026-09-26 (a spent one-shot has no reason to stay); to re-arm, create a
   fresh job — the id above is not reusable.
-- **`72aa2fb36307` — Agents overview** — `*/30 * * * *`, no-agent, `agents-cron.py` →
-  `agents-overview.py --slack-body` → `slack:C0BVDE5R562` #agents (Block Kit via
-  `chat.postMessage`). Paused 2026-09-08 18:45 after reposting the same blocked pane ~35
-  times in two days; retired 2026-09-11. Replaced by the same `agw agents` snapshot in the
-  herdr overview pane (itself retired with classic herdr, 2026-10-31), the morning briefing (`agents-overview.py --briefing`), and Argo's
-  `/agents` page.
-  Its code (`render_slack()`, `agents-overview.py --slack-body`, the
-  `fetch_agents()`/`fingerprint()`/`delta()` change-detection chain, the
-  once-per-day unreachable warning, the state file) was removed from
-  `agents-overview.py` 2026-09-12 once nothing referenced it any more. To
-  recreate: restore both `scripts/agents-cron.py` and the pre-removal
-  `scripts/agents-overview.py` from git history (`git show
-  <pre-removal-sha>:scripts/agents-cron.py`, same for `agents-overview.py`),
-  then `hermes cron create "*/30 * * * *" --name "Agents overview" --script
-  agents-cron.py --no-agent --deliver slack:C0BVDE5R562` (the same form
-  `docs/project-narratives.md` uses: schedule positional, `--script` a bare filename under
-  `~/.hermes/scripts/`).
+- **`72aa2fb36307` — Agents overview** — `*/30 * * * *`, no-agent, `agents-cron.py`; posted a
+  Block Kit digest to a Slack channel. Paused 2026-09-08 after reposting the same blocked pane
+  ~35 times in two days; retired 2026-09-11. `agents-overview.py` and its briefing section were
+  removed with the Slack gateway (2026-11): fleet state is read with `factory read` (overview,
+  issues, asks, health, sessions) over the `/v1` API.
 - **`b7a45b694f80` — quota-nudge** — retired 2026-10-30 (F1 Wave 6). The software factory
   babysits every session `rd` and the factory start: `~/SourceRoot/software-factory/AGENTS.md`.
 - **`9919cec4a6d5` — Fleet babysitter** — retired 2026-10-30 (F1 Wave 6), same replacement.
@@ -115,4 +111,24 @@ hermes cron edit <job_id> --skill argo-api --skill work    # replaces the set
 `--clear-skills` is applied *after* `--skill` in the same invocation and wins, leaving
 `Skills: none` — pass `--skill` alone to replace a set. Verify with `hermes cron list`, and
 test a changed job with `hermes cron run <job_id>`; it has **no dry-run and delivers for
-real**, so retarget it first (`--deliver slack:<test-channel>`) and restore the target after.
+real**, so a job that publishes to ntfy posts for real; read its last output in `~/.hermes/cron/output/<id>/` instead
+unless a real notice is acceptable.
+
+### Cut-over from Slack delivery (run once at deploy)
+
+The jobs still carry their old Slack targets in `jobs.json` until these run. Ids are the stable
+registry ids above; the brain drift audit also needs its prompt pushed (final publish step).
+
+```bash
+hermes cron edit cc7900c424a9 --deliver local --failure-deliver local   # Morning briefing (paused)
+hermes cron edit 2d38c80e685c --deliver local --failure-deliver local   # Evening report (paused)
+hermes cron edit 8fe7be4985d9 --deliver local --failure-deliver local \
+  --prompt "$(cat ~/SourceRoot/hermes-agent/cron/brain-drift-audit.prompt.txt)"   # Brain drift audit
+hermes cron edit 9909f808fe17 --deliver local --failure-deliver local   # Project narratives
+hermes cron edit 679e16824f2c --deliver local --failure-deliver local   # claude-release-watch
+hermes cron edit 825d9e57be32 --deliver local --failure-deliver local   # Usage weekly report
+```
+
+Resuming the morning briefing or evening report needs a surface decision first (an ntfy topic with
+a publish step in the prompt, or Iris once it can receive). They are paused, deliver `local`, and
+their prompts describe a text body plus a `MEDIA:` audio tag that no current surface carries.

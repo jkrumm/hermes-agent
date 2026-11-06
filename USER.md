@@ -16,7 +16,7 @@ Software engineer. Runs personal infrastructure across Mac Mini (agent host), M2
 - **Knowledge**: Obsidian (CouchDB-synced across devices) — second-brain source of truth; Hermes reads/writes it via the `obsidian` skill
 - **Read-later / bookmarks**: KaraKeep (self-hosted, Tailscale-only) — link/article bucket with AI tagging; Hermes saves + searches via the `karakeep` skill
 - **Code**: Claude Code on Mac Mini, GitHub repos (homelab, homelab-private, vps, dotfiles)
-- **Communication**: Slack (with you), Proton Mail (personal)
+- **Communication**: Iris (voice memos and chat), Proton Mail (personal)
 
 ## Journal Style
 - Prefers structured entries: date, themes, mood indicators, key reflections.

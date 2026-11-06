@@ -20,7 +20,7 @@ apply_and_restart() {
 }
 
 verify_with_retry() {
-  # Slack + the API server need a while after boot to report connected.
+  # The API server needs a while after boot to report connected.
   # A restart first drains in-flight agent turns (gateway_state=draining) for as long as
   # they run — a drain is not a failure, so wait it out before the bounded retries. No cap:
   # a drain waits on agent turns (agent-limits rule); each poll is logged so a stuck one shows.

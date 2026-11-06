@@ -1,24 +1,25 @@
 # Alert Patterns
 
-Error-string / job-name → root-cause → verb lookup for `#alerts`. This is the
+Error-string / job-name → root-cause → verb lookup for alert messages. This is the
 "how do I read this alert" companion to the main `homelab-ops` skill's "which
 verb do I run" tables — check here first when a message doesn't obviously map
 to a Tier A/B verb, then run the verb the pattern points at. Don't re-derive a
 diagnosis from scratch for anything listed here.
 
-Slack channel: `#alerts` (`C0AS1LAUQ3C`) — pull with the `argo-api` `slack`
-reference. For a burst pull 40–60 messages, not 10.
+The alert posts themselves are not readable by Hermes any more (Kuma/HyperDX still
+post to Slack); the owner relays the text, or `hermes-ops.sh alerts` shows the
+factory's health and open asks.
 
 ---
 
 ## BetterStack "New incident for …" — external monitor, not UptimeKuma
 
-**Trigger:** a bare `New incident for <Name>` message in `#alerts` with no emoji,
+**Trigger:** a bare `New incident for <Name>` message with no emoji,
 no URL, no "No heartbeat" wording. The bot user is **Better Stack**, NOT the UptimeKuma webhook (match on the
 display name; this repo is public, so the workspace user id is not recorded here).
 
 - **What it is:** BetterStack's external monitor (display name `HomeLab - Uptime`) probes a public homelab URL from outside and posts
-  the incident via its Slack integration. This is the *external* view — it can
+  the incident through its own integration. This is the *external* view — it can
   fire while every internal UptimeKuma monitor stays green.
 - **First check:** the homelab watchdog log
   (`ssh homelab "tail -80 /var/log/homelab_watchdog.log"`) — the watchdog
@@ -120,7 +121,7 @@ across many monitors at once — can start with one HTTP monitor and cascade to
 
 ## VPS Watchtower kills its own socket proxy
 
-**Trigger:** Slack "Watchtower updates on `<container-id>`" repeating nightly,
+**Trigger:** a "Watchtower updates on `<container-id>`" repeating nightly,
 attachment `dial tcp: lookup socket-proxy-watchtower ... no such host`.
 Watchtower's own log shows a nil-pointer panic on the same run.
 

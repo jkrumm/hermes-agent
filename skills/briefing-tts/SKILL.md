@@ -33,7 +33,7 @@ local door-token file (see `references/audio-door-troubleshooting.md`); never pr
 | Short replies, confirmations | `audio.tts.gemini-flash-lite` (Gemini 3.8 Flash-Lite TTS) | one synthesis call, deterministic number normalisation, no title | first audio ~0.7 s |
 
 Voice is `Charon` for both (Gemini prebuilt voices; request shapes, tag vocabulary and traps:
-`modelpick/docs/gemini-tts.md`). The chat/desktop/Slack-reply path uses Flash-Lite through
+`modelpick/docs/gemini-tts.md`). The chat/desktop reply path uses Flash-Lite through
 `config.yaml` → `tts.openai`; this skill is the briefing path and pins `audio.tts.gemini-flash`
 explicitly. `model` is an agent-workflows **route id** (`agw routes`), so the concrete Gemini
 version is chosen centrally in the route table, never in this repo. Gemini has no `speed` parameter — pace is the door's constant style string.
@@ -154,7 +154,7 @@ curl -s -X POST http://127.0.0.1:7792/v1/audio/speech \
 
 ## MEDIA Tag
 
-Append at the **very end** of the Slack text body:
+Append at the **very end** of the text body:
 ```
 MEDIA:/Users/jkrumm/.hermes/cache/audio/filename.mp3
 ```

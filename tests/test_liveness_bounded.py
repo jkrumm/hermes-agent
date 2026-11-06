@@ -100,6 +100,13 @@ def main():
     check("liveness: draining pushes nothing", not PUSHES, str(PUSHES))
     check("liveness: draining is logged", "gateway_state=draining" in r.stdout, r.stdout)
 
+    # 1c. A running gateway whose API server platform is not connected withholds the ping and says so.
+    home = make_home(base, state='{"gateway_state":"running","pid":1,"platforms":{"api_server":{"state":"retrying"}}}', export_ok=True)
+    PUSHES.clear()
+    r, dt = run("hermes-liveness.sh", home, {"HERMES_LIVENESS_PROBE_TIMEOUT": "5"}, 40)
+    q = PUSHES[0] if PUSHES else {}
+    check("liveness: api_server not connected is named", q.get("status") == ["down"] and "api_server=retrying" in (q.get("msg") or [""])[0], str(q))
+
     # 2. hermes-serve-liveness: an ungated serve → down push naming it (ungated is the check it exists for).
     home = make_home(base)
     PUSHES.clear()

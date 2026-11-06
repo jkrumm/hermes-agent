@@ -129,7 +129,7 @@ command runner.
   `q` leaves all remaining requests pending; verify the count instead of relying
   on the process exit code.
 - **Never `rm` a `.req` to "clean up" after enqueuing it.** A pending request is the
-  *only* record of the ask, and the Slack nudge naming its id is already in the channel
+  *only* record of the ask, and the ntfy nudge (topic `factory`) naming its id is already on his phone
   — so deleting the file turns a live request into a phantom the human cannot drain
   (the drain reports an empty queue, and the card looks like a false alarm). A test
   request is closed with `resolve`/`deny`, never by unlinking. Re-enqueue rather than

@@ -4,7 +4,7 @@
 # `hermes serve` is the JSON-RPC/WebSocket backend Hermes Desktop connects to
 # (`GET /api/status` for auth discovery, `POST /api/auth/ws-ticket` + `WS /api/ws`
 # for the live session). It is NOT the OpenAI-compatible API server on :8642 — that
-# one has no /api/ws at all. It is also not the Slack gateway: upstream expects both
+# one has no /api/ws at all. It is also not the messaging gateway: upstream expects both
 # processes to run, so this is additive.
 #
 # Loopback bind, fronted by Caddy at https://hermes-api.mini.jkrumm.com (dotfiles

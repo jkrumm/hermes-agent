@@ -15,7 +15,7 @@ Detection: response body starts with `"Token refresh failed"` rather than `{`.
 unavailable (token expired)" under Today's Schedule, then continue — the
 IU M365 calendar may still be available independently. Don't skip the
 section. Don't mention it in the audio narrative if the M365 calendar still
-has events (skip silently in audio, keep the Slack bullet).
+has events (skip silently in audio, keep the text bullet).
 
 ## All-day blocker events in the M365 calendar
 The IU Outlook calendar sometimes contains all-day "Blocker" events (e.g. a

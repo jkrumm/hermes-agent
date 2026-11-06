@@ -13,7 +13,7 @@ being scheduled, or when an ask you are about to hand over implies a reboot.
 ## 1. Pre-flight: what a reboot interrupts, and what returns
 
 - **Live work that would lose a turn** —
-  `agw agents --text | head -3` (`working` episodes lose
+  `factory read sessions --live` (`working` episodes lose
 their turn; `idle`/`done` terminals lose nothing), plus
   `pgrep -fl 'claude -p|claude --bg'` for background daemons. A window with zero
 `working` is cheap — say so, that is what makes the ask easy to accept.
@@ -58,7 +58,7 @@ TEXT="$(cat /tmp/ask.txt)"; ./scripts/ask-human.sh ask "$TEXT"   # pushing is th
   the detail lives. Build a multi-line body in a file and pass it as a variable — the
   harness's command wrapping eats inline quoting and can execute backticked fragments.
 - **Exit codes tell you whether it landed**: `69` ssh unreachable, `75` dialog
-  unanswered/timed out — both leave the request pending and fire the Slack hook; only
+  unanswered/timed out — both leave the request pending; only
   then is a chat reminder the right fallback.
 - **A `done` in the `.res` is an acknowledgement, not evidence.** The push resolves the
   moment the human clicks, whatever he does next — verify the effect on the target
@@ -70,7 +70,7 @@ TEXT="$(cat /tmp/ask.txt)"; ./scripts/ask-human.sh ask "$TEXT"   # pushing is th
 uptime; sw_vers
 launchctl list | grep -E 'jkrumm|hermes' | awk '{print $1,$3}'   # '-' in col 1 = loaded, not running
 docker ps --format '{{.Names}}|{{.Status}}'                     # "Up N minutes" + healthy
-agw agents --text | head -3                                     # the agent platform is back
+factory read health                                             # the factory is back
 ```
 
 A post-boot load average in the 50-80 range is the agent herd starting, not a fault;

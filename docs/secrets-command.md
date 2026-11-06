@@ -45,9 +45,9 @@ degrades to "no secrets applied" plus a warning. Two layers close that gap, so t
 regression is monitored rather than merely accepted:
 
 - **Total failure** was already covered: `scripts/hermes-liveness.sh` (cron, every 5 min)
-  only pings the UptimeKuma heartbeat when `platforms.slack.state == "connected"`. A
-  credential-less gateway can't reach Slack → no ping → UK alerts within ~6 min.
-- **Partial failure** — e.g. the Slack tokens render but `HOMELAB_API_KEY` doesn't, so
+  only pings the UptimeKuma heartbeat when `platforms.api_server.state == "connected"`. A
+  credential-less gateway has no API server key and can't bind it → no ping → UK alerts within ~6 min.
+- **Partial failure** — e.g. the API server key renders but `HOMELAB_API_KEY` doesn't, so
   liveness looks green while every argo call 401s — is covered by an assertion added to
   the same script: it counts `KEY=` assignments in `.env.tpl` and requires `secrets-run
   export` to render at least that many, else it skips the ping. (`secrets-run` actually
@@ -58,7 +58,7 @@ regression is monitored rather than merely accepted:
   not suppress the heartbeat and page for a healthy gateway. Both `secrets-run` calls are
   `timeout`-bounded so the 5-min cron can never hang and overlap. Residual, accepted: an
   empty or absent `.env.tpl` makes the assertion vacuous (`WANT=0`) — a gateway with no
-  secrets can't reach Slack, so the connected-check below catches that case anyway.
+  secrets can't bring the API server up, so the connected-check below catches that case anyway.
 
 **One value is not a 1Password ref:** the `hermes` door token, the bearer for the agent-workflows
 audio door (`tts.openai` / `stt.openai` `api_key: ${AUDIO_DOOR_TOKEN}`) and inference gateway, under

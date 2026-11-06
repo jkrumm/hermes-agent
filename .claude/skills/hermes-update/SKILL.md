@@ -29,14 +29,12 @@ One `.patch` file per patched upstream file — `ls ~/SourceRoot/hermes-agent/pa
 
 > **Secrets no longer come from a launch wrapper (v0.19.0+).** `scripts/gateway-cache-launch.sh` is gone; Hermes resolves its own secrets via `secrets.command` in `config.yaml` (→ the dotfiles `secrets-run` cache). After any update, confirm `hermes gateway status` prints `Command helper: applied N secrets` with N = the `KEY=` count in `.env.tpl` (28 at 2026-09-23). If that line is missing the gateway will start **credential-less** (the source degrades with a warning rather than failing closed) — check `secrets-run export --env-file=~/.hermes/.env.tpl` by hand before debugging anything else.
 >
-> **v0.18.x platform rewrite:** upstream moved built-in chat platforms out of `gateway/platforms/` into a plugin system — Slack now lives at `plugins/platforms/slack/adapter.py` (was `gateway/platforms/slack.py`, which no longer exists). Only the Slack-targeting patch's *path* changed; `gateway/platforms/base.py` (shared response-delivery base class) stayed in place.
+> **Slack is gone (2026-11).** Hermes no longer runs the Slack gateway; `slack-cannot-reply-to-message` and `slack-media-inline-reply-anchor` were dropped from `patches/` (`docs/patches.md`). The chat surfaces are Iris (the `:8642` API server), Hermes Desktop (`hermes serve`) and the CLI.
 
 Files touched (all are `.patch` files applied with `git apply` — no full-file replacements):
 
 | File | Patch | Kind |
 |-|-|-|
-| `plugins/platforms/slack/adapter.py` | `patches/slack-cannot-reply-to-message.patch` | mrkdwn normalization + `cannot_reply_to_message` retry (3 hunks; the synthetic-thread guard was **retired at v0.19.0**) |
-| `gateway/platforms/base.py` | `patches/slack-media-inline-reply-anchor.patch` | pass text reply anchor to media senders so attachments don't thread |
 | `tools/cronjob_prompt_scan.py` | `patches/cronjob-tools-allowlist-argo-bearer.patch` | allowlist argo bearer curls past the cron-prompt scanner |
 | `hermes_cli/runtime_provider.py` | `patches/runtime-provider-iu-responses-api.patch` | route the IU endpoint's `/openai/v1` leg onto `codex_responses` for a gpt-5.x model with no explicit `api_mode` — dormant on the current config, every live slot pins `api_mode` explicitly |
 | `agent/transports/chat_completions.py` | `patches/transport-iu-reasoning-effort.patch` | clamp/strip the top-level `reasoning_effort` for the **main-loop model only** (brain + fallback), per model family — does not cover the auxiliaries |
@@ -139,7 +137,7 @@ worktree it had just patched.)
 
 If a `git apply` fails outright (not just a context shift), figure out **which** of three things happened before touching anything — they need different fixes:
 
-1. **File moved/renamed (upstream restructure).** `error: <file> ist nicht im Index` / "not in index" means the target path no longer exists — not a diff mismatch. Don't hand-edit the patch's path and retry blindly. Find where the code went: `grep -rl "<a distinctive function/class name from the patch>" .` (e.g. a class name like `SlackAdapter`, or a helper the patch touches) across the new tree. A major version jump (this repo went v0.16.0 → v0.18.2 in one `hermes update`, 4184 commits) can move whole subsystems — the v0.18.x jump moved every built-in chat platform from `gateway/platforms/*.py` into a `plugins/platforms/<name>/adapter.py` plugin layout. Once you've found the new home, read both the old file (recoverable from the pre-update stash — see below) and the new one, then hand-port each patch hunk into the new structure and update the patch's file path in its own `diff --git a/... b/...` header. Update the path in this skill's table + reapply loop too.
+1. **File moved/renamed (upstream restructure).** `error: <file> ist nicht im Index` / "not in index" means the target path no longer exists — not a diff mismatch. Don't hand-edit the patch's path and retry blindly. Find where the code went: `grep -rl "<a distinctive function/class name from the patch>" .` (a class name or a helper the patch touches) across the new tree. A major version jump (this repo went v0.16.0 → v0.18.2 in one `hermes update`, 4184 commits) can move whole subsystems — the v0.18.x jump moved every built-in chat platform from `gateway/platforms/*.py` into a `plugins/platforms/<name>/adapter.py` plugin layout. Once you've found the new home, read both the old file (recoverable from the pre-update stash — see below) and the new one, then hand-port each patch hunk into the new structure and update the patch's file path in its own `diff --git a/... b/...` header. Update the path in this skill's table + reapply loop too.
 2. **File exists, hunk conflicts (`git apply --3way` leaves `<<<<<<< ours` / `>>>>>>> theirs` markers).** This is a real 3-way merge conflict — see *Resolving 3-way conflict markers* below.
 3. **The patch's *purpose* is now upstream's own behavior.** Before spending time on either of the above, check whether upstream independently fixed the same bug or added the same feature — see *Is this patch even still needed?* below. A patch whose target is superseded should be retired, not repaired.
 
@@ -160,13 +158,11 @@ the file set:
 git diff HEAD --name-only        # must be exactly the patched files
 grep -n "_rename_with_title"          tools/tts_tool.py
 grep -n "x-audio-title"               tools/tts_tool_openai.py
-grep -n "cannot_reply_to_message"     plugins/platforms/slack/adapter.py
 grep -n "_OpenAIAPIConnectionError"    agent/chat_completion_helpers.py
 grep -n "_stage_all_with_gitlink_recovery" tools/checkpoint_manager.py
 grep -n "_sanitize_trusted_api_fence" tools/cronjob_prompt_scan.py
 grep -n "_apply_iu_reasoning_effort"  agent/transports/chat_completions.py
 grep -n "_SPEAK_SUMMARY"              hermes_cli/web_routers/audio.py
-grep -n "_media_reply_anchor"         gateway/platforms/base.py
 ```
 
 Two traps this caught at the v0.19.0 jump:
@@ -175,12 +171,6 @@ Two traps this caught at the v0.19.0 jump:
   where our patch returns the title. It merged clean; only reading both call sites showed
   the contract still held (the DeepInfra caller discards the value). **Whenever a patch
   changes what a function returns, re-check every caller after an update.**
-- **Module-alias confusion.** `gateway.log` reports the Slack adapter as
-  `hermes_plugins.slack_platform.adapter`, which does not match the patched path
-  `plugins/platforms/slack/adapter.py` and looks alarmingly like a second copy. It isn't —
-  the plugin loader assigns that name at runtime. Confirm with
-  `find . -name adapter.py -path "*slack*"` returning exactly one file rather than trying
-  to import the alias (it isn't importable standalone).
 
 ### Is a patch still needed — or now *dead code*?
 
@@ -200,7 +190,6 @@ again if the config moved back:
 |-|-|
 | `run-agent-third-party-endpoint-token-refresh` | `self.api_mode != "anthropic_messages"` → returns before the patched line (live: `chat_completions`); `self.provider != "anthropic"` would too (live: `custom`) |
 | ~~`auxiliary-client-anthropic-mode-respect`~~ | same gate — **retired at v0.20.1**, upstream shipped its own `wrap_base` fix |
-| `slack-media-inline-reply-anchor` | `reply_in_thread: true` → `_resolve_thread_ts` returns the same `thread_id` with or without `reply_to` |
 
 Both anthropic ones were genuinely live until `0e17b0d` (2026-05-21) moved the brain off
 `provider: anthropic` + the IU `/anthropic` base URL. Keep a dormant patch, but say
@@ -412,13 +401,13 @@ install upstream's pinned dev versions into a scratch target, never into the ven
 ```bash
 PY=~/.hermes/hermes-agent/venv/bin/python3
 uv pip install -q --python $PY --target /tmp/hermes-pt pytest==<pyproject dev pin> pytest-asyncio==<pin>
-find tests \( -name "test_*checkpoint*.py" -o -name "test_*slack*.py" … \) > /tmp/tf.txt
+find tests \( -name "test_*checkpoint*.py" … \) > /tmp/tf.txt
 PYTHONPATH=/tmp/hermes-verify:/tmp/hermes-pt xargs $PY -m pytest -q -p no:cacheprovider < /tmp/tf.txt
 ```
 
 `xargs`, not `$files` — zsh does not word-split an unquoted variable, so pytest receives one
 127-path "file". Re-run every failure against a **pristine** worktree before attributing it:
-at v0.21.4, 4 Slack + 1 auxiliary failures were upstream cross-file ordering flakes (green in
+at v0.21.4, 5 upstream failures were upstream cross-file ordering flakes (green in
 isolation, red in pristine too), and the 9 TTS failures (`bytes-like object is required, not
 'MagicMock'`) are permanent — upstream's mocks stub `audio.speech.create`, our patch calls
 `with_raw_response`. Zero were caused by the patches.
@@ -451,7 +440,7 @@ isolation, red in pristine too), and the 9 TTS failures (`bytes-like object is r
 - **A retired toolset silently warns, it does not fail.** v0.21.0's pull removed the
   agent-callable `send_message` tool (upstream `c6c8abbadb`, #47856 — outbound messaging is
   cron delivery, the kanban notifier and the `hermes send` CLI, deliberately not an agent
-  decision), so `messaging` left `TOOLSETS` and `hermes update` printed `platform 'slack'
+  decision), so `messaging` left `TOOLSETS` and `hermes update` printed `platform '<name>'
   references unknown toolset 'messaging'`. Drop the name from `platform_toolsets` in
   `config.yaml`; check nothing in `skills/`, `cron/` or `SOUL.md` told the agent to call it.
   `hermes send` is untouched.
@@ -467,7 +456,7 @@ isolation, red in pristine too), and the 9 TTS failures (`bytes-like object is r
 - **`hermes gateway start`'s deferred reload is a second full drain.** After `gateway restart`
   + `gateway start`, the old process got SIGTERM twice and the job was booted out for ~3 min
   until it exited; the new boot then tripped the **restart-loop breaker** (3 chained restarts)
-  and skipped auto-resume — an in-flight Slack turn was simply dropped. Do the restart and the
+  and skipped auto-resume — an in-flight turn was simply dropped. Do the restart and the
   plist repair back to back, then poll `launchctl print gui/$(id -u)/ai.hermes.gateway` for a
   new pid rather than trusting the first `gateway status`.
 - **Sessions for API-server requests aren't written to `~/.hermes/sessions/`**, and the
@@ -524,16 +513,15 @@ once at startup, so an edit is inert in the running process no matter what a
 direct in-process test says. Test the function standalone first, restart second, then
 re-run the live checks below.
 
-A basic "send a message and see a reply" check doesn't exercise most of the patched code paths — they only fire under specific conditions (a real Slack round-trip, a TTS request, an argo curl). After any update, run through these; each targets a specific patch. Use the `hermes-validate` skill's gateway-API (method A) and Slack-API (method B) send recipes to drive them, and confirm results by reading `~/.hermes/logs/agent.log` / `gateway.log` for the relevant timestamp (not just eyeballing the Slack reply) — that's what actually proves which code path ran.
+A basic "send a message and see a reply" check doesn't exercise most of the patched code paths — they only fire under specific conditions (a TTS request, an argo curl). After any update, run through these; each targets a specific patch. Use the `hermes-validate` skill's API-server (method A) and CLI (method B) send recipes to drive them, and confirm results by reading `~/.hermes/logs/agent.log` / `gateway.log` for the relevant timestamp (not just eyeballing the reply) — that's what actually proves which code path ran.
 
 | Check | Drives | Confirms | What to look for |
 |-|-|-|-|
 | General question (method A, e.g. "what's on my TickTick") | Core agent loop, unaffected by any patch | Update didn't break routing/skills at all | Clean 200 response, `Turn ended: reason=text_response` in `agent.log` |
-| Any request routed through real Slack (method B — HomeLab synthetic sender), containing a raw `*` list marker in the model's likely output | `format_message()` pre-steps in `plugins/platforms/slack/adapter.py` | mrkdwn normalization ported to the new adapter path | Fetch the posted message (`GET /api/slack/channels/:id/messages` via argo) — bullets render as `-`, not `*` |
-| "Say/speak X out loud" (method B) | `tts-tool-audio-title.patch` + `slack-media-inline-reply-anchor.patch` (base.py) | Title-naming works; media threads with its text reply | `agent.log` line `tools.tts_tool: TTS audio saved: .../<Human Title>.mp3` (not `tts_<timestamp>.mp3`); no errors after `[Slack] Sending response`; since v0.19.0 (`reply_in_thread: true`) the audio and the text reply share the **same `thread_ts`** — they must not land in different places |
-| A German-language message (method B) | Config only (`tts.openai.model` = Gemini TTS), not a patch | Charon still pronounces German natively, no translation | Manual listen — text-based checks above can't verify pronunciation |
+| "Say/speak X out loud" (method A or B) | `tts-tool-audio-title.patch` | Title-naming works | `agent.log` line `tools.tts_tool: TTS audio saved: .../<Human Title>.mp3` (not `tts_<timestamp>.mp3`) |
+| A German-language message (method A) | Config only (`tts.openai.model` = Gemini TTS), not a patch | Charon still pronounces German natively, no translation | Manual listen — text-based checks above can't verify pronunciation |
 
-**Prefer a direct in-process test over a round-trip where one exists.** The table's Slack/TTS rows depend on a real Slack round-trip whose command text is *not* logged, so they prove less than they look like they do. Calling the patched function directly is faster, deterministic, and actually pins the behavior — this is what caught the v0.19.0 `_generate_openai_tts` return-type change. Run these from `~/.hermes/hermes-agent` with `venv/bin/python`:
+**Prefer a direct in-process test over a round-trip where one exists.** The table's TTS row depends on a real round-trip whose command text is *not* logged, so they prove less than they look like they do. Calling the patched function directly is faster, deterministic, and actually pins the behavior — this is what caught the v0.19.0 `_generate_openai_tts` return-type change. Run these from `~/.hermes/hermes-agent` with `venv/bin/python`:
 
 ```python
 # tts-tool-audio-title: real call to the audio door, asserts the header + rename

@@ -134,7 +134,7 @@ check("only the row naming a prompt file", ccr.parse_prompt_files(md),
 print("\n9. parse_brain_model() — model.default from the top-level model block only")
 cfg = """\
 platform:
-  default: slack
+  default: api
 model:
   provider: custom
   # default: commented-out example
@@ -144,7 +144,7 @@ other:
   default: not-the-brain
 """
 check("brain model", ccr.parse_brain_model(cfg), "deepseek-v4.1-flash")
-check("no model block -> None", ccr.parse_brain_model("platform:\n  default: slack\n"), None)
+check("no model block -> None", ccr.parse_brain_model("platform:\n  default: api\n"), None)
 
 # --- compare_prompts() / compare_pins() --------------------------------------
 
@@ -190,6 +190,26 @@ check_true("names both models", "claude-haiku-5-5" in errors[0] and BRAIN in err
 print("\n15. compare_pins() — unreadable config.yaml is reported, not silently passed")
 errors = ccr.compare_pins(jobs, None)
 check_true("config unreadable reported", len(errors) == 1 and "config.yaml" in errors[0])
+
+print("\n16. parse_deliveries() / compare_delivery() — local or ntfy:<topic>, job deliver is local")
+md = """\
+| Job id | Name | Schedule | Mode | Script / prompt | Skills | Delivery | State |
+|-|-|-|-|-|-|-|-|
+| `cc7900c424a9` | Morning briefing | `0 7 * * 1-5` | agent | `x.prompt.txt` | `a` | `local` | paused (owner) |
+| `9909f808fe17` | Project narratives | `30 6 * * *` | no-agent | `n.py` | — | `ntfy:updates` | live |
+| `825d9e57be32` | Usage weekly | `30 7 * * 1` | no-agent | `u.py` | — | `slack:C123` | live |
+"""
+deliveries = ccr.parse_deliveries(md)
+check("columns parsed", deliveries, {"cc7900c424a9": "local", "9909f808fe17": "ntfy:updates",
+                                     "825d9e57be32": "slack:C123"})
+jobs = {i: {**mk_job(i, "j"), "deliver": "local"} for i in deliveries}
+errors = ccr.compare_delivery(deliveries, jobs)
+check("only the slack column is flagged", len(errors), 1)
+check_true("names the bad column", "825d9e57be32" in errors[0] and "slack:C123" in errors[0])
+jobs["9909f808fe17"]["deliver"] = "origin"
+errors = ccr.compare_delivery({"9909f808fe17": "ntfy:updates"}, jobs)
+check_true("a job not delivering local is flagged with the fix",
+           len(errors) == 1 and "--deliver local --failure-deliver local" in errors[0])
 
 print()
 if failures:

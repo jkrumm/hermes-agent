@@ -3,7 +3,7 @@
 **"Remind me to renew the Tailscale cert next month"**
 → TickTick `🏠Personal`, dueDate = today + 30d.
 
-**"I need to fix the slack patch breaking on long threads"**
+**"I need to fix the gateway patch breaking on long replies"**
 → GitHub `hermes-agent` (concrete code change to an upstream patch under `patches/`).
 
 **"Buy oat milk"**

@@ -14,6 +14,9 @@ bullet list) in `docs/scheduled-jobs.md`. This checks both directions:
   (that is how the brain drift audit lived for three weeks in jobs.json alone)
 - a registry row's tracked `cron/*.prompt.txt` must equal that job's prompt in
   jobs.json (a copy edited on the live job alone is drift)
+- a row's Delivery column is `local` or `ntfy:<topic>` (a job publishes itself, so
+  `ntfy:<topic>` names where its notices land), and every registered job's own
+  `deliver` is `local` — nothing is delivered through a Hermes platform
 - a job pinned to a `model` must pin the live brain (`model.default` in the
   repo's config.yaml); an unpinned job is not checked
 
@@ -32,6 +35,7 @@ import sys
 ROW_RE = re.compile(r"^\| `([0-9a-f]{12})` \|.*\| (live|paused \([^|]*\)) \|$", re.M)
 RETIRED_RE = re.compile(r"^- \*\*`([0-9a-f]{12})`", re.M)
 PROMPT_ROW_RE = re.compile(r"^\| `([0-9a-f]{12})` \|.*`(cron/[^`]+\.prompt\.txt)`", re.M)
+DELIVERY_RE = re.compile(r"^(local|ntfy:[a-z0-9][a-z0-9_-]*)$")
 DEFAULT_RE = re.compile(r"[ \t]+default:[ \t]*([^\s#]+)")
 
 
@@ -139,6 +143,37 @@ def compare_prompts(prompt_files: dict[str, str], jobs: dict[str, dict], read_fi
     return errors
 
 
+def parse_deliveries(md_text: str) -> dict[str, str]:
+    """`{job_id: delivery}` from the Delivery column (second to last) of every
+    registry row, backticks stripped."""
+    out: dict[str, str] = {}
+    for m in ROW_RE.finditer(md_text):
+        cells = m.group(0).strip().strip("|").split("|")
+        out[m.group(1)] = cells[-2].strip().strip("`").strip()
+    return out
+
+
+def compare_delivery(deliveries: dict[str, str], jobs: dict[str, dict]) -> list[str]:
+    """The Delivery column must be `local` or `ntfy:<topic>`, and a registered
+    job's `deliver` must be `local`: Hermes has no ntfy platform, so jobs publish
+    themselves (scripts/ntfy-publish.sh) and nothing goes out through a gateway
+    platform."""
+    errors: list[str] = []
+    for job_id, delivery in deliveries.items():
+        if not DELIVERY_RE.match(delivery):
+            errors.append(
+                f"job {job_id} Delivery column is `{delivery}` in docs/scheduled-jobs.md — "
+                "expected `local` or `ntfy:<topic>`"
+            )
+        job = jobs.get(job_id)
+        if job is not None and job.get("deliver") != "local":
+            errors.append(
+                f"job {job_id} ({job.get('name')}) delivers to {job.get('deliver')!r} — "
+                f"expected 'local' [hermes cron edit {job_id} --deliver local --failure-deliver local]"
+            )
+    return errors
+
+
 def compare_pins(jobs: dict[str, dict], brain_model: str | None) -> list[str]:
     """A job with a pinned `model` must pin the live brain. An unpinned job
     (empty model) follows the global default and is not checked here."""
@@ -211,6 +246,7 @@ def main(argv: list[str] | None = None) -> int:
 
     errors = compare(rows, retired, jobs)
     errors += compare_prompts(parse_prompt_files(md_text), jobs, read_file)
+    errors += compare_delivery(parse_deliveries(md_text), jobs)
     errors += compare_pins(jobs, brain_model)
 
     if errors:
@@ -222,7 +258,7 @@ def main(argv: list[str] | None = None) -> int:
     paused_n = len(rows) - live_n
     print(
         f"    ✓ cron registry ({live_n} live, {paused_n} paused, {len(retired)} retired — "
-        "matches docs/scheduled-jobs.md; prompts match cron/*.prompt.txt; pins match config.yaml)"
+        "matches docs/scheduled-jobs.md; prompts match cron/*.prompt.txt; deliveries local; pins match config.yaml)"
     )
     return 0
 
