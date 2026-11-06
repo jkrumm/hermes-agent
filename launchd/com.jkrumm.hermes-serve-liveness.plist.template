@@ -8,9 +8,25 @@
        additionally asserts /api/status reports auth_required and that an
        unauthenticated ws-ticket mint is refused. -->
   <key>ProgramArguments</key>
+  <!-- Under jobrun with a deadline a little under the 300 s cadence: launchd never starts a
+       second instance of a running job, so one hung call would otherwise freeze this pusher and
+       silence its monitor with nothing to restart it (dotfiles devhost-health, 2026-11-06,
+       ~28 h). The script also bounds each of its own calls and tells the monitor which check
+       failed. Pattern: dotfiles scripts/com.jkrumm.hc-reap.plist.template. -->
   <array>
+    <string>__HOME__/.local/bin/jobrun</string>
+    <string>com.jkrumm.hermes-serve-liveness</string>
+    <string>--owner</string><string>hermes-agent</string>
+    <string>--every</string><string>300</string>
+    <string>--timeout</string><string>270</string>
+    <string>--</string>
     <string>__HOME__/SourceRoot/hermes-agent/scripts/hermes-serve-liveness.sh</string>
   </array>
+  <!-- jobrun is a bun script; launchd's minimal PATH needs bun's dir (and ~/.local/bin, Homebrew). -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>__HOME__/.local/bin:__HOME__/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
   <key>StartInterval</key><integer>300</integer>
   <key>RunAtLoad</key><true/>
   <key>StandardOutPath</key><string>__HOME__/Library/Logs/hermes-serve-liveness.log</string>

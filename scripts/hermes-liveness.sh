@@ -13,6 +13,13 @@
 # op on the MacBook). No plaintext ~/.hermes/.env dependency. If it can't be
 # resolved, we skip the ping and UptimeKuma alerts on the missing heartbeat.
 #
+# BOUNDED END TO END. launchd never starts a second instance of a running job, so one hung
+# call (secrets-run, launchctl, a probe) would freeze this pusher and silence its monitor for
+# hours with nothing to restart it (dotfiles devhost-health, 2026-11-06, ~28 h). Two layers:
+# the LaunchAgent runs the script under `jobrun --timeout 270` (a hard deadline under the 300 s
+# cadence), and every external call below carries its own limit, so a hang fails THAT check
+# and the monitor is told which one (skip → `status=down&msg=<reason>`).
+#
 # EVERY skip is logged. A silent `exit 0` is indistinguishable from a healthy
 # tick in the log, so a guard that stops matching withholds the heartbeat
 # invisibly — 2026-09-23, a one-hop pid check went stale with a plist rewrite
@@ -26,10 +33,24 @@ SECRETS_RUN="$HOME/.local/bin/secrets-run"
 # finds sops+jq (its cache backend) and `timeout` resolves. Prepend, not replace.
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
+# One external call may take this long (seconds). Env override exists for tests/hermes-liveness.
+PROBE_TIMEOUT="${HERMES_LIVENESS_PROBE_TIMEOUT:-15}"
+PUSH_URL=""
+
+# A withheld heartbeat names its reason: `status=down` with the message, so Kuma shows WHY
+# instead of waiting for the missing beat. Best effort and bounded; with no push URL
+# (the resolve itself failed) the missing heartbeat is the alert, as before.
+push_down() {
+  [[ -n "$PUSH_URL" ]] || return 0
+  /usr/bin/curl -fsS --max-time 10 -G "${PUSH_URL%%\?*}" \
+    --data-urlencode "status=down" --data-urlencode "msg=${1:0:200}" >/dev/null 2>&1 || true
+}
+
 # stdout is the LaunchAgent's StandardOutPath (~/Library/Logs/hermes-liveness.log);
 # stderr stays empty so a red monitor's `*.err` means a real script fault.
 skip() {
-  /bin/echo "$(/bin/date -u +%Y-%m-%dT%H:%M:%SZ) heartbeat skipped: ${1:-unknown} → UK alerts on the missing heartbeat"
+  /bin/echo "$(/bin/date -u +%Y-%m-%dT%H:%M:%SZ) heartbeat skipped: ${1:-unknown} → monitor told down"
+  push_down "${1:-unknown}"
   exit 0
 }
 
@@ -59,19 +80,19 @@ TPL="$HOME/.hermes/.env.tpl"
 if [[ -f "$TPL" ]]; then
   WANT=$(/usr/bin/grep -cE '^[A-Za-z_][A-Za-z0-9_]*=' "$TPL")
   render_count() {
-    timeout 15 "$SECRETS_RUN" export --env-file="$TPL" 2>/dev/null | /usr/bin/grep -c '^export '
+    timeout "$PROBE_TIMEOUT" "$SECRETS_RUN" export --env-file="$TPL" 2>/dev/null | /usr/bin/grep -c '^export '
   }
   GOT=$(render_count)
   if [[ -z "$GOT" || "$GOT" -lt "$WANT" ]]; then
     sleep 2
     GOT=$(render_count)
-    [[ -z "$GOT" || "$GOT" -lt "$WANT" ]] && skip "secret cache renders $GOT of $WANT refs"
+    [[ -z "$GOT" || "$GOT" -lt "$WANT" ]] && skip "secret cache renders ${GOT:-0} of $WANT refs (render failed or timed out)"
   fi
 fi
 
-GATEWAY_STATE=$(/usr/bin/jq -r '.gateway_state // ""' "$STATE")
-SLACK_STATE=$(/usr/bin/jq -r '.platforms.slack.state // ""' "$STATE")
-PID=$(/usr/bin/jq -r '.pid // 0' "$STATE")
+GATEWAY_STATE=$(timeout 5 /usr/bin/jq -r '.gateway_state // ""' "$STATE")
+SLACK_STATE=$(timeout 5 /usr/bin/jq -r '.platforms.slack.state // ""' "$STATE")
+PID=$(timeout 5 /usr/bin/jq -r '.pid // 0' "$STATE")
 
 if [[ "$GATEWAY_STATE" != "running" ]]; then
   skip "gateway_state=$GATEWAY_STATE"
@@ -98,7 +119,7 @@ fi
 # 2026-09-23 v0.21.4 update). A one-hop check (pid == job pid, else ppid == job
 # pid) silently stopped matching the moment that wrapper appeared, and withheld
 # the heartbeat for a perfectly healthy gateway.
-LAUNCHD_PID=$(launchctl print "gui/$(id -u)/ai.hermes.gateway" 2>/dev/null | /usr/bin/sed -n 's/^[[:space:]]*pid = \([0-9]*\).*/\1/p' | head -1)
+LAUNCHD_PID=$(timeout 10 launchctl print "gui/$(id -u)/ai.hermes.gateway" 2>/dev/null | /usr/bin/sed -n 's/^[[:space:]]*pid = \([0-9]*\).*/\1/p' | head -1)
 [[ -z "$LAUNCHD_PID" ]] && skip "launchctl reports no pid for ai.hermes.gateway"
 
 SUPERVISED=0
@@ -106,7 +127,7 @@ WALK_PID="$PID"
 for _ in {1..8}; do
   [[ "$WALK_PID" == "$LAUNCHD_PID" ]] && { SUPERVISED=1; break }
   [[ -z "$WALK_PID" || "$WALK_PID" == "0" || "$WALK_PID" == "1" ]] && break
-  WALK_PID=$(ps -o ppid= -p "$WALK_PID" 2>/dev/null | tr -d ' ')
+  WALK_PID=$(timeout 5 ps -o ppid= -p "$WALK_PID" 2>/dev/null | tr -d ' ')
 done
 [[ "$SUPERVISED" == "1" ]] || skip "pid $PID is not a descendant of launchd job pid $LAUNCHD_PID (orphan gateway)"
 
@@ -116,16 +137,18 @@ done
 # script run as a subprocess (shared with verify.sh / `make status`; no zsh-vs-bash sourcing); each
 # curl inside it is --max-time bound (5 s + 10 s), well inside the 5-min tick.
 # Up to 3 attempts, 8 s apart, so a gateway restart (deploy, KeepAlive) does not flip the monitor.
-# Worst case ~45 s (3 x (5 s health + 10 s token) + 2 x 8 s), far inside the 5-min tick.
+# Worst case ~90 s (3 x 25 s `timeout` + 2 x 8 s); the whole script stays under ~150 s, inside jobrun's 270 s.
 GW_CHECK="${0:A:h}/inference-gateway-check.sh"
 GW_OK=0
 for attempt in 1 2 3; do
-  if GW_REASON=$(/bin/bash "$GW_CHECK" 2>&1); then GW_OK=1; break; fi
+  # `timeout` is the script-level bound over the check's own curl limits (worst case 15 s inside).
+  if GW_REASON=$(timeout 25 /bin/bash "$GW_CHECK" 2>&1); then GW_OK=1; break; fi
   (( attempt < 3 )) && sleep 8
 done
 if [[ "$GW_OK" != "1" ]]; then
-  # The reason is the check's `fail ` lines, joined.
-  skip "inference gateway: $(print -r -- "$GW_REASON" | /usr/bin/sed -n 's/^fail //p' | paste -sd ';' - | /usr/bin/sed 's/;/; /g')"
+  # The reason is the check's `fail ` lines, joined; a hung check (killed by `timeout`) prints none.
+  GW_FAIL=$(print -r -- "$GW_REASON" | /usr/bin/sed -n 's/^fail //p' | paste -sd ';' - | /usr/bin/sed 's/;/; /g')
+  skip "inference gateway: ${GW_FAIL:-check hung or gave no answer within 25 s}"
 fi
 
 /usr/bin/curl -fsS --max-time 10 "$PUSH_URL" >/dev/null
