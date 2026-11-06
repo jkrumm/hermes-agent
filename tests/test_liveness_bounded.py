@@ -44,18 +44,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
         pass
 
 
-def make_home(base_url):
+def make_home(base_url, state="{}", export_ok=False):
     home = tempfile.mkdtemp(prefix="hermes-liveness-test-")
     os.makedirs(f"{home}/.local/bin")
     os.makedirs(f"{home}/.hermes")
-    open(f"{home}/.hermes/gateway_state.json", "w").write("{}")
+    open(f"{home}/.hermes/gateway_state.json", "w").write(state)
     open(f"{home}/.hermes/.env.tpl", "w").write("A=op://x/y/z\n")
     stub = f"{home}/.local/bin/secrets-run"
-    # `read` resolves the push URL (with Kuma's usual query); `export` HANGS — the fake hung probe.
+    # `read` resolves the push URL (with Kuma's usual query); `export` HANGS — the fake hung probe —
+    # unless export_ok, where it renders the one ref the template asks for.
+    export = 'echo "export A=1"; exit 0' if export_ok else "sleep 60"
     open(stub, "w").write(
         "#!/bin/bash\n"
         f'[[ "$1" == read ]] && {{ echo "{base_url}/api/push/tok?status=up&msg=OK&ping="; exit 0; }}\n'
-        "sleep 60\n"
+        f"{export}\n"
     )
     os.chmod(stub, 0o755)
     return home
@@ -89,6 +91,14 @@ def main():
     check("liveness: push is down", q.get("status") == ["down"], str(q))
     check("liveness: push names the failed check", "secret cache" in (q.get("msg") or [""])[0], str(q))
     check("liveness: skip is logged", "heartbeat skipped" in r.stdout, r.stdout)
+
+    # 1b. A planned restart (gateway_state=draining) withholds the ping but never pages Kuma.
+    home = make_home(base, state='{"gateway_state":"draining"}', export_ok=True)
+    PUSHES.clear()
+    r, dt = run("hermes-liveness.sh", home, {"HERMES_LIVENESS_PROBE_TIMEOUT": "5"}, 40)
+    check("liveness: draining exits 0", r.returncode == 0, f"rc={r.returncode}")
+    check("liveness: draining pushes nothing", not PUSHES, str(PUSHES))
+    check("liveness: draining is logged", "gateway_state=draining" in r.stdout, r.stdout)
 
     # 2. hermes-serve-liveness: an ungated serve → down push naming it (ungated is the check it exists for).
     home = make_home(base)
