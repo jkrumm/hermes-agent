@@ -57,7 +57,7 @@ curator — a skill created ad hoc under `~/.hermes/skills/` has neither and get
 rewritten by accretion. Detection is manual (`ls ~/.hermes/skills` against `HERMES_SKILLS`); the old `stray_skill` poll retired with the control plane. Full
 mechanism + adoption path: **`docs/symlinks-and-agents.md`**.
 
-**Host-level scripts** (user LaunchAgents, not symlinked): `hermes-liveness.sh` (300s, both liveness pushers run under `jobrun --timeout 270` with every call bounded, a failed check pushes `status=down&msg=<reason>` — `docs/symlinks-and-agents.md`; gateway
+**Host-level scripts** (user LaunchAgents, not symlinked): `hermes-liveness.sh` (300s, both liveness pushers run under `jobrun --timeout 270` with every call bounded, a failed check pushes `status=down&msg=<reason>`, except `gateway_state=draining` (planned restart: ping withheld, monitor not told down) — `docs/symlinks-and-agents.md`; gateway
 state + Slack connected + the live pid belongs to launchd's job + the inference gateway answers and accepts Hermes' door token, via `scripts/inference-gateway-check.sh`, shared with `make verify`/`status`), `hermes-backup.sh` (daily
 03:00 — rsync to homelab, `mkdir`-lock against overlap), and the `hermes serve` pair —
 `hermes-serve-launch.sh` (KeepAlive) + `hermes-serve-liveness.sh` (300s), see *Hermes Desktop*

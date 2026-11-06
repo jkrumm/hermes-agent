@@ -94,6 +94,14 @@ GATEWAY_STATE=$(timeout 5 /usr/bin/jq -r '.gateway_state // ""' "$STATE")
 SLACK_STATE=$(timeout 5 /usr/bin/jq -r '.platforms.slack.state // ""' "$STATE")
 PID=$(timeout 5 /usr/bin/jq -r '.pid // 0' "$STATE")
 
+# A restart (make deploy, hermes update) drains in-flight turns first — planned, not a failure
+# (scripts/deploy.sh waits it out). Withhold the ping but do not push down: Kuma's own window
+# still alerts if a drain never ends, while a normal restart no longer pages.
+if [[ "$GATEWAY_STATE" == "draining" ]]; then
+  /bin/echo "$(/bin/date -u +%Y-%m-%dT%H:%M:%SZ) heartbeat withheld: gateway_state=draining (planned restart, monitor not told down)"
+  exit 0
+fi
+
 if [[ "$GATEWAY_STATE" != "running" ]]; then
   skip "gateway_state=$GATEWAY_STATE"
 fi
