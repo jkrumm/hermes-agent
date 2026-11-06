@@ -15,7 +15,8 @@ the same commit that registers it.
 `~/.hermes/scripts/ntfy-publish.sh`). Hermes has no ntfy platform and its `bot-chat` target is
 Desktop's, not Iris (which is pull-only), so no job uses a Hermes delivery target. `make status`
 asserts the column and that every registered job's `deliver` is `local`. A publish failure makes
-the job fail (non-zero exit), so the failure grade shows it; failure notices are `--failure-deliver
+the no-agent script jobs fail (non-zero exit), so the failure grade shows it (the brain drift audit
+publishes from inside its agent turn: its failure shows only in its cron output); failure notices are `--failure-deliver
 local` — dotfiles' jobs-grade already grades the Hermes cron jobs and posts to ntfy topic `alerts`.
 
 **State vocabulary:** `live` | `paused (<reason>)` | `retired (<date>, <reason>)`. A row's

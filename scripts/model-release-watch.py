@@ -15,6 +15,7 @@ Output is Markdown (**bold**, [text](url)). Anything printed is also published t
 topic `models` (a publish failure exits non-zero); empty output publishes nothing.
 """
 
+import copy
 import email.utils
 import html
 import json
@@ -243,10 +244,18 @@ def parse_sitemap(xml):
     return [(u, lm or "") for u, lm in entries if "/news/" in u]
 
 
-def emit(text):
-    """Print the notice (the cron output keeps it) and publish it to ntfy topic `models`."""
+def emit(text, prev_state=None):
+    """Print the notice (the cron output keeps it) and publish it to ntfy topic `models`.
+
+    A failed publish restores `prev_state` (when given) so the next run still sees the
+    item as new instead of losing the notice."""
     print(text)
-    ntfy_notify.publish("models", "Model release watch", text)
+    try:
+        ntfy_notify.publish("models", "Model release watch", text)
+    except ntfy_notify.NtfyError:
+        if prev_state is not None:
+            save_state(prev_state)
+        raise
 
 
 def main():
@@ -279,6 +288,7 @@ def main():
 
 def run():
     st = load_state()
+    prev_st = copy.deepcopy(st)
     seeded = st["seeded_at"] is not None
     errors = []
     or_data = md_data = news_data = None
@@ -305,7 +315,7 @@ def run():
             st["fail_notice_at"] = now
             save_state(st)
             emit("⚠️ **model-watch** — beide Quellen nicht erreichbar (OpenRouter, models.dev). "
-                  "Watcher läuft weiter, nächster Versuch in 15 min.")
+                  "Watcher läuft weiter, nächster Versuch in 15 min.", prev_st)
         return 0
 
     recs = []          # {ts, display, id, srcs, date, ctx, price}
@@ -417,7 +427,7 @@ def run():
         emit("✅ **Claude-Watch** scharf — Baseline: "
               f"{seen_or} OpenRouter-Modelle, {seen_md} models.dev-Claude-Einträge, "
               f"{len(st['news'])} Anthropic-News-URLs, {len(st['wire'])} Wire-Meldungen. "
-              "Meldet neue Claude-Modelle, Reset-/Limit-Posts und Launch-Schlagzeilen, alle 15 min.")
+              "Meldet neue Claude-Modelle, Reset-/Limit-Posts und Launch-Schlagzeilen, alle 15 min.", prev_st)
         return 0
 
     if not recs and not new_news and not new_wire:
@@ -516,7 +526,7 @@ def run():
         out.append("")
         out.append(f"_Teilausfall ({len(errors)}): Details in "
                    "~/.hermes/state/model-release-watch.log_")
-    emit("\n".join(out))
+    emit("\n".join(out), prev_st)
     return 0
 
 if __name__ == "__main__":

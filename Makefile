@@ -2,11 +2,11 @@ HERMES_REPO   := $(shell pwd)
 HERMES_DIR    := $(HOME)/.hermes
 # Upstream Hermes checkout the patches/ dir is applied to (see `make patch-check`).
 HERMES_SRC    := $(HERMES_DIR)/hermes-agent
-# Skills symlinked into ~/.hermes/skills/ — the curated set, 21 dirs (agent-platform Wave 2,
-# 2026-10-04: 20, was 126; `prose` added 2026-10-19). Retired siblings were folded into `<skill>/references/*.md` or deleted;
+# Skills symlinked into ~/.hermes/skills/ — the curated set, 22 dirs (agent-platform Wave 2,
+# 2026-10-04: 20, was 126; `prose` added 2026-10-19, `fleet` 2026-11-07). Retired siblings were folded into `<skill>/references/*.md` or deleted;
 # git history is the archive. `skills/work/iu-*/` is gitignored (employer-internal) and rides
 # inside the `work` symlink.
-HERMES_SKILLS := capture argo-api work karakeep obsidian reading wildrift agw-research image-delivery podcast prose briefing-tts hyperdx homelab homelab-ops hermes-gateway human-queue herdr verify home iris
+HERMES_SKILLS := capture argo-api work karakeep obsidian reading wildrift agw-research image-delivery podcast prose briefing-tts hyperdx homelab homelab-ops hermes-gateway human-queue herdr verify home iris fleet
 
 # Gateway plugins symlinked into ~/.hermes/plugins/ (none today). A plugin that lives only
 # under ~/.hermes/ is one `hermes update` from unreviewable state, so a new one belongs here
