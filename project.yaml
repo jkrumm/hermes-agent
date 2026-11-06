@@ -1,0 +1,12 @@
+# How the factory ships this project (software-factory docs/design.md §9).
+apiVersion: factory/v2
+name: hermes-agent
+deploy:
+  mode: make # `make deploy` applies the checkout (setup + gateway/serve restart); `make verify` probes the live gateway
+  targets:
+    - { name: mini, host: mini, verify: make verify }
+  hold: 5m
+  migrations: []
+ship:
+  - { paths: ["**"], via: push }
+leads: 1

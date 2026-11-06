@@ -549,6 +549,10 @@ beyond the skills-index restart noted in *Editing Rules*.
 
 ## Verify & Monitor
 
+**Factory manifest:** `project.yaml` (software-factory `docs/design.md` §9) — `deploy.mode make`, target `mini`
+verified by `make verify`, 5m hold, ship by push. `make version` prints the checkout's HEAD sha (the checkout is
+the live config), which the factory compares with the shipped commit.
+
 - **`make verify`** — gateway pid alive, `gateway_state.json` slack + api_server
   `connected`, API `/health` 200 on the tailnet bind (`op://hermes/gateway/host`), the inference gateway (`:7794`) healthy and accepting the door token, `hermes serve`
   answering on `:9119` **and gated** (`auth_required`, unauthenticated ws-ticket 401), all patches

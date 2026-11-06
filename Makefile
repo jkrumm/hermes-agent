@@ -488,6 +488,11 @@ skills-set-check:
 verify:
 	@./scripts/verify.sh
 
+# The checkout is the live config, so the deployed commit is its HEAD. One line, read-only.
+.PHONY: version
+version:
+	@git -C "$(HERMES_REPO)" rev-parse HEAD
+
 # Bounded tail of the gateway logs, then exits.
 .PHONY: logs
 logs:
@@ -547,6 +552,7 @@ help:
 	@echo "  make check           Syntax + unit tests + patch-check (no side effects)"
 	@echo "  make deploy          Setup + restart gateway + verify; roll back to HEAD~1 on failure"
 	@echo "  make verify          Probe the live gateway (exit 0 = healthy)"
+	@echo "  make version         Print the deployed commit sha (checkout HEAD)"
 	@echo "  make logs            Bounded tail of gateway logs"
 	@echo "  make patch-check     Assert every patches/*.patch is applied to the live checkout"
 	@echo "  make cron-migrate    One-time — drop the superseded crontab entries"
