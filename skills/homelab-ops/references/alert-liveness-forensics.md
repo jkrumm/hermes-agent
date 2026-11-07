@@ -59,8 +59,8 @@ for r in c.execute('select * from alerts_history order by rowid desc limit 15'):
 
 ### Alert posts (UptimeKuma, HyperDX, watchdogs)
 
-Hermes cannot read the posts themselves any more (they still go to Slack until their
-own migration). Work from what the owner relays, then probe the producer as above:
+Hermes cannot read the alert messages themselves (they go to the ntfy topic `alerts`;
+software-factory Issue 259 adds a read). Work from what the owner relays, then probe the producer as above:
 
 - A `✅`-prefixed message is the recovery pairing; its absence is a reason a row
   can sit open, not evidence the service is down.

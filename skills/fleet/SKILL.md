@@ -44,7 +44,7 @@ factory read issues --state all --limit 40 --format json | jq -r --arg c "$CUT" 
 
 ### Any alerts
 
-`health` + open `asks`. When both are empty, say "the factory has nothing open" and stop. This is the **factory's** view only. Uptime Kuma and HyperDX alert state is a separate read (`skill_view('hyperdx')`, the `argo-api` infrastructure reference); they still post to Slack until their own migration, which Hermes cannot read — name that gap in one line when he asks about alerts.
+`health` + open `asks`. When both are empty, say "the factory has nothing open" and stop. This is the **factory's** view only. Uptime Kuma and HyperDX alert state is a separate read (`skill_view('hyperdx')`, the `argo-api` infrastructure reference); their messages go to the ntfy topic `alerts`, which Hermes cannot read yet (software-factory Issue 259) — name that gap in one line when he asks about alerts.
 
 ### Failures
 

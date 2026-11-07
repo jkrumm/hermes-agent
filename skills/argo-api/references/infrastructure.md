@@ -46,7 +46,7 @@ curl -s -H "Authorization: Bearer $HOMELAB_API_KEY" "https://argo.jkrumm.com/api
 → Call `/summary` — one request covers UptimeKuma + Docker homelab + Docker VPS + overdue tasks
 
 **"Any alerts?" / "What happened?" / "Recent warnings?"**
-→ Call `/summary` for current status, plus `skill_view('fleet')` (`factory read health` + `asks`) for the factory's view. Past Kuma/HyperDX alert posts are not readable any more (they still post to Slack); use `/uptime-kuma/*` for current state and the `hyperdx` skill for traces/logs.
+→ Call `/summary` for current status, plus `skill_view('fleet')` (`factory read health` + `asks`) for the factory's view. Past Kuma/HyperDX alert messages go to the ntfy topic `alerts` and are not readable by Hermes yet (software-factory Issue 259); use `/uptime-kuma/*` for current state and the `hyperdx` skill for traces/logs.
 
 **"Is X down?" / "What's the uptime?"**
 → Call `/uptime-kuma/status` first (3 numbers: up/down/total)
