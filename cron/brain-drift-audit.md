@@ -13,7 +13,7 @@ auto-loaded.** The live job carries its own copy of the prompt in `~/.hermes/cro
 | Schedule | `0 9 * * 6` (Saturday 09:00, Europe/Berlin) |
 | Skills | `obsidian` |
 | Pre-run script | none — the agent runs the whole turn |
-| Deliver | `local` (cron output only); the final step publishes the report to ntfy topic `updates` through `~/.hermes/scripts/ntfy-publish.sh` |
+| Deliver | `local` (cron output only); the final step publishes the report to ntfy topic `watchdog` through `~/.hermes/scripts/ntfy-publish.sh` |
 | Name | `Brain drift audit` |
 | Model | pinned `custom` / `deepseek-v4.1-flash` (re-pinned on the 2026-10-20 brain switch) |
 
@@ -26,7 +26,7 @@ auto-loaded.** The live job carries its own copy of the prompt in `~/.hermes/cro
    against `voice.md` and the "rewritten, not appended" rule in `AGENTS.md`. No spawned agent.
 3. Reports NEW findings first (file:line, drift type), then one line of still-open / resolved
    counts. A quiet week is a single "held steady" line. The report is piped to
-   `ntfy-publish.sh updates --title "Brain drift audit"` with the terminal tool, then the turn ends.
+   `ntfy-publish.sh watchdog --title "Brain drift audit"` with the terminal tool, then the turn ends.
 
 **Propose only.** It never edits or commits — every rewrite of a curated page stays human.
 

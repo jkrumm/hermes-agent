@@ -32,7 +32,7 @@ Mac Mini M2 Pro — Hermes Agent (always-on)
 | Iris | Phone voice-memo/chat app; calls the API server on `:8642` (pull-only, Hermes cannot push to it) | Chat and voice memos |
 | Hermes Desktop | `hermes serve` (`:9119`, `com.jkrumm.hermes-serve`) | Desktop chat on the MacBook |
 | CLI | `hermes chat` on the mini | Ad-hoc use and tests |
-| ntfy | Topics `updates` (project narratives, brain drift audit, usage weekly report) and `models` (model release watch) | Notices. Hermes has no ntfy platform: each cron job runs with `--deliver local` and publishes itself through `scripts/ntfy-publish.sh` |
+| ntfy | Topics `briefings` (project narratives, usage weekly report), `watchdog` (brain drift audit) and `models` (model release watch); every topic is listed in the homelab repo's `docs/ntfy.md` | Notices. Hermes has no ntfy platform: each cron job runs with `--deliver local` and publishes itself through `scripts/ntfy-publish.sh` |
 
 There is no Slack gateway any more (removed 2026-11): no bot, tokens or channels. Fleet and Issue
 state is read through the `factory` CLI (`factory read overview|issues|issue <id>|asks|health|sessions`),

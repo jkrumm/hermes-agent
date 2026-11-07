@@ -13,4 +13,4 @@ STEP 3 — report. Lead with the NEW findings, ranked worst first, with file:lin
 
 Propose only. Never edit, never commit. Every rewrite is a human decision.
 
-STEP 4 — publish. Pipe the final report from STEP 3 (the exact text, nothing added) to ntfy with the terminal tool, for example: printf '%s\n' "<report>" | ~/.hermes/scripts/ntfy-publish.sh updates --title "Brain drift audit" . If the command exits non-zero, say so in one line. Then end the turn.
+STEP 4 — publish. Pipe the final report from STEP 3 (the exact text, nothing added) to ntfy with the terminal tool, for example: printf '%s\n' "<report>" | ~/.hermes/scripts/ntfy-publish.sh watchdog --title "Brain drift audit" . If the command exits non-zero, say so in one line. Then end the turn.

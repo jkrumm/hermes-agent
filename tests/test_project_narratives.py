@@ -309,8 +309,8 @@ try:
         rc = pn.main(["--run"])
     check("exit 0", rc, 0)
     check("stdout is the one revised line", out.getvalue().strip(), "weatherorb: Shipped CDN icon mirroring.")
-    check("published to ntfy topic updates", published,
-          [("updates", "Project narratives", "weatherorb: Shipped CDN icon mirroring.")])
+    check("published to ntfy topic briefings", published,
+          [("briefings", "Project narratives", "weatherorb: Shipped CDN icon mirroring.")])
     check_true("page written", (pn.PROJECTS_DIR / "weatherorb.md").exists())
     check_true("projects index regenerated", (pn.PROJECTS_DIR / "index.md").exists())
     check_true("engineering index links the projects index", pn.SUBDOMAIN_LINK in pn.ENGINEERING_INDEX.read_text())

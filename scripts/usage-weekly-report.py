@@ -3,7 +3,7 @@
 
 usage-tracker's weekly LaunchAgent (Monday 07:00) writes one Markdown file per ISO
 week; this prints the file for the week that just ended and nothing else, so the
-cron output keeps the full text; it is also published to the ntfy topic `updates`
+cron output keeps the full text; it is also published to the ntfy topic `briefings`
 (the publish helper clips to ntfy's body cap). A missing file is one line saying so, never silence:
 the agent not having run is the thing worth hearing about.
 """
@@ -35,7 +35,7 @@ def main() -> int:
             text = f.read().strip()
     print(text)
     try:
-        ntfy_notify.publish("updates", "Usage weekly", text)
+        ntfy_notify.publish("briefings", "Usage weekly", text)
     except ntfy_notify.NtfyError as e:
         print(f"usage-weekly-report: {e}", file=sys.stderr)
         return 1

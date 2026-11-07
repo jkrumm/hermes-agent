@@ -641,7 +641,7 @@ def _cmd_run(restrict: set[str] | None) -> int:
     if not revised_lines:
         return 0
     try:
-        ntfy_notify.publish("updates", "Project narratives", "\n".join(revised_lines))
+        ntfy_notify.publish("briefings", "Project narratives", "\n".join(revised_lines))
     except ntfy_notify.NtfyError as e:
         print(f"project-narratives: {e}", file=sys.stderr)
         return 1

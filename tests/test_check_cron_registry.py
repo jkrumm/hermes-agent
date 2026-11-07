@@ -196,18 +196,18 @@ md = """\
 | Job id | Name | Schedule | Mode | Script / prompt | Skills | Delivery | State |
 |-|-|-|-|-|-|-|-|
 | `cc7900c424a9` | Morning briefing | `0 7 * * 1-5` | agent | `x.prompt.txt` | `a` | `local` | paused (owner) |
-| `9909f808fe17` | Project narratives | `30 6 * * *` | no-agent | `n.py` | — | `ntfy:updates` | live |
+| `9909f808fe17` | Project narratives | `30 6 * * *` | no-agent | `n.py` | — | `ntfy:briefings` | live |
 | `825d9e57be32` | Usage weekly | `30 7 * * 1` | no-agent | `u.py` | — | `slack:C123` | live |
 """
 deliveries = ccr.parse_deliveries(md)
-check("columns parsed", deliveries, {"cc7900c424a9": "local", "9909f808fe17": "ntfy:updates",
+check("columns parsed", deliveries, {"cc7900c424a9": "local", "9909f808fe17": "ntfy:briefings",
                                      "825d9e57be32": "slack:C123"})
 jobs = {i: {**mk_job(i, "j"), "deliver": "local"} for i in deliveries}
 errors = ccr.compare_delivery(deliveries, jobs)
 check("only the slack column is flagged", len(errors), 1)
 check_true("names the bad column", "825d9e57be32" in errors[0] and "slack:C123" in errors[0])
 jobs["9909f808fe17"]["deliver"] = "origin"
-errors = ccr.compare_delivery({"9909f808fe17": "ntfy:updates"}, jobs)
+errors = ccr.compare_delivery({"9909f808fe17": "ntfy:briefings"}, jobs)
 check_true("a job not delivering local is flagged with the fix",
            len(errors) == 1 and "--deliver local --failure-deliver local" in errors[0])
 
