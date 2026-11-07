@@ -36,7 +36,7 @@ Mac Mini M2 Pro — Hermes Agent (always-on)
 
 There is no Slack gateway any more (removed 2026-11): no bot, tokens or channels. Fleet and Issue
 state is read through the `factory` CLI (`factory read overview|issues|issue <id>|asks|health|sessions`),
-and agent work is filed with `factory issue new`.
+and agent work is filed with `factory signal file`.
 
 ## Files
 
@@ -195,5 +195,5 @@ status` asserts the live set matches it.
 Hermes triages well but reads a repo badly — it has no access to a repo's `AGENTS.md`/`CLAUDE.md`,
 `.claude/rules/` or `.claude/skills/`. For anything that needs real repo context (a bug fix,
 an investigation, a PR), Hermes files a GitHub issue (`capture`) and answers in one line; the owner starts
-the work. Herdr tabs (`hc`/`rd`, the `herdr` skill) only on request; larger plans go to the factory (`factory issue new`).
+the work. Herdr tabs (`hc`/`rd`, the `herdr` skill) only on request; larger plans go to the factory (`factory signal file`).
 Details: `AGENTS.md` §Repo work is filed.

@@ -43,7 +43,7 @@ minor or already solved. If he raised it, it goes in.
 
 | The memo asks for | Where it goes |
 |-|-|
-| Agent work on a repo ("let an agent …", "start an agent …") | `fleet` skill — one `factory issue new`, the brief goes into `facts.request` verbatim |
+| Agent work on a repo ("let an agent …", "start an agent …") | `fleet` skill — one `factory signal file`, the brief goes into `--text` verbatim |
 | Repo work that needs the source (fix, debug, investigate) | `capture` → a GitHub issue; the owner starts the work |
 | A todo / reminder / issue | `capture` (TickTick or GitHub) — one line per item, his action, not his prose |
 | A durable idea to develop | `obsidian` — his thinking, structured, in his vault |

@@ -42,6 +42,11 @@ GITHUB_TOKEN=op://hermes/github/token
 # FACTORY_TOKEN: Hermes takes voice and chat input and sends what it reads to models.
 FACTORY_READ_TOKEN=op://mini/software-factory/FACTORY_READ_TOKEN
 
+# Software factory signal token — `factory signal file --from owner:hermes` (fleet skill). Accepted on
+# POST /signals only, as owner:hermes; 403 everywhere else, reads nothing. The fleet skill passes it as
+# FACTORY_TOKEN for that one command. The owner's FACTORY_TOKEN never goes in this file.
+FACTORY_SIGNAL_TOKEN=op://mini/software-factory/FACTORY_SIGNAL_TOKEN
+
 # Argo API (formerly homelab API) — single integration layer for TickTick, Gmail,
 # Calendar, Docker, UptimeKuma. Base URL: https://argo.jkrumm.com/api
 # (env var name HOMELAB_API_KEY kept for shell/cron compatibility)

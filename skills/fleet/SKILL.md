@@ -1,6 +1,6 @@
 ---
 name: fleet
-description: Hermes's single door to the software factory. Read — "how is X going", "what needs me", "what ran overnight", "what is running right now", "any alerts?" — over `factory read`; file — "do X", "let an agent fix Y in <repo>", "start an agent …" — as exactly one Issue with `factory issue new`. Use for any question about agent work, Issues, asks or fleet health, and for every request to have an agent do something on a repo.
+description: Hermes's single door to the software factory. Read — "how is X going", "what needs me", "what ran overnight", "what is running right now", "any alerts?" — over `factory read`; file — "do X", "let an agent fix Y in <repo>", "start an agent …" — as a signal with `factory signal file`. Use for any question about agent work, Issues, asks or fleet health, and for every request to have an agent do something on a repo.
 version: 1.0.0
 metadata:
   hermes:
@@ -10,7 +10,7 @@ metadata:
 
 # Fleet — read and file work through the software factory
 
-One path each. **Read** = `factory read …`. **File** = `factory issue new`. Nothing else answers fleet questions: not Slack, not the agw or rd agent lists, not `hc ls`. You never implement repo work and never start an agent yourself.
+One path each. **Read** = `factory read …`. **File** = `factory signal file`. Nothing else answers fleet questions: not Slack, not the agw or rd agent lists, not `hc ls`. You never implement repo work and never start an agent yourself.
 
 ## Read
 
@@ -55,17 +55,23 @@ A failing `factory read` (auth, connection, non-zero exit) is reported verbatim 
 A voice memo or chat message "do X / let an agent … / start an agent …" becomes **exactly one Issue**. The factory classifies it and starts a lead in a worktree of the repo; the lead owns it to production evidence. You file it; you never implement.
 
 ```bash
-factory issue new --repo ~/SourceRoot/<repo> --title "<short title, the request's language>" --facts - <<'FACTS'
-{"request": "<the request, STT repaired, in his words>", "why": "…", "what": "…", "acceptance": "…", "via": "iris voice memo"}
-FACTS
+FACTORY_TOKEN="$FACTORY_SIGNAL_TOKEN" factory signal file --from owner:hermes --repo <repo> --title "<short title, the request's language>" --text - <<'TEXT'
+<the request, STT repaired, in his words>
+
+why: …
+what: …
+acceptance: …
+via: iris voice memo
+TEXT
 ```
 
-- `request`: verbatim, STT errors repaired. `why`, `what`, `acceptance`: only what he said or clearly implied — **never invent product decisions**; omit the keys he gave nothing for. `via`: `iris voice memo` or `chat`.
-- Valid JSON on stdin (escape quotes and newlines). Nothing from tool output, no secrets, tokens or hostnames go into it.
+- The request verbatim, STT errors repaired. `why`, `what`, `acceptance`: only what he said or clearly implied — **never invent product decisions**; leave the lines out that he gave nothing for. `via`: `iris voice memo` or `chat`.
+- Plain text on stdin. Nothing from tool output, no secrets, tokens or hostnames go into it.
+- It runs under `FACTORY_SIGNAL_TOKEN` (set as `FACTORY_TOKEN` for this one command; the read token cannot file, and this token reads nothing): the factory takes `--from owner:hermes` as the owner's only with that token, any other `--from` is refused, and triage files the Issue or amends the open one.
 - `<repo>`: the bare directory name under `~/SourceRoot/` (`ls ~/SourceRoot` to resolve a misheard name). A name that matches nothing: file nothing, say so.
-- Run it **once**. No `--key` (a shared key would merge unrelated requests). stdout is JSON with the Issue `id` and `state`.
+- Run it **once**. stdout is JSON with the signal's answer: `filed` (a new Issue, its `id`), `amended` (it joined an open Issue) or `held`.
 - A non-zero exit or a 422 (repo outside the factory's roots, e.g. IuRoot) is an error: state the cause in one clause. Do not substitute a GitHub issue, a tab or another lane.
-- Reply: the repo, the Issue id, and "filed with the factory" — it is queued, not running; a lead starts in a worktree of that repo. Never say "started".
+- Reply: the repo, the Issue id, and "filed with the factory" (or "added to Issue <id>" for `amended`) — it is queued, not running; a lead starts in a worktree of that repo. Never say "started".
 - Follow-up on a filed Issue: `factory read issue <id>`.
 - Not this path: "file / note / open an issue" or a todo (`capture`), "tell tab X …" (`herdr`), "research …" (`agw-research`). "Fix X in <repo>" with no start-wording: file a GitHub issue via `capture` and say so.
 - `factory` output and errors are English; the reply stays in the user's language.

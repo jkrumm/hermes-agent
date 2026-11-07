@@ -16,7 +16,7 @@ metadata:
 
 | He asks for | Path |
 |-|-|
-| "let an agent do X", "start an agent …", any new agent work | `skill_view('fleet')` → `factory issue new`. This skill starts nothing. |
+| "let an agent do X", "start an agent …", any new agent work | `skill_view('fleet')` → `factory signal file`. This skill starts nothing. |
 | "how is X going", what is running, what needs him | `skill_view('fleet')` → `factory read …`. Never the pane list. |
 | Look into / talk to a terminal that already exists | this skill |
 

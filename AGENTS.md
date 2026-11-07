@@ -8,7 +8,7 @@ history and per-file detail live in `docs/*.md`; each section here points at its
 VCS source of truth for Johannes's Hermes Agent setup, Mac Mini-only. Everything here is
 symlinked into `~/.hermes/` — edit at either end, git sees it here.
 
-Hermes has one role — **narrate, answer, route** (spec: `dotfiles/docs/agent-platform.md` §Hermes): it reports one line per item, answers questions, and files code work as a GitHub issue (`capture`), and an explicit request to start an agent on a repo (Iris voice or chat) goes to the software factory (`fleet` skill → `factory issue new`: Hermes files, the factory's lead works). Fleet state is read through the same skill (`factory read`). It never lands PRs, runs agents itself or authors skills. Hermes does not use Slack (retired 2026-11). The reporting contract lives in `SOUL.md` and nowhere else — no per-skill report formats. See *Repo work is filed* below.
+Hermes has one role — **narrate, answer, route** (spec: `dotfiles/docs/agent-platform.md` §Hermes): it reports one line per item, answers questions, and files code work as a GitHub issue (`capture`), and an explicit request to start an agent on a repo (Iris voice or chat) goes to the software factory (`fleet` skill → `factory signal file`: Hermes files, the factory's lead works). Fleet state is read through the same skill (`factory read`). It never lands PRs, runs agents itself or authors skills. Hermes does not use Slack (retired 2026-11). The reporting contract lives in `SOUL.md` and nowhere else — no per-skill report formats. See *Repo work is filed* below.
 
 Audio (TTS + STT) is the **agent-workflows audio door** (`~/SourceRoot/agent-workflows`,
 `packages/audio`), an OpenAI-compatible loopback service on the mini at `http://127.0.0.1:7792/v1`
@@ -89,7 +89,7 @@ Hermes does not land PRs, `gh pr merge`, or start a `claude` session.
 | Need | Path |
 |-|-|
 | Read fleet / Issue / ask / health state ("how is X going", "what needs me", "what ran overnight", "any alerts") | `fleet` skill → `factory read overview|issues|issue|asks|health|sessions` (read-only token `FACTORY_READ_TOKEN` from `.env.tpl`; the server redacts IuRoot text under it) |
-| File agent work ("do X", "let an agent …") | `fleet` skill → `factory issue new` (unix socket, no token) |
+| File agent work ("do X", "let an agent …") | `fleet` skill → `factory signal file` (`FACTORY_SIGNAL_TOKEN`, signal-only, `--from owner:hermes`) |
 | File a GitHub issue / todo | `capture` |
 | Personal data and service state (TickTick, Gmail, calendar, Docker, Kuma) | `argo-api` (not factory state) |
 | Steer an existing terminal | `herdr` skill (`hc`), only when the owner asks |
@@ -115,7 +115,7 @@ module. Detail: **`docs/scheduled-jobs.md`**.
 On the owner's explicit request Hermes may read and steer terminals that already exist, through the `herdr` skill
 (`skills/herdr/SKILL.md`): `hc ls|read|get`, `hc send`, `hc interrupt`, `hc wait` (herdr-core is the launchd service
 `com.jkrumm.herdr-core` on the mini). **Starting agent work is not part of it** — that is the `fleet` skill
-(`factory issue new`). Safety rules are the only gate (guidance, not command guards): never `hc server stop|restart`,
+(`factory signal file`). Safety rules are the only gate (guidance, not command guards): never `hc server stop|restart`,
 `hc update` or `hc machine update` (one core serves every agent), never `hc send --force` (a `blocked` agent needs the
 owner), never `hc attach`. Hermes runs outside any terminal, so every `hc read|get|wait|interrupt` takes an explicit
 target; `hc read` is plain text (no `jq`); the terminal tool's 180 s timeout means `hc wait` stays below ~150 s.
@@ -185,7 +185,7 @@ bound to the host iris uses. Verify and rotation steps: **`docs/gateway-http-api
 
 **Iris turns (Wave 21, 2026-11-04):** Iris no longer classifies voice memos — every memo except mode
 Transcribe goes to Hermes as a session turn whose per-turn `system_message` says "This turn comes from Iris…
-Load skill_view('iris')". `skills/iris/` decides (answer / `capture` / `obsidian` note / `herdr` tab prompt to an existing terminal / `fleet`: read fleet state, or file agent work via `factory issue new` when the memo says *start*) and
+Load skill_view('iris')". `skills/iris/` decides (answer / `capture` / `obsidian` note / `herdr` tab prompt to an existing terminal / `fleet`: read fleet state, or file agent work via `factory signal file` when the memo says *start*) and
 ends the reply with one ```` ```iris ```` JSON block (`kind`, `headline` only) that Iris parses; legacy builds
 append `The owner picked: Journal.|Chat.|Tab.`. Brain notes use `skills/iris/scripts/iris-note.py` (Inbox, journal
 frontmatter, commit via `scripts/brain-commit.sh`'s brain-sync lock). SOUL.md has one routing row; CLI and Desktop unaffected.
