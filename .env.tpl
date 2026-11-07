@@ -37,6 +37,11 @@ TAVILY_API_KEY=op://hermes/tavily/API_KEY
 # GitHub — issue creation, repo queries (watchdog, Phase 3)
 GITHUB_TOKEN=op://hermes/github/token
 
+# Software factory read API — the `factory read` CLI (fleet skill) takes this when FACTORY_TOKEN is
+# absent. Read-only bearer: accepted on GET /v1/* only, IuRoot text redacted. Never the full
+# FACTORY_TOKEN: Hermes takes voice and chat input and sends what it reads to models.
+FACTORY_READ_TOKEN=op://mini/software-factory/FACTORY_READ_TOKEN
+
 # Argo API (formerly homelab API) — single integration layer for TickTick, Gmail,
 # Calendar, Docker, UptimeKuma. Base URL: https://argo.jkrumm.com/api
 # (env var name HOMELAB_API_KEY kept for shell/cron compatibility)

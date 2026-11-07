@@ -35,11 +35,12 @@ One path each. **Read** = `factory read …`. **File** = `factory issue new`. No
 Cutoff: yesterday 18:00 local (or last evening's briefing if he names it). State the cutoff in the reply.
 
 ```bash
-CUT=$(date -v-1d -v18H -v0M -v0S +%Y-%m-%dT%H:%M:%S)    # macOS date; yesterday 18:00 local
-factory read issues --state all --limit 40 --format json | jq --arg c "$CUT" -r '.issues[] | "\(.title) — \(.summary)"'
+CUT=$(date -u -r "$(date -v-1d -v18H -v0M -v0S +%s)" +%Y-%m-%dT%H:%M:%SZ)    # yesterday 18:00 local, as UTC to compare
+factory read issues --state all --limit 40 --format json | jq -r --arg c "$CUT" \
+  '.issues[] | select(.updatedAt > $c) | "\(.state)\t\(.repoName)\t\(.title) — \(.summary)"'
 ```
 
-The card has no reliable "changed since" filter in plain mode: read `factory read issue <id>` for any candidate whose `timeline` has an entry after `$CUT` and report the ones that closed or moved. Say so when nothing did.
+`updatedAt` and `closedAt` are ISO UTC strings, so they compare as text. Report closed ones first, then the ones that moved (working, waiting). Say so when nothing did.
 
 ### Any alerts
 
