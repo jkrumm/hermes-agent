@@ -9,4 +9,8 @@ deploy:
   migrations: []
 ship:
   - { paths: ["**"], via: push }
+signals:
+  github:
+    author: jkrumm
+    since: 2026-11-07T06:30:00Z
 leads: 1
