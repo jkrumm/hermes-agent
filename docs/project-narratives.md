@@ -88,7 +88,7 @@ untouched until a project's `needs_revision()` gate re-fires for real.
 
 | Flag | Does |
 |-|-|
-| `--run` | The cron entry point — the full gated pipeline above, commits. Prints `<project>: <summary>` per revised project, nothing when none (stdout stays in the cron output; the lines are also published to ntfy topic `updates`, and a failed publish exits 1). |
+| `--run` | The cron entry point — the full gated pipeline above, commits. Prints `<project>: <summary>` per revised project, nothing when none (stdout stays in the cron output; the lines are also published to ntfy topic `briefings`, and a failed publish exits 1). |
 | `--bootstrap a,b,c` | Forces `since=null` and `previousPage=None` for the named projects (ignores the gate entirely), writes pages + regenerates the index + lints, but **never commits** — prints the written page paths so Johannes reviews the `git diff` by hand. |
 | `--briefing` | Prints `narrative: <project> — <summary>` for every project revised in the last 26h (from state — no `agw` call), or nothing. Feeds `briefing-context.py` → the morning briefing's "Projekte" block. |
 | `--dry-run` | Lists which projects would be revised this run and why (`HEAD moved (<old> -> <new>)`, `newer Claude Code session`, or `never revised`) — no `agw` call, no writes. |
