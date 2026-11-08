@@ -35,7 +35,7 @@ Mac Mini M2 Pro — Hermes Agent (always-on)
 | ntfy | Topics `briefings` (project narratives, usage weekly report), `watchdog` (brain drift audit) and `models` (model release watch); every topic is listed in the homelab repo's `docs/ntfy.md` | Notices. Hermes has no ntfy platform: each cron job runs with `--deliver local` and publishes itself through `scripts/ntfy-publish.sh` |
 
 There is no Slack gateway any more (removed 2026-11): no bot, tokens or channels. Fleet and Issue
-state is read through the `factory` CLI (`factory read overview|issues|issue <id>|asks|health|sessions`),
+state is read through the `factory` CLI (`factory read overview|needs|flow|chain|issues|issue <id>|asks|health|sessions|accounts|friction`),
 and agent work is filed with `factory signal file`.
 
 ## Files

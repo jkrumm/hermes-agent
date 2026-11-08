@@ -88,7 +88,7 @@ Hermes does not land PRs, `gh pr merge`, or start a `claude` session.
 
 | Need | Path |
 |-|-|
-| Read fleet / Issue / ask / health state ("how is X going", "what needs me", "what ran overnight", "any alerts") | `fleet` skill → `factory read overview|issues|issue|asks|health|sessions` (read-only token `FACTORY_READ_TOKEN` from `.env.tpl`; the server redacts IuRoot text under it) |
+| Read fleet / Issue / ask / health state ("how is X going", "what needs me", "what ran overnight", "any alerts") | `fleet` skill → `factory read overview|needs|flow|chain|issues|issue|asks|health|sessions|accounts|friction` (read-only token `FACTORY_READ_TOKEN` from `.env.tpl`; the server redacts IuRoot text under it) |
 | File agent work ("do X", "let an agent …") | `fleet` skill → `factory signal file` (`FACTORY_SIGNAL_TOKEN`, signal-only, `--from owner:hermes`) |
 | File a GitHub issue / todo | `capture` |
 | Personal data and service state (TickTick, Gmail, calendar, Docker, Kuma) | `argo-api` (not factory state) |
