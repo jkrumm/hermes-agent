@@ -5,8 +5,13 @@ HERMES_SRC    := $(HERMES_DIR)/hermes-agent
 # Skills symlinked into ~/.hermes/skills/ — the curated set, 22 dirs (agent-platform Wave 2,
 # 2026-10-04: 20, was 126; `prose` added 2026-10-19, `fleet` 2026-11-07). Retired siblings were folded into `<skill>/references/*.md` or deleted;
 # git history is the archive. `skills/work/iu-*/` is gitignored (employer-internal) and rides
-# inside the `work` symlink.
+# inside the `work` symlink. Skills in HERMES_EXTERNAL_SKILLS have their source outside this
+# repo (`fleet`: software-factory/integrations/hermes/fleet) and are linked from there.
 HERMES_SKILLS := capture argo-api work karakeep obsidian reading wildrift agw-research image-delivery podcast prose briefing-tts hyperdx homelab homelab-ops hermes-gateway human-queue herdr verify home iris fleet
+
+# Skills whose source lives in the software-factory checkout: name -> $(FACTORY_DIR)/integrations/hermes/<name>.
+FACTORY_DIR ?= $(HOME)/SourceRoot/software-factory
+HERMES_EXTERNAL_SKILLS := fleet
 
 # Gateway plugins symlinked into ~/.hermes/plugins/ (none today). A plugin that lives only
 # under ~/.hermes/ is one `hermes update` from unreviewable state, so a new one belongs here
@@ -116,9 +121,11 @@ _symlinks:
 			DST="$(HERMES_DIR)/plugins/$$plugin"; \
 	done
 	@for skill in $(HERMES_SKILLS); do \
-		$(MAKE) --no-print-directory _link \
-			SRC="$(HERMES_REPO)/skills/$$skill" \
-			DST="$(HERMES_DIR)/skills/$$skill"; \
+		src="$(HERMES_REPO)/skills/$$skill"; \
+		case " $(HERMES_EXTERNAL_SKILLS) " in *" $$skill "*) src="$(FACTORY_DIR)/integrations/hermes/$$skill"; \
+			[ -d "$$src" ] || { echo "  WARNING: external skill $$skill skipped, source missing: $$src"; continue; };; \
+		esac; \
+		$(MAKE) --no-print-directory _link SRC="$$src" DST="$(HERMES_DIR)/skills/$$skill"; \
 	done
 	@$(MAKE) --no-print-directory _copy \
 		SRC="$(HERMES_REPO)/USER.md" \
@@ -470,16 +477,19 @@ print("    ✓ cron job skills resolve") if not bad else None' 2>/dev/null \
 # missing from HERMES_SKILLS (never linked), a live symlink into this repo that HERMES_SKILLS
 # does not name (a retired skill still loaded), and a declared skill with no live link.
 # Upstream-bundled and hub dirs under ~/.hermes/skills are not ours and are ignored.
+# HERMES_EXTERNAL_SKILLS have no repo dir; their live symlinks point into $(FACTORY_DIR)/integrations/hermes/.
 .PHONY: skills-set-check
 skills-set-check:
 	@declared=$$(printf '%s\n' $(HERMES_SKILLS) | sort); \
+	declared_repo=$$(for n in $(HERMES_SKILLS); do echo " $(HERMES_EXTERNAL_SKILLS) " | grep -q " $$n " || echo "$$n"; done | sort); \
 	repo=$$(find "$(HERMES_REPO)/skills" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort); \
-	live=$$(find "$(HERMES_DIR)/skills" -mindepth 1 -maxdepth 1 -type l -exec sh -c 'case "$$(readlink "$$1")" in "$(HERMES_REPO)/skills/"*) basename "$$1";; esac' _ {} \; | sort); \
+	live=$$(find "$(HERMES_DIR)/skills" -mindepth 1 -maxdepth 1 -type l -exec sh -c 'case "$$(readlink "$$1")" in "$(HERMES_REPO)/skills/"*|"$(FACTORY_DIR)/integrations/hermes/"*) basename "$$1";; esac' _ {} \; | sort); \
 	bad=0; \
 	for kind in repo live; do \
 		eval "set=\$$$$kind"; \
-		for n in $$set; do echo "$$declared" | grep -qx "$$n" || { echo "    ✗ skills $$kind has undeclared: $$n [add to HERMES_SKILLS or retire]"; bad=1; }; done; \
-		for n in $$declared; do echo "$$set" | grep -qx "$$n" || { echo "    ✗ skills $$kind lacks declared: $$n [run make setup]"; bad=1; }; done; \
+		want="$$declared"; [ "$$kind" = repo ] && want="$$declared_repo"; \
+		for n in $$set; do echo "$$want" | grep -qx "$$n" || { echo "    ✗ skills $$kind has undeclared: $$n [add to HERMES_SKILLS or retire]"; bad=1; }; done; \
+		for n in $$want; do echo "$$set" | grep -qx "$$n" || { echo "    ✗ skills $$kind lacks declared: $$n [run make setup]"; bad=1; }; done; \
 	done; \
 	[ "$$bad" = 0 ] && echo "    ✓ live skill set matches HERMES_SKILLS ($$(echo "$$declared" | wc -l | tr -d ' '))" || true
 

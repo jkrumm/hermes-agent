@@ -1,6 +1,6 @@
 # Hermes Agent — Mac Mini M2 Pro
 
-Personal AI assistant running 24/7 on Mac Mini. Chat through Iris, Claude Haiku 5.5 (high) as brain on the agent-workflows inference gateway's Anthropic leg (`gpt-6-luna` failover), twenty skill domains (`HERMES_SKILLS` in the Makefile is the count).
+Personal AI assistant running 24/7 on Mac Mini. Chat through Iris, Claude Haiku 5.5 (high) as brain on the agent-workflows inference gateway's Anthropic leg (`gpt-6-luna` failover), twenty skill domains (`HERMES_SKILLS` in the Makefile is the count; `fleet` is sourced from `software-factory/integrations/hermes/fleet`).
 
 For repo-operating detail (repo work, secrets, patches, model routing), see `AGENTS.md`.
 

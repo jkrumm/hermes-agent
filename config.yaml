@@ -460,6 +460,8 @@ goals:
 skills:
   external_dirs:
     - ~/SourceRoot/hermes-agent/skills
+    # `fleet` is sourced from the software-factory checkout; its symlink's realpath must be trusted too.
+    - ~/SourceRoot/software-factory/integrations/hermes
   # Agent-created skills land in a quarantine dir OUTSIDE external_dirs: nothing Hermes writes
   # unattended is live or tracked until the owner promotes it into this repo. Background
   # creation is off too (creation_nudge_interval: 0); this is the belt to that brace.
