@@ -96,14 +96,25 @@ approval timeouts.
 - `agent.reasoning_effort` is the live key (`model.reasoning_effort` was never read). Resolve it
   with `resolve_reasoning_config`, not from `hermes config` output — that display prints
   `Reasoning: off` while a live effort is on the wire.
-- **On `deepseek-v4.1-flash` the effort level is close to inert.** Across repeats on a hard
-  arithmetic task, completion tokens barely move between `none`, `low`, `high`, `xhigh` and
-  `max`: the level is accepted and echoed, but buys no measurable thinking ladder the way the
-  GPT-5.x family's does. Do not report an effort change as a quality change here without
-  repeated probes showing it, and do not tune this model by effort.
-- `completion_tokens_details.reasoning_tokens` reads `0` on this route while thinking is billed
-  inside `completion_tokens`. Any think:visible ratio computed from that field is wrong.
-- Thinking being *on* is checkable: `reasoning_content` is present on the response message.
+- **The brain is `claude-haiku-5-5` on the `gateway-anthropic` provider** (`anthropic_messages`,
+  `agent.reasoning_effort: high`, since 2026-11-04). It does not go through `chat_completions`,
+  so the transport patch (`patches/transport-iu-reasoning-effort.patch`) never touches the
+  brain's effort: upstream's `_thinking_kwargs` sends `thinking: {type: adaptive}` plus
+  `output_config.effort` on the Messages API. Ladder on this leg: `none, low, medium, high`
+  (`xhigh` refused by the IU LiteLLM gateway). Do not report an effort change as a quality
+  change without repeated probes showing it (a modelpick bench put `high` at ~1.6 s, `xhigh`/`max`
+  at 50–100 s+).
+- Thinking being *on* is checkable: the Messages response carries `thinking` content blocks.
+- **Former brain, `deepseek-v4.1-flash` (2026-10-20 → 11-04, `chat_completions`):** the effort
+  level was close to inert. Across repeats on a hard arithmetic task, completion tokens barely
+  moved between `none`, `low`, `high`, `xhigh` and `max`; the level was accepted and echoed but
+  bought no measurable thinking ladder. On that route
+  `completion_tokens_details.reasoning_tokens` read `0` while thinking was billed inside
+  `completion_tokens`, so a think:visible ratio from that field was wrong. Kept for comparing
+  against rotated `agent.log.N` windows from that period.
+- **The failover `gpt-6-luna`** (OpenAI leg, `chat_completions`) has the ladder
+  `none, low, medium, high, xhigh` (`max` refused); with tools attached it needs an explicit
+  `none`, which the transport patch sets.
 
 ## The probes (rungs 4 and 5)
 
@@ -115,78 +126,109 @@ eval "$($HOME/.local/bin/secrets-run export --env-file=$HOME/.hermes/.env.tpl | 
 set +a
 python3 - <<'PY'
 import os, json, time, urllib.request, urllib.error
-base = os.environ["OPENAI_BASE_URL"].rstrip("/")
-key  = os.environ.get("HERMES_CUSTOM_CUSTOM_API_KEY") or os.environ["OPENAI_API_KEY"]
-tools = [{"type":"function","function":{"name":"noop","description":"noop",
-          "parameters":{"type":"object","properties":{}}}}]
+# Both legs of the local inference gateway; the door token is the key on each.
+openai_base = os.environ["OPENAI_BASE_URL"].rstrip("/")
+openai_key  = os.environ.get("HERMES_CUSTOM_CUSTOM_API_KEY") or os.environ["OPENAI_API_KEY"]
+anth_base   = os.environ["ANTHROPIC_BASE_URL"].rstrip("/")
+anth_key    = os.environ["ANTHROPIC_API_KEY"]
 
-def probe(label, model, effort=None, with_tools=False, temp=None, budget=3000):
-    body = {"model": model, "messages": [{"role":"user","content":"Answer with one word: OK"}],
-            "max_completion_tokens": budget}
-    if effort: body["reasoning_effort"] = effort
-    if temp is not None: body["temperature"] = temp
-    if with_tools: body["tools"] = tools; body["tool_choice"] = "auto"
-    req = urllib.request.Request(base + "/chat/completions", data=json.dumps(body).encode(),
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+def run(label, req):
     t = time.time()
     try:
         with urllib.request.urlopen(req, timeout=120) as r: d = json.load(r)
-        msg = (d.get("choices") or [{}])[0].get("message", {})
-        print(f"[{label}] 200 in {time.time()-t:.1f}s "
-              f"reasoning_content={'yes' if msg.get('reasoning_content') else 'no'} "
-              f"usage={d.get('usage')}")
+        print(f"[{label}] 200 in {time.time()-t:.1f}s usage={d.get('usage')}")
+        return d
     except urllib.error.HTTPError as e:
         print(f"[{label}] HTTP {e.code}: {e.read()[:300].decode(errors='replace')}")
     except Exception as e:
         print(f"[{label}] ERR {type(e).__name__}: {e}")
 
-probe("brain tools+effort", "deepseek-v4.1-flash", "high", True)
-probe("fallback tools+effort", "gpt-5.6-luna", "high", True)
-probe("fallback tools only", "gpt-5.6-luna", None, True)
+def probe_brain(label, model="claude-haiku-5-5", effort=None, with_tools=False, budget=3000):
+    """Messages API on the gateway's /anthropic leg, as `anthropic_messages` sends it."""
+    body = {"model": model, "max_tokens": budget,
+            "messages": [{"role": "user", "content": "Answer with one word: OK"}]}
+    if effort:
+        body["thinking"] = {"type": "adaptive", "display": "summarized"}
+        body["output_config"] = {"effort": effort}
+    if with_tools:
+        body["tools"] = [{"name": "noop", "description": "noop",
+                          "input_schema": {"type": "object", "properties": {}}}]
+    req = urllib.request.Request(anth_base + "/v1/messages", data=json.dumps(body).encode(),
+        headers={"x-api-key": anth_key, "anthropic-version": "2023-06-01",
+                 "Content-Type": "application/json"})
+    d = run(label, req)
+    if d:
+        kinds = [b.get("type") for b in d.get("content", [])]
+        print(f"    thinking={'yes' if 'thinking' in kinds else 'no'} blocks={kinds}")
+
+def probe_fallback(label, model="gpt-6-luna", effort=None, with_tools=False, temp=None, budget=3000):
+    """chat/completions on the OpenAI leg, as the failover sends it."""
+    tools = [{"type":"function","function":{"name":"noop","description":"noop",
+              "parameters":{"type":"object","properties":{}}}}]
+    body = {"model": model, "messages": [{"role":"user","content":"Answer with one word: OK"}],
+            "max_completion_tokens": budget}
+    if effort: body["reasoning_effort"] = effort
+    if temp is not None: body["temperature"] = temp
+    if with_tools: body["tools"] = tools; body["tool_choice"] = "auto"
+    req = urllib.request.Request(openai_base + "/chat/completions", data=json.dumps(body).encode(),
+        headers={"Authorization": f"Bearer {openai_key}", "Content-Type": "application/json"})
+    run(label, req)
+
+probe_brain("brain tools+effort", effort="high", with_tools=True)
+probe_fallback("fallback tools+effort", effort="high", with_tools=True)
+probe_fallback("fallback tools, key omitted", with_tools=True)
+probe_fallback("fallback tools, explicit none", effort="none", with_tools=True)
 PY
 ```
 
 How to read it:
 
-- **brain + tools + effort → 200** — the effort reaches the wire on a tool turn. This is the
-  property that makes `chat_completions` viable for the brain and needs no Responses-API detour.
+- **brain + tools + effort → 200 with `thinking` blocks** — the adaptive thinking and effort reach
+  the wire on a tool turn over the Messages API. No transport patch is involved on this leg.
 - **fallback + tools + effort → 503** (`Function tools with reasoning_effort are not supported`)
-  — expected, and handled by the tools+effort strip in the transport patch. The fallback then
-  runs tools with **no** effort. That is the accepted tradeoff, not a fault.
-- **fallback + tools, no effort → 200** — confirms the strip is what makes the fallback usable.
+  — expected, and handled by the tools+effort strip in the transport patch.
+- **fallback + tools, key omitted → 503** — `gpt-6-luna`'s default effort is not `none`, so
+  omitting the key is not enough (unlike `gpt-5.6-luna`, the former fallback).
+- **fallback + tools, explicit `none` → 200** — confirms the explicit `none` the transport patch
+  sets is what makes the fallback usable. That is the accepted tradeoff, not a fault.
 - **any gpt-5.x call carrying a non-default `temperature` → 503** (`Unsupported value:
-  'temperature'`). This is why `title_generation` pins a gpt-5.x model only behind the auxiliary
-  patch that strips the temperature its call site hardcodes.
+  'temperature'`). Lanes whose call site hardcodes a temperature (the approval lane) therefore stay
+  on the Anthropic leg.
 
 ### Effort ladder
 
-Same hard task at each level, ≥3 repeats, compare **completion tokens** (not `reasoning_tokens`):
+Same hard task at each level, ≥3 repeats, compare **output tokens** (`usage.output_tokens`;
+thinking is billed inside it, so do not rely on a separate reasoning-token field):
 
 ```python
-for eff in ["none", "low", "high", "xhigh", "max"]:
-    probe(f"effort={eff}", "deepseek-v4.1-flash", eff, True, budget=20000)
+for eff in ["low", "medium", "high"]:
+    probe_brain(f"effort={eff}", effort=eff, with_tools=True, budget=20000)
 ```
 
 - **A flat ladder means the knob is inert on that model.** Report it as such; do not present a
-  configured effort as a tuned one.
-- **Unused budget is not billed**, so a generous `max_completion_tokens` costs nothing. A
-  *starved* budget is the classic false negative: an under-budgeted reasoning model returns
-  HTTP 200 with empty content and `finish_reason: length`. If a probe returns empty, raise the
-  budget before lowering the effort.
+  configured effort as a tuned one. `xhigh`/`max` are refused on this leg, so they are not rungs.
+- **Unused budget is not billed**, so a generous `max_tokens` costs nothing. A *starved* budget
+  is the classic false negative: an under-budgeted reasoning model returns HTTP 200 with empty
+  content and `stop_reason: max_tokens`. If a probe returns empty, raise the budget before
+  lowering the effort.
 
-### Patched transport: does config reach the wire?
+### Patched transport: does config reach the wire? (failover leg only)
+
+The brain is on `anthropic_messages` and never reaches this function; rung 5 for the brain is the
+`probe_brain` shape above. The check below covers the `chat_completions` failover
+(`gpt-6-luna`) and the family clamps.
 
 ```bash
 cd ~/.hermes/hermes-agent && ./venv/bin/python3 - <<'PY'
 import os
 from agent.transports.chat_completions import _apply_iu_reasoning_effort
-for model, eff in [("deepseek-v4.1-flash","high"), ("gpt-5.6-luna","high"),
-                   ("deepseek-v4.1-flash","max"), ("deepseek-v4.1-flash","medium")]:
+for model, eff in [("gpt-6-luna","high"), ("gpt-6-luna","max"),
+                   ("claude-haiku-5-5","xhigh"), ("claude-haiku-5-5","high")]:
     kw = {}
     _apply_iu_reasoning_effort(kw, model, {"base_url": os.environ["OPENAI_BASE_URL"],
                                           "reasoning_config": {"enabled": True, "effort": eff}})
     print(f"{model:22s} effort={eff:7s} -> {kw}")
-for model in ["deepseek-v4.1-flash", "gpt-5.6-luna"]:
+for model in ["gpt-6-luna", "claude-haiku-5-5"]:
     kw = {"tools": [{"type": "function", "function": {"name": "x"}}]}
     _apply_iu_reasoning_effort(kw, model, {"base_url": os.environ["OPENAI_BASE_URL"],
                                           "reasoning_config": {"enabled": True, "effort": "high"}})
@@ -194,9 +236,11 @@ for model in ["deepseek-v4.1-flash", "gpt-5.6-luna"]:
 PY
 ```
 
-Expected shape: the brain keeps its effort with tools attached; the gpt-5.x model loses it
-(`None`); out-of-ladder values are clamped to something the family accepts. If the brain's value
-comes back `None` under tools, the transport patch has fallen off — re-apply it and restart.
+Expected shape: `gpt-6-luna` with tools attached comes back `reasoning_effort='none'` (explicit,
+never dropped); out-of-ladder values are clamped to something the family accepts (`max` → `xhigh`
+for gpt-6, `xhigh` → `high` for the Anthropic family); the Anthropic family keeps its effort
+with tools. If `gpt-6-luna` comes back `None` or `'high'` under tools, the transport patch has
+fallen off — `make patch-check`, re-apply and restart.
 
 ## Rate cards (verify before use)
 
@@ -205,8 +249,13 @@ this as a starting point and confirm against argo's billed view before quoting a
 
 | model | input /M | cached input /M | output /M |
 |-|-|-|-|
-| `deepseek-v4.1-flash` | $0.50 | $0.05 | $1.50 |
-| `gpt-5.6-luna` (reference) | $0.10 | $0.02 | $0.60 |
+| `deepseek-v4.1-flash` (former brain, 2026-10-20 → 11-04) | $0.50 | $0.05 | $1.50 |
+| `gpt-5.6-luna` (reference, former fallback) | $0.10 | $0.02 | $0.60 |
+
+`claude-haiku-5-5` (the brain) and `gpt-6-luna` (the failover) are not in the table: take their
+rates from `agw routes` and argo's billed view. Haiku 5.5 bills the whole request at 5x above 100k
+input tokens, and the gateway spends the Claude credit pools first, so a hand-computed number from
+this table does not apply.
 
 ```
 cost ≈ uncached_input/1e6 * input_rate
