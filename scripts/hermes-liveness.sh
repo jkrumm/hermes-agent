@@ -62,8 +62,24 @@ fi
 
 # `timeout` bounds a stuck backend (e.g. an unexpected prompt) so a 5-min cron can't
 # hang and overlap. Failure → empty PUSH_URL → no ping → UK alerts on missing heartbeat.
-PUSH_URL=$(timeout 10 "$SECRETS_RUN" read op://hermes/uptime-kuma/agent-push-url 2>/dev/null)
-[[ -z "$PUSH_URL" ]] && skip "push URL did not resolve (secrets-run read)"
+#
+# Retried once, like the render below: the cache read is a sops decrypt, and a single transient
+# miss (2026-11-09 03:07 and 03:13 UTC, cache untouched since the day before, the very next read
+# fine) paged Kuma for a healthy gateway. The first failure's stderr is logged so a real fault
+# names itself. With no URL the monitor cannot be told down, so the log says the missing beat is the alert.
+PUSH_ERR=$(mktemp -t hermes-liveness) || PUSH_ERR=/dev/null
+PUSH_URL=$(timeout 10 "$SECRETS_RUN" read op://hermes/uptime-kuma/agent-push-url 2>"$PUSH_ERR")
+if [[ -z "$PUSH_URL" ]]; then
+  sleep 3
+  PUSH_URL=$(timeout 10 "$SECRETS_RUN" read op://hermes/uptime-kuma/agent-push-url 2>>"$PUSH_ERR")
+fi
+if [[ -z "$PUSH_URL" ]]; then
+  ERR_TAIL=$(tail -c 200 "$PUSH_ERR" 2>/dev/null | tr '\n' ' ')
+  rm -f "$PUSH_ERR"
+  /bin/echo "$(/bin/date -u +%Y-%m-%dT%H:%M:%SZ) heartbeat skipped: push URL did not resolve (secrets-run read: ${ERR_TAIL:-no output, timed out or empty}) → no URL, Kuma's missing-heartbeat window is the alert"
+  exit 0
+fi
+rm -f "$PUSH_ERR"
 
 # Secrets are resolved by the gateway itself via config.yaml `secrets.command`
 # (v0.19.0+). That source fails SOFT — a broken/incomplete cache yields a gateway

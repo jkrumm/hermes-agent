@@ -44,7 +44,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         pass
 
 
-def make_home(base_url, state="{}", export_ok=False):
+def make_home(base_url, state="{}", export_ok=False, read_fails=0):
     home = tempfile.mkdtemp(prefix="hermes-liveness-test-")
     os.makedirs(f"{home}/.local/bin")
     os.makedirs(f"{home}/.hermes")
@@ -54,9 +54,15 @@ def make_home(base_url, state="{}", export_ok=False):
     # `read` resolves the push URL (with Kuma's usual query); `export` HANGS — the fake hung probe —
     # unless export_ok, where it renders the one ref the template asks for.
     export = 'echo "export A=1"; exit 0' if export_ok else "sleep 60"
+    # read_fails: the first N `read` calls fail (a transient cache miss); 99 = always.
+    flaky = (
+        f'if [[ "$1" == read ]]; then n=$(cat "{home}/reads" 2>/dev/null || echo 0); echo $((n+1)) > "{home}/reads"; '
+        f'(( n < {read_fails} )) && {{ echo "sops: boom" >&2; exit 1; }}; fi\n'
+    )
     open(stub, "w").write(
         "#!/bin/bash\n"
-        f'[[ "$1" == read ]] && {{ echo "{base_url}/api/push/tok?status=up&msg=OK&ping="; exit 0; }}\n'
+        + flaky
+        + f'[[ "$1" == read ]] && {{ echo "{base_url}/api/push/tok?status=up&msg=OK&ping="; exit 0; }}\n'
         f"{export}\n"
     )
     os.chmod(stub, 0o755)
@@ -106,6 +112,19 @@ def main():
     r, dt = run("hermes-liveness.sh", home, {"HERMES_LIVENESS_PROBE_TIMEOUT": "5"}, 40)
     q = PUSHES[0] if PUSHES else {}
     check("liveness: api_server not connected is named", q.get("status") == ["down"] and "api_server=retrying" in (q.get("msg") or [""])[0], str(q))
+
+    # 1d. One transient push-URL read failure is retried: the tick goes on (draining is the next guard it reaches).
+    home = make_home(base, state='{"gateway_state":"draining"}', export_ok=True, read_fails=1)
+    PUSHES.clear()
+    r, dt = run("hermes-liveness.sh", home, {"HERMES_LIVENESS_PROBE_TIMEOUT": "5"}, 40)
+    check("liveness: one failed URL read is retried", "gateway_state=draining" in r.stdout and "did not resolve" not in r.stdout, r.stdout)
+
+    # 1e. A URL that never resolves is logged with the read's stderr and pushes nothing.
+    home = make_home(base, export_ok=True, read_fails=99)
+    PUSHES.clear()
+    r, dt = run("hermes-liveness.sh", home, {"HERMES_LIVENESS_PROBE_TIMEOUT": "5"}, 40)
+    check("liveness: unresolvable URL is logged with the reason", "did not resolve" in r.stdout and "sops: boom" in r.stdout, r.stdout)
+    check("liveness: unresolvable URL pushes nothing", not PUSHES, str(PUSHES))
 
     # 2. hermes-serve-liveness: an ungated serve → down push naming it (ungated is the check it exists for).
     home = make_home(base)
