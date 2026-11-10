@@ -34,3 +34,7 @@ Iris posts `POST /api/sessions` `{id: <memo uuid>, source}` then `POST /api/sess
 Stream events (`gateway/platforms/api_server.py`, `_handle_session_chat_stream`): `assistant.delta`,
 `tool.started` / `tool.completed` / `tool.failed` (`{message_id, tool_name, preview, args}`), `assistant.completed`
 (`content`), `run.completed`, `done`. The skill, its note script and the validation recipe: `skills/iris/`.
+**`assistant.delta` is live but bursty after thinking** (Issue 681): with adaptive thinking at `high`, Haiku 5.5 flushes the
+thinking summary and a short answer in one write, so all deltas land within ~25 ms. Hermes and the inference gateway buffer nothing;
+a per-request `model_options: {"reasoning_effort": "none"}` makes text stream from the first token. Measurements:
+`docs/research/2026-11-10-assistant-delta-burst.md`.
