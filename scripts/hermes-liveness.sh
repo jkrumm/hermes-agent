@@ -175,4 +175,15 @@ if [[ "$GW_OK" != "1" ]]; then
   skip "inference gateway: ${GW_FAIL:-check hung or gave no answer within 25 s}"
 fi
 
-/usr/bin/curl -fsS --max-time 10 "$PUSH_URL" >/dev/null
+# The success push crosses Cloudflare to Kuma and fails transiently: 2026-11-13 04:00, 05:00 and
+# 17:00 UTC it returned 502/530 or timed out (rc 28) while every check above had passed, and
+# the single attempt turned each blip into a failed run. Three attempts, 5 s apart (worst case
+# ~40 s on top of the checks, inside jobrun's 270 s); all three failing is a real fault, so
+# the last curl's rc stays the job's rc and stderr keeps its reason.
+for attempt in 1 2 3; do
+  /usr/bin/curl -fsS --max-time 10 "$PUSH_URL" >/dev/null && exit 0
+  PUSH_RC=$?
+  /bin/echo "$(/bin/date -u +%Y-%m-%dT%H:%M:%SZ) success push attempt $attempt/3 failed (curl rc=$PUSH_RC)"
+  (( attempt < 3 )) && sleep 5
+done
+exit "$PUSH_RC"
