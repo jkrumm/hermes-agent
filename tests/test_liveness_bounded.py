@@ -160,12 +160,12 @@ def main():
     check("serve: a transient push failure is retried to success", r.returncode == 0 and len(PUSHES) == 3, f"rc={r.returncode} pushes={len(PUSHES)} {r.stdout}")
     check("serve: each failed attempt is logged", "attempt 2/3 failed" in r.stdout, r.stdout)
 
-    # 5. all three pushes fail → the job fails with curl's rc, not a silent 0.
+    # 5. all three pushes fail → exit 75 (EX_TEMPFAIL: check ran, push undelivered), never 0 or curl's rc.
     Handler.push_fail = 99
     home = make_home(base)
     PUSHES.clear()
     r, dt = run("hermes-serve-liveness.sh", home, {"HERMES_SERVE_BASE": base}, 60)
-    check("serve: three failed pushes fail the run", r.returncode != 0 and len(PUSHES) == 3, f"rc={r.returncode} pushes={len(PUSHES)}")
+    check("serve: three failed pushes exit 75", r.returncode == 75 and len(PUSHES) == 3, f"rc={r.returncode} pushes={len(PUSHES)}")
     Handler.push_fail = 0
 
     srv.shutdown()

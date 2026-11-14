@@ -58,12 +58,13 @@ CODE=$(/usr/bin/curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST "$B
 # The success push crosses Cloudflare to Kuma and fails transiently (curl rc 28 at 10 s, 502/530)
 # while every check above has passed; 2026-11-14 06:47 and 06:52 UTC two consecutive runs failed
 # that way and a single attempt turned each blip into a failed run. Three attempts, 5 s apart
-# (worst case ~40 s, inside jobrun's 270 s); all three failing is a real fault, so the last
-# curl's rc stays the job's rc and stderr keeps its reason. Same shape as hermes-liveness.sh.
+# (worst case ~40 s, inside jobrun's 270 s). All three failing means the check ran and the push
+# was not delivered: exit 75 (EX_TEMPFAIL), which jobrun-grade reports as "undelivered" naming
+# the push target, never as the job failing; the log keeps each curl rc. Same as hermes-liveness.sh.
 for attempt in 1 2 3; do
   /usr/bin/curl -fsS --max-time 10 "$PUSH_URL" >/dev/null && exit 0
   PUSH_RC=$?
   /bin/echo "$(/bin/date -u +%Y-%m-%dT%H:%M:%SZ) success push attempt $attempt/3 failed (curl rc=$PUSH_RC)"
   (( attempt < 3 )) && sleep 5
 done
-exit "$PUSH_RC"
+exit 75
