@@ -533,6 +533,9 @@ the live config), which the factory compares with the shipped commit.
 - **Heartbeat:** `hermes-liveness.sh` (300 s LaunchAgent) pushes the Uptime Kuma push monitor
   at `op://hermes/uptime-kuma/agent-push-url`; the backup job has its own
   (`backup-push-url`). A red heartbeat means the gateway, the API server or the secret cache is down.
+  Both liveness scripts try the success push three times and then exit 75 (EX_TEMPFAIL): the check
+  ran, Kuma was not reached; jobrun-grade reports it as "undelivered", not as the job failing.
+  Skips that tell Kuma `down` stay exit 0; an unresolvable push URL stays a real failure.
 - **OTel:** none — Hermes emits no traces; `service.name` does not apply.
 - **`make logs`** — bounded tail of `gateway.error.log`, `errors.log`, `agent.log`
   (`~/.hermes/logs/`). Slice `agent.log` at the current process start (see *Model, context
