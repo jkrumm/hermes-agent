@@ -26,13 +26,22 @@ PUSHES = []
 
 class Handler(http.server.BaseHTTPRequestHandler):
     status_body = {"auth_required": False}
+    ticket_code = 501  # the ws-ticket mint answer; 401 is the healthy, gated one
+    push_fail = 0  # the next N pushes answer 502 (a Cloudflare blip), then succeed
 
     def do_GET(self):
         if self.path.startswith("/api/status"):
             self._send(json.dumps(self.status_body).encode())
             return
         PUSHES.append(urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query))
+        if Handler.push_fail > 0:
+            Handler.push_fail -= 1
+            self.send_error(502)
+            return
         self._send(b'{"ok":true}')
+
+    def do_POST(self):
+        self.send_error(Handler.ticket_code)
 
     def _send(self, body):
         self.send_response(200)
@@ -141,6 +150,23 @@ def main():
     r, dt = run("hermes-serve-liveness.sh", home, {"HERMES_SERVE_BASE": base}, 40)
     q = PUSHES[0] if PUSHES else {}
     check("serve: ws-ticket not refused is named", q.get("status") == ["down"] and "ws-ticket" in (q.get("msg") or [""])[0], str(q))
+
+    # 4. healthy serve; the success push fails twice (502) then lands → retried, run succeeds.
+    Handler.ticket_code = 401
+    Handler.push_fail = 2
+    home = make_home(base)
+    PUSHES.clear()
+    r, dt = run("hermes-serve-liveness.sh", home, {"HERMES_SERVE_BASE": base}, 60)
+    check("serve: a transient push failure is retried to success", r.returncode == 0 and len(PUSHES) == 3, f"rc={r.returncode} pushes={len(PUSHES)} {r.stdout}")
+    check("serve: each failed attempt is logged", "attempt 2/3 failed" in r.stdout, r.stdout)
+
+    # 5. all three pushes fail → the job fails with curl's rc, not a silent 0.
+    Handler.push_fail = 99
+    home = make_home(base)
+    PUSHES.clear()
+    r, dt = run("hermes-serve-liveness.sh", home, {"HERMES_SERVE_BASE": base}, 60)
+    check("serve: three failed pushes fail the run", r.returncode != 0 and len(PUSHES) == 3, f"rc={r.returncode} pushes={len(PUSHES)}")
+    Handler.push_fail = 0
 
     srv.shutdown()
     if fails:
