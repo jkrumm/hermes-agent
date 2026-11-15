@@ -38,6 +38,10 @@ the CLI cannot tell Hermes from any other shell).
 - **"Remind me to research X / look into Y later"** → that's a *task to track*, not a
   question to answer now → route via **`capture`** to TickTick (human exploration).
   This skill does the research *now* and reports back.
+- **One known URL or YouTube link** to read or summarize, one library doc lookup, or "latest
+  version of X" → the **`agw-web`** skill (`agw web read` / `youtube` / `docs` / `package`):
+  one call, no research loop. Research is for questions needing several sources cross-checked.
+- **A question over Johannes's own notes** → the **`obsidian`** skill (`agw brain`).
 - **A single trivial fact** you'd google in five seconds (a timezone, today's FX rate,
   a one-word definition) → the built-in web search (Tavily) is lighter; no need to spin
   up the full agentic loop. When in doubt and the answer is load-bearing, use this skill.

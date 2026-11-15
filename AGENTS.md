@@ -44,7 +44,7 @@ the first pass.
 | `cron/`, `scripts/`, `hooks/` | `~/.hermes/…` | Hermes-driven cron + pre-run scripts (must live under `HERMES_HOME/scripts/`) + host-level shell scripts |
 | `plugins/{name}/` | `~/.hermes/plugins/{name}/` | **`HERMES_PLUGINS`** is the source of truth. **None today.** A new one must **also** be enabled once — `hermes plugins enable <name>`; the symlink alone is inert. |
 | `config/` | `~/.hermes/config/` | **empty** — kept for tracked agent-facing config |
-| `skills/{name}/` | `~/.hermes/skills/{name}/` | **`HERMES_SKILLS` in the Makefile is the source of truth** — 22 dirs (agent-platform Wave 2, 2026-10-04; was 126; `iris` added 2026-11-04, `fleet` 2026-11-07). **`fleet`'s source is `software-factory/integrations/hermes/fleet`** (`HERMES_EXTERNAL_SKILLS`, `FACTORY_DIR` in the Makefile; `make setup` links it from the factory checkout, warns and skips if absent) — there is no `skills/fleet/`. Retired skills live on as `<skill>/references/*.md` or in git history; roster: docs. |
+| `skills/{name}/` | `~/.hermes/skills/{name}/` | **`HERMES_SKILLS` in the Makefile is the source of truth** — 23 dirs (agent-platform Wave 2, 2026-10-04; was 126; `iris` added 2026-11-04, `fleet` 2026-11-07, `agw-web` 2026-11-15). **`fleet`'s source is `software-factory/integrations/hermes/fleet`** (`HERMES_EXTERNAL_SKILLS`, `FACTORY_DIR` in the Makefile; `make setup` links it from the factory checkout, warns and skips if absent) — there is no `skills/fleet/`. Retired skills live on as `<skill>/references/*.md` or in git history; roster: docs. |
 | `USER.md` | `~/.hermes/memories/USER.md` | **copied** — Hermes writes to it |
 
 **Skill audit (2026-10-10, `docs/skills-audit.md`):** per-skill verdicts, usage evidence and the Hermes↔global wiring map. Upstream-bundled skills with no usage record are retired by `skills.disabled` in `config.yaml` (reversible; never deleted). `make skills-set-check` (in `make status`) asserts repo `skills/` (minus `HERMES_EXTERNAL_SKILLS`), live symlinks (into this repo or `$FACTORY_DIR/integrations/hermes/`) and `HERMES_SKILLS` are one set.
@@ -250,6 +250,24 @@ search, which stays for quick lookups.
 - **Named `agw-research`, not `research`** — upstream's bundled skill *category* dir
   `~/.hermes/skills/research/` would collide with a top-level `research` symlink. Routing is by
   description/tags, so "recherchier mal" still triggers it.
+
+## Web reading and vault questions (`agw web`, `agw brain`)
+
+`skills/agw-web/SKILL.md` is the reading half of agw: `agw web read <url> --ask "<q>" --format plain`
+for any public URL (fetch chain with a headed Chrome for bot walls, PDFs as text, a cheap model
+extracts the answer), `agw web youtube <url>` (transcript + metadata), `agw web docs <lib>` and
+`agw web package <registry> <name>` (library docs, live registry version). **Preferred over the
+built-in Tavily extract for every URL** — it names why a page is unreadable instead of failing
+silently. `agw brain "<question>"` (in `skills/obsidian/SKILL.md`) answers questions over the vault
+with cited note paths; `obsidian search` stays for finding a note, backlinks and tags.
+
+- **Auth:** none — `agw` reads its own config; callers prefix `AGW_CALLER=hermes`. No key in this repo.
+- **Routing (SOUL.md):** a URL/video to read now → `agw-web`; several sources cross-checked →
+  `agw-research`; keep a link for later → `karakeep` (a memo with a link and a question wants both).
+- **Left out on purpose:** `agw review`, `eval`, `check`, `factory-*` (no Hermes use), `agw image`
+  (one mention in `image-delivery`).
+- **Adding or changing a skill needs `make setup` and a gateway restart** (the skills index is
+  cached); `make deploy` does both.
 
 ## WeatherOrb (MCP)
 

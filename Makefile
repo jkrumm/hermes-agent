@@ -2,12 +2,12 @@ HERMES_REPO   := $(shell pwd)
 HERMES_DIR    := $(HOME)/.hermes
 # Upstream Hermes checkout the patches/ dir is applied to (see `make patch-check`).
 HERMES_SRC    := $(HERMES_DIR)/hermes-agent
-# Skills symlinked into ~/.hermes/skills/ — the curated set, 22 dirs (agent-platform Wave 2,
-# 2026-10-04: 20, was 126; `prose` added 2026-10-19, `fleet` 2026-11-07). Retired siblings were folded into `<skill>/references/*.md` or deleted;
+# Skills symlinked into ~/.hermes/skills/ — the curated set, 23 dirs (agent-platform Wave 2,
+# 2026-10-04: 20, was 126; `prose` added 2026-10-19, `fleet` 2026-11-07, `agw-web` 2026-11-15). Retired siblings were folded into `<skill>/references/*.md` or deleted;
 # git history is the archive. `skills/work/iu-*/` is gitignored (employer-internal) and rides
 # inside the `work` symlink. Skills in HERMES_EXTERNAL_SKILLS have their source outside this
 # repo (`fleet`: software-factory/integrations/hermes/fleet) and are linked from there.
-HERMES_SKILLS := capture argo-api work karakeep obsidian reading wildrift agw-research image-delivery podcast prose briefing-tts hyperdx homelab homelab-ops hermes-gateway human-queue herdr verify home iris fleet
+HERMES_SKILLS := capture argo-api work karakeep obsidian reading wildrift agw-research agw-web image-delivery podcast prose briefing-tts hyperdx homelab homelab-ops hermes-gateway human-queue herdr verify home iris fleet
 
 # Skills whose source lives in the software-factory checkout: name -> $(FACTORY_DIR)/integrations/hermes/<name>.
 FACTORY_DIR ?= $(HOME)/SourceRoot/software-factory

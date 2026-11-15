@@ -32,7 +32,8 @@ Iris (Johannes's voice-memo app, server on this mini) no longer classifies memos
 | "tell / prompt / sag Tab X …", "schreib in den Tab …" (an **existing** terminal only) | `skill_view('herdr')` — find the tab, `hc send <target> "<text>"`. Text = what he wants said to the agent, in his words, not the addressing phrase. Obey the skill's rules (never `--force`, never a blocked agent, a draft in the input line is not yours). |
 | A note, idea, observation, plan or reflection with **no question and no request** ("ich denke gerade…", "Idee: …", "notier dir…", a journal-style thought) | A brain note — below. |
 | Greeting, small talk, "test", a remark that wants a reply and nothing else | Chat: answer from yourself in a line or two — no tool calls, no status report, no side effect. |
-| A link/article to keep for later | `skill_view('karakeep')`. |
+| A link or YouTube video with a question or "fass zusammen / was steht da / worum geht's" | `skill_view('agw-web')` — `agw web read` / `agw web youtube`, then answer. "…und merk's dir" adds a `karakeep` save. |
+| A link/article to keep for later (no question about its content) | `skill_view('karakeep')`. |
 | Anything else, or two readings that both fit | The cheaper, reversible one; say the reading you took. |
 
 Repo code work is **filed** (a GitHub issue via `capture`) when the memo says *file*, *note* or *open an issue*, and **handed to the factory** (`fleet`) only when it says *start* or *let an agent*. You never do repo work yourself — same as everywhere (SOUL.md). "Fix X in <repo>" with neither wording: file it and say so.
