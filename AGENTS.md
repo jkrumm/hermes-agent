@@ -536,6 +536,11 @@ beyond the skills-index restart noted in *Editing Rules*.
 **Factory manifest:** `project.yaml` (software-factory `docs/design.md` §9) — `deploy.mode make`, target `mini`
 verified by `make verify`, 5m hold, ship by push. `make version` prints the checkout's HEAD sha (the checkout is
 the live config), which the factory compares with the shipped commit.
+- **Weekly hygiene probes** (`hygiene.probes` in `project.yaml`, run by the factory, not a LaunchAgent): `upstream` =
+  **`make upstream-check`** (installed `hermes --version` vs the newest stable upstream tag — canary, rc, abandoned and
+  date tags excluded; prints installed / latest / commits behind; exit 0 current, 1 behind with a last line naming the
+  `/hermes-update` skill, 2 could not tell) and `live` = `make verify`. Read-only: the lead that takes a finding runs
+  `/hermes-update` and `make deploy`. `docs/scheduled-jobs.md` §Weekly hygiene probes.
 
 - **`make verify`** — gateway pid alive, `gateway_state.json` api_server
   `connected`, API `/health` 200 on the tailnet bind (`op://hermes/gateway/host`), the inference gateway (`:7794`) healthy and accepting the door token, `hermes serve`

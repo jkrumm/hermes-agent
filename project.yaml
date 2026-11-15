@@ -14,3 +14,9 @@ signals:
     author: jkrumm
     since: 2026-11-07T06:30:00Z
 leads: 1
+hygiene:
+  # Weekly hygiene probes (software-factory architecture.md, `hygiene` loop): `make <target>`, exit 0 is clean,
+  # anything else is one finding. Both are read-only; the lead that takes a finding runs /hermes-update and make deploy.
+  probes:
+    - { name: upstream, target: upstream-check } # installed Hermes vs the newest stable upstream tag
+    - { name: live, target: verify } # live gateway, API server, inference gateway token, serve auth gate, patches

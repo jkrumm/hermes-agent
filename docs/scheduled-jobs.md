@@ -121,3 +121,23 @@ Every job delivers `local` (the Slack targets were cut over when the gateway was
 Resuming the morning briefing or evening report needs a surface decision first (an ntfy topic with
 a publish step in the prompt, or Iris once it can receive). They are paused, deliver `local`, and
 their prompts describe a text body plus a `MEDIA:` audio tag that no current surface carries.
+
+## Weekly hygiene probes (factory, not Hermes cron)
+
+Two checks run weekly as the software factory's `hygiene` loop, declared in `project.yaml`
+(`hygiene.probes`): the loop runs `make <target>` in a throwaway checkout of `master`, exit 0 is
+clean, any other exit files one finding `probe:<name>` for the repo's lead. Neither is a Hermes cron
+job or a LaunchAgent, so neither appears in the registry above.
+
+| Probe | Target | Red means |
+|-|-|-|
+| `upstream` | `make upstream-check` | the installed Hermes is behind the newest stable upstream tag (exit 1); exit 2 = the check itself could not run (fetch or `hermes --version` failed) |
+| `live` | `make verify` | gateway, API server, inference gateway token, `hermes serve` auth gate or a patch is not healthy |
+
+`upstream-check` (`scripts/upstream-check.sh`) fetches tags into `~/.hermes/hermes-agent`, reads the
+installed version from `hermes --version`, and compares it with the newest tag matching
+`vMAJOR.MINOR.PATCH` — the daily `+canary.*` tags, `rc.N-*`, `abandoned-rc.N-*` and the old date tags
+(`v2026.9.24`) never count. It prints installed, latest and commits behind, and when behind its last
+line names the `/hermes-update` skill. It only reads and fetches: Hermes never restarts its own
+gateway, so the lead that takes the finding runs `/hermes-update` and `make deploy`.
+`tests/test_upstream_check.py` covers the exit codes against a throwaway upstream repo.

@@ -508,6 +508,13 @@ skills-set-check:
 verify:
 	@./scripts/verify.sh
 
+# Installed Hermes vs the newest stable upstream tag (`hermes --version` vs a fetched tag list).
+# Exit 0 current, 1 behind (last line names /hermes-update), 2 could not tell. Weekly factory
+# hygiene probe `upstream` (project.yaml); never updates or restarts anything.
+.PHONY: upstream-check
+upstream-check:
+	@HERMES_SRC="$(HERMES_SRC)" ./scripts/upstream-check.sh
+
 # The checkout is the live config, so the deployed commit is its HEAD. One line, read-only.
 .PHONY: version
 version:
