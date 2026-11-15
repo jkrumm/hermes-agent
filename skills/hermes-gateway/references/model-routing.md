@@ -2,6 +2,10 @@
 
 Two incidents, and the second one is the more instructive.
 
+> **2026-11-15: fully historical.** Hermes is Claude-only; the OpenAI leg, `gpt-5.x`/`gpt-6` models and the
+> patches named below (`runtime-provider-iu-responses-api`, `transport-iu-reasoning-effort`) are retired, and
+> `OPENAI_BASE_URL` is no longer rendered, so the probes here do not run.
+
 > **2026-09-13 update: this incident is historical, and its "gpt-5.6-luna is the brain" framing
 > no longer matches the live config.** `model.default` is now `deepseek-v4.1-flash`, and `gpt-5.6-luna`
 > is the **fallback** model instead of `claude-sonnet-4-6`. The specific bug this incident

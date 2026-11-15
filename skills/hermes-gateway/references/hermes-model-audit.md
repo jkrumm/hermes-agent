@@ -118,6 +118,10 @@ approval timeouts.
 
 ## The probes (rungs 4 and 5)
 
+> **2026-11-15: Hermes is Claude-only.** Probes below that read `OPENAI_BASE_URL`, `OPENAI_API_KEY` or
+> `HERMES_CUSTOM_CUSTOM_API_KEY` (the OpenAI leg) and the "Patched transport" section (retired patch
+> `transport-iu-reasoning-effort`) are historical and no longer run; only the Anthropic-leg probes apply.
+
 Load secrets the way the gateway does, then POST directly — no Hermes code in the path:
 
 ```bash
