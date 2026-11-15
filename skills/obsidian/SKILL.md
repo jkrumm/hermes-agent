@@ -1,6 +1,6 @@
 ---
 name: obsidian
-description: Read, search, and write Johannes's Obsidian vault (the PARA second brain at ~/SourceRoot/brain) via the Obsidian CLI (metadata-aware — backlinks, tags, Dataview) with a filesystem fallback. Capture notes to the inbox, create resource/inspiration notes with the right frontmatter, search by text/tag/backlink.
+description: Read, search, and write Johannes's Obsidian vault (the PARA second brain at ~/SourceRoot/brain) via the Obsidian CLI (metadata-aware — backlinks, tags, Dataview) with a filesystem fallback. File a note or memo where it belongs (a log row, an existing page, a new wiki/ note; Inbox/ only when no home is clear), create resource/inspiration notes with the right frontmatter, search by text/tag/backlink.
 version: 1.0.0
 metadata:
   hermes:
@@ -10,7 +10,7 @@ metadata:
 
 # Obsidian
 
-Johannes's personal knowledge vault — plain-markdown, PARA-organised, the **source of truth** of the second brain. Capture lands here; durable knowledge lives here. The vault is a **git repo** at `~/SourceRoot/brain`, shared with Claude Code (its `/brain` skill); a LaunchAgent pulls and pushes it every 5 minutes between the mini and the MacBook — on this Mac Mini it never auto-commits, so a write isn't durable until it's committed. Git is the deliberate `git diff` review + history gate. The shared machine-facing contract both agents follow is `~/SourceRoot/brain/AGENTS.md` — read it for anything this skill doesn't cover.
+Johannes's personal knowledge vault — plain-markdown, PARA-organised, the **source of truth** of the second brain. Capture lands here; durable knowledge lives here. The vault is a **git repo** at `~/SourceRoot/brain`, shared with Claude Code (its `/brain` skill); a LaunchAgent pulls and pushes it every 5 minutes between the mini and the MacBook — on this Mac Mini it never auto-commits, so a write isn't durable until it's committed. Git history is the review trail; there is no human gate before a write counts. The shared machine-facing contract both agents follow is `~/SourceRoot/brain/AGENTS.md` — read it for anything this skill doesn't cover.
 
 **Vault root:** `~/SourceRoot/brain/`
 **Access:** Obsidian.app runs on this Mac Mini, so prefer the **Obsidian CLI** — it goes through Obsidian's live API (metadata cache, backlinks, Dataview). Fall back to the **filesystem** only when the CLI is unavailable.
@@ -30,7 +30,7 @@ Use the terminal. Don't say you lack access to the vault — reading and writing
 
 | Folder | Holds | Naming |
 |-|-|-|
-| `Inbox/` | Unprocessed captures — the default dump for anything unclassified | free |
+| `Inbox/` | Unprocessed captures — only when a note has no clear home (and journal-tagged reflections) | free |
 | `Projects/` | Active projects (`basalt-ui`, `iu` as folders; `free-planning-poker`, `rollhook` as single notes, no folder yet) — folder-note `{name}.md` + optional `notes/`, `specs/` | — |
 | `Areas/` | Ongoing areas (`Engineering`, `Health`, `Photography`, `Reading`) | — |
 | `wiki/` | **Agentic knowledge** — atomic English concept notes agents grow by traversal, domain-organized (`wiki/health/peptides/`) + per-level `index.md` MOC | — |
@@ -43,7 +43,7 @@ There is **no PARA `Resources` tier** — reference material (articles, videos, 
 - **Tags** are hierarchical `#topic/subtopic` (e.g. `resource/article`, `area/engineering`). In frontmatter list them without the `#`.
 - **Links** are `[[wikilinks]]`; add them to relate a note to projects/areas/other notes.
 - **Dates** are `YYYY-MM-DD` everywhere. Resolve "today" before writing — nothing expands date tokens for you.
-- **Never write to the vault root.** Unclassified content → `Inbox/`.
+- **Never write to the vault root.** No clear home → `Inbox/`.
 - **The vault has no templates or daily notes.** The `09_Templates/` and `02_Daily/` folders were removed 2026-08-02, and the backing `templates`/`daily-notes` core plugins are disabled — never pass `template=`/`templates`, and never call any `daily:*` CLI verb (`daily`, `daily:append`, `daily:path`, `daily:prepend`, `daily:read`); they're dead. Build the full frontmatter + body yourself from the schemas below and pass it via `content=`.
 - **New subfolder → new folder note.** When adding a subfolder under `Projects/<project>/` or `Areas/<area>/` that will hold more than one note, create its folder note (`{foldername}.md`) in the same write rather than leaving it for the linter to flag — see `AGENTS.md` → Reserved filenames. A pure attachment/spec bucket already covered by the parent's folder note doesn't need one.
 
@@ -54,7 +54,7 @@ Durable knowledge splits into two physical trees, shared with Claude Code's `/br
 - **Agentic knowledge — `wiki/`.** The terse, structured, **English**, cross-linked concept notes agents grow by traversal, domain-organized (e.g. `wiki/health/peptides/`). **Strict:** required frontmatter beyond the universal keys is `type` (free string, e.g. `Reference`, `Playbook`, `Concept`) + `description` (one sentence); `[[wikilinks]]` must resolve; each domain level has an `index.md` MOC.
 - **Curated human surface — `Projects/`, `Areas/`.** The pages Johannes reads and writes — Area/Project folder notes (`{name}.md`, Folder Notes plugin) as overviews, plus human pages. Any language, **light** discipline: no forced `type`/`description`, `status` is his free field, and they link *down* into `wiki/` for depth rather than duplicating it. Curated pages are rewritten, never appended — see Guardrails. A page may be distilled from `wiki/` via Claude Code's `/distill` skill; the voice pass and publish decision are always human, never automated. Any prose you write for either layer follows the vault's root `voice.md` (writing-voice guide — verdict first, terse, no AI filler). Longer pages go through the `prose` skill before they are written.
 - Link notes with `[[wikilinks]]` — the knowledge graph, not decoration.
-- Before a write to `wiki/` or the curated surface counts as done, a human reviews the `git diff` and `node .scripts/vault-lint.mjs` passes (0 errors) — necessary, not sufficient; judgment stays human.
+- A write to `wiki/` or the curated surface counts as done when `node .scripts/vault-lint.mjs` passes (0 errors) and it is committed (see **Filing a note**). Passing is necessary, not sufficient — read your own diff before the commit.
 
 ## Frontmatter schemas by note type
 
@@ -191,11 +191,36 @@ obsidian delete path="<path>"        # goes to trash; `permanent` only on an exp
 
 ## Workflows
 
-- **"note this / remember this / add to my notes"** → create in `Inbox/` (generic frontmatter). Inbox is the trusted dump; processing into Projects/Areas or `wiki/` happens later.
+- **"note this / remember this / add to my notes", a memo, a logged measurement** → **file it where it belongs** (next section). `Inbox/` only when no home is clear.
 - **"save this article / video"** → capture note in `Inbox/` with `url` + `author`/`channel` (promoted to `wiki/` or an Area later).
 - **"inspiration / competitor / tool for project X"** → `Projects/X/notes/inspiration-<slug>.md`.
 - **"what do I have on X" / "find my note about X"** → `search` / `search:context`, then `read` the hit.
 - **"what links to / relates to Y"** → `backlinks` + `links`.
+
+## Filing a note — find its home, then write it there
+
+Johannes asked for the note in this turn (chat, CLI, Desktop or an Iris memo), so it goes **straight to its home** — brain `AGENTS.md` → Ingestion, case 2. One note per write. Cron jobs and other unattended runs are case 1: `Inbox/` only.
+
+**1. Search first.** `obsidian search query="<the topic's words>"` (also `search:context`, `files folder="wiki/<domain>"`); open the domain's `index.md`. For a spread-out topic `agw brain "<question>"`. Decide from what exists — never from the title alone.
+
+**2. Pick the home — first match wins.**
+
+| The note is | Home | How |
+|-|-|-|
+| A measurement or event for an existing **log** (a dial-in shot → `wiki/coffee/dial-in-log.md`) | that log | Read the log; add a new entry in **its own format** at its own end (dial-in-log: newest on top, a `## YYYY-MM-DD — <summary>` section with the field table: bean, dose, grind, temperature, pre-infusion, time, yield, channelling, verdict, plus a short **Read:**). Fields not stated: `not stated`, never invented. Bump `timestamp`. |
+| New facts or an idea for something that **already has a page** (a `wiki/` concept note, an Area or Project page) | that page | Update the relevant section. **Curated pages (`Areas/`, `Projects/`) are rewritten, never appended** — no dated lines, no `Nachtrag`. A dated fact with no section to live in becomes a `wiki/` note linked down from the page. Bump `timestamp` on a `wiki/` note. |
+| A durable concept, procedure or reference with no page yet | new `wiki/<domain>/<kebab-name>.md` | Full frontmatter (`type`, `description`, `title`, `tags`, `timestamp`; `source: iris` for a memo), English prose, every `[[wikilink]]` resolves, and the level's `index.md` gains a line in the same write. |
+| A journal-style reflection, or **no clear home** | `Inbox/` | Iris: `iris-note.py` (tags `[journal, iris]`). Elsewhere: `Inbox/<slug>.md`, generic frontmatter. Journal-style → tag `journal`. |
+
+A memo that touches two homes is two writes, one commit each. Update before you create: a new `wiki/` note beside an existing one on the same concept is the failure.
+
+**3. Write.** Prose follows `~/SourceRoot/brain/voice.md` (verdict first, numbers over adjectives). A page longer than a few paragraphs goes through `agw prose` (`skill_view('prose')`) before it is written. The CLI's `obsidian create`/`append`/`property:set`, or a filesystem edit, both fine.
+
+**4. Gate.** From the vault: `cd ~/SourceRoot/brain && node .scripts/vault-lint.mjs` — 0 errors required (the 5 standing warnings are not yours). Fix what you introduced, then rerun.
+
+**5. Commit.** `~/.hermes/scripts/brain-commit.sh "<type>: <what changed and why>" <path> [<path>…]` — only the paths you wrote (`wiki: dial-in 2026-11-15 shot, grind 9`). Exit 3 = lock busy, **not committed**: say so, retry once.
+
+**6. Report the path written** (`wiki/coffee/dial-in-log.md`), and say where a judgement call placed it.
 
 ## Routing — where a capture goes
 
@@ -208,13 +233,13 @@ The `capture` skill routes; this is the shared model:
 
 ## Guardrails
 
-- **Do not write journal entries** — except notes from an Iris voice-memo turn, which `skill_view('iris')` owns (script `skills/iris/scripts/iris-note.py` → `Inbox/`, tags `[journal, iris]`; it commits through `brain-commit.sh`, so the Sync guardrail below is met). Everything else: the voice-first journal is a separate, paused subsystem with its own tone rules and ingest pipeline — currently blocked pending a new vault target (see `journal/PRD.md`). If asked to journal, say it isn't wired up yet rather than improvising an entry.
-- **Never write to the vault root**; unclassified → `Inbox/`.
+- **Do not write journal entries** — except notes from an Iris voice-memo turn, which `skill_view('iris')` owns (script `skills/iris/scripts/iris-note.py` → `Inbox/`, tags `[journal, iris]`, for reflections and memos with no home; it commits through `brain-commit.sh`, so the Sync guardrail below is met). Everything else: the voice-first journal is a separate, paused subsystem with its own tone rules and ingest pipeline — currently blocked pending a new vault target (see `journal/PRD.md`). If asked to journal, say it isn't wired up yet rather than improvising an entry.
+- **Never write to the vault root**; no clear home → `Inbox/`.
 - **The `daily:*` and `template:*`/`templates` CLI verbs are dead.** Their backing core plugins (`daily-notes`, `templates`) are disabled and the `02_Daily/`/`09_Templates/` folders were removed 2026-08-02. Never call them. If asked to "add to my daily note", say daily notes were retired rather than improvising a location.
-- **`wiki/` and `Inbox/`** — prefer `append`/`property:set` over rewriting a whole file.
+- **`wiki/` and `Inbox/`** — prefer `append`/`property:set` over rewriting a whole file (a log takes its new entry where the log puts it).
 - **`Areas/` and `Projects/` (the curated surface) are rewritten, never appended.** Appending is how a curated page accumulates decision logs, stale status lines, and superseded options. Anything dated — a status update, a `Nachtrag`, a rejected option, a decision log — belongs in `wiki/` or nowhere. If the only way to add something is at the bottom, it's the wrong layer: write a `wiki/` note and link down to it from the curated page instead.
 - `node .scripts/vault-lint.mjs --drift` (run from the vault, `~/SourceRoot/brain`) reports the mechanically detectable tells for the rule above — necessary, not sufficient; the voice pass stays human.
-- **Sync is git, not automatic.** A LaunchAgent pulls and pushes `~/SourceRoot/brain` every 5 minutes; on this Mac Mini it never auto-commits. A write isn't durable until it's committed — after writing, commit (the human reviews `git diff`).
+- **Sync is git, not automatic.** A LaunchAgent pulls and pushes `~/SourceRoot/brain` every 5 minutes; on this Mac Mini it never auto-commits. A write isn't durable until it's committed — after writing and a clean vault-lint, commit.
 - **Always name the vault in the git command — `git -C ~/SourceRoot/brain …`.** Your shell's working directory is not the vault, so a bare `git commit` lands in the wrong repo or none. Easiest is the helper:
   ```bash
   ~/.hermes/scripts/brain-commit.sh "note: <what changed>"          # add -A, commit, push

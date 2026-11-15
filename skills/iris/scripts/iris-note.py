@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Write an Iris voice memo into the brain Inbox and commit it.
+"""Write an Iris voice memo into the brain Inbox and commit it — the path for journal-style
+reflections and memos with no clear home; a memo with a home is filed there (obsidian skill).
 
 Reproduces Iris's former journal destination (iris server/src/adapters/journal.ts): same folder,
 same title and filename rule, same frontmatter. The commit goes through scripts/brain-commit.sh,
