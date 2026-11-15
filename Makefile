@@ -352,6 +352,7 @@ print("    ✓ approvals + guards off (no prompts)") if not bad else print("    
 	@python3 "$(HERMES_REPO)/scripts/check-cron-registry.py" \
 		"$(HERMES_REPO)/docs/scheduled-jobs.md" "$(HERMES_DIR)/cron/jobs.json"
 	@$(MAKE) --no-print-directory patch-check
+	@$(MAKE) --no-print-directory seats-check
 	@# Hermes writes into this repo through the skill symlinks during ordinary
 	@# foreground use — it has authored whole nested skills under skills/homelab/
 	@# and patched skills/homelab-ops/references/ in place. Those edits are real
@@ -423,6 +424,14 @@ patch-check:
 		printf "$$bad\n"; \
 	fi
 
+# The five model seats (brain, compress, title, approval, vision) are literals in config.yaml but
+# owned by agent-workflows' route table (`agw routes`, hermes.*). A drift check, not a render:
+# config.yaml is read at gateway start and symlinked live, so a generated file would add a
+# stale-until-setup state for nothing; a tier change fails here and is one edit plus a restart.
+.PHONY: seats-check
+seats-check:
+	@$(HERMES_PY) "$(HERMES_REPO)/scripts/check-seats.py" "$(HERMES_REPO)/config.yaml"
+
 # ============================================================================
 # Repo contract (agent-platform): check / deploy / verify / logs
 # ============================================================================
@@ -442,6 +451,7 @@ check:
 	for f in scripts/*.sh hooks/*.sh; do [ -e "$$f" ] || continue; bash -n "$$f" 2>/dev/null || zsh -n "$$f" || { echo "  ✗ syntax: $$f"; fail=1; }; done; \
 	$(HERMES_PY) -m compileall -q scripts tests >/dev/null || { echo "  ✗ compileall"; fail=1; }; \
 	$(MAKE) --no-print-directory patch-check | tee /dev/stderr | grep -q '✗' && fail=1; \
+	$(MAKE) --no-print-directory seats-check | tee /dev/stderr | grep -q '✗' && fail=1; \
 	for t in tests/test_*.py; do \
 		[ "$$t" = tests/test_checkpoint_store_excludes.py ] && continue; \
 		$(HERMES_PY) "$$t" >/tmp/hermes-check.out 2>&1 && echo "  ✓ $$t" || { echo "  ✗ $$t"; tail -15 /tmp/hermes-check.out; fail=1; }; \

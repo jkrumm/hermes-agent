@@ -1,12 +1,18 @@
 # Model, context window and reasoning effort
 
+> **2026-11-15 — Hermes is Claude-only.** The `gpt-6-luna` failover, the gateway's OpenAI leg
+> (`providers.custom`, `custom_providers`, `fallback_providers`) and the three patches that existed
+> for GPT on IU (`runtime-provider-iu-responses-api`, `transport-iu-reasoning-effort`,
+> `utils-max-completion-tokens-gpt6`) are gone (`docs/patches.md`). IU's OpenAI and Anthropic paths
+> share one personal key and cap, so the failover added no budget; the gateway already falls back from
+> the Claude credit pools to IU's `/anthropic` (`agent-workflows/docs/gateway.md` §Picking a pool).
+> The five seats follow `agw routes` `hermes.*`, pinned by `make seats-check`. **Every GPT, DeepSeek
+> and OpenAI-leg row below is history**, kept for the probe numbers.
+>
 > **2026-11-04 — the brain is Claude Haiku 5.5 (`high`) on the inference gateway's Anthropic leg, and
-> every auxiliary lane except the `gpt-6-luna` failover moved with it.** The gateway spends the
-> Claude credit pools first (`agent-workflows/docs/gateway.md`). Rows below about DeepSeek and the
-> `gpt-6-luna` title/compression lanes are history; the OpenAI leg now carries only the failover.
-> Compaction is 650,000 tokens since 2026-11-04 (owner decision; briefly 90,000, a cost guess for Haiku's 5x-above-100k line), the cache TTL is
-> `auto` (1h for human-paced sources), and `model.provider` is `gateway-anthropic` — `custom`
-> would resolve to the OpenAI leg.
+> every auxiliary lane moved with it.** The gateway spends the
+> Claude credit pools first. Compaction is 650,000 tokens since 2026-11-04 (owner decision; briefly 90,000, a cost guess for Haiku's 5x-above-100k line), the cache TTL is
+> `auto` (1h for human-paced sources), and `model.provider` is `gateway-anthropic`.
 
 Numbers here are **probed against the live IU endpoint**, not read off a model card — every published source disagrees with it in some direction. Re-probe rather than trust this table after an endpoint change.
 
@@ -23,32 +29,11 @@ Numbers here are **probed against the live IU endpoint**, not read off a model c
 | Efforts, `glm-5.3-flash` (OpenAI leg, reachable via this endpoint) | `low, high, max` | `medium` refused |
 | Efforts, Anthropic leg | `none, low, medium, high` | `xhigh` refused by LiteLLM. |
 
-**DeepSeek needed no Responses-API workaround — the effort-vs-tools conflict is gpt-5.x-only.**
-`/v1/chat/completions` refuses any effort as soon as the request carries function tools for
-gpt-5.x models — *"Function tools with reasoning_effort are not supported for gpt-5.6-luna in
-/v1/chat/completions. To use function tools, use /v1/responses or set reasoning_effort to
-'none'"* — and Hermes always sends tools. That is what `patches/runtime-provider-iu-responses-api.patch`
-and the effort-strip half of `patches/transport-iu-reasoning-effort.patch` exist for, and it's
-still true for `gpt-6-luna` today (the fallback + title_generation model since 2026-09-23), which additionally needs an explicit `none` rather than an omitted key. But DeepSeek
-(probed 2026-09-13) takes tools and a top-level `reasoning_effort` together with no refusal, so
-the brain runs plain `api_mode: chat_completions` and gets `agent.reasoning_effort: high` on
-every turn, tools included — `patches/transport-iu-reasoning-effort.patch`'s tools-strip branch
-is **deny-by-default**: it keeps the effort only for a probed-safe allowlist
-(Anthropic/DeepSeek/GLM) and strips it for everything else, gpt-5.x and any model id this
-endpoint hasn't been probed against included — never the reverse ("assume a new id is fine").
-
-**`patches/runtime-provider-iu-responses-api.patch` is dormant on the current config, not
-retired.** It forces the IU OpenAI leg onto `codex_responses` only when a slot's `api_mode` is
-*not* set explicitly; every slot here now pins `chat_completions` explicitly (brain, fallback,
-compression, title_generation, vision), so the patch's forced detection never fires. It stays
-applied as the safety net for the next time this endpoint runs a gpt-5.x model with no explicit
-`api_mode` — dropping it would silently reopen the tools+effort 400 for that future case.
-Diagnosis tell if the fallback *is* active: `Fallback activated: claude-haiku-5-5 →
-gpt-6-luna` on every turn in `~/.hermes/logs/agent.log` (expected under throttling — the
-fallback then runs with **no** reasoning effort while tools are attached, the 503-avoidance
-tradeoff `transport-iu-reasoning-effort.patch` makes, not a fault); one line above it,
-`Ignoring persisted custom api_mode=codex_responses for non-OpenAI endpoint` means some patch
-fell off, which is what a `hermes update` does.
+**History (GPT/DeepSeek era):** `/v1/chat/completions` refused any effort alongside function tools for
+gpt-5.x (an explicit `none` for gpt-6), which is what the three retired patches papered over;
+DeepSeek took tools and effort together. None of it applies to `anthropic_messages`, where
+upstream's `_thinking_kwargs` carries the effort. There is no Hermes-side fallback now: a gateway
+402/5xx is a turn error.
 
 > **This is Hermes's own blind spot, and it now has a skill.** `agent.log` is
 > **not** rotated per process, so an unbounded read of it misdiagnoses a fixed
@@ -114,7 +99,7 @@ model server". Read on v0.22.2, and exercised against the live gateway through a
 
 | Site | On the gateway | Effect |
 |-|-|-|
-| Context length (`model_metadata.py:2010,2075,2334`) | never reached | Every lane that uses a window has a pin: `model.context_length`, `fallback_providers[0].context_length`, `auxiliary.{compression,title_generation,approval}.context_length`, and the `models:` tables on the route entries. `tests/test_gateway_provider.py` fails if a slot reaches a probe |
+| Context length (`model_metadata.py:2010,2075,2334`) | never reached | Every lane that uses a window has a pin: `model.context_length`, `auxiliary.{compression,title_generation,approval}.context_length`, and the `models:` tables on the route entries. `tests/test_gateway_provider.py` fails if a slot reaches a probe |
 | `query_ollama_num_ctx` (`agent_init.py:2165`) | runs once per process and TTL | `detect_local_server_type` walks the LM Studio, Ollama, llama.cpp and vLLM paths, none answers 200, so the server type stays unknown and no `num_ctx` is sent. `/openai/v1/props` falls into the gateway's passthrough and comes back 501, which writes a zero-token `outcome: error` row: noise on the hermes lane, not a failed turn |
 | Non-stream stale timeout (`run_agent.py:589`, `chat_completion_helpers.py:846`) | not tighter | `inf` for a model without a reasoning floor. `deepseek-v4.1-flash` keeps its 600 s floor, the same path as on IU. `HERMES_API_TIMEOUT` (1800 s) stays the request timeout |
 | Codex-only floors (`chat_completion_helpers.py:846,1190`) | not reached | Every slot pins `chat_completions` or `anthropic_messages` |

@@ -1,6 +1,6 @@
 # Hermes Agent — Mac Mini M2 Pro
 
-Personal AI assistant running 24/7 on Mac Mini. Chat through Iris, Claude Haiku 5.5 (high) as brain on the agent-workflows inference gateway's Anthropic leg (`gpt-6-luna` failover), twenty skill domains (`HERMES_SKILLS` in the Makefile is the count; `fleet` is sourced from `software-factory/integrations/hermes/fleet`).
+Personal AI assistant running 24/7 on Mac Mini. Chat through Iris, Claude Haiku 5.5 (high) as brain on the agent-workflows inference gateway's Anthropic leg, twenty skill domains (`HERMES_SKILLS` in the Makefile is the count; `fleet` is sourced from `software-factory/integrations/hermes/fleet`).
 
 For repo-operating detail (repo work, secrets, patches, model routing), see `AGENTS.md`.
 
@@ -22,7 +22,7 @@ Mac Mini M2 Pro — Hermes Agent (always-on)
   ├→ VPS — Production apps, ClickStack (via Tailscale)
   └→ inference gateway (http://127.0.0.1:7794, agent-workflows) — Claude credit pools first, IU after:
         claude-haiku-5-5 (brain, compression, title_generation, approval) and claude-sonnet-5-5 (vision)
-        over /anthropic; gpt-6-luna (fallback) over /openai/v1
+        over /anthropic
 ```
 
 ## Surfaces

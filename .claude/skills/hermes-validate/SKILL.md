@@ -117,9 +117,8 @@ is a `skills_list`.
 - 404 on guessed API paths → skill SKILL.md missing or not loaded
 - An auxiliary model 404/`not found` (title generation, compression) → non-blocking, but
   check the model name in `config.yaml` still exists on the endpoint. Auxiliaries are split
-  by task, not all one model: `compression` is `gpt-6-luna` (like the fallback),
-  `title_generation` is `gpt-6-luna`, `vision` is `claude-sonnet-5-5`, `approval` is
-  `claude-haiku-5-5`. A log line naming any other id (e.g. a retired `gemini-2.5-flash*` or
+  by task, all on the Anthropic leg: `compression`, `title_generation` and `approval` are
+  `claude-haiku-5-5`, `vision` is `claude-sonnet-5-5` (`make seats-check` pins them to `agw routes`). A log line naming any other id (e.g. a retired `gemini-2.5-flash*` or
   `claude-sonnet-4-6`) is stale config, not a bug in the current model.
 
 ---

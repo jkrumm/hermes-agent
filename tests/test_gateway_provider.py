@@ -29,15 +29,8 @@ from hermes_cli.config_providers import (  # noqa: E402
 )
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-OPENAI = "http://127.0.0.1:7794/openai/v1"
 ANTHROPIC = "http://127.0.0.1:7794/anthropic"
-DOOR_NAMES = {
-    "AUDIO_DOOR_TOKEN",
-    "OPENAI_API_KEY",
-    "ANTHROPIC_API_KEY",
-    "HERMES_CUSTOM_CUSTOM_API_KEY",
-    "HERMES_CUSTOM_UNIFIED_ENDPOINT_MAIN_APP_IU_IT_ORG_API_KEY",
-}
+DOOR_NAMES = {"AUDIO_DOOR_TOKEN", "ANTHROPIC_API_KEY"}
 
 failures = []
 
@@ -62,45 +55,41 @@ def tpl_values():
 tpl = tpl_values()
 raw_config = yaml.safe_load((REPO / "config.yaml").read_text())
 with mock.patch.dict(os.environ, {
-    "OPENAI_BASE_URL": tpl["OPENAI_BASE_URL"],
     "ANTHROPIC_BASE_URL": tpl["ANTHROPIC_BASE_URL"],
-    "OPENAI_API_KEY": "door",
     "ANTHROPIC_API_KEY": "door",
 }):
     config = _expand_env_vars(raw_config)
 
 print(".env.tpl")
-check("openai leg", tpl["OPENAI_BASE_URL"], OPENAI)
+check("no OpenAI leg", {k for k in tpl if k.startswith("OPENAI_")}, set())
 check("anthropic leg has no /v1", tpl["ANTHROPIC_BASE_URL"], ANTHROPIC)
 check("no gateway key is an op ref", DOOR_NAMES & set(tpl), set())
 
 print("every call lands on the gateway")
 for slot, section in (
     ("model", config["model"]),
-    ("fallback", config["fallback_providers"][0]),
     *((f"auxiliary.{k}", v) for k, v in config["auxiliary"].items() if v.get("provider") == "custom"),
 ):
-    check(f"{slot} base", section["base_url"] in (OPENAI, ANTHROPIC), True)
+    check(f"{slot} base", section["base_url"], ANTHROPIC)
 
 print("affinity header, per route")
 entries = get_compatible_custom_providers(config)
-gateway_entries = [e for e in entries if e.get("base_url") in (OPENAI, ANTHROPIC)]
-check("three gateway entries (providers.custom, legacy list, anthropic)", len(gateway_entries), 3)
+gateway_entries = [e for e in entries if e.get("base_url") == ANTHROPIC]
+check("one gateway entry (providers.gateway-anthropic)", len(gateway_entries), 1)
 check("no entry off the gateway", len(entries), len(gateway_entries))
 for entry in gateway_entries:
     check(f"{entry.get('name')} declares it", entry.get("session_affinity_header"), "x-agw-session")
-for url in (OPENAI, OPENAI + "/", ANTHROPIC):
+for url in (ANTHROPIC, ANTHROPIC + "/"):
     check(f"route {url}", get_custom_provider_session_affinity_header(url, config=config), "x-agw-session")
-legacy_only = {"custom_providers": config["custom_providers"]}
-check("the legacy list alone carries it",
-      get_custom_provider_session_affinity_header(OPENAI, config=legacy_only), "x-agw-session")
 dict_only = {"providers": config["providers"]}
 check("the providers dict alone carries it",
-      get_custom_provider_session_affinity_header(OPENAI, config=dict_only), "x-agw-session")
+      get_custom_provider_session_affinity_header(ANTHROPIC, config=dict_only), "x-agw-session")
+check("no OpenAI leg, no fallback, no legacy list",
+      ("custom_providers" in config, "fallback_providers" in config, "custom" in config["providers"]),
+      (False, False, False))
 
 print("brain on the Anthropic leg, selected by provider name")
-# `provider: custom` resolves to providers.custom (the OpenAI leg) and ignores model.base_url:
-# the brain would silently run through the chat-completions shim, uncached by a native leg.
+# The brain is selected by provider name, not by model.base_url (a `custom` provider ignores it).
 check("brain provider", config["model"]["provider"], "gateway-anthropic")
 check("brain wire", config["model"]["api_mode"], "anthropic_messages")
 check("brain base", config["model"]["base_url"], ANTHROPIC)
@@ -121,7 +110,6 @@ print("context windows never reach a loopback probe")
 # models table, so these slots cannot fall through to /models, /api/show or the catalog.
 PINS = (
     ("brain", raw_config["model"], "claude-haiku-5-5", ANTHROPIC, 1000000),
-    ("fallback", raw_config["fallback_providers"][0], "gpt-6-luna", OPENAI, 850000),
     ("compression", raw_config["auxiliary"]["compression"], "claude-haiku-5-5", ANTHROPIC, 1000000),
     ("title", raw_config["auxiliary"]["title_generation"], "claude-haiku-5-5", ANTHROPIC, 1000000),
     ("approval", raw_config["auxiliary"]["approval"], "claude-haiku-5-5", ANTHROPIC, 1000000),

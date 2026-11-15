@@ -14,19 +14,14 @@ API_SERVER_KEY=op://hermes/gateway/api-server-key
 # Name advertised on /v1/models (default would be 'hermes-agent').
 API_SERVER_MODEL_NAME=hermes
 
-# Every model call goes through the local inference gateway (agent-workflows, :7794),
-# which mirrors IU's path layout: the OpenAI leg (brain, fallback, compression,
-# title_generation) below, the Anthropic leg (vision, approval) further down.
-OPENAI_BASE_URL=http://127.0.0.1:7794/openai/v1
-
-# Not here: the gateway keys. The hermes door token (`hermes=` line of
+# Every model call goes through the local inference gateway (agent-workflows, :7794) on its
+# Anthropic leg, Hermes' only model route (Claude-only since 2026-11-15). The gateway falls
+# back from the Claude credit pools to IU's /anthropic itself.
+#
+# Not here: the gateway key. The hermes door token (`hermes=` line of
 # ~/.agent-workflows/data/door-tokens) opens the gateway, and `secrets.command` in
-# config.yaml emits it as OPENAI_API_KEY, ANTHROPIC_API_KEY and the two `key_env`
-# names, HERMES_CUSTOM_CUSTOM_API_KEY and
-# HERMES_CUSTOM_UNIFIED_ENDPOINT_MAIN_APP_IU_IT_ORG_API_KEY. The runtime resolves
-# key_env through get_env_prefer_dotenv(): .env first, then the secret scope
-# `secrets.command` populated, so that .env need not exist. Never run `hermes model`
-# on the mini: it recreates the file (custom_endpoint_key_env() derives those names).
+# config.yaml emits it as ANTHROPIC_API_KEY (and AUDIO_DOOR_TOKEN for the audio door), so that
+# .env need not exist. Never run `hermes model` on the mini: it recreates the file.
 
 # No `/v1`: the Anthropic SDK appends it.
 ANTHROPIC_BASE_URL=http://127.0.0.1:7794/anthropic

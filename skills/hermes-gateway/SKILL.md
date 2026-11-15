@@ -4,7 +4,7 @@ description: Diagnose Hermes's own gateway — "are you healthy", "why do I see 
 version: 1.0.0
 metadata:
   hermes:
-    tags: [hermes, gateway, self, health, healthy, launchd, shutdown, sigterm, restart, model, routing, api-mode, responses, chat-completions, reasoning-effort, luna, fallback, api-server]
+    tags: [hermes, gateway, self, health, healthy, launchd, shutdown, sigterm, restart, model, routing, api-mode, responses, chat-completions, reasoning-effort, api-server]
     related_skills: [homelab-ops, argo-api]
 ---
 
@@ -89,51 +89,18 @@ the listener is reachable, never that the model route works.
 ## Model routing on the IU endpoint
 
 Every model call goes through the local inference gateway (`curl -s 127.0.0.1:7794/health`, LaunchAgent
-`com.jkrumm.agent-workflows-gateway`), which passes the OpenAI leg through to IU. A gateway that is
-down fails every lane at once, and a `401` means the `hermes=` door-token line is missing. The rest
-of this section reads the same as on IU directly.
+`com.jkrumm.agent-workflows-gateway`) on its Anthropic leg. A gateway that is down fails every lane
+at once, and a `401` means the `hermes=` door-token line is missing. Hermes is **Claude-only**: the
+gateway spends the Claude credit pools first and falls back to IU's `/anthropic` itself; there is no
+Hermes-side fallback model and no OpenAI leg.
 
-The brain (`deepseek-v4.1-flash`) runs `api_mode: chat_completions` on the IU OpenAI-compatible leg
-(`${OPENAI_BASE_URL}`, since 2026-10-20) and needs no Responses-API workaround: DeepSeek accepts
-tools and `reasoning_effort` on the same wire, so `agent.reasoning_effort: high` is sent on every
-turn. Prove it with `HERMES_DUMP_REQUESTS=1 hermes chat -q …` → `~/.hermes/sessions/request_dump_*.json`. The failure mode below is real, but it is
-**fallback-only** — it fires only when Hermes has failed over to the fallback model (`gpt-6-luna`; gpt-5.x wording shown, the gpt-6 refusal is the same):
-
-> Function tools with reasoning_effort are not supported for gpt-5.6-luna in
-> `/v1/chat/completions`. To use function tools, use `/v1/responses` or set
-> reasoning_effort to 'none'.
-
-`patches/transport-iu-reasoning-effort.patch` avoids this 503 whenever the request carries
-tools: gpt-5.x gets `reasoning_effort` dropped, the `gpt-6` family an explicit `none` (omitting the
-key 503s too) — DeepSeek is on the probed-safe allowlist, so the brain keeps its effort under tools;
-only the fallback and `title_generation` lose theirs. Diagnosis tell in the log if the
-fallback is active: `Fallback activated: deepseek-v4.1-flash → gpt-6-luna` — expected under
-throttling, and the fallback then runs with **no** reasoning effort while tools are attached (the
-tradeoff, not a fault).
-
-**`patches/runtime-provider-iu-responses-api.patch` is dormant on the current config, not
-retired.** It forces the IU OpenAI leg onto `codex_responses` only when a slot has **no explicit
-`api_mode`** — every slot here (brain, fallback, compression, title_generation, vision) pins
-`chat_completions` explicitly, which always wins, so the forced detection never fires today. It
-stays applied as the safety net for the day this endpoint runs a gpt-5.x model with no explicit
-`api_mode` again. If you ever see:
-
-```
-Ignoring persisted custom api_mode=codex_responses for non-OpenAI endpoint https://…/openai/v1
-```
-
-— that means whatever slot logged it *was* relying on the forced-detection fallback and the
-patch fell off (`hermes update` does this). Verify with `make patch-check`. Never advise "stay
-on the standard Hermes path, don't patch" for this symptom: on this machine the patch **is** the
-standard path.
-
-Prove the resolved mode positively rather than inferring it from log prose:
-
-```bash
-cd ~/.hermes/hermes-agent && ./venv/bin/python3 -c "
-import os; from hermes_cli.runtime_provider import _resolve_plain_custom_api_mode as r
-print(r({'api_mode': 'chat_completions'}, os.environ['OPENAI_BASE_URL']))"   # -> chat_completions
-```
+The brain (`claude-haiku-5-5`) runs `api_mode: anthropic_messages` with `model.provider:
+gateway-anthropic`; upstream's `_thinking_kwargs` sends `agent.reasoning_effort: high` as adaptive
+thinking, with no local patch. Prove it with `HERMES_DUMP_REQUESTS=1 hermes chat -q …` →
+`~/.hermes/sessions/request_dump_*.json`, and in `agent.log` by `msg_` response ids (a `chatcmpl-`
+id means the chat-completions shim) and `cache=N/M` from the second call on. Every auxiliary lane
+(`compression`, `title_generation`, `approval`, `vision`) calls the same `/anthropic` base URL.
+`make seats-check` pins all five seats to `agw routes` `hermes.*`.
 
 `reasoning_effort` lives at **`agent.reasoning_effort`**, not `model.reasoning_effort` (the
 latter has been removed from `config.yaml` — only `agent.reasoning_effort` was ever read). Check
@@ -185,19 +152,6 @@ py-spy dump of it would have nothing to find.
 
 ## False positives that look like faults
 
-- **`deepseek-v4.1-flash-does-not-exist`** in a fallback line is a *deliberate probe*, run to
-  prove the fallback still engages. Never report it as a broken fallback model. It appears in
-  **two** shapes: in a `Fallback activated: … → …` line, and — when the probe overrides the
-  *primary* slot rather than the fallback — as three `ERROR agent.chat_completion_helpers:
-  Streaming failed before delivery: … 404 …` lines (one per `api_max_retries` attempt) from a
-  single `platform=cli` session, followed by the `Fallback activated` line and a successful
-  `API call #1`. The 404 is the probe's expected answer; read the session id forward, not the
-  log level. Nothing filters the sentinel shape any more, so a line
-  with this signature is the probe unless it is a genuine 404 for the real brain model — check
-  which model id the line names.
-- **The fallback entry uses `chat_completions`, same as the brain.** That is correct and
-  intentional — the fallback (`gpt-6-luna`) and the brain (`deepseek-v4.1-flash`) both sit on the IU
-  OpenAI leg (`chat_completions`) since 2026-10-20.
 - **`check_fn … returned False`** WARNINGs at every turn start (browser, computer-use,
   image-gen, kanban) are ordinary capability probes for tools this deployment does not
   install. Noise.
@@ -244,7 +198,7 @@ Do not report a fix until all of these hold:
 - `make patch-check` green
 - `_resolve_plain_custom_api_mode` returns `chat_completions` for the brain's configured
   `api_mode` + the OpenAI leg's base URL
-- one real tool-using turn completes without a `Fallback activated` line
+- one real tool-using turn completes with a `msg_` response id and no ERROR line
 
 See `references/model-routing.md` for the 2026-08-14 incident in full.
 

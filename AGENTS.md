@@ -138,13 +138,13 @@ list of `KEY=op://vault/item/field` refs. The `sed` exists because `export` emit
 `export K='V'` while the bulk parser wants `K=V`. 0.29s for 29 refs (default budget 3s), and
 secrets resolve for **every** hermes invocation — gateway, CLI, cron.
 
-- **Not a 1Password ref: the door token, five names.** The `hermes=` line of the local
+- **Not a 1Password ref: the door token, two names.** The `hermes=` line of the local
   `~/.agent-workflows/data/door-tokens` opens the audio door (:7792) and the inference gateway
-  (:7794). The `command` reads it once into `t` and prints `AUDIO_DOOR_TOKEN`, `OPENAI_API_KEY`,
-  `ANTHROPIC_API_KEY`, `HERMES_CUSTOM_CUSTOM_API_KEY` and
-  `HERMES_CUSTOM_UNIFIED_ENDPOINT_MAIN_APP_IU_IT_ORG_API_KEY`. Write it `$t`, never `${t}`: config
+  (:7794). The `command` reads it once into `t` and prints `AUDIO_DOOR_TOKEN` and
+  `ANTHROPIC_API_KEY` (`OPENAI_API_KEY` and the two `HERMES_CUSTOM_*` key names went with the
+  OpenAI leg, 2026-11-15). Write it `$t`, never `${t}`: config
   loading expands `${...}` first. A chained `sed` cannot do this, the first substitution changes
-  the line the second one matches. A missing file leaves all five unset (every model call and
+  the line the second one matches. A missing file leaves both unset (every model call and
   TTS/STT 401), graded by `make status` ("door token"), and pinned by
   `tests/test_gateway_provider.py`. Rotation: edit the file, restart the gateway **and**
   `com.jkrumm.hermes-serve`.
@@ -155,7 +155,7 @@ secrets resolve for **every** hermes invocation — gateway, CLI, cron.
 - **Fail-soft, monitored.** The `command` source can't abort startup; it degrades to "no secrets
   applied" + a warning. `hermes-liveness.sh` covers both halves — total failure via
   `platforms.api_server.state == "connected"`, partial via `KEY=` count vs rendered count.
-- Manual check: `Command helper: applied 31 secrets` in `hermes gateway status` (23 refs + the 3 serve refs + the 5
+- Manual check: `Command helper: applied 28 secrets` in `hermes gateway status` (23 refs + the 3 serve refs + the 2
   door-token names), `✓ secrets (23 refs …)` from `make status`.
 - **Never run `hermes model` on the mini** — it writes a plaintext `~/.hermes/.env`
   (`save_env_value`) that shadows the door-token names (`.env` wins over the secret scope); deleted 2026-09-07,
@@ -382,14 +382,14 @@ file they no longer touch — read the table's left column, not the patch name.
 | `gateway/run_voice.py` | `gateway-auto-tts-voice-only` | auto-TTS answers **voice input only**, so alerts stop coming back as MP3s. `/voice all` per chat still speaks everything |
 | `hermes_cli/web_routers/audio.py` | `serve-speak-summary` | Desktop relay read-aloud summarization in `hermes serve`. **Active again** since serve was restored 2026-10-15 (dormant 2026-09-07 → 2026-10-15) |
 | `tools/cronjob_prompt_scan.py` | `cronjob-tools-allowlist-argo-bearer` | argo/karakeep/hyperdx bearer allowlist plus the loopback audio door (`127.0.0.1:7792`, exact authority) so a legitimate cron curl stops tripping `exfil_curl_auth_header` |
-| `hermes_cli/runtime_provider.py` | `runtime-provider-iu-responses-api` | route the IU `…/openai/v1` leg onto `codex_responses` for any gpt-5.x model with no explicit `api_mode` — **dormant on the current config**, every live slot sets `api_mode` explicitly |
-| `agent/transports/chat_completions.py` | `transport-iu-reasoning-effort` | deny-by-default tools+`reasoning_effort`: keep both only for the probed-safe allowlist (Anthropic/DeepSeek/GLM); strip for everything else, gpt-5.x and any unrecognized model id included; clamp per model family (Anthropic: no `xhigh`; GLM: no `medium`; unrecognized: omitted entirely) |
-| `utils.py` | `utils-max-completion-tokens-gpt6` | `model_forces_max_completion_tokens` also matches `gpt-6`, so the failover `gpt-6-luna` gets `max_completion_tokens` in `run_agent` and the auxiliary client (it replaces the URL-based `run-agent-…` and `auxiliary-client-…` patches, retired 2026-11-04: the only non-OpenAI id on the leg, DeepSeek, is gone and every auxiliary lane moved to the Anthropic leg) |
 | `gateway/run_bootstrap.py` | `gateway-start-predecessor-grace` | non-`--replace` startup (launchd KeepAlive) gets a 20s/1s poll grace for a still-dying predecessor PID before refusing — continues (clearing stale PID/lock like `--replace` does) if it exits, refuses as before if it doesn't. Never signals the target |
 | `tools/skill_manager_tool.py` | `skill-manager-colon-hint` | `_validate_frontmatter` stays fail-closed on a YAML `ScannerError`, but appends a hint when the message is "mapping values are not allowed here" — an unquoted `key: value: with-a-colon` description |
 | `tools/checkpoint_manager.py` | `checkpoint-store-integrity` | three fixes in the shared shadow store, one file: (1) the staging `git add -A` (upstream's `_stage_with_oversize_preflight` in `_take()`, `_stage_all` in the two diff callers) retries once on **any** transient failure — a stale gitlink (drop the dead gitlinks, `update-index --force-remove`) *and* a file deleted mid-walk by another process (`unable to stat …: No such file or directory`, the Claude Code scratch race); (2) ~~exclude refresh and drop of already-tracked excluded paths~~ retired at v0.23.1 — upstream's `_write_default_excludes` and `_unstage_excluded` do it; the patch keeps only the `claude-501/` entry in `DEFAULT_EXCLUDES` (Claude Code scratch under `/tmp` once sat at 1925 tracked paths / ~32 MB in the `/tmp` ref); (3) ~~store lock~~ retired at v0.21.6+669 — upstream's `checkpoint_pruning.store_lock` (cross-process `flock` around snapshot/diff/restore/gc) covers both the gc-vs-snapshot and the cross-process `indexes/<hash>.lock` race; (4) the logged stderr keeps its first line verbatim but is summarized, and the retry quotes the real cause — `add -A` prints advice before the error, so a commitless nested repo was filed as an innocent `Füge eingebettetes Repository hinzu: …` |
 
 Re-apply: `cd ~/.hermes/hermes-agent && git apply ~/SourceRoot/hermes-agent/patches/<name>.patch`.
+**Retired 2026-11-15 (Hermes is Claude-only):** `runtime-provider-iu-responses-api`,
+`transport-iu-reasoning-effort`, `utils-max-completion-tokens-gpt6` existed only for GPT on IU's
+OpenAI leg — reasons and the restore path in `docs/patches.md`.
 **Anything touching `cronjob_prompt_scan.py`, `runtime_provider.py`,
 `agent/transports/chat_completions.py`, `utils.py`, `gateway/run_bootstrap.py` or
 `config.yaml` needs a gateway restart** (`launchctl kickstart -k gui/$(id -u)/ai.hermes.gateway`)
@@ -420,46 +420,38 @@ published source disagrees in some direction. Re-probe after an endpoint change.
 
 | | Value | How established |
 |-|-|-|
-| Brain, `claude-haiku-5-5` (2026-11-04) | gateway `/anthropic` leg, `anthropic_messages`, `high`; `model.provider: gateway-anthropic` | modelpick bench: `high` 15/15 ~1.6 s; `xhigh`/`max` think 50–100 s+. The gateway spends the Claude subscription credit pools first, IU's `/anthropic` only when none has credit. Revert to DeepSeek: the `chat_completions` block in 27c79af |
+| Brain, `claude-haiku-5-5` (2026-11-04) | gateway `/anthropic` leg, `anthropic_messages`, `high`; `model.provider: gateway-anthropic` | modelpick bench: `high` 15/15 ~1.6 s (route tier EASY); `xhigh`/`max` think 50–100 s+. The gateway spends the Claude subscription credit pools first, IU's `/anthropic` only when none has credit. Revert to DeepSeek: the `chat_completions` block in 27c79af |
+| Seats | `agw routes` `hermes.{brain,compress,title,approval,vision}` | config.yaml carries them as literals; **`make seats-check`** (in `make check` and `make status`) fails when model, effort, `api_mode` or base URL drift from the route table. A tier change in agw = edit config.yaml + restart. The routes' GPT `fallback` field is ignored on purpose |
 | Former brains | Haiku 5.5 EU on IU direct (2026-10-08 → 10-20); `deepseek-v4.1-flash` (2026-10-20 → 11-04) | DeepSeek: 15/15 at every effort, 1.0 M window, `/responses` 404s — `chat_completions` is its only wire |
 | Pricing line | **100k input tokens** | Haiku 5.5 bills the *whole request* at 5x above it (`agw routes`, `longPromptTokens`). **Accepted by the owner (2026-11-04)**: long threads cost more and that is fine, so compaction is late (650k), not under the line |
 | Context, Haiku 5.5 | 1,000,000 (pinned) | the gateway's `/models` advertises 200k; the pin wins, `agent.context_pin` logs a harmless warning per run |
-| Input cap, `gpt-5.6-luna` (former fallback) | **922,000** | 900k ok; 1.1M → `context_length_exceeded` (a *combined* input+reasoning+output budget). **Not re-probed for `gpt-6-luna`** — config keeps 850,000 |
-| `/v1/models` metadata (OpenAI leg) | `ContextSize: "105000"` | **Wrong** — 110k/260k/520k/900k all succeed. Never configure from it |
-| Efforts, `gpt-6-luna` (fallback) | `none, low, medium, high, xhigh` | probed 2026-09-23; `max` refused, only default `temperature` (1); with tools it needs an **explicit** `none` — omitting the key 503s too, unlike gpt-5.6 |
 | Efforts, Anthropic leg | `none, low, medium, high` | `xhigh` refused by the IU LiteLLM gateway |
 
 **Every model call goes through the local inference gateway** (`127.0.0.1:7794`, agent-workflows):
-`OPENAI_BASE_URL` is its `/openai/v1`, `ANTHROPIC_BASE_URL` its `/anthropic`, the key is the door
-token. Spec: `agent-workflows/docs/gateway.md`. **Claude is primary everywhere:** the brain,
+`ANTHROPIC_BASE_URL` is its `/anthropic`, the key is the door token. Spec:
+`agent-workflows/docs/gateway.md`. **Hermes is Claude-only (owner decision 2026-11-15):** the brain,
 `compression` (agw's `cheap.summarize`), `title_generation` (`cheap.title`, effort `none`), `approval`
-and `vision` (Sonnet 5.5) run on the Anthropic leg, so the credit pools pay. The OpenAI leg carries
-only the failover `gpt-6-luna` (IU key). Each leg needs a `session_affinity_header: x-agw-session`
-entry (`providers.custom`, the legacy `custom_providers` entry, `providers.gateway-anthropic`): the
+and `vision` (Sonnet 5.5) all run on the Anthropic leg, so the credit pools pay, and the gateway
+itself falls back to IU's `/anthropic` when no pool has credit (agent-workflows `docs/gateway.md`
+§Picking a pool). There is no GPT failover: IU's OpenAI and Anthropic paths share one personal key
+and cap, so it added no budget, only coverage of "IU Claude down, IU GPT up". The leg needs a
+`session_affinity_header: x-agw-session` entry (`providers.gateway-anthropic`): the
 lookup is by route URL, so a leg without an entry would send no session — the gateway binds a
 session to one credit org, and **prompt caches are per org**, so no session means no cache.
 Byte-exact passthrough: the `cache_control` markers Hermes sets are the cache. `prompt_caching.cache_ttl: auto` =
 1h for human-paced sources (Iris, CLI, desktop), 5m for cron/api. Verify in `agent.log`:
-`cache=N/M (100%)` from the second call on. **Select the leg by `model.provider`, not `model.base_url`:**
-`provider: custom` resolves to `providers.custom` (the OpenAI leg) and silently sends Haiku
-through the chat-completions shim (`chatcmpl-` ids, `OpenAI client created … /openai/v1`);
-the native leg returns `msg_` ids.
+`cache=N/M (100%)` from the second call on. **Select the leg by `model.provider`
+(`gateway-anthropic`), not `model.base_url`**; the native leg returns `msg_` ids (`chatcmpl-` ids
+would mean the chat-completions shim).
 
 **`model.api_mode: anthropic_messages` carries the effort** through upstream's `_thinking_kwargs`
-(Haiku 5.5+ is adaptive; `_is_pre_thinking_haiku` is false) — no local patch. The failover
-`gpt-6-luna` stays on `chat_completions`, where `patches/transport-iu-reasoning-effort.patch`
-strips the effort for gpt-5.x and forces an explicit `none` for gpt-6.x while tools are attached.
-**Tell if the fallback is active:** `Fallback activated: claude-haiku-5-5 → gpt-6-luna` in
-`~/.hermes/logs/agent.log` — expected when the gateway answers 402/5xx, not a misconfiguration.
+(Haiku 5.5+ is adaptive; `_is_pre_thinking_haiku` is false) — no local patch. There is no
+Hermes-side fallback: a 402/5xx from the gateway is a turn error, not a failover.
 - **`agent.log` is not rotated per process** — slice every read at the current process start
   (`pgrep -f "hermes_cli.main gateway run"` → `ps -o lstart=`). `skills/hermes-gateway/` owns
   this. **Hermes may not restart its own gateway.**
 - **The live key is `agent.reasoning_effort`, not `model.reasoning_effort`** (the latter was a
   dead, never-read mirror and has been removed from `config.yaml`).
-- **`patches/runtime-provider-iu-responses-api.patch` is dormant on the current config** — every
-  slot on the OpenAI leg sets an explicit `api_mode`, which always wins over the patch's forced
-  host-detection. A stale `Ignoring persisted custom api_mode=codex_responses for non-OpenAI
-  endpoint` log line still means a patch fell off a `hermes update`.
 - **Compaction triggers at 650,000 tokens** (absolute, ratio 0.65 of the 1M pin agrees; the *lower* of the two governs). Owner decision 2026-11-04 — an earlier 90k guess to stay under Haiku's 100k 5x line cut threads short and was reverted. Above 100k each request bills at 5x; prompt caching (reads at 0.1x of the base rate) keeps that bounded. Compaction invalidates the cached prefix once per compaction.
 
 **Auxiliary lanes are separately routed, not the brain** — all on the Anthropic leg, `provider`

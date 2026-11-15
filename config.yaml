@@ -9,29 +9,14 @@ model:
   base_url: ${ANTHROPIC_BASE_URL}
   api_key: ${ANTHROPIC_API_KEY}
   api_mode: anthropic_messages
-  # Explicit so model_tools/auxiliary lookups don't fall back to a hardcoded catalog entry
-  # (they don't read custom_providers).
+  # Explicit so model_tools/auxiliary lookups don't fall back to a hardcoded catalog entry.
   context_length: 1000000
   tool_use_enforcement: true
 providers:
-  # The gateway's OpenAI leg: the failover (gpt-6-luna) and any lane that still wants it.
-  custom:
-    name: Custom
-    base_url: ${OPENAI_BASE_URL}
-    api_key: ${OPENAI_API_KEY}
-    model: gpt-6-luna
-    discover_models: false
-    api_mode: chat_completions
-    # Sent on every request of this route, auxiliaries included: the gateway binds a pool and
-    # attributes the row by it. Declared per route URL, so each gateway leg needs an entry.
-    session_affinity_header: x-agw-session
-    models:
-      gpt-6-luna:
-        context_length: 850000
-    context_length: 850000
-    key_env: HERMES_CUSTOM_CUSTOM_API_KEY
-  # The gateway's Anthropic leg: the brain and every Claude auxiliary lane. No lane selects this
-  # entry by name: it exists because the affinity header is looked up by route URL.
+  # The gateway's Anthropic leg: the brain and every auxiliary lane — Hermes' only model route
+  # (Claude-only since 2026-11-15; the gateway itself falls back from the Claude credit pools to
+  # IU's /anthropic). Auxiliary lanes carry their own base_url; the affinity header below is
+  # looked up by route URL, so this entry must exist.
   gateway-anthropic:
     name: Gateway Anthropic
     base_url: ${ANTHROPIC_BASE_URL}
@@ -45,13 +30,6 @@ providers:
       claude-sonnet-5-5:
         context_length: 1000000
     key_env: ANTHROPIC_API_KEY
-fallback_providers:
-  - provider: custom
-    model: gpt-6-luna
-    base_url: ${OPENAI_BASE_URL}
-    api_key: ${OPENAI_API_KEY}
-    api_mode: chat_completions
-    context_length: 850000
 toolsets:
   - hermes-cli
 agent:
@@ -205,6 +183,7 @@ auxiliary:
     api_key: ${ANTHROPIC_API_KEY}
     timeout: 120
     download_timeout: 30
+    reasoning_effort: medium
     api_mode: anthropic_messages
   compression:
     # timeout is a hang guard, not a budget (~/.claude/rules/agent-limits.md): the aux client
@@ -243,6 +222,7 @@ auxiliary:
     base_url: ${ANTHROPIC_BASE_URL}
     api_key: ${ANTHROPIC_API_KEY}
     timeout: 30
+    reasoning_effort: none
     api_mode: anthropic_messages
     context_length: 1000000
   mcp:
@@ -678,7 +658,7 @@ secrets:
     # The second export is serve.env.tpl: since v0.22.7 the gateway mounts the dashboard listener itself
     # and, with dashboard.public_url set, exits at startup unless the basic-auth provider's three
     # variables are in ITS env. Own render, own failure: an unresolved ref drops only these three.
-    command: "{ $HOME/.local/bin/secrets-run export --env-file=$HOME/.hermes/.env.tpl | sed 's/^export //'; $HOME/.local/bin/secrets-run export --env-file=$HOME/.hermes/serve.env.tpl 2>/dev/null | sed 's/^export //'; t=$(sed -n 's/^hermes=//p' $HOME/.agent-workflows/data/door-tokens 2>/dev/null); [ -z \"$t\" ] || printf '%s=%s\\n' AUDIO_DOOR_TOKEN \"$t\" OPENAI_API_KEY \"$t\" ANTHROPIC_API_KEY \"$t\" HERMES_CUSTOM_CUSTOM_API_KEY \"$t\" HERMES_CUSTOM_UNIFIED_ENDPOINT_MAIN_APP_IU_IT_ORG_API_KEY \"$t\"; true; }"
+    command: "{ $HOME/.local/bin/secrets-run export --env-file=$HOME/.hermes/.env.tpl | sed 's/^export //'; $HOME/.local/bin/secrets-run export --env-file=$HOME/.hermes/serve.env.tpl 2>/dev/null | sed 's/^export //'; t=$(sed -n 's/^hermes=//p' $HOME/.agent-workflows/data/door-tokens 2>/dev/null); [ -z \"$t\" ] || printf '%s=%s\\n' AUDIO_DOOR_TOKEN \"$t\" ANTHROPIC_API_KEY \"$t\"; true; }"
     helper_timeout_seconds: 15
     override_existing: true
 paste_collapse_threshold: 5
@@ -708,18 +688,6 @@ platform_toolsets:
 known_plugin_toolsets:
   cli:
     - spotify
-custom_providers:
-  # The name and key_env are the entry's identity from the direct-IU days, kept so the persisted
-  # credential-pool key does not move; the route is the gateway's OpenAI leg.
-  - name: Unified-endpoint-main.app.iu-it.org
-    base_url: ${OPENAI_BASE_URL}
-    key_env: HERMES_CUSTOM_UNIFIED_ENDPOINT_MAIN_APP_IU_IT_ORG_API_KEY
-    model: gpt-6-luna
-    api_mode: chat_completions
-    session_affinity_header: x-agw-session
-    models:
-      gpt-6-luna:
-        context_length: 850000
 
 # ── Fallback Model ────────────────────────────────────────────────────
 # Automatic provider failover when primary is unavailable.
