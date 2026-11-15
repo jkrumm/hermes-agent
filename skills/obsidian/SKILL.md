@@ -126,6 +126,23 @@ obsidian properties counts format=tsv              # all frontmatter properties 
 obsidian outline path="…"                          # heading structure of a note
 ```
 
+**Questions over the vault — `agw brain`.** For "was habe ich zu X notiert", "wie ist mein Setup für Y", anything whose answer is spread over several notes, ask the vault instead of grepping it:
+
+```bash
+AGW_CALLER=hermes agw brain "<question>" --format json   # waits ~110 s; exit 10 → AGW_CALLER=hermes agw run wait <runId> --format json
+```
+
+It reads the vault read-only and returns `output.answer`, `output.read[]` (the notes it opened) and `output.citations[]` (`path` + `claim`). Present the answer in German with the cited note paths; if `output.status` is `partial` or `warnings` is non-empty, say so. A "no note on this" answer is an answer — don't re-ask with other words.
+
+| Need | Use |
+|-|-|
+| An answer synthesized from several notes | `agw brain` (checked 2026-11-15 on two questions: cited, correct, one call; `obsidian search` returned file lists for a human to open) |
+| Find a note by name or word, list a folder, follow backlinks/tags/properties | `obsidian search` / `backlinks` / `files` — metadata-aware, instant |
+| A quick words-in-lines scan with snippets, CLI down | `AGW_CALLER=hermes agw vault search "<words>" --format plain` (any-word match, capped) or the filesystem |
+| Read one known note | `obsidian read` (or `agw vault read <path>`) |
+
+`agw brain` is for questions; it never writes. Captures and edits still go through the CLI below.
+
 **Dataview escape hatch** — for queries beyond search/backlinks, run JS in Obsidian's context via `eval` (Dataview API is loaded):
 
 ```bash

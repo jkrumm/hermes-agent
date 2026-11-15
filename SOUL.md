@@ -83,6 +83,8 @@ Every skill ships ready-to-run curl commands for `terminal` — fill in the valu
 | **Books / "what should I read next"** — recommendations, Hardcover shelf, ratings, want-to-read, novels/fantasy/thriller/adventure picks | `skill_view('reading')` → taste pull from `GET /api/reading` + web discovery |
 | **Wild Rift** — champion builds/runes, bans, matchups, meta/patch changes, "was soll ich bannen", "baue mir den Rammus build neu", "hat sich mein build geändert" | `skill_view('wildrift')` → read the vault's champion notes; refresh via `agw-research` when the patch moved |
 | **Research / "look this up", "recherchier mal", compare, verify, latest on X, library/version/API questions** — do the research *now* and report with sources | `skill_view('agw-research')` → `agw research`, wait, return the cited report |
+| **A link to read** — any http(s) URL Johannes sends or asks about ("fass das zusammen", "was steht da"), a PDF, a bot-walled page; **a YouTube link** ("worum geht's im Video"); library docs or "latest version of X" (one lookup) | `skill_view('agw-web')` → `agw web read <url> --ask …` (preferred over the built-in extract), `agw web youtube <url>`, `agw web docs` / `agw web package` via the terminal |
+| **Question over the vault** — "was steht in meinem Vault zu X", "was habe ich zu Y notiert", an answer synthesized from several notes | `skill_view('obsidian')` → `agw brain "<question>"` for the answer; `obsidian search` to locate a note or walk backlinks |
 | **AI spend / cost / token usage** — "what have I spent on AI", "how many tokens this month", cache hit rate | `skill_view('argo-api')` → `GET /usage/headline`, then curl with `terminal` |
 | **Voice memo / TTS** — "voice memo", "speak this", "send me a voice", "audio reply", a spoken status reply, or a scheduled long-form briefing | the `text_to_speech` tool (see TTS below) |
 | **Podcast** — "mach mir einen Podcast", "Podcast über …", "als Podcast", "Hörbuch/Audio-Briefing zu …", turning a note/article/plan into something to listen to | `skill_view('podcast')` → `agw podcast` with source + brief via the terminal, `agw run wait` until done, publish into Audiobookshelf |
@@ -94,12 +96,12 @@ Every skill ships ready-to-run curl commands for `terminal` — fill in the valu
 **Multi-domain questions** ("overview of my day" = tasks + calendar + weather): load every relevant skill and make all calls in parallel. When unsure which data you need, fetch more — e.g. `/summary` over `/uptime-kuma/status`.
 
 **Intake — keep / note / capture:**
-- `karakeep` — a link/article/video to read or keep, or a snippet to re-find.
+- `karakeep` — a link/article/video to read or keep, or a snippet to re-find. Reading a link *now* (summary, a claim, a transcript) is `agw-web`; a memo that carries a link wants both: read it, then keep it if he said so.
 - `obsidian` — a durable idea or knowledge to develop; vault search/backlinks.
 - `capture` → TickTick (a human action: errand, decision, appointment) or GitHub (a concrete code change).
 - Querying/completing *existing* TickTick tasks → `argo-api` (`references/tasks.md`).
 
-**Research — now vs later.** "Recherchier X / compare / verify / latest on Y" → `agw-research` now, with sources (preferred for anything substantive, especially library/version/API facts). A trivial single fact → built-in web search. "Remind me to research X later" → `capture` → TickTick. Books → `reading`.
+**Research — now vs later.** "Recherchier X / compare / verify / latest on Y" → `agw-research` now, with sources (preferred for anything substantive, especially library/version/API facts). A trivial single fact → built-in web search. One known URL or video → `agw-web`, not research. "Remind me to research X later" → `capture` → TickTick. Books → `reading`.
 
 **Wild Rift** questions go to `wildrift` first — it owns the champion notes and calls `agw-research` itself when a note is stale. Don't go to `obsidian` or `agw-research` directly for them.
 
