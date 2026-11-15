@@ -15,7 +15,7 @@ Iris (Johannes's voice-memo app, server on this mini) no longer classifies memos
 ## The turn
 
 - The message is a **transcript** of a spoken memo, German or English, with speech-to-text errors. Repair the obvious ones silently (a misheard repo or product name, a dropped word); never mention the repair.
-- **Answer in the memo's language** — an English memo gets an English reply, headline, issue or task title and note body; a German one German. SOUL.md's German default does not apply on an Iris turn. Never translate the memo text.
+- **Answer in the memo's language** — an English memo gets an English reply, headline, issue or task title and Inbox note body; a German one German. A `wiki/` note is English either way. SOUL.md's German default does not apply on an Iris turn. Never translate the memo text.
 - **Ask nothing.** He recorded a memo on a phone; nobody answers a question mid-turn. Pick the most likely reading, state the assumption in one clause in the reply, proceed.
 - **A side effect only when the memo asks for one** (a todo, an issue, a note, a tab prompt, an agent hand-off) or the hint below says so. A question gets an answer, not an action.
 - **Act on the memo as spoken.** A todo, issue, note, tab prompt or agent hand-off is carried out even if the memo calls itself a test; only the memo's own words ("nur testen, nichts anlegen") cancel the side effect.
@@ -30,7 +30,7 @@ Iris (Johannes's voice-memo app, server on this mini) no longer classifies memos
 | Agent work on a repo to **start**: "let an agent fix X in <repo>", "start an agent on …", "lass einen Agenten … in <repo> …" | `skill_view('fleet')` — file one Issue. Its filing rules apply; the iris `via` is `iris voice memo`. |
 | A todo, reminder, errand, "erinner mich…", or "open an issue / Issue für <repo>" | `skill_view('capture')` — it owns TickTick vs GitHub, the repo, the list. Its "ask if unclear" does **not** apply here: fall back to its default and say which. The memo text goes into the item **verbatim** (STT repairs only). |
 | "tell / prompt / sag Tab X …", "schreib in den Tab …" (an **existing** terminal only) | `skill_view('herdr')` — find the tab, `hc send <target> "<text>"`. Text = what he wants said to the agent, in his words, not the addressing phrase. Obey the skill's rules (never `--force`, never a blocked agent, a draft in the input line is not yours). |
-| A note, idea, observation, plan or reflection with **no question and no request** ("ich denke gerade…", "Idee: …", "notier dir…", a journal-style thought) | A brain note — below. |
+| A note, idea, observation, plan, logged measurement ("Espresso: Mahlgrad 9, 37 s …") or reflection with **no question and no request** ("ich denke gerade…", "Idee: …", "notier dir…", a journal-style thought) | A brain note, filed where it belongs — below. |
 | Greeting, small talk, "test", a remark that wants a reply and nothing else | Chat: answer from yourself in a line or two — no tool calls, no status report, no side effect. |
 | A link or YouTube video with a question or "fass zusammen / was steht da / worum geht's" | `skill_view('agw-web')` — `agw web read` / `agw web youtube`, then answer. "…und merk's dir" adds a `karakeep` save. |
 | A link/article to keep for later (no question about its content) | `skill_view('karakeep')`. |
@@ -42,15 +42,26 @@ Repo code work is **filed** (a GitHub issue via `capture`) when the memo says *f
 
 An old Iris build still sends the mode. The system message then ends with one more line, `The owner picked: <Mode>.` It **overrides the table**:
 
-- **Journal.** → write the memo as a brain note, whatever it says.
+- **Journal.** → write the memo as an `Inbox/` journal note (the script below), whatever it says.
 - **Tab.** → a herdr tab prompt. Ask nothing. If the memo names no tab (or none matches), send nothing and say which tabs are live (purpose, not address — `hc ls`).
 - **Chat.** → answer only. No writes, no sends, no tickets, no issues, no notes. Read-only lookups are fine; if he asked for a change, say what you would have done and that Chat mode cannot.
 
 No hint line = decide yourself.
 
-## A brain note (Inbox)
+## A brain note — filed where it belongs
 
-Replaces Iris's former journal destination — same folder, title rule, frontmatter. **Use the script**; it does the lock, the commit and the push:
+A note, idea, observation, measurement or plan goes **straight to its home in the vault**, not to the Inbox. The procedure (search, pick the home, write, lint, commit) is the obsidian skill's **Filing a note** — `skill_view('obsidian')` and follow it; this section adds the Iris specifics.
+
+| The memo is | Home |
+|-|-|
+| A shot or measurement for an existing log (a coffee dial-in) | `wiki/coffee/dial-in-log.md`: a new entry in the log's own format, newest on top |
+| An idea or fact for something that already has a page (a project, an Area, a `wiki/` concept) | that page, rewritten in the relevant section — never appended |
+| A durable concept with no page | a new `wiki/<domain>/…` note, full frontmatter, the level's `index.md` updated |
+| A journal-style reflection, or no clear home | `Inbox/`, via the script below |
+
+Search the vault before you choose (`obsidian search`, `agw brain`); the memo's own title is never the home. Prose follows `~/SourceRoot/brain/voice.md`; a page longer than a few paragraphs goes through `agw prose` first. A `wiki/` note or log entry is English (the vault rule, numbers verbatim); an Inbox note keeps the memo's language. After every write: `node .scripts/vault-lint.mjs` in the vault (0 errors), then `~/.hermes/scripts/brain-commit.sh "<what and why>" <paths>`. A memo that names two homes is two writes.
+
+**The Inbox — script only.** For a journal-style reflection or a memo with no clear home, use the script; it does the lock, the commit and the push:
 
 ```bash
 python3 ~/.hermes/skills/iris/scripts/iris-note.py <<'MEMO'
@@ -60,10 +71,12 @@ MEMO
 
 It prints `{"ref": "Inbox/2026-11-04-….md", "committed": true, "title": "…"}`.
 
-- Exit **0** = written, committed (push fail-soft, brain-sync pushes later). Exit **3** = brain-sync's lock was busy: the note exists but is **not committed** — say so in the reply, `kind` `error`; retry at most once in the same turn (`~/.hermes/scripts/brain-commit.sh "journal: <title>" <ref>`).
-- Never hand-write the file or `git commit` in the vault; never write Iris notes anywhere but `Inbox/`.
+- Exit **0** = written, committed (push fail-soft, brain-sync pushes later). Exit **3** = brain-sync's lock was busy: the note exists but is **not committed** — say so in the reply, `kind` `error`; retry at most once in the same turn (`~/.hermes/scripts/brain-commit.sh "journal: <title>" <ref>`). The same exit 3 from `brain-commit.sh` on a direct write means the same: written, not committed.
+- Never `git commit` in the vault by hand; commits go through `brain-commit.sh`. Never write a note to the vault root.
 - The script's rules, for the record: file `Inbox/YYYY-MM-DD-<slug>.md` (local date; `-<first 8 of the session id>` appended on a name clash); title = first sentence, ≤ 60 chars clipped on a word boundary, trailing `.,;:` stripped, `Voice memo` if empty; slug = lower-case ASCII, `ä→ae ö→oe ü→ue ß→ss`, other accents folded, ≤ 50 chars, `memo` if empty; frontmatter `title` (JSON-quoted), `date`, `tags: [journal, iris]`, `source: iris`, `memo: <session id>` (a retry reuses the note); commit message `journal: <title>`; brain-sync's mkdir lock `~/Library/Caches/brain-sync.lock` taken by `brain-commit.sh`.
-- This is the **one** place the obsidian skill's "no journal entries" guardrail is lifted — Iris notes only. Any other journal request stays refused.
+- Journal entries stay the one exception to the obsidian skill's "no journal entries" guardrail: an Iris reflection is an Inbox note tagged `journal` (the script does it), nothing more. Any other journal request stays refused.
+
+**The reply names the path written** (`wiki/coffee/dial-in-log.md`, `Inbox/…`), `kind` `note`; a judgement call about the home is one clause.
 
 ## The reply
 

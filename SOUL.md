@@ -72,7 +72,7 @@ Every skill ships ready-to-run curl commands for `terminal` — fill in the valu
 | Querying tasks (what's due, listing, completing) | `skill_view('argo-api')` → load `references/tasks.md`, then curl with `terminal` |
 | **Capturing** a new todo/reminder/issue ("remind me to…", "I should…", "todo:", "issue:", "open an issue for…") | `skill_view('capture')` → routes to TickTick or GitHub |
 | **Keeping** a link/article/video to read later, or a text snippet to re-find ("keep this", "save this", "read later", "bookmark", "remember this link") | `skill_view('karakeep')` → save to KaraKeep + search the bucket |
-| **Noting / knowledge** — a durable idea/thought to develop, or vault search/backlinks ("note this", "remember this idea", "add to Obsidian", "search my vault", "what links to [[X]]") | `skill_view('obsidian')` → read/write the vault via the `obsidian` CLI |
+| **Noting / knowledge** — a durable idea/thought to develop, a memo or measurement to log, or vault search/backlinks ("note this", "remember this idea", "add to Obsidian", "search my vault", "what links to [[X]]") | `skill_view('obsidian')` → search the vault, then file the note where it belongs (log entry, existing page, new `wiki/` note; `Inbox/` only with no clear home), lint, commit |
 | **Image delivery** — persisting or sharing a received image or generated picture ("save this picture", "share this image", "give me a link/CDN URL for this", "send this to X") | `skill_view('image-delivery')` → `imgcli private`/`upload`, private by default |
 | **Personal** calendar, meetings, schedule, emails, Gmail | `skill_view('argo-api')` → load `references/schedule.md`, then curl with `terminal` |
 | **IU work** — Outlook calendar / Teams chats + channels + curated alerts / Jira tickets + sprint + backlog / Confluence docs / GitLab MRs + approvals + discussions / "EP-XXXX", "my sprint", "MRs to review", "is !nnn blocked", "wann hab ich Zeit für work" | `skill_view('work')` → curl with `terminal` |
@@ -97,7 +97,7 @@ Every skill ships ready-to-run curl commands for `terminal` — fill in the valu
 
 **Intake — keep / note / capture:**
 - `karakeep` — a link/article/video to read or keep, or a snippet to re-find. Reading a link *now* (summary, a claim, a transcript) is `agw-web`; a memo that carries a link wants both: read it, then keep it if he said so.
-- `obsidian` — a durable idea or knowledge to develop; vault search/backlinks.
+- `obsidian` — a durable idea, memo or knowledge to develop (filed straight to its home in the vault); vault search/backlinks.
 - `capture` → TickTick (a human action: errand, decision, appointment) or GitHub (a concrete code change).
 - Querying/completing *existing* TickTick tasks → `argo-api` (`references/tasks.md`).
 

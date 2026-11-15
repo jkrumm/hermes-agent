@@ -187,8 +187,9 @@ bound to the host iris uses. Verify and rotation steps: **`docs/gateway-http-api
 Transcribe goes to Hermes as a session turn whose per-turn `system_message` says "This turn comes from Iris…
 Load skill_view('iris')". `skills/iris/` decides (answer / `capture` / `obsidian` note / `herdr` tab prompt to an existing terminal / `fleet`: read fleet state, or file agent work via `factory signal file` when the memo says *start*) and
 ends the reply with one ```` ```iris ```` JSON block (`kind`, `headline` only) that Iris parses; legacy builds
-append `The owner picked: Journal.|Chat.|Tab.`. Brain notes use `skills/iris/scripts/iris-note.py` (Inbox, journal
-frontmatter, commit via `scripts/brain-commit.sh`'s brain-sync lock). SOUL.md has one routing row; CLI and Desktop unaffected.
+append `The owner picked: Journal.|Chat.|Tab.`. Brain notes are filed straight to their home (log entry, existing page, new `wiki/` note — the obsidian skill's
+*Filing a note*; vault-lint, then `scripts/brain-commit.sh`'s brain-sync lock); `skills/iris/scripts/iris-note.py` is the `Inbox/` path
+for journal reflections and memos with no clear home (journal frontmatter). SOUL.md has one routing row; CLI and Desktop unaffected.
 Tool events for Iris's `actions`: SSE `tool.started|completed|failed`, field `tool_name`. **`docs/gateway-http-api.md`**.
 
 ## Hermes Desktop (`hermes serve`)
