@@ -95,7 +95,7 @@ Hermes does not land PRs, `gh pr merge`, or start a `claude` session.
 | Steer an existing terminal | `herdr` skill (`hc`), only when the owner asks |
 | Notify the owner | cron jobs: `scripts/ntfy-publish.sh <topic>`; turns: the reply (Iris / CLI) |
 
-Hermes never reads Slack, the agw/rd agent lists or the Herdr pane list for fleet status, and never starts a `claude` session (`claude --bg` / `claude -p`).
+Hermes never reads the agw/rd agent lists or the Herdr pane list for fleet status, and never starts a `claude` session (`claude --bg` / `claude -p`).
 
 **No approval stack.** Config of `plugins:` is empty; `HERMES_PLUGINS` in the Makefile is empty.
 
@@ -351,7 +351,7 @@ agent not to call it.
 Re-apply after `hermes update`: **one `.patch` file per patched upstream file**, each with `git
 apply --3way` (`/hermes-update` carries the loop). `ls patches/` is the count, `make patch-check`
 proves they are applied — deliberately not restated here (it drifted repeatedly). Baseline
-**v0.22.7** (`stable` channel), upstream `b200f5bc60` (2026-11-04).
+**v0.23.1** (`stable` channel), upstream `3b42157858` (2026-11-09).
 
 **2026-09-07 — every patch moved file.** Upstream landed 5503 commits in six days under an
 unchanged version number, splitting every monolith apart. The **patch names are unchanged**
@@ -369,7 +369,7 @@ file they no longer touch — read the table's left column, not the patch name.
 | `utils.py` | `utils-max-completion-tokens-gpt6` | `model_forces_max_completion_tokens` also matches `gpt-6`, so the failover `gpt-6-luna` gets `max_completion_tokens` in `run_agent` and the auxiliary client (it replaces the URL-based `run-agent-…` and `auxiliary-client-…` patches, retired 2026-11-04: the only non-OpenAI id on the leg, DeepSeek, is gone and every auxiliary lane moved to the Anthropic leg) |
 | `gateway/run_bootstrap.py` | `gateway-start-predecessor-grace` | non-`--replace` startup (launchd KeepAlive) gets a 20s/1s poll grace for a still-dying predecessor PID before refusing — continues (clearing stale PID/lock like `--replace` does) if it exits, refuses as before if it doesn't. Never signals the target |
 | `tools/skill_manager_tool.py` | `skill-manager-colon-hint` | `_validate_frontmatter` stays fail-closed on a YAML `ScannerError`, but appends a hint when the message is "mapping values are not allowed here" — an unquoted `key: value: with-a-colon` description |
-| `tools/checkpoint_manager.py` | `checkpoint-store-integrity` | four fixes in the shared shadow store, one file: (1) `_take()`'s `git add -A` retries once on **any** transient failure — a stale gitlink (drop the dead gitlinks, `update-index --force-remove`) *and* a file deleted mid-walk by another process (`unable to stat …: No such file or directory`, the Claude Code scratch race); (2) `info/exclude` is rewritten from `DEFAULT_EXCLUDES` whenever it has moved on, and tracked paths the store's own exclude file matches are force-removed — a path committed *before* its pattern existed survives `_seed_project_index`'s read-tree forever otherwise (`claude-501/` sat at 1925 tracked paths / ~32 MB in the `/tmp` ref while nominally excluded); (3) ~~store lock~~ retired at v0.21.6+669 — upstream's `checkpoint_pruning.store_lock` (cross-process `flock` around snapshot/diff/restore/gc) covers both the gc-vs-snapshot and the cross-process `indexes/<hash>.lock` race; (4) the logged stderr keeps its first line verbatim but is summarized, and the retry quotes the real cause — `add -A` prints advice before the error, so a commitless nested repo was filed as an innocent `Füge eingebettetes Repository hinzu: …` |
+| `tools/checkpoint_manager.py` | `checkpoint-store-integrity` | three fixes in the shared shadow store, one file: (1) the staging `git add -A` (upstream's `_stage_with_oversize_preflight` in `_take()`, `_stage_all` in the two diff callers) retries once on **any** transient failure — a stale gitlink (drop the dead gitlinks, `update-index --force-remove`) *and* a file deleted mid-walk by another process (`unable to stat …: No such file or directory`, the Claude Code scratch race); (2) ~~exclude refresh and drop of already-tracked excluded paths~~ retired at v0.23.1 — upstream's `_write_default_excludes` and `_unstage_excluded` do it; the patch keeps only the `claude-501/` entry in `DEFAULT_EXCLUDES` (Claude Code scratch under `/tmp` once sat at 1925 tracked paths / ~32 MB in the `/tmp` ref); (3) ~~store lock~~ retired at v0.21.6+669 — upstream's `checkpoint_pruning.store_lock` (cross-process `flock` around snapshot/diff/restore/gc) covers both the gc-vs-snapshot and the cross-process `indexes/<hash>.lock` race; (4) the logged stderr keeps its first line verbatim but is summarized, and the retry quotes the real cause — `add -A` prints advice before the error, so a commitless nested repo was filed as an innocent `Füge eingebettetes Repository hinzu: …` |
 
 Re-apply: `cd ~/.hermes/hermes-agent && git apply ~/SourceRoot/hermes-agent/patches/<name>.patch`.
 **Anything touching `cronjob_prompt_scan.py`, `runtime_provider.py`,
