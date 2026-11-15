@@ -40,8 +40,10 @@ the same no-grace refusal there, so the hunk ports verbatim (the helpers are imp
 - The other nine patches applied with `--3way` and no hunk changes (context offsets only).
 - The orphan Slack hunks left staged in the live checkout (`gateway/platforms/base.py`
   `_media_reply_anchor`, `plugins/platforms/slack/adapter.py`) were reversed before the update;
-  no `patches/` file owned them. The bundled `slack-platform` plugin is switched off
-  (`hermes plugins disable slack-platform`; it has no token and no `platforms.slack` config).
+  no `patches/` file owned them. No Slack platform is configured: `config.yaml` and `.env.tpl`
+  carry no Slack key and the gateway has not tried to connect since 2026-11-07. `hermes plugins
+  list` still shows the bundled `slack-platform` as `enabled` (a stock default; `hermes plugins
+  disable slack-platform` did not survive the deploy restart) — with no token it never connects.
 
 **Retired / narrowed 2026-10-11 at v0.21.6+669 (upstream `f97608f178` → `c152ba5a82`, 9849 commits):**
 - `anthropic-adapter-haiku-5` — retired. Upstream's `_is_pre_thinking_haiku` (parses the Claude
