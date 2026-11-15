@@ -156,19 +156,20 @@ try:
     (nested / "f.txt").write_text("hi\n")
     (f.work / "top.txt").write_text("top\n")
 
+    # `_take` stages through upstream's `_stage_with_oversize_preflight`, so that is the seam.
     calls = []
-    real_stage = cm._stage_all
+    real_stage = cm.CheckpointManager._stage_with_oversize_preflight
 
-    def counting_stage(*args, allowed_returncodes=None):
-        result = real_stage(*args, allowed_returncodes=allowed_returncodes)
+    def counting_stage(self, *args, allowed_returncodes=None):
+        result = real_stage(self, *args, allowed_returncodes=allowed_returncodes)
         calls.append(result[0])
         return result
 
-    cm._stage_all = counting_stage
+    cm.CheckpointManager._stage_with_oversize_preflight = counting_stage
     try:
         ok = f.snapshot("commitless nested repo")
     finally:
-        cm._stage_all = real_stage
+        cm.CheckpointManager._stage_with_oversize_preflight = real_stage
     check("a persistent failure still fails the snapshot", ok, False)
     check("the add was attempted twice (retry ran)", len(calls), 2)
 finally:
@@ -187,10 +188,10 @@ try:
         (many / f"f{i}.txt").write_text(f"c{i}\n")
     (f.work / "top.txt").write_text("top\n")
 
-    real_stage = cm._stage_all
+    real_stage = cm.CheckpointManager._stage_with_oversize_preflight
     state = {"first": True}
 
-    def racing_stage(*args, allowed_returncodes=None):
+    def racing_stage(self, *args, allowed_returncodes=None):
         if state["first"]:
             state["first"] = False
             # Delete a file between git's directory walk and its per-entry read.  A background
@@ -206,16 +207,16 @@ try:
             t = threading.Thread(target=churn)
             t.start()
             try:
-                return real_stage(*args, allowed_returncodes=allowed_returncodes)
+                return real_stage(self, *args, allowed_returncodes=allowed_returncodes)
             finally:
                 t.join()
-        return real_stage(*args, allowed_returncodes=allowed_returncodes)
+        return real_stage(self, *args, allowed_returncodes=allowed_returncodes)
 
-    cm._stage_all = racing_stage
+    cm.CheckpointManager._stage_with_oversize_preflight = racing_stage
     try:
         ok = f.snapshot("racing delete")
     finally:
-        cm._stage_all = real_stage
+        cm.CheckpointManager._stage_with_oversize_preflight = real_stage
     # Either the race did not land (add succeeded first try) or the retry recovered it.  Both are
     # acceptable; a False here would mean the retry is missing, which is the defect.
     check("a racing delete does not lose the snapshot", ok, True)

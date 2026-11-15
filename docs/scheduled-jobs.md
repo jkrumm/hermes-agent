@@ -115,21 +115,9 @@ test a changed job with `hermes cron run <job_id>`; it has **no dry-run and deli
 real**, so a job that publishes to ntfy posts for real; read its last output in `~/.hermes/cron/output/<id>/` instead
 unless a real notice is acceptable.
 
-### Cut-over from Slack delivery (run once at deploy)
+### Delivery
 
-The jobs still carry their old Slack targets in `jobs.json` until these run. Ids are the stable
-registry ids above; the brain drift audit also needs its prompt pushed (final publish step).
-
-```bash
-hermes cron edit cc7900c424a9 --deliver local --failure-deliver local   # Morning briefing (paused)
-hermes cron edit 2d38c80e685c --deliver local --failure-deliver local   # Evening report (paused)
-hermes cron edit 8fe7be4985d9 --deliver local --failure-deliver local \
-  --prompt "$(cat ~/SourceRoot/hermes-agent/cron/brain-drift-audit.prompt.txt)"   # Brain drift audit
-hermes cron edit 9909f808fe17 --deliver local --failure-deliver local   # Project narratives
-hermes cron edit 679e16824f2c --deliver local --failure-deliver local   # claude-release-watch
-hermes cron edit 825d9e57be32 --deliver local --failure-deliver local   # Usage weekly report
-```
-
+Every job delivers `local` (the Slack targets were cut over when the gateway was removed, 2026-11).
 Resuming the morning briefing or evening report needs a surface decision first (an ntfy topic with
 a publish step in the prompt, or Iris once it can receive). They are paused, deliver `local`, and
 their prompts describe a text body plus a `MEDIA:` audio tag that no current surface carries.

@@ -1,11 +1,20 @@
 diff --git a/tools/checkpoint_manager.py b/tools/checkpoint_manager.py
-index 140cace15f..eff6921bdf 100644
+index 3f71119407..bffd970a15 100644
 --- a/tools/checkpoint_manager.py
 +++ b/tools/checkpoint_manager.py
-@@ -155,6 +155,13 @@ DEFAULT_EXCLUDES = [
-     "Thumbs.db",
-     # Logs
-     "*.log",
+@@ -62,7 +62,7 @@ from pathlib import Path, PurePosixPath
+ from hermes_constants import get_hermes_home
+ from hermes_cli._subprocess_compat import selected_git_env, windows_hide_flags
+ from hermes_cli.gitlock import clear_stale_tmp_packs
+-from typing import Dict, List, Optional, Set, Tuple
++from typing import Callable, Dict, List, Optional, Set, Tuple
+ 
+ from utils import env_int, rmtree_readonly
+ 
+@@ -162,6 +162,13 @@ DEFAULT_EXCLUDES = [
+     # hundreds of MB of cache that are never project state.
+     "chrome_cdp_profile/",
+     "agent-browser-chrome-*/",
 +    # Agent/CLI scratch that lives under a snapshot root (LOCAL MODIFICATION —
 +    # patches/checkpoint-store-integrity.patch).  Claude Code keeps its session state and task
 +    # outputs under /tmp/claude-501, and a stray /tmp/package.json makes all of /tmp one
@@ -16,7 +25,7 @@ index 140cace15f..eff6921bdf 100644
  ]
  
  # Git subprocess timeout (seconds).
-@@ -368,11 +375,20 @@ def _run_git(
+@@ -452,11 +459,20 @@ def _run_git(
      ``allowed_returncodes`` suppresses error logging for known/expected non-zero
      exits while preserving the normal ``ok = (returncode == 0)`` contract.
      Example: ``git diff --cached --quiet`` returns 1 when changes exist.
@@ -38,7 +47,7 @@ index 140cace15f..eff6921bdf 100644
          return False, "", msg
      if not normalized_working_dir.is_dir():
          msg = f"working directory is not a directory: {normalized_working_dir}"
-@@ -411,7 +427,7 @@ def _run_git(
+@@ -495,7 +511,7 @@ def _run_git(
          if not ok and result.returncode not in allowed_returncodes:
              logger.error(
                  "Git command failed: %s (rc=%d) stderr=%s",
@@ -47,7 +56,7 @@ index 140cace15f..eff6921bdf 100644
              )
          return ok, stdout, stderr
      except subprocess.TimeoutExpired:
-@@ -431,6 +447,41 @@ def _run_git(
+@@ -515,6 +531,41 @@ def _run_git(
          return False, "", str(exc)
  
  
@@ -89,7 +98,7 @@ index 140cace15f..eff6921bdf 100644
  def _git_out(args: list[str], store: Path, working_dir: str, rc: Optional[set[int]] = None) -> str:
      """stdout of a successful git call, else ``""``."""
      ok, out, _ = _run_git(args, store, working_dir, allowed_returncodes=rc)
-@@ -454,6 +505,132 @@ def _unlink_quiet(path: Path) -> None:
+@@ -538,6 +589,102 @@ def _unlink_quiet(path: Path) -> None:
          pass
  
  
@@ -101,7 +110,7 @@ index 140cace15f..eff6921bdf 100644
 +) -> tuple[bool, str, str]:
 +    """``git add -A`` into the per-project index."""
 +    return _run_git(
-+        ["add", "-A"], store, working_dir,
++        _stage_all_args(store.parent, working_dir), store, working_dir,
 +        timeout=_GIT_TIMEOUT * 2, index_file=index_file,
 +        allowed_returncodes=allowed_returncodes,
 +    )
@@ -146,42 +155,9 @@ index 140cace15f..eff6921bdf 100644
 +    return dropped
 +
 +
-+def _drop_ignored_tracked(store: Path, working_dir: str, index_file: Path) -> list[str]:
-+    """``update-index --force-remove`` every tracked path the store's own ``info/exclude`` matches.
-+
-+    LOCAL MODIFICATION (patches/checkpoint-store-integrity.patch).  ``git add -A`` honours
-+    ``info/exclude`` only for paths that are *not yet* in the index, and ``_take`` read-trees
-+    the ref tip back in on every snapshot — so a path committed before a pattern was
-+    added to ``DEFAULT_EXCLUDES`` stays tracked forever and keeps being staged.  That is exactly
-+    what happened to ``claude-501/`` (Claude Code's scratch under ``/tmp``, 1920 paths / ~32 MB in
-+    the ``/tmp`` ref): the pattern is new, the paths were already committed, and excluding them
-+    changed nothing until they are dropped from the index.  The drop is committed by the snapshot
-+    that follows, and because this runs after every read-tree it self-heals even if a ref tip
-+    still carries them.
-+
-+    ``-X <file>`` rather than ``--exclude-standard`` on purpose: the latter would also apply the
-+    *project's* ``.gitignore``, and a path a project deliberately ignores but the shadow store
-+    already tracks is not this function's business."""
-+    exclude_path = store / "info" / "exclude"
-+    if not exclude_path.exists():
-+        return []
-+    ok, out, _ = _run_git(
-+        ["ls-files", "--cached", "-i", "-z", "-X", str(exclude_path)],
-+        store, working_dir, index_file=index_file,
-+    )
-+    if not ok:
-+        return []
-+    dropped = [rel for rel in out.split("\x00") if rel]
-+    for i in range(0, len(dropped), 200):  # chunk: never overflow argv
-+        _run_git(
-+            ["update-index", "--force-remove", "--"] + dropped[i:i + 200],
-+            store, working_dir, index_file=index_file, allowed_returncodes={128},
-+        )
-+    return dropped
-+
-+
 +def _stage_all_with_gitlink_recovery(
 +    store: Path, working_dir: str, index_file: Path,
++    stage: Optional[Callable[[Optional[set[int]]], tuple[bool, str, str]]] = None,
 +) -> tuple[bool, str, str]:
 +    """``_stage_all``, then — only when git reports the nested-repo boundary itself is broken —
 +    drop the dead gitlinks and retry once.  A stale gitlink is recorded when the nested repo was
@@ -202,7 +178,10 @@ index 140cace15f..eff6921bdf 100644
 +    identical add succeeds on the immediate retry.  So one retry now covers both transient shapes;
 +    a persistent failure (a commitless nested repo, an unreadable file) still fails the retry and
 +    is reported once, from the retry's own stderr."""
-+    ok, out, err = _stage_all(store, working_dir, index_file, allowed_returncodes={128})
++    if stage is None:
++        def stage(allowed_returncodes):
++            return _stage_all(store, working_dir, index_file, allowed_returncodes)
++    ok, out, err = stage({128})
 +    if ok:
 +        return ok, out, err
 +    if ".git" in err:
@@ -216,109 +195,65 @@ index 140cace15f..eff6921bdf 100644
 +    # repo while the real cause sat sixteen lines down.
 +    logger.info("Retrying checkpoint staging after a transient add failure in %s (cause: %s)",
 +                working_dir, _stage_failure_cause(err))
-+    return _stage_all(store, working_dir, index_file)
++    return stage(None)
 +
 +
  # ---------------------------------------------------------------------------
  # Store initialisation + legacy migration
  # ---------------------------------------------------------------------------
-@@ -524,6 +701,9 @@ def _init_store(store: Path, working_dir: str) -> Optional[str]:
-         _migrate_legacy_store(base)
- 
-     if (store / "HEAD").exists():
-+        # LOCAL MODIFICATION (patches/checkpoint-store-integrity.patch): refresh the exclude file on an
-+        # existing store too — this early return is the path every snapshot actually takes.
-+        _write_store_excludes(store)
-         return None
- 
-     store.mkdir(parents=True, exist_ok=True)
-@@ -572,14 +752,32 @@ def _init_store(store: Path, working_dir: str) -> Optional[str]:
- 
-     info_dir = store / "info"
-     info_dir.mkdir(exist_ok=True)
--    (info_dir / "exclude").write_text(
--        "\n".join(DEFAULT_EXCLUDES) + "\n", encoding="utf-8"
--    )
-+    _write_store_excludes(store)
- 
-     logger.debug("Initialised checkpoint store at %s", store)
-     return None
- 
- 
-+def _write_store_excludes(store: Path) -> None:
-+    """Write the store's ``info/exclude`` from ``DEFAULT_EXCLUDES`` when it has moved on.
-+
-+    LOCAL MODIFICATION (patches/checkpoint-store-integrity.patch): the file used to be written once, at
-+    store init, so a store created before a pattern was added to ``DEFAULT_EXCLUDES`` never picked
-+    it up — the live store still had the pre-``claude-501/`` list.  The file is ours alone (the
-+    store is a private bare repo), so rewriting it loses nothing, and the read-then-compare keeps
-+    the common case to one small read per snapshot."""
-+    exclude_path = store / "info" / "exclude"
-+    desired = "\n".join(DEFAULT_EXCLUDES) + "\n"
-+    try:
-+        if exclude_path.exists() and exclude_path.read_text(encoding="utf-8") == desired:
-+            return
-+        exclude_path.parent.mkdir(parents=True, exist_ok=True)
-+        exclude_path.write_text(desired, encoding="utf-8")
-+        logger.debug("Wrote checkpoint store exclude file at %s", exclude_path)
-+    except OSError as exc:
-+        logger.warning("Could not write checkpoint store exclude file: %s", exc)
-+
-+
- def _volume_evidence(workdir: Path) -> dict:
-     """Record the identity of ``workdir``'s parent while the project is live.
- 
-@@ -874,8 +1072,9 @@ class CheckpointManager:
+@@ -1005,8 +1152,9 @@ class CheckpointManager:
          index_file = _index_path(store, dir_hash)
  
          # Stage the current tree so the name-only diff sees new files too.
--        _run_git(["add", "-A"], store, abs_dir,
+-        _run_git(_stage_all_args(store.parent, abs_dir), store, abs_dir,
 -                 timeout=_GIT_TIMEOUT * 2, index_file=index_file)
 +        # LOCAL MODIFICATION (patches/checkpoint-store-integrity.patch): same staging entry point as
 +        # ``_take``, so a diff does not trip over a dead gitlink or a mid-walk delete either.
 +        _stage_all_with_gitlink_recovery(store, abs_dir, index_file)
          ok, names_out, err = _run_git(
-             ["diff", "--name-only", "-z", commit_hash, "--cached"],
-             store, abs_dir, index_file=index_file,
-@@ -1055,8 +1254,9 @@ class CheckpointManager:
+             ["diff", "--name-only", "-z", commit_hash, "--cached",
+              *_exclude_store_args(store.parent, abs_dir)],
+@@ -1187,8 +1335,9 @@ class CheckpointManager:
          index_file = _index_path(store, dir_hash)
  
          # Stage current state into the per-project index to compare.
--        _run_git(["add", "-A"], store, abs_dir,
+-        _run_git(_stage_all_args(store.parent, abs_dir), store, abs_dir,
 -                 timeout=_GIT_TIMEOUT * 2, index_file=index_file)
 +        # LOCAL MODIFICATION (patches/checkpoint-store-integrity.patch): same staging entry point as
 +        # ``_take``, so a diff does not trip over a dead gitlink or a mid-walk delete either.
 +        _stage_all_with_gitlink_recovery(store, abs_dir, index_file)
  
-         ok_stat, stat_out, _ = _run_git(
-             ["diff", "--stat", commit_hash, "--cached"],
-@@ -1452,6 +1652,16 @@ class CheckpointManager:
-                     index_file=index_file,
-                     allowed_returncodes={128},
-                 )
-+                # LOCAL MODIFICATION (patches/checkpoint-store-integrity.patch): a path committed
-+                # before its pattern reached DEFAULT_EXCLUDES survives the read-tree above and
-+                # would be staged again on every snapshot.  Drop it here, after the seed, so the
-+                # drop is what the snapshot commits — and so a ref tip that still carries it
-+                # heals on the next pass.
-+                ignored = _drop_ignored_tracked(store, working_dir, index_file)
-+                if ignored:
-+                    logger.info("Dropped %d now-excluded path(s) from the checkpoint index of %s: %s%s",
-+                                len(ignored), working_dir, ", ".join(ignored[:5]),
-+                                " …" if len(ignored) > 5 else "")
-             else:
-                 try:
-                     index_file.unlink()
-@@ -1465,10 +1675,8 @@ class CheckpointManager:
-         # via ``core.bigFileThreshold`` is not what we want — instead, we
-         # rely on the exclude file for broad patterns and post-stage prune
-         # any path whose size exceeds max_file_size_mb.
--        ok, _, err = _run_git(
--            ["add", "-A"], store, working_dir,
--            timeout=_GIT_TIMEOUT * 2, index_file=index_file,
--        )
-+        # LOCAL MODIFICATION (patches/checkpoint-store-integrity.patch): one transient-failure retry.
-+        ok, _, err = _stage_all_with_gitlink_recovery(store, working_dir, index_file)
+         # A checkpoint taken before the store was excluded may still contain it; never
+         # report the store as a change against such a checkpoint.
+@@ -1606,7 +1755,14 @@ class CheckpointManager:
+         if not _unstage_excluded(store, working_dir, index_file):
+             logger.debug("Checkpoint could not drop newly excluded paths from the index")
+             return False
+-        ok, err = self._stage_with_oversize_preflight(store, working_dir, index_file)
++        # LOCAL MODIFICATION (patches/checkpoint-store-integrity.patch): one transient-failure retry
++        # around upstream's size-preflight staging.
++        def _stage(allowed_returncodes):
++            staged, stage_err = self._stage_with_oversize_preflight(
++                store, working_dir, index_file, allowed_returncodes=allowed_returncodes)
++            return staged, "", stage_err
++
++        ok, _, err = _stage_all_with_gitlink_recovery(store, working_dir, index_file, stage=_stage)
          if not ok:
              logger.debug("Checkpoint git-add failed: %s", err)
              return False
+@@ -1721,6 +1877,7 @@ class CheckpointManager:
+ 
+     def _stage_with_oversize_preflight(
+         self, store: Path, working_dir: str, index_file: Path,
++        allowed_returncodes: Optional[set[int]] = None,
+     ) -> tuple[bool, str]:
+         """Stage the worktree without opening files already over the size cap."""
+         add_args = _stage_all_args(store.parent, working_dir)
+@@ -1743,6 +1900,7 @@ class CheckpointManager:
+             ok, _, err = _run_git(
+                 add_args, store, working_dir,
+                 timeout=_GIT_TIMEOUT * 2, index_file=index_file,
++                allowed_returncodes=allowed_returncodes,
+             )
+             return ok, err
+         finally:
