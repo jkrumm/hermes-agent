@@ -28,7 +28,6 @@ state must match the live job's — `make status` asserts it.
 | `2d38c80e685c` | Evening report | `0 22 * * 1-4` | agent | `briefing-context.py` pre-run · `cron/evening-report.prompt.txt` | `argo-api`, `work` | `local` | paused (owner, 2026-11-04) |
 | `8fe7be4985d9` | Brain drift audit | `0 9 * * 6` | agent | `cron/brain-drift-audit.prompt.txt` | `obsidian` | `ntfy:watchdog` | live |
 | `9909f808fe17` | Project narratives | `30 6 * * *` | no-agent | `narratives-cron.py` → `project-narratives.py --run` | — | `ntfy:briefings` | live |
-| `679e16824f2c` | claude-release-watch | `every 60m` | no-agent | `model-release-watch.py` (temporary — retire when the awaited Claude model ships; OpenRouter + models.dev + Anthropic sitemap + news; stdout only when something is new; state in `~/.hermes/state/model-release-watch.*`) | — | `ntfy:models` | live |
 | `825d9e57be32` | Usage weekly report | `30 7 * * 1` | no-agent | `usage-weekly-report.py` (prints usage-tracker's `<iso-week>.md`, written Monday 07:00 by its LaunchAgent) | — | `ntfy:briefings` | live |
 
 **Unpinned jobs stop, they don't re-route, when the global model moves.** `cron.model_drift_guard`
@@ -41,6 +40,12 @@ snapshot (checked in `cron/jobs.json` 2026-11-04) and follows the global default
 the gateway's Anthropic leg — as do the older rows.
 
 ## Retired
+
+- **`679e16824f2c` — claude-release-watch** — `every 60m`, no-agent, `model-release-watch.py` →
+  `ntfy:models`; retired 2026-11-10. Its subject shipped (Claude Fable 5.2 and Mythos 5.2, first seen
+  on the wire 2026-11-10) and the job was deleted that day, but its registry row and script stayed,
+  so `make status` read it as a stopped schedule. Row and script removed 2026-11-16; the script is in
+  git history (`git show 8756f08:scripts/model-release-watch.py`).
 
 - **`fd2fa108e0cc` — homelab-pr6-hardening-followup** — `every 180m`, agent, monitor
   `homelab-pr6-state.sh` → `origin`; retired 2026-09-28. The watcher's subject finished (the
