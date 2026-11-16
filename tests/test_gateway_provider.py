@@ -98,7 +98,7 @@ check("cache ttl follows the pacing of the source", config["prompt_caching"]["ca
 check("compaction fires late, inside the 1M window with room for the summary pass", 500000 <= config["compression"]["threshold_tokens"] <= 750000, True)
 
 print("vision and approval on the Anthropic leg")
-for lane, model in (("vision", "claude-sonnet-5-5"), ("approval", "claude-haiku-5-5"),
+for lane, model in (("vision", "claude-haiku-5-5"),("approval", "claude-haiku-5-5"),
                     ("compression", "claude-haiku-5-5"), ("title_generation", "claude-haiku-5-5")):
     section = config["auxiliary"][lane]
     check(f"{lane} model", section["model"], model)

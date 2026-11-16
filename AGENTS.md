@@ -432,7 +432,7 @@ published source disagrees in some direction. Re-probe after an endpoint change.
 `ANTHROPIC_BASE_URL` is its `/anthropic`, the key is the door token. Spec:
 `agent-workflows/docs/gateway.md`. **Hermes is Claude-only (owner decision 2026-11-15):** the brain,
 `compression` (agw's `cheap.summarize`), `title_generation` (`cheap.title`, effort `none`), `approval`
-and `vision` (Sonnet 5.5) all run on the Anthropic leg, so the credit pools pay, and the gateway
+and `vision` (Haiku 5.5, `none`) all run on the Anthropic leg, so the credit pools pay, and the gateway
 itself falls back to IU's `/anthropic` when no pool has credit (agent-workflows `docs/gateway.md`
 §Picking a pool). There is no GPT failover: IU's OpenAI and Anthropic paths share one personal key
 and cap, so it added no budget, only coverage of "IU Claude down, IU GPT up". The leg needs a
@@ -459,7 +459,7 @@ Hermes-side fallback: a 402/5xx from the gateway is a turn error, not a failover
 `custom` so the auxiliary client never reaches for `~/.claude` OAuth: `compression` (Haiku 5.5
 `high`), `title_generation` (Haiku 5.5 `none`; the CLI exits before the async title lands, the
 gateway does not), `approval` (Haiku 5.5; 0.9 s native vs 3.0 s through the OpenAI shim; Haiku 4.5
-approved `rm -rf ~/SourceRoot` in a probe, 5.5 denied it) and `vision` (Sonnet 5.5).
+approved `rm -rf ~/SourceRoot` in a probe, 5.5 denied it) and `vision` (Haiku 5.5 `none`; Sonnet 5.5 `medium` until 2026-11-16).
 `auxiliary.web_extract` and `auxiliary.session_search` are gone — upstream stopped reading them
 (`config_defaults.py`: "no longer use an auxiliary LLM... ignored"), so the blocks were dead
 weight. **`delegation.*` (subagent routing) exists but is unused** — a Hermes child gets no

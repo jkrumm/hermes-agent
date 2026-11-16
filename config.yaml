@@ -178,12 +178,12 @@ bedrock:
 auxiliary:
   vision:
     provider: custom
-    model: claude-sonnet-5-5
+    model: claude-haiku-5-5
     base_url: ${ANTHROPIC_BASE_URL}
     api_key: ${ANTHROPIC_API_KEY}
     timeout: 120
     download_timeout: 30
-    reasoning_effort: medium
+    reasoning_effort: none
     api_mode: anthropic_messages
   compression:
     # timeout is a hang guard, not a budget (~/.claude/rules/agent-limits.md): the aux client
