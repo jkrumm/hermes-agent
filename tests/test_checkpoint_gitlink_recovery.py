@@ -81,12 +81,12 @@ class Fixture:
         self.base = self.root / "checkpoints"
         self.work = self.root / "project"
         self.work.mkdir(parents=True)
-        self._saved_base = cm.CHECKPOINT_BASE
-        cm.CHECKPOINT_BASE = self.base
+        self._saved_base = cm._resolve_checkpoint_base  # upstream resolves the base per call (v0.23.2)
+        cm._resolve_checkpoint_base = lambda: self.base
         self.mgr = CheckpointManager(enabled=True, max_snapshots=50)
 
     def close(self):
-        cm.CHECKPOINT_BASE = self._saved_base
+        cm._resolve_checkpoint_base = self._saved_base
         shutil.rmtree(self.root, ignore_errors=True)
 
     @property

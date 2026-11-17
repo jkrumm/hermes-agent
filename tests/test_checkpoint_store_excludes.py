@@ -62,12 +62,12 @@ class Fixture:
         self.base = self.root / "checkpoints"
         self.work = self.root / "project"
         self.work.mkdir(parents=True)
-        self._saved_base = cm.CHECKPOINT_BASE
-        cm.CHECKPOINT_BASE = self.base
+        self._saved_base = cm._resolve_checkpoint_base  # upstream resolves the base per call (v0.23.2)
+        cm._resolve_checkpoint_base = lambda: self.base
         self.mgr = CheckpointManager(enabled=True, max_snapshots=50)
 
     def close(self):
-        cm.CHECKPOINT_BASE = self._saved_base
+        cm._resolve_checkpoint_base = self._saved_base
         shutil.rmtree(self.root, ignore_errors=True)
 
     @property
@@ -294,7 +294,7 @@ XP_CHILD = (
     "import logging,sys,pathlib\n"
     f"sys.path.insert(0, {str(Path(cm.__file__).parents[1])!r})\n"
     "import tools.checkpoint_manager as cm\n"
-    f"cm.CHECKPOINT_BASE = pathlib.Path({str(XP_BASE)!r})\n"
+    f"cm._resolve_checkpoint_base = lambda: pathlib.Path({str(XP_BASE)!r})\n"
     'logging.basicConfig(level=logging.ERROR, format="%(levelname)s %(message)s")\n'
     f"mgr = cm.CheckpointManager(enabled=True, max_snapshots=50)\n"
     f"print(mgr.ensure_checkpoint({str(XP_WORK)!r}, reason='xproc'))\n"
