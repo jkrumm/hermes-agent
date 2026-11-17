@@ -1,4 +1,4 @@
-# How the factory ships this project (software-factory docs/design.md §9).
+# How the factory ships this project.
 apiVersion: factory/v2
 name: hermes-agent
 deploy:
@@ -6,16 +6,16 @@ deploy:
   targets:
     - { name: mini, host: mini, verify: make verify }
   hold: 5m
-  migrations: []
 ship:
-  - { paths: ["**"], via: push }
+  - { via: push }
 signals:
   github:
     author: jkrumm
     since: 2026-11-07T06:30:00Z
+# One lead at a time: `make deploy` (scripts/deploy.sh) restarts the single gateway and serve LaunchAgents on the mini, so deploys cannot overlap.
 leads: 1
 hygiene:
-  # Weekly hygiene probes (software-factory architecture.md, `hygiene` loop): `make <target>`, exit 0 is clean,
+  # Weekly hygiene probes (the factory's `hygiene` loop): `make <target>`, exit 0 is clean,
   # anything else is one finding. Both are read-only; the lead that takes a finding runs /hermes-update and make deploy.
   probes:
     - { name: upstream, target: upstream-check } # installed Hermes vs the newest stable upstream tag
