@@ -1,5 +1,5 @@
 diff --git a/gateway/run_bootstrap.py b/gateway/run_bootstrap.py
-index bfdca3a81a..4a75394aed 100644
+index 50b7f88165..7b139fa2e6 100644
 --- a/gateway/run_bootstrap.py
 +++ b/gateway/run_bootstrap.py
 @@ -33,6 +33,29 @@ async def _start_gateway_replace_existing_instance(existing_pid: int, replace: b

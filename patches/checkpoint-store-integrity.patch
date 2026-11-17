@@ -1,17 +1,17 @@
 diff --git a/tools/checkpoint_manager.py b/tools/checkpoint_manager.py
-index 3f71119407..bffd970a15 100644
+index e1693b38ba..9679b5e84c 100644
 --- a/tools/checkpoint_manager.py
 +++ b/tools/checkpoint_manager.py
-@@ -62,7 +62,7 @@ from pathlib import Path, PurePosixPath
+@@ -61,7 +61,7 @@ import time
+ from pathlib import Path, PurePosixPath
  from hermes_constants import get_hermes_home
  from hermes_cli._subprocess_compat import selected_git_env, windows_hide_flags
- from hermes_cli.gitlock import clear_stale_tmp_packs
--from typing import Dict, List, Optional, Set, Tuple
-+from typing import Callable, Dict, List, Optional, Set, Tuple
+-from typing import Optional
++from typing import Callable, Optional
  
- from utils import env_int, rmtree_readonly
+ from utils import env_int
  
-@@ -162,6 +162,13 @@ DEFAULT_EXCLUDES = [
+@@ -156,6 +156,13 @@ DEFAULT_EXCLUDES = [
      # hundreds of MB of cache that are never project state.
      "chrome_cdp_profile/",
      "agent-browser-chrome-*/",
@@ -25,7 +25,7 @@ index 3f71119407..bffd970a15 100644
  ]
  
  # Git subprocess timeout (seconds).
-@@ -452,11 +459,20 @@ def _run_git(
+@@ -446,11 +453,20 @@ def _run_git(
      ``allowed_returncodes`` suppresses error logging for known/expected non-zero
      exits while preserving the normal ``ok = (returncode == 0)`` contract.
      Example: ``git diff --cached --quiet`` returns 1 when changes exist.
@@ -47,7 +47,7 @@ index 3f71119407..bffd970a15 100644
          return False, "", msg
      if not normalized_working_dir.is_dir():
          msg = f"working directory is not a directory: {normalized_working_dir}"
-@@ -495,7 +511,7 @@ def _run_git(
+@@ -489,7 +505,7 @@ def _run_git(
          if not ok and result.returncode not in allowed_returncodes:
              logger.error(
                  "Git command failed: %s (rc=%d) stderr=%s",
@@ -56,7 +56,7 @@ index 3f71119407..bffd970a15 100644
              )
          return ok, stdout, stderr
      except subprocess.TimeoutExpired:
-@@ -515,6 +531,41 @@ def _run_git(
+@@ -509,6 +525,41 @@ def _run_git(
          return False, "", str(exc)
  
  
@@ -98,7 +98,7 @@ index 3f71119407..bffd970a15 100644
  def _git_out(args: list[str], store: Path, working_dir: str, rc: Optional[set[int]] = None) -> str:
      """stdout of a successful git call, else ``""``."""
      ok, out, _ = _run_git(args, store, working_dir, allowed_returncodes=rc)
-@@ -538,6 +589,102 @@ def _unlink_quiet(path: Path) -> None:
+@@ -527,6 +578,102 @@ def _unlink_quiet(path: Path) -> None:
          pass
  
  
@@ -201,7 +201,7 @@ index 3f71119407..bffd970a15 100644
  # ---------------------------------------------------------------------------
  # Store initialisation + legacy migration
  # ---------------------------------------------------------------------------
-@@ -1005,8 +1152,9 @@ class CheckpointManager:
+@@ -991,8 +1138,9 @@ class CheckpointManager:
          index_file = _index_path(store, dir_hash)
  
          # Stage the current tree so the name-only diff sees new files too.
@@ -213,7 +213,7 @@ index 3f71119407..bffd970a15 100644
          ok, names_out, err = _run_git(
              ["diff", "--name-only", "-z", commit_hash, "--cached",
               *_exclude_store_args(store.parent, abs_dir)],
-@@ -1187,8 +1335,9 @@ class CheckpointManager:
+@@ -1175,8 +1323,9 @@ class CheckpointManager:
          index_file = _index_path(store, dir_hash)
  
          # Stage current state into the per-project index to compare.
@@ -225,7 +225,7 @@ index 3f71119407..bffd970a15 100644
  
          # A checkpoint taken before the store was excluded may still contain it; never
          # report the store as a change against such a checkpoint.
-@@ -1606,7 +1755,14 @@ class CheckpointManager:
+@@ -1597,7 +1746,14 @@ class CheckpointManager:
          if not _unstage_excluded(store, working_dir, index_file):
              logger.debug("Checkpoint could not drop newly excluded paths from the index")
              return False
@@ -241,7 +241,7 @@ index 3f71119407..bffd970a15 100644
          if not ok:
              logger.debug("Checkpoint git-add failed: %s", err)
              return False
-@@ -1721,6 +1877,7 @@ class CheckpointManager:
+@@ -1712,6 +1868,7 @@ class CheckpointManager:
  
      def _stage_with_oversize_preflight(
          self, store: Path, working_dir: str, index_file: Path,
@@ -249,7 +249,7 @@ index 3f71119407..bffd970a15 100644
      ) -> tuple[bool, str]:
          """Stage the worktree without opening files already over the size cap."""
          add_args = _stage_all_args(store.parent, working_dir)
-@@ -1743,6 +1900,7 @@ class CheckpointManager:
+@@ -1734,6 +1891,7 @@ class CheckpointManager:
              ok, _, err = _run_git(
                  add_args, store, working_dir,
                  timeout=_GIT_TIMEOUT * 2, index_file=index_file,

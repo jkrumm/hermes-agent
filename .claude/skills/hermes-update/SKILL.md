@@ -35,7 +35,7 @@ Files touched (all are `.patch` files applied with `git apply` — no full-file 
 
 | File | Patch | Kind |
 |-|-|-|
-| `tools/cronjob_prompt_scan.py` | `patches/cronjob-tools-allowlist-argo-bearer.patch` | allowlist argo bearer curls past the cron-prompt scanner |
+| `cron/prompt_scan.py` | `patches/cronjob-tools-allowlist-argo-bearer.patch` | allowlist argo bearer curls past the cron-prompt scanner |
 | `tools/tts_tool_openai.py` + `tools/tts_tool.py` | `patches/tts-tool-audio-title.patch` | name the audio file from the audio door's `X-Audio-Title` header (a short title from the door's own prep step) instead of `tts_<timestamp>` |
 
 > **STT is not patched.** `tools/transcription_tools.py` (native `openai` STT → `gpt-transcribe`) is pointed at the audio door purely via `config.yaml`. TTS uses the stock native `openai` provider (→ Gemini Charon via the audio door) plus the one small `tts-tool-audio-title` patch above for the filename. After an update, confirm `config.yaml`'s `tts.openai` / `stt.openai` `base_url` still reads `http://127.0.0.1:7792/v1` and `api_key` `${AUDIO_DOOR_TOKEN}`.
@@ -70,8 +70,8 @@ reconstructed from the ten regenerated patches, zero drift, nothing in the live 
 uncaptured.
 
 **Do not rename a patch whose target moved.** Three now name a file they no longer touch
-(`run-agent-…` → `agent/client_lifecycle.py`, `cronjob-tools-…` → `cronjob_prompt_scan.py`,
-`gateway-auto-tts-voice-only` → `gateway/run_voice.py`). The name is an identifier cited by
+(`run-agent-…` → `agent/client_lifecycle.py`, `cronjob-tools-…` → `cron/prompt_scan.py`,
+`gateway-auto-tts-voice-only` → `gateway/run_voice.py`, retired at v0.23.2 for `voice.auto_tts_mode`). The name is an identifier cited by
 every `# LOCAL MODIFICATION (patches/<name>.patch)` marker and by three docs; renaming buys
 nothing and reintroduces the marker-drift bug from v0.19.0.
 
@@ -155,10 +155,8 @@ the file set:
 git diff HEAD --name-only        # must be exactly the patched files
 grep -n "_rename_with_title"          tools/tts_tool.py
 grep -n "x-audio-title"               tools/tts_tool_openai.py
-grep -n "_OpenAIAPIConnectionError"    agent/chat_completion_helpers.py
 grep -n "_stage_all_with_gitlink_recovery" tools/checkpoint_manager.py
-grep -n "_sanitize_trusted_api_fence" tools/cronjob_prompt_scan.py
-grep -n "_apply_iu_reasoning_effort"  agent/transports/chat_completions.py
+grep -n "_sanitize_trusted_api_fence" cron/prompt_scan.py
 grep -n "_SPEAK_SUMMARY"              hermes_cli/web_routers/audio.py
 ```
 

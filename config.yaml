@@ -374,6 +374,9 @@ voice:
   record_key: ctrl+b
   max_recording_seconds: 120
   auto_tts: true
+  # Global auto-TTS speaks only after voice input (replaces the retired gateway-auto-tts-voice-only patch,
+  # docs/patches.md); `/voice all` per chat still speaks every reply.
+  auto_tts_mode: voice_only
   # Desktop: relay speech through `hermes serve` instead of calling the gateway
   # from the app. Client-direct plays sentence by sentence with no lookahead
   # (voice-playback.ts pump: synthesize → play → synthesize), so every sentence

@@ -2,7 +2,7 @@
 """Regression suite for the local cron trusted-API allowlist.
 
 Covers `_strip_cron_safe_constructs()` / `_scan_cron_prompt()` in
-`~/.hermes/hermes-agent/tools/cronjob_prompt_scan.py`, installed by
+`~/.hermes/hermes-agent/cron/prompt_scan.py` (`tools/cronjob_prompt_scan.py` before upstream v0.23.2), installed by
 `patches/cronjob-tools-allowlist-argo-bearer.patch`.
 
 WHY THIS ALLOWLIST EXISTS. Bundled skills legitimately curl argo/karakeep/
@@ -37,7 +37,7 @@ HERMES_TREE = os.environ.get("HERMES_TREE", os.path.expanduser("~/.hermes/hermes
 sys.path.insert(0, HERMES_TREE)
 os.chdir(HERMES_TREE)
 
-from tools.cronjob_prompt_scan import (  # noqa: E402
+from cron.prompt_scan import (  # noqa: E402
     _scan_cron_prompt as scan,
     _strip_cron_safe_constructs as strip_safe,
 )
@@ -104,8 +104,6 @@ LEGITIMATE_MUST_ALLOW = [
         "PY\n"
         "```"
     ),
-    # upstream's GitHub fallback — only the `token` spelling is exempt, not `Bearer`
-    'curl -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/user',
 ]
 
 # A curl carrying no trusted host and no allowlisted secret shape at all —

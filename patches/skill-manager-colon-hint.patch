@@ -1,8 +1,8 @@
 diff --git a/tools/skill_manager_tool.py b/tools/skill_manager_tool.py
-index d73835dbde..09fd9d128a 100644
+index 2d193f9ca2..1ddb321301 100644
 --- a/tools/skill_manager_tool.py
 +++ b/tools/skill_manager_tool.py
-@@ -156,7 +156,14 @@ def _validate_frontmatter(content: str) -> Optional[str]:
+@@ -153,7 +153,14 @@ def _validate_frontmatter(content: str) -> Optional[str]:
      try:
          parsed = yaml.safe_load(content[3:end_match.start() + 3])
      except yaml.YAMLError as e:
