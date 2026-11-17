@@ -10,3 +10,14 @@ happens before the first `echo`). Guard the truncation **inside** the substituti
 after the whole assignment: `$(git diff --cached | head -c 20000 || true)`. A sibling
 line guarded the same way (`| tail -1 ... || true`) never tripped. Any new script here
 piping an unbounded producer into `head -c`/`tail -c` under `pipefail` needs this guard.
+
+<!-- MOVED-SHELL: moved verbatim from the root AGENTS.md (Shell script conventions, 569 bytes) -->
+
+## Shell script conventions
+
+**Under `set -euo pipefail`, any `$(producer | head -c N)` substitution dies with SIGPIPE (141)
+once `producer` exceeds `N` bytes** — `head` closes the pipe, `pipefail` makes the substitution
+non-zero, `set -e` ends the script, and the crash happens before the first `echo` so there is no
+log line. Guard **inside** the substitution: `$(git diff --cached | head -c 20000 || true)`. Any
+new script piping an unbounded producer into `head -c`/`tail -c` under `pipefail` needs it.
+The incident it came from: **`docs/shell-conventions.md`**.

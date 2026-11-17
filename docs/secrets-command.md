@@ -62,7 +62,7 @@ regression is monitored rather than merely accepted:
 
 **One value is not a 1Password ref:** the `hermes` door token, the bearer for the agent-workflows
 audio door (`tts.openai` / `stt.openai` `api_key: ${AUDIO_DOOR_TOKEN}`) and inference gateway, under
-five names (`AGENTS.md` §Secrets). It lives in the local file
+five names (the "Secrets" section below). It lives in the local file
 `~/.agent-workflows/data/door-tokens` (`hermes=<token>`, mode 0600, created by agent-workflows' deploy), so
 `secrets.command` is `{ <secrets-run export | sed>; t=$(sed -n 's/^hermes=//p' <file> 2>/dev/null); [ -z "$t" ] || printf '%s=%s\n' <NAME "$t" for each of the five>; true; }`
 — the token reaches the process environment like any other secret and never enters git. A missing
@@ -76,3 +76,52 @@ it as such, so auto-start at login and auto-restart on crash are live.
 `hermes gateway install` still prints `Bootstrap failed: 5` while repairing the
 definition — that message is noise; check `gateway status` for the real state,
 never `launchctl load` the plist by hand.
+
+<!-- MOVED-SECRETS: moved verbatim from the root AGENTS.md (Secrets, 3395 bytes) -->
+
+## Secrets — native `secrets.command` over the headless cache (v0.19.0+)
+
+No plaintext `~/.hermes/.env`, no launch wrapper. `config.yaml`:
+
+```yaml
+secrets:
+  command:
+    enabled: true
+    command: "{ <secrets-run export --env-file=$HOME/.hermes/.env.tpl | sed 's/^export //'>; <door token, below>; true; }"
+    helper_timeout_seconds: 15
+    override_existing: true
+```
+
+`secrets-run` is the dotfiles shim over the age-encrypted offline cache; `.env.tpl` stays the
+list of `KEY=op://vault/item/field` refs. The `sed` exists because `export` emits
+`export K='V'` while the bulk parser wants `K=V`. 0.29s for 29 refs (default budget 3s), and
+secrets resolve for **every** hermes invocation — gateway, CLI, cron.
+
+- **Not a 1Password ref: the door token, two names.** The `hermes=` line of the local
+  `~/.agent-workflows/data/door-tokens` opens the audio door (:7792) and the inference gateway
+  (:7794). The `command` reads it once into `t` and prints `AUDIO_DOOR_TOKEN` and
+  `ANTHROPIC_API_KEY` (`OPENAI_API_KEY` and the two `HERMES_CUSTOM_*` key names went with the
+  OpenAI leg, 2026-11-15). Write it `$t`, never `${t}`: config
+  loading expands `${...}` first. A chained `sed` cannot do this, the first substitution changes
+  the line the second one matches. A missing file leaves both unset (every model call and
+  TTS/STT 401), graded by `make status` ("door token"), and pinned by
+  `tests/test_gateway_provider.py`. Rotation: edit the file, restart the gateway **and**
+  `com.jkrumm.hermes-serve`.
+- **The gateway also renders `serve.env.tpl`** (second `secrets-run export` in the same command, fail-soft). Since v0.22.7 the gateway mounts the dashboard listener itself, and with `dashboard.public_url` set it exits at startup (`SystemExit: Refusing to bind dashboard…`, no log line — only a traceback from inside `start_gateway`) unless `HERMES_DASHBOARD_BASIC_AUTH_*` are in its env. A crash loop at "Stopping gateway..." 1 s after "Mounted plugin API routes" is this.
+- **Not `secrets.onepassword`**: it needs an interactive `op` session (hangs headless) or a
+  standing `OP_SERVICE_ACCOUNT_TOKEN` (a live credential on an always-on box). The sealed cache
+  is strictly stronger — its contents are the explicit `dotfiles-private/headless.refs` allowlist.
+- **Fail-soft, monitored.** The `command` source can't abort startup; it degrades to "no secrets
+  applied" + a warning. `hermes-liveness.sh` covers both halves — total failure via
+  `platforms.api_server.state == "connected"`, partial via `KEY=` count vs rendered count.
+- Manual check: `Command helper: applied 28 secrets` in `hermes gateway status` (23 refs + the 3 serve refs + the 2
+  door-token names), `✓ secrets (23 refs …)` from `make status`.
+- **Never run `hermes model` on the mini** — it writes a plaintext `~/.hermes/.env`
+  (`save_env_value`) that shadows the door-token names (`.env` wins over the secret scope); deleted 2026-09-07,
+  and `hermes-backup.sh` excludes it so a recreated one never reaches homelab.
+- **launchd works** — `ai.hermes.gateway` is genuinely supervised. The plist is stock (wraps
+  `venv/bin/python -m hermes_cli.main gateway run --external-supervisor` in
+  `hermes_cli.stderr_timestamp`), so `hermes gateway install` is a no-op; its `Bootstrap failed: 5`
+  output is noise — check `gateway status`.
+
+Rationale + what this replaced: **`docs/secrets-command.md`**.

@@ -20,3 +20,25 @@ The skill is **personal-orientation, never team-facing** — read-only across ev
 **API secret:** `op://common/api/SECRET` (account `tkrumm`) — wired in `.env.tpl`.
 
 **WalkingPad + Usage Tracking (ad-hoc only).** Two Argo domains live in `argo-api`: **WalkingPad** (`/walking-pad/*` — treadmill sessions, streak, pace; `references/walking-pad.md`; read-only — the device ingests sessions) answers "how far did I walk"; **Usage Tracking** (`/usage/*` — AI token/cost KPIs across all sources) answers "what have I spent on AI". Both are **ad-hoc only** — never wired into briefings or the watchdog (consistent with the watchdog-personal-only + briefing-work-scope rules). `/ai/v1/*` (AI Gateway) is infra Hermes never calls — see the argo-api taxonomy.
+
+<!-- MOVED-ARGO: moved verbatim from the root AGENTS.md (Homelab API integration, 1632 bytes) -->
+
+## Homelab API Integration
+
+Argo runs natively on the Mac mini (since 2026-10-30; the base URL `https://argo.jkrumm.com/api` is unchanged). **Known gap:** `/docker/vps/*` and the `dockerVps` part of `/summary` currently return an error (VPS Docker is not reachable from the mini); Argo's homelab Docker route reads the homelab socket-proxy.
+`skills/argo-api/SKILL.md` endpoint tables are regenerated from
+`https://argo.jkrumm.com/api/openapi/json` by the homelab `/docs` skill. The spec's **13 tags**
+split three ways: **personal** (`argo-api`) — Garmin Health, Strength, WalkingPad, Productivity,
+Infrastructure, External Data, Reading, Usage Tracking, System; **work** (`work` skill) — M365,
+Atlassian, GitLab; **not agent-facing** — AI Gateway (`/ai/v1/*`).
+`/reading/*` is the standalone `reading` skill. **API secret:** `op://common/api/SECRET`
+(account `tkrumm`), in `.env.tpl`.
+
+**`work` skill = read-only across M365/Confluence/GitLab, with one write exception: Jira**
+(create/update/transition/comment on Johannes's own tickets, Team=Prometheus auto-stamped —
+never Teams messages, mail, Confluence pages, MRs, or speaking for teammates). **Briefings carry
+exactly three work signals** — today's Outlook calendar, Jira sprint commitments, GitLab MRs
+needing action; everything else (chats, Confluence, WalkingPad, `/usage/*`) is ad-hoc only, never
+in briefings or the watchdog. Errors: `503 M365 not authenticated` → `bun m365:auth:prod` in
+`~/SourceRoot/argo`; `503` on `/gitlab/*`/`/atlassian/*` → PAT expired. Full taxonomy
+(garmin-health vs strength split, MR↔Jira linking): **`docs/argo-surface.md`**.

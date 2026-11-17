@@ -44,3 +44,50 @@ under `~/Library/Logs`, `~/.hermes/logs/gateway.{log,error.log}` (absolute — t
 gateway's own launchd streams, not this repo's LaunchAgents), plus the audit log
 `hermes-ops.log` (`hermes-cc.log` is the retired predecessor
 name, still rotated until it ages out).
+
+<!-- MOVED-SYMLINK-MAP: moved verbatim from the root AGENTS.md (Symlink Map, 4533 bytes) -->
+
+## Symlink Map
+
+`make setup` writes these symlinks. Full table + host-LaunchAgent detail, per-script:
+**`docs/symlinks-and-agents.md`**.
+
+| File here | Live path | Notes |
+|-|-|-|
+| `config.yaml`, `.env.tpl`, `SOUL.md` | `~/.hermes/…` | edit here, live immediately; `.env.tpl` is the gateway's list of `KEY=op://…` refs |
+| `serve.env.tpl` | `~/.hermes/serve.env.tpl` | `hermes serve`'s own three basic-auth refs — deliberately not in `.env.tpl` (see `docs/hermes-serve.md`) |
+| `cron/`, `scripts/`, `hooks/` | `~/.hermes/…` | Hermes-driven cron + pre-run scripts (must live under `HERMES_HOME/scripts/`) + host-level shell scripts |
+| `plugins/{name}/` | `~/.hermes/plugins/{name}/` | **`HERMES_PLUGINS`** is the source of truth. **None today.** A new one must **also** be enabled once — `hermes plugins enable <name>`; the symlink alone is inert. |
+| `config/` | `~/.hermes/config/` | **empty** — kept for tracked agent-facing config |
+| `skills/{name}/` | `~/.hermes/skills/{name}/` | **`HERMES_SKILLS` in the Makefile is the source of truth** — 23 dirs (agent-platform Wave 2, 2026-10-04; was 126; `iris` added 2026-11-04, `fleet` 2026-11-07, `agw-web` 2026-11-15). **`fleet`'s source is `software-factory/integrations/hermes/fleet`** (`HERMES_EXTERNAL_SKILLS`, `FACTORY_DIR` in the Makefile; `make setup` links it from the factory checkout, warns and skips if absent) — there is no `skills/fleet/`. Retired skills live on as `<skill>/references/*.md` or in git history; roster: docs. |
+| `USER.md` | `~/.hermes/memories/USER.md` | **copied** — Hermes writes to it |
+
+**Skill audit (2026-10-10, `docs/skills-audit.md`):** per-skill verdicts, usage evidence and the Hermes↔global wiring map. Upstream-bundled skills with no usage record are retired by `skills.disabled` in `config.yaml` (reversible; never deleted). `make skills-set-check` (in `make status`) asserts repo `skills/` (minus `HERMES_EXTERNAL_SKILLS`), live symlinks (into this repo or `$FACTORY_DIR/integrations/hermes/`) and `HERMES_SKILLS` are one set.
+
+**Autonomous skill creation is off** (`skills.creation_nudge_interval: 0`); `skills.create_dir` points at `~/.hermes/skills-quarantine`, outside `external_dirs`, so anything Hermes writes anyway is neither live nor tracked until the owner promotes it here. Needs a gateway restart.
+
+**A skill is durable only if symlinked from this repo.** `skills.external_dirs` satisfies the
+v0.16.0+ skill-trust check **and** protects a skill from the background self-improvement
+curator — a skill created ad hoc under `~/.hermes/skills/` has neither and gets silently
+rewritten by accretion. Detection is manual (`ls ~/.hermes/skills` against `HERMES_SKILLS`); the old `stray_skill` poll retired with the control plane. Full
+mechanism + adoption path: **`docs/symlinks-and-agents.md`**.
+
+**Host-level scripts** (user LaunchAgents, not symlinked): `hermes-liveness.sh` (300s, both liveness pushers run under `jobrun --timeout 270` with every call bounded, a failed check pushes `status=down&msg=<reason>`, except `gateway_state=draining` (planned restart: ping withheld, monitor not told down) — `docs/symlinks-and-agents.md`; gateway
+state + API server connected + the live pid belongs to launchd's job + the inference gateway answers and accepts Hermes' door token, via `scripts/inference-gateway-check.sh`, shared with `make verify`/`status`), `hermes-backup.sh` (daily
+03:00 — rsync to homelab, `mkdir`-lock against overlap), and the `hermes serve` pair —
+`hermes-serve-launch.sh` (KeepAlive) + `hermes-serve-liveness.sh` (300s), see `docs/hermes-serve.md`
+below.
+`HERMES_PLISTS_RETIRED` unloads +
+removes labels this repo no longer installs — the two `hermes-webui{,-liveness}` labels sit there
+since the 2026-09-07 teardown of the third-party WebUI clone (not coming back; the serve pair torn
+down with it was restored 2026-10-15). `make status` grades every agent like
+dotfiles' doctor. Logs declared, never globbed, in `dotfiles/scripts/log-rotate.sh`.
+
+**Scheduled jobs are LaunchAgents, never macOS crontab** — a `crontab -` *write* needs Full
+Disk Access and hangs forever on the headless mini. Done 2026-08-02 — no hermes entries in
+`crontab -l`. All live `hermes cron` jobs (ids, schedules, delivery) + reasoning:
+**`docs/scheduled-jobs.md`**.
+
+**Per-repo agent skills** (`.claude/skills/`, committed, no symlink — Claude Code and OpenCode both load them): `/hermes-validate`
+(test routing, fix SOUL.md / SKILL.md) · `/hermes-update` (pull upstream, re-apply patches,
+restart gateway).

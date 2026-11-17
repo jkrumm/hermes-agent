@@ -163,7 +163,7 @@ plane — so the fix lands by hand. Six steps are yours, one never is.
    <file> > ~/SourceRoot/hermes-agent/patches/<name>.patch` (the repo's own
    documented regeneration command). The live checkout is pristine upstream plus
    the applied patches, so a scoped `git diff -- <file>` is exactly your change.
-4. **Record it in three places**: the `AGENTS.md` § *Local Modifications to
+4. **Record it in three places**: the `docs/patches.md` § *Local Modifications to
    Upstream* table (a blank line between rows breaks the table), the restart-list
    paragraph directly below it when the file is imported at startup, and the
    per-file bullet in `docs/patches.md`.

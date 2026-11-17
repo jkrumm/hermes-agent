@@ -52,7 +52,7 @@ Refresh **on miss only** (a name you don't have): re-`GET /lists` or `/tags`, re
 
 ## Routing
 
-KaraKeep is the reference/reading bucket: *"I want to read/remember this"* → here; actionable → TickTick/GitHub via `capture`; durable knowledge/ideas → `obsidian`. The `capture` skill owns the router (AGENTS.md *Second Brain* has the table); a social/media link to read later still goes here — `capture`'s social-media-extraction path is only for items destined for TickTick/GitHub.
+KaraKeep is the reference/reading bucket: *"I want to read/remember this"* → here; actionable → TickTick/GitHub via `capture`; durable knowledge/ideas → `obsidian`. The `capture` skill owns the router (`docs/second-brain.md` has the table); a social/media link to read later still goes here — `capture`'s social-media-extraction path is only for items destined for TickTick/GitHub.
 
 ## Notes
 

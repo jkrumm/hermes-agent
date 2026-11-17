@@ -25,7 +25,7 @@ If clean: jump straight to **Restart**. If conflicts or upstream rewrote a custo
 
 ## Known local modifications
 
-One `.patch` file per patched upstream file — `ls ~/SourceRoot/hermes-agent/patches/` is the count, and `make patch-check` asserts every one of them is applied to the live checkout. Do not restate the number in prose: it has drifted repeatedly, and a stale count reads as "a patch is missing" when nothing is wrong. Source-of-truth list (with re-apply commands and *why* each is needed) lives in `~/SourceRoot/hermes-agent/AGENTS.md` under "Local Modifications to Upstream"; every retirement to date and its reason is in `docs/patches.md`. This file is the operational playbook.
+One `.patch` file per patched upstream file — `ls ~/SourceRoot/hermes-agent/patches/` is the count, and `make patch-check` asserts every one of them is applied to the live checkout. Do not restate the number in prose: it has drifted repeatedly, and a stale count reads as "a patch is missing" when nothing is wrong. Source-of-truth list (with re-apply commands and *why* each is needed) lives in `~/SourceRoot/hermes-agent/docs/patches.md` under "Local Modifications to Upstream"; every retirement to date and its reason is in `docs/patches.md`. This file is the operational playbook.
 
 > **Secrets no longer come from a launch wrapper (v0.19.0+).** `scripts/gateway-cache-launch.sh` is gone; Hermes resolves its own secrets via `secrets.command` in `config.yaml` (→ the dotfiles `secrets-run` cache). After any update, confirm `hermes gateway status` prints `Command helper: applied N secrets` with N = the `KEY=` count in `.env.tpl` (28 at 2026-09-23). If that line is missing the gateway will start **credential-less** (the source degrades with a warning rather than failing closed) — check `secrets-run export --env-file=~/.hermes/.env.tpl` by hand before debugging anything else.
 >
@@ -188,7 +188,7 @@ again if the config moved back:
 
 Both anthropic ones were genuinely live until `0e17b0d` (2026-05-21) moved the brain off
 `provider: anthropic` + the IU `/anthropic` base URL. Keep a dormant patch, but say
-*dormant* in AGENTS.md — a present-tense "without this, every call 401s" reads as a live
+*dormant* in docs/patches.md — a present-tense "without this, every call 401s" reads as a live
 dependency and stops the next reader from questioning it. To decide: read the guards
 **above** the hunk, then check the live `config.yaml` value each one keys off.
 
@@ -243,7 +243,7 @@ and reconcile against `ls ~/SourceRoot/hermes-agent/patches/`.
 
 ### Is this patch even still needed?
 
-Before rewriting a failing patch, check whether upstream has since fixed the same underlying bug or shipped the same feature natively — rewriting a patch whose job upstream now does *better* just creates maintenance debt. Grep the new file for the symptom your patch works around (e.g. the buggy line your patch replaces, or a keyword from the bug description) and read what's there now. This happened at v0.18.2: `slack-audio-mime-ext.patch` mapped Slack audio MIME types to extensions to fix a `.ogg`-forced-on-MP4 bug — upstream had, independently, added its own `_resolve_slack_audio_ext()` helper doing the same job more thoroughly (filename-extension-first, then a mimetype map, `.m4a` fallback instead of `.ogg`, plus a bonus video-mislabeled-as-audio rerouter). The patch's target was fully superseded — retire it (delete from `patches/`, add a retirement note to `AGENTS.md` like the existing ones), don't rewrite it. Conversely, if the check-fn/logic your patch depends on is gone with nothing to replace it, the patch is still needed — rewrite it against the new location/shape.
+Before rewriting a failing patch, check whether upstream has since fixed the same underlying bug or shipped the same feature natively — rewriting a patch whose job upstream now does *better* just creates maintenance debt. Grep the new file for the symptom your patch works around (e.g. the buggy line your patch replaces, or a keyword from the bug description) and read what's there now. This happened at v0.18.2: `slack-audio-mime-ext.patch` mapped Slack audio MIME types to extensions to fix a `.ogg`-forced-on-MP4 bug — upstream had, independently, added its own `_resolve_slack_audio_ext()` helper doing the same job more thoroughly (filename-extension-first, then a mimetype map, `.m4a` fallback instead of `.ogg`, plus a bonus video-mislabeled-as-audio rerouter). The patch's target was fully superseded — retire it (delete from `patches/`, add a retirement note to `docs/patches.md` like the existing ones), don't rewrite it. Conversely, if the check-fn/logic your patch depends on is gone with nothing to replace it, the patch is still needed — rewrite it against the new location/shape.
 
 ### Resolving 3-way conflict markers
 
@@ -278,7 +278,7 @@ after taking `ours`, the file should drop off `git diff HEAD --name-only` entire
 now byte-identical to upstream); and the patch's stated failure mode should be
 reproducible against the pristine tree only via upstream's new symbol. When the retired
 patch is referenced elsewhere in prose ("same defensive posture as X"), grep for its name
-before committing — a retirement leaves dangling cross-references in AGENTS.md.
+before committing — a retirement leaves dangling cross-references in AGENTS.md and docs/patches.md.
 
 After resolving, always sanity-check: `grep -rn "^<<<<<<<\|^=======$\|^>>>>>>>"` across the touched files (loosely — grep `======` alone also matches legitimate RST-style section underlines in docstrings/tests, so eyeball hits before assuming they're conflict markers) and `python3 -c "import ast; ast.parse(open('<file>').read())"` per file to catch syntax breaks before moving on.
 

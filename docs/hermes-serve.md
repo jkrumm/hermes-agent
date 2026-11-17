@@ -104,3 +104,27 @@ ticket gets 403.
 Edit `mini/hermes-serve` in 1Password, run `make secrets-seed` on the MacBook (it reseals the
 mini's cache), then `launchctl kickstart -k gui/$(id -u)/com.jkrumm.hermes-serve`. Rotating
 `session-secret` logs every Desktop out once.
+
+<!-- MOVED-DESKTOP: moved verbatim from the root AGENTS.md (Hermes Desktop, 1580 bytes) -->
+
+## Hermes Desktop (`hermes serve`)
+
+**Owner decision 2026-10-15** (supersedes 2026-09-07's "Collie + Slack are the surfaces"): the
+surfaces are Hermes Desktop on the MacBook, the `:8642` API server (Iris) and the CLI (Slack was retired later, 2026-11); Collie
+stays as it is. Desktop cannot use `:8642` (no `/api/ws`) — it talks to `hermes serve`, a second
+always-on process beside the gateway: LaunchAgent `com.jkrumm.hermes-serve` (KeepAlive) on
+loopback `:9119`, behind the dotfiles Caddy door `hermes-api.test` ⇒
+`https://hermes-api.mini.jkrumm.com` (tailnet, `tag:devhost` only).
+
+- **Auth is upstream's basic provider**, gated because `config.yaml` sets `dashboard.public_url`
+  (a non-loopback public URL engages the gate despite the loopback bind; gate on + no provider =
+  serve exits). Credentials are `HERMES_DASHBOARD_BASIC_AUTH_{USERNAME,PASSWORD,SECRET}` from
+  `serve.env.tpl` → `op://mini/hermes-serve/*`; the launcher refuses (exit 78) below 3/3.
+- **Desktop connection:** remote, that URL, auth mode `oauth` (= "gated server", which covers the
+  password provider), sign in with the `op://mini/hermes-serve` username/password.
+- **Heartbeat** `com.jkrumm.hermes-serve-liveness` asserts `auth_required: true` and a 401 on an
+  unauthenticated `POST /api/auth/ws-ticket` before pinging `Hermes Serve - Push`.
+- **Patched modules load at serve start too** — after a `hermes update` restart both the gateway
+  and `launchctl kickstart -k gui/$(id -u)/com.jkrumm.hermes-serve`.
+
+Full design, verification recipe and failure modes: **`docs/hermes-serve.md`**.

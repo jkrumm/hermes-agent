@@ -1,571 +1,74 @@
 # hermes-agent — Hermes Agent Instructions
 
-Commands, tables and gotchas — dense reference for every session. Full rationale, incident
-history and per-file detail live in `docs/*.md`; each section here points at its own.
+VCS source of truth for Johannes's Hermes Agent setup, Mac Mini-only. Everything here is symlinked into `~/.hermes/` (`make setup`): edit at either end, git sees it here. The checkout is the live config.
 
-## What This Repo Is
+Hermes has one role, **narrate, answer, route** (spec: `dotfiles/docs/agent-platform.md` §Hermes). It reports one line per item, answers questions and files code work as a GitHub issue (`capture`). An explicit request to start an agent on a repo goes to the software factory (`fleet` skill, `factory signal file`). The reporting contract lives in `SOUL.md` and nowhere else. Hermes does not use Slack (retired 2026-11).
 
-VCS source of truth for Johannes's Hermes Agent setup, Mac Mini-only. Everything here is
-symlinked into `~/.hermes/` — edit at either end, git sees it here.
-
-Hermes has one role — **narrate, answer, route** (spec: `dotfiles/docs/agent-platform.md` §Hermes): it reports one line per item, answers questions, and files code work as a GitHub issue (`capture`), and an explicit request to start an agent on a repo (Iris voice or chat) goes to the software factory (`fleet` skill → `factory signal file`: Hermes files, the factory's lead works). Fleet state is read through the same skill (`factory read`). It never lands PRs, runs agents itself or authors skills. Hermes does not use Slack (retired 2026-11). The reporting contract lives in `SOUL.md` and nowhere else — no per-skill report formats. See *Repo work is filed* below.
-
-Audio (TTS + STT) is the **agent-workflows audio door** (`~/SourceRoot/agent-workflows`,
-`packages/audio`), an OpenAI-compatible loopback service on the mini at `http://127.0.0.1:7792/v1`
-(LaunchAgent `com.jkrumm.agent-workflows-audio`; moved off the retired VPS audio gateway 2026-10-29, same
-request/response contract). Hermes only points its native `openai` TTS/STT providers at it in
-`config.yaml` — this repo installs and patches no audio service. **Auth:** `api_key: ${AUDIO_DOOR_TOKEN}`;
-`secrets.command` appends that variable from the `hermes=` line of `~/.agent-workflows/data/door-tokens`
-(a local 0600 file created by agent-workflows' deploy — not a 1Password ref, never in git). Every
-request is a run in agent-workflows (`agw-run-id` response header, caller `hermes`); the cron briefing
-prompts use the same door.
-TTS = Gemini 3.8 via the door's native lane, voice Charon. **`model` is an agw route id, never a literal model id** — the route table owns the concrete id: `audio.tts.gemini-flash-lite` for chat replies (`tts.openai`), `audio.tts.gemini-flash` for
-briefings (`skills/briefing-tts`, prep on). Streaming clients (CLI voice `OpenAIStreamer`, desktop
-`speak-stream` relay, spoken summary) already send `response_format: pcm` and get the progressive
-stream; Non-streaming replies stay whole-file mp3 + `X-Audio-Title`. ElevenLabs ids stay selectable as a
-fallback. STT = `audio.stt.voxtral-mini` (Voxtral Mini Transcribe, EU; the door falls back to `gpt-transcribe`). Door rows for caller `hermes` carry lane `hermes` (since 2026-11-04); the prep/summary text calls are gateway rows under the door caller — join on `run_id`. Request shapes and traps: `modelpick/docs/gemini-tts.md`;
-rationale: `modelpick/docs/decisions/audio-stack.md`.
-
-**This repo is public.** Anything Hermes writes here gets read for tailnet names, node IPs,
-workspace user ids and `homelab-private` internals before it is committed — all four appeared on
-the first pass.
+**This repo is public.** Anything Hermes writes here gets read for tailnet names, node IPs, workspace user ids and `homelab-private` internals before it is committed; all four appeared on the first pass.
 
 **After any edit: commit here.**
 
-## Symlink Map
+## Before you change it, read the doc
 
-`make setup` writes these symlinks. Full table + host-LaunchAgent detail, per-script:
-**`docs/symlinks-and-agents.md`**.
+Detail, rationale and incident history are in `docs/`. Before touching one of these, Read its doc:
 
-| File here | Live path | Notes |
-|-|-|-|
-| `config.yaml`, `.env.tpl`, `SOUL.md` | `~/.hermes/…` | edit here, live immediately; `.env.tpl` is the gateway's list of `KEY=op://…` refs |
-| `serve.env.tpl` | `~/.hermes/serve.env.tpl` | `hermes serve`'s own three basic-auth refs — deliberately not in `.env.tpl` (see *Hermes Desktop*) |
-| `cron/`, `scripts/`, `hooks/` | `~/.hermes/…` | Hermes-driven cron + pre-run scripts (must live under `HERMES_HOME/scripts/`) + host-level shell scripts |
-| `plugins/{name}/` | `~/.hermes/plugins/{name}/` | **`HERMES_PLUGINS`** is the source of truth. **None today.** A new one must **also** be enabled once — `hermes plugins enable <name>`; the symlink alone is inert. |
-| `config/` | `~/.hermes/config/` | **empty** — kept for tracked agent-facing config |
-| `skills/{name}/` | `~/.hermes/skills/{name}/` | **`HERMES_SKILLS` in the Makefile is the source of truth** — 23 dirs (agent-platform Wave 2, 2026-10-04; was 126; `iris` added 2026-11-04, `fleet` 2026-11-07, `agw-web` 2026-11-15). **`fleet`'s source is `software-factory/integrations/hermes/fleet`** (`HERMES_EXTERNAL_SKILLS`, `FACTORY_DIR` in the Makefile; `make setup` links it from the factory checkout, warns and skips if absent) — there is no `skills/fleet/`. Retired skills live on as `<skill>/references/*.md` or in git history; roster: docs. |
-| `USER.md` | `~/.hermes/memories/USER.md` | **copied** — Hermes writes to it |
+| Work on | Read |
+|-|-|
+| Audio: TTS/STT, the audio door, briefing voice | `docs/audio-door.md` |
+| Symlinks, `HERMES_SKILLS`, host LaunchAgents, liveness scripts, skill durability | `docs/symlinks-and-agents.md` |
+| Cron jobs, pre-run scripts, `hermes cron` | `docs/scheduled-jobs.md` |
+| Secrets, `secrets.command`, door token, `.env.tpl` | `docs/secrets-command.md` |
+| `:8642` API server, Iris turns | `docs/gateway-http-api.md` |
+| `hermes serve`, Hermes Desktop | `docs/hermes-serve.md` |
+| Argo endpoints, `work` skill, personal vs work APIs | `docs/argo-surface.md` |
+| `agw research` / `web` / `podcast` / `hdx` / `otel`, WeatherOrb | `docs/agw-doors.md` |
+| Project narratives | `docs/project-narratives.md` |
+| Obsidian, KaraKeep, Wild Rift | `docs/second-brain.md` |
+| Upstream patches, `/hermes-update` | `docs/patches.md` |
+| Model, effort, context window, auxiliary lanes, `config.yaml` seats | `docs/model-context-reasoning.md` |
+| Herdr steering, factory read/file paths | `docs/agent-routing.md` |
+| Shell scripts under `pipefail` | `docs/shell-conventions.md` |
+| Adding or renaming a skill, editing cron prompts, deploy, verify, heartbeat | `docs/editing-and-deploy.md` |
 
-**Skill audit (2026-10-10, `docs/skills-audit.md`):** per-skill verdicts, usage evidence and the Hermes↔global wiring map. Upstream-bundled skills with no usage record are retired by `skills.disabled` in `config.yaml` (reversible; never deleted). `make skills-set-check` (in `make status`) asserts repo `skills/` (minus `HERMES_EXTERNAL_SKILLS`), live symlinks (into this repo or `$FACTORY_DIR/integrations/hermes/`) and `HERMES_SKILLS` are one set.
+`docs/agents-md-ledger.md` records where every section of the former 45 KB root file went.
 
-**Autonomous skill creation is off** (`skills.creation_nudge_interval: 0`); `skills.create_dir` points at `~/.hermes/skills-quarantine`, outside `external_dirs`, so anything Hermes writes anyway is neither live nor tracked until the owner promotes it here. Needs a gateway restart.
+## Repo work is filed, never done
 
-**A skill is durable only if symlinked from this repo.** `skills.external_dirs` satisfies the
-v0.16.0+ skill-trust check **and** protects a skill from the background self-improvement
-curator — a skill created ad hoc under `~/.hermes/skills/` has neither and gets silently
-rewritten by accretion. Detection is manual (`ls ~/.hermes/skills` against `HERMES_SKILLS`); the old `stray_skill` poll retired with the control plane. Full
-mechanism + adoption path: **`docs/symlinks-and-agents.md`**.
-
-**Host-level scripts** (user LaunchAgents, not symlinked): `hermes-liveness.sh` (300s, both liveness pushers run under `jobrun --timeout 270` with every call bounded, a failed check pushes `status=down&msg=<reason>`, except `gateway_state=draining` (planned restart: ping withheld, monitor not told down) — `docs/symlinks-and-agents.md`; gateway
-state + API server connected + the live pid belongs to launchd's job + the inference gateway answers and accepts Hermes' door token, via `scripts/inference-gateway-check.sh`, shared with `make verify`/`status`), `hermes-backup.sh` (daily
-03:00 — rsync to homelab, `mkdir`-lock against overlap), and the `hermes serve` pair —
-`hermes-serve-launch.sh` (KeepAlive) + `hermes-serve-liveness.sh` (300s), see *Hermes Desktop*
-below.
-`HERMES_PLISTS_RETIRED` unloads +
-removes labels this repo no longer installs — the two `hermes-webui{,-liveness}` labels sit there
-since the 2026-09-07 teardown of the third-party WebUI clone (not coming back; the serve pair torn
-down with it was restored 2026-10-15). `make status` grades every agent like
-dotfiles' doctor. Logs declared, never globbed, in `dotfiles/scripts/log-rotate.sh`.
-
-**Scheduled jobs are LaunchAgents, never macOS crontab** — a `crontab -` *write* needs Full
-Disk Access and hangs forever on the headless mini. Done 2026-08-02 — no hermes entries in
-`crontab -l`. All live `hermes cron` jobs (ids, schedules, delivery) + reasoning:
-**`docs/scheduled-jobs.md`**.
-
-**Per-repo agent skills** (`.claude/skills/`, committed, no symlink — Claude Code and OpenCode both load them): `/hermes-validate`
-(test routing, fix SOUL.md / SKILL.md) · `/hermes-update` (pull upstream, re-apply patches,
-restart gateway).
-
-## Repo work is filed — never done
-
-Hermes observes well and reads repos badly — an LLM with a `terminal` tool cannot use a
-repo's `AGENTS.md`/`CLAUDE.md`, `.claude/rules/` or `.claude/skills/`. So repo work is **filed,
-not done**: a GitHub issue (`capture`); the owner starts the work.
-Hermes does not land PRs, `gh pr merge`, or start a `claude` session.
-
-## Factory, Argo, herdr: one path each
+Hermes reads repos badly: an LLM with a `terminal` tool cannot use a repo's `AGENTS.md`, `.claude/rules/` or `.claude/skills/`. Repo work is filed as a GitHub issue (`capture`); the owner starts it. Hermes never lands PRs, runs `gh pr merge` or starts a `claude` session (`claude --bg`, `claude -p`). When Hermes did repo work anyway, fix the routing table in `SOUL.md`, never add a gate.
 
 | Need | Path |
 |-|-|
-| Read fleet / Issue / ask / health state ("how is X going", "what needs me", "what ran overnight", "any alerts") | `fleet` skill → `factory read overview|needs|flow|chain|issues|issue|asks|health|sessions|accounts|friction` (read-only token `FACTORY_READ_TOKEN` from `.env.tpl`; the server redacts IuRoot text under it) |
-| File agent work ("do X", "let an agent …") | `fleet` skill → `factory signal file` (`FACTORY_SIGNAL_TOKEN`, signal-only, `--from owner:hermes`) |
+| Read fleet / Issue / ask / health state | `fleet` skill, `factory read overview\|needs\|flow\|chain\|issues\|issue\|asks\|health\|sessions\|accounts\|friction` (read-only `FACTORY_READ_TOKEN`) |
+| File agent work ("do X", "let an agent …") | `fleet` skill, `factory signal file` (`FACTORY_SIGNAL_TOKEN`, `--from owner:hermes`) |
 | File a GitHub issue / todo | `capture` |
-| Personal data and service state (TickTick, Gmail, calendar, Docker, Kuma) | `argo-api` (not factory state) |
+| Personal data and service state (TickTick, Gmail, calendar, Docker, Kuma) | `argo-api` |
 | Steer an existing terminal | `herdr` skill (`hc`), only when the owner asks |
-| Notify the owner | cron jobs: `scripts/ntfy-publish.sh <topic>`; turns: the reply (Iris / CLI) |
-
-Hermes never reads the agw/rd agent lists or the Herdr pane list for fleet status, and never starts a `claude` session (`claude --bg` / `claude -p`).
-
-**No approval stack.** Config of `plugins:` is empty; `HERMES_PLUGINS` in the Makefile is empty.
-
-**Tests** (`~/.hermes/hermes-agent/venv/bin/python3`): `test_cron_allowlist.py`.
-
-**Hermes cron pre-run scripts** (run by `hermes-agent` before each run, not launchd):
-`briefing-context.py`/`briefing-coverage.py` feed the morning briefing (TickTick + GitHub
-coverage).
-`narratives-cron.py` is the same thin-loader shape for `project-narratives.py`.
-
-**`hermes cron create --script` rejects any substantial script** (`cron/lifecycle_guard.py`
-fails closed on an exhausted recursion budget) — keep entry points thin, logic in an imported
-module. Detail: **`docs/scheduled-jobs.md`**.
-
-## Herdr — steering existing terminals
-
-On the owner's explicit request Hermes may read and steer terminals that already exist, through the `herdr` skill
-(`skills/herdr/SKILL.md`): `hc ls|read|get`, `hc send`, `hc interrupt`, `hc wait` (herdr-core is the launchd service
-`com.jkrumm.herdr-core` on the mini). **Starting agent work is not part of it** — that is the `fleet` skill
-(`factory signal file`). Safety rules are the only gate (guidance, not command guards): never `hc server stop|restart`,
-`hc update` or `hc machine update` (one core serves every agent), never `hc send --force` (a `blocked` agent needs the
-owner), never `hc attach`. Hermes runs outside any terminal, so every `hc read|get|wait|interrupt` takes an explicit
-target; `hc read` is plain text (no `jq`); the terminal tool's 180 s timeout means `hc wait` stays below ~150 s.
-
-## Secrets — native `secrets.command` over the headless cache (v0.19.0+)
-
-No plaintext `~/.hermes/.env`, no launch wrapper. `config.yaml`:
-
-```yaml
-secrets:
-  command:
-    enabled: true
-    command: "{ <secrets-run export --env-file=$HOME/.hermes/.env.tpl | sed 's/^export //'>; <door token, below>; true; }"
-    helper_timeout_seconds: 15
-    override_existing: true
-```
-
-`secrets-run` is the dotfiles shim over the age-encrypted offline cache; `.env.tpl` stays the
-list of `KEY=op://vault/item/field` refs. The `sed` exists because `export` emits
-`export K='V'` while the bulk parser wants `K=V`. 0.29s for 29 refs (default budget 3s), and
-secrets resolve for **every** hermes invocation — gateway, CLI, cron.
-
-- **Not a 1Password ref: the door token, two names.** The `hermes=` line of the local
-  `~/.agent-workflows/data/door-tokens` opens the audio door (:7792) and the inference gateway
-  (:7794). The `command` reads it once into `t` and prints `AUDIO_DOOR_TOKEN` and
-  `ANTHROPIC_API_KEY` (`OPENAI_API_KEY` and the two `HERMES_CUSTOM_*` key names went with the
-  OpenAI leg, 2026-11-15). Write it `$t`, never `${t}`: config
-  loading expands `${...}` first. A chained `sed` cannot do this, the first substitution changes
-  the line the second one matches. A missing file leaves both unset (every model call and
-  TTS/STT 401), graded by `make status` ("door token"), and pinned by
-  `tests/test_gateway_provider.py`. Rotation: edit the file, restart the gateway **and**
-  `com.jkrumm.hermes-serve`.
-- **The gateway also renders `serve.env.tpl`** (second `secrets-run export` in the same command, fail-soft). Since v0.22.7 the gateway mounts the dashboard listener itself, and with `dashboard.public_url` set it exits at startup (`SystemExit: Refusing to bind dashboard…`, no log line — only a traceback from inside `start_gateway`) unless `HERMES_DASHBOARD_BASIC_AUTH_*` are in its env. A crash loop at "Stopping gateway..." 1 s after "Mounted plugin API routes" is this.
-- **Not `secrets.onepassword`**: it needs an interactive `op` session (hangs headless) or a
-  standing `OP_SERVICE_ACCOUNT_TOKEN` (a live credential on an always-on box). The sealed cache
-  is strictly stronger — its contents are the explicit `dotfiles-private/headless.refs` allowlist.
-- **Fail-soft, monitored.** The `command` source can't abort startup; it degrades to "no secrets
-  applied" + a warning. `hermes-liveness.sh` covers both halves — total failure via
-  `platforms.api_server.state == "connected"`, partial via `KEY=` count vs rendered count.
-- Manual check: `Command helper: applied 28 secrets` in `hermes gateway status` (23 refs + the 3 serve refs + the 2
-  door-token names), `✓ secrets (23 refs …)` from `make status`.
-- **Never run `hermes model` on the mini** — it writes a plaintext `~/.hermes/.env`
-  (`save_env_value`) that shadows the door-token names (`.env` wins over the secret scope); deleted 2026-09-07,
-  and `hermes-backup.sh` excludes it so a recreated one never reaches homelab.
-- **launchd works** — `ai.hermes.gateway` is genuinely supervised. The plist is stock (wraps
-  `venv/bin/python -m hermes_cli.main gateway run --external-supervisor` in
-  `hermes_cli.stderr_timestamp`), so `hermes gateway install` is a no-op; its `Bootstrap failed: 5`
-  output is noise — check `gateway status`.
-
-Rationale + what this replaced: **`docs/secrets-command.md`**.
-
-## Gateway HTTP Exposure (iris)
-
-The gateway runs an OpenAI-compatible HTTP API alongside the CLI and Desktop; **iris** (the voice and chat
-app on the mini) is its consumer. The argo dashboard chat was removed 2026-10-30 and its
-`tag:vps → tag:mac :8642` ACL grant with it. Four env vars (framework keys in
-`hermes_cli/config.py`), resolved at startup from `.env.tpl` via `secrets.command`:
-
-| Var | Value |
-|-|-|
-| `API_SERVER_ENABLED` / `API_SERVER_PORT` | `true` / `8642` — literals |
-| `API_SERVER_HOST` | the mini's Tailscale IP — **tailnet-only bind**, no LAN listener. `op://hermes/gateway/host` (never a literal in git) |
-| `API_SERVER_KEY` | bearer gating **every** request, even loopback. `op://hermes/gateway/api-server-key` (iris reads it as `HERMES_TOKEN`) |
-
-Rotate the key, then restart the gateway and iris. Mismatch = **401**; connection-refused = not
-bound to the host iris uses. Verify and rotation steps: **`docs/gateway-http-api.md`**.
-
-**Iris turns (Wave 21, 2026-11-04):** Iris no longer classifies voice memos — every memo except mode
-Transcribe goes to Hermes as a session turn whose per-turn `system_message` says "This turn comes from Iris…
-Load skill_view('iris')". `skills/iris/` decides (answer / `capture` / `obsidian` note / `herdr` tab prompt to an existing terminal / `fleet`: read fleet state, or file agent work via `factory signal file` when the memo says *start*) and
-ends the reply with one ```` ```iris ```` JSON block (`kind`, `headline` only) that Iris parses; legacy builds
-append `The owner picked: Journal.|Chat.|Tab.`. Brain notes are filed straight to their home (log entry, existing page, new `wiki/` note — the obsidian skill's
-*Filing a note*; vault-lint, then `scripts/brain-commit.sh`'s brain-sync lock); `skills/iris/scripts/iris-note.py` is the `Inbox/` path
-for journal reflections and memos with no clear home (journal frontmatter). SOUL.md has one routing row; CLI and Desktop unaffected.
-Tool events for Iris's `actions`: SSE `tool.started|completed|failed`, field `tool_name`. **`docs/gateway-http-api.md`**.
-
-## Hermes Desktop (`hermes serve`)
-
-**Owner decision 2026-10-15** (supersedes 2026-09-07's "Collie + Slack are the surfaces"): the
-surfaces are Hermes Desktop on the MacBook, the `:8642` API server (Iris) and the CLI (Slack was retired later, 2026-11); Collie
-stays as it is. Desktop cannot use `:8642` (no `/api/ws`) — it talks to `hermes serve`, a second
-always-on process beside the gateway: LaunchAgent `com.jkrumm.hermes-serve` (KeepAlive) on
-loopback `:9119`, behind the dotfiles Caddy door `hermes-api.test` ⇒
-`https://hermes-api.mini.jkrumm.com` (tailnet, `tag:devhost` only).
-
-- **Auth is upstream's basic provider**, gated because `config.yaml` sets `dashboard.public_url`
-  (a non-loopback public URL engages the gate despite the loopback bind; gate on + no provider =
-  serve exits). Credentials are `HERMES_DASHBOARD_BASIC_AUTH_{USERNAME,PASSWORD,SECRET}` from
-  `serve.env.tpl` → `op://mini/hermes-serve/*`; the launcher refuses (exit 78) below 3/3.
-- **Desktop connection:** remote, that URL, auth mode `oauth` (= "gated server", which covers the
-  password provider), sign in with the `op://mini/hermes-serve` username/password.
-- **Heartbeat** `com.jkrumm.hermes-serve-liveness` asserts `auth_required: true` and a 401 on an
-  unauthenticated `POST /api/auth/ws-ticket` before pinging `Hermes Serve - Push`.
-- **Patched modules load at serve start too** — after a `hermes update` restart both the gateway
-  and `launchctl kickstart -k gui/$(id -u)/com.jkrumm.hermes-serve`.
-
-Full design, verification recipe and failure modes: **`docs/hermes-serve.md`**.
-
-## Homelab API Integration
-
-Argo runs natively on the Mac mini (since 2026-10-30; the base URL `https://argo.jkrumm.com/api` is unchanged). **Known gap:** `/docker/vps/*` and the `dockerVps` part of `/summary` currently return an error (VPS Docker is not reachable from the mini); Argo's homelab Docker route reads the homelab socket-proxy.
-`skills/argo-api/SKILL.md` endpoint tables are regenerated from
-`https://argo.jkrumm.com/api/openapi/json` by the homelab `/docs` skill. The spec's **13 tags**
-split three ways: **personal** (`argo-api`) — Garmin Health, Strength, WalkingPad, Productivity,
-Infrastructure, External Data, Reading, Usage Tracking, System; **work** (`work` skill) — M365,
-Atlassian, GitLab; **not agent-facing** — AI Gateway (`/ai/v1/*`).
-`/reading/*` is the standalone `reading` skill. **API secret:** `op://common/api/SECRET`
-(account `tkrumm`), in `.env.tpl`.
-
-**`work` skill = read-only across M365/Confluence/GitLab, with one write exception: Jira**
-(create/update/transition/comment on Johannes's own tickets, Team=Prometheus auto-stamped —
-never Teams messages, mail, Confluence pages, MRs, or speaking for teammates). **Briefings carry
-exactly three work signals** — today's Outlook calendar, Jira sprint commitments, GitLab MRs
-needing action; everything else (chats, Confluence, WalkingPad, `/usage/*`) is ad-hoc only, never
-in briefings or the watchdog. Errors: `503 M365 not authenticated` → `bun m365:auth:prod` in
-`~/SourceRoot/argo`; `503` on `/gitlab/*`/`/atlassian/*` → PAT expired. Full taxonomy
-(garmin-health vs strength split, MR↔Jira linking): **`docs/argo-surface.md`**.
-
-## Research (`agw research`)
-
-Deep cited research is the platform's `research` workflow, used through `skills/agw-research/SKILL.md`
-via `terminal`: `AGW_CALLER=hermes agw research "<q>" [--depth quick|standard|deep] [--context …]
-[--follow-up <runId>] --format json`. It waits ~110 s (under the terminal tool's 180 s cap), then exits
-10 `pending` with the `runId`; `agw run wait <runId>` resumes. Result: `{runId, status, output:
-{report, citations[], sources[], unverified[], status ok|partial, warnings[], grounding}, cost}`.
-**Preferred path for substantive / factual / library-version questions** over built-in Tavily
-search, which stays for quick lookups.
-
-- **Auth:** none — `agw` reads its own config (`~/.config/agw/env`); `RESEARCH_API_KEY` left
-  `.env.tpl` when Hermes moved to `agw` (Wave 10). No host or key in this repo.
-- **Routing (SOUL.md):** "research X now" → `agw-research`; "remind me to research X later"
-  → `capture` → TickTick; book/novel discovery → `reading`.
-- **Named `agw-research`, not `research`** — upstream's bundled skill *category* dir
-  `~/.hermes/skills/research/` would collide with a top-level `research` symlink. Routing is by
-  description/tags, so "recherchier mal" still triggers it.
-
-## Web reading and vault questions (`agw web`, `agw brain`)
-
-`skills/agw-web/SKILL.md` is the reading half of agw: `agw web read <url> --ask "<q>" --format plain`
-for any public URL (fetch chain with a headed Chrome for bot walls, PDFs as text, a cheap model
-extracts the answer), `agw web youtube <url>` (transcript + metadata), `agw web docs <lib>` and
-`agw web package <registry> <name>` (library docs, live registry version). **Preferred over the
-built-in Tavily extract for every URL** — it names why a page is unreadable instead of failing
-silently. `agw brain "<question>"` (in `skills/obsidian/SKILL.md`) answers questions over the vault
-with cited note paths; `obsidian search` stays for finding a note, backlinks and tags.
-
-- **Auth:** none — `agw` reads its own config; callers prefix `AGW_CALLER=hermes`. No key in this repo.
-- **Routing (SOUL.md):** a URL/video to read now → `agw-web`; several sources cross-checked →
-  `agw-research`; keep a link for later → `karakeep` (a memo with a link and a question wants both).
-- **Left out on purpose:** `agw review`, `eval`, `check`, `factory-*` (no Hermes use), `agw image`
-  (one mention in `image-delivery`).
-- **Adding or changing a skill needs `make setup` and a gateway restart** (the skills index is
-  cached); `make deploy` does both.
-
-## WeatherOrb (MCP)
-
-`config.yaml` `mcp_servers.weatherorb` launches weatherorb's `packages/mcp` (stdio, Bun): six
-read-only tools (`mcp__weatherorb__weatherorb_{pointcast,probe,astro,surf,spots_search,spot}`)
-over the public `/v1` data API only. Its own key (`key:xm99s48mmee8`, account "Hermes") sits in
-`~/.config/weatherorb/mcp-key` (chmod 600, outside every repo, minted with weatherorb's account
-CLI); this public file holds only `${HOME}` paths. Loaded per process: a new `hermes chat` sees it,
-the gateway after a restart. Rotate: revoke the key, `create-key` a new one into the same file.
-
-## Observability triage (hyperdx)
-
-`skills/hyperdx/SKILL.md` gives Hermes an authenticated path into ClickStack instead of a browser
-login wall. HyperDX/ClickStack is **VPS-only** (`hyperdx.jkrumm.com`, Tailscale-only). Reads go
-through **`agw hdx query <tool> '<json>'`** (read-only, allow-listed ClickStack MCP tools; `agw hdx
-tools` / `guide` list them) and **`agw otel "<investigation>"`** for an open triage (a workflow that
-exits 10 like `agw research`); `agw` holds the HyperDX credential, so no key or MCP URL lives here.
-Raw `clickstack_sql` is CLI-only behind `agw hdx write … --commit` (not proven read-only, never granted
-to an agent), so the three live alerts are re-run by their own dashboard tile (`clickstack_get_alert` →
-`clickstack_query_tile`) and the follow-ups use `clickstack_table`. Escalation is `capture` → `gh issue create`
-in the owning repo (`vps` for a root cause inside Traefik/ClickStack config itself). No ClickHouse HTTP on the tailnet. `HYPERDX_AGENT_ACCESS_KEY` stays in
-`.env.tpl` only for the alert-as-code export flow (`skills/hyperdx/references/`); its host is in both
-allowlist patches (see *Local Modifications*).
-
-## Podcast generation (podcast)
-
-`skills/podcast/SKILL.md` turns notes into a long-form two-host German episode via **`agw podcast`**
-(the agent-workflows CLI, on the terminal tool's `PATH` — the gateway plist carries `~/.local/bin` and
-`/opt/homebrew/bin`) and publishes the MP3 (chapters + cover) into Audiobookshelf. Submit-and-wait like
-`agw-research`, **not** a single `/v1/audio/speech` call like `briefing-tts`: `agw podcast … --format json`
-exits 10 with the `runId` after ~110 s, `agw run wait <runId>` is called again until exit 0, `agw
-podcast-publish <runId> --commit` repeats only the upload. **No secret in this repo** — `agw` reads its own
-config (`~/.config/agw/env`). SOUL.md's TTS rule 4 ("NEVER curl an audio
-endpoint") exempts `agw podcast` — there is no native tool for this pipeline.
-
-## agw transport
-
-`project-narratives.py` and `prose.py` reach
-the platform only through `scripts/agw_run.py` (shells out to `agw … --format json`, `AGW_CALLER=hermes`,
-no credential, no base-URL env knob). A run that outlives the CLI's wait budget exits 10; `agw_run.run`
-resumes it with `agw run wait <runId>` and prints a progress line to stderr per resume (the cron
-idle-output watchdog's liveness signal).
-
-## Project narratives (project-narratives)
-
-Daily vault pages, one per active repo, written by the `agw narrative` workflow
-into `wiki/engineering/projects/<project>.md` — what
-a project is, where it stands, how it got there. Less is more: a project with
-no substantive change gets no revision and no mention, gated by a pure
-`needs_revision()` (HEAD moved or a newer Claude Code transcript) before any
-model call. `scripts/project-narratives.py --run` is the cron entry (job `9909f808fe17`, daily 06:30,
-via `narratives-cron.py`); `--bootstrap a,b,c` writes for human review without committing. It
-takes brain-sync's `mkdir` lock around add/commit, pushes (fail-soft), and POSTs each written
-page to Argo `/api/agents/narratives` on loopback (`http://127.0.0.1:7737/api`, the native Argo; override `HERMES_NARRATIVE_ARGO_BASE`; best-effort, a 404 is non-fatal).
-Every commit names the vault (`git -C ~/SourceRoot/brain …`). **`docs/project-narratives.md`**.
-
-## Second Brain (Obsidian + KaraKeep)
-
-Two skills, deliberately distinct roles — don't blur them:
-
-- **`obsidian`** — the **source of truth**: read/search/write the PARA vault at
-  `~/SourceRoot/brain/`, also a git repo shared with Claude Code (`/brain`). A LaunchAgent
-  pulls+pushes every 5 min; **on this mini it never auto-commits, so a write isn't durable until
-  committed**. **CLI-first** (`obsidian-cli` through the running app's API), filesystem fallback
-  when Obsidian is down. No secret. Two layers: strict atomic English concept notes in `wiki/`,
-  light curated `Projects`/`Areas` linking *down* into it. Contract: `~/SourceRoot/brain/AGENTS.md`.
-- **`karakeep`** — the **read-later bucket**: REST on `https://karakeep.jkrumm.com/api/v1`
-  (Bearer `$KARAKEEP_API_KEY`, Tailscale-only). Links/text, full-text search, lists, tags,
-  highlights, async AI auto-tagging.
-
-**Routing** (`capture` is the router): KaraKeep = reference/reading you consume · Obsidian =
-durable knowledge you author · TickTick = human action · GitHub = code change.
-
-**Bundled-skill collision:** upstream's stock `obsidian` skill was removed from
-`~/.hermes/skills/note-taking/obsidian/` so ours is canonical, and it **re-seeds on `hermes
-update`** — `/hermes-update` carries the `rm -rf` step. **Kobo/e-reader (not built):** reading
-vault notes on the Kobo via KOReader would use Readeck (bidirectional highlight sync via
-`iceyear/readeck.koplugin`), not KaraKeep (save-only) or Wallabag (no sync-back) — a homelab
-container + a new `readeck` skill pushing curated content and pulling highlights back, nothing
-scheduled.
-
-## Wild Rift (champion pool tracker)
-
-`skills/wildrift/SKILL.md` maintains the **eleven-champion pool** across jungle, support, mid and
-baron. **Vault-first:** builds, runes, matchups, bans and a dated stats snapshot live at
-`~/SourceRoot/brain/Areas/Gaming/Wild Rift/*.md` (curated surface, not `wiki/`); the open web
-via `agw-research` only *refreshes* a note when a patch moved. No secret, no external API.
-Writes use the `obsidian` CLI-first contract and `git -C ~/SourceRoot/brain …`
-(never push — the LaunchAgent syncs).
-
-**Web facts go through `agw-research`** — build sites are JS-heavy and contradict each
-other; the gateway cross-verifies. **Stats are China-server only**
-and swing hard by rank tier (0-4 — Hecarim ~45% WR at tier 0 vs ~53.7% at tier 4): qualify every
-answer by rank. An Argo `/wildrift/*` group is **built but not deployed**; the skill tells the
-agent not to call it.
-
-## Local Modifications to Upstream
-
-Re-apply after `hermes update`: **one `.patch` file per patched upstream file**, each with `git
-apply --3way` (`/hermes-update` carries the loop). `ls patches/` is the count, `make patch-check`
-proves they are applied — deliberately not restated here (it drifted repeatedly). Baseline
-**v0.23.2** (`stable` channel), upstream `ae2a81ccc0` (2026-11-17).
-
-**2026-09-07 — every patch moved file.** Upstream landed 5503 commits in six days under an
-unchanged version number, splitting every monolith apart. The **patch names are unchanged**
-(identifiers cited by `# LOCAL MODIFICATION (patches/<name>.patch)` markers), so three now name a
-file they no longer touch — read the table's left column, not the patch name.
-
-| Upstream file | `patches/…` | What it does |
-|-|-|-|
-| `tools/tts_tool_openai.py` + `tools/tts_tool.py` | `tts-tool-audio-title` | name saved audio from the gateway's `X-Audio-Title` header instead of `tts_<timestamp>.mp3` |
-| `hermes_cli/web_routers/audio.py` | `serve-speak-summary` | Desktop relay read-aloud summarization in `hermes serve`. **Active again** since serve was restored 2026-10-15 (dormant 2026-09-07 → 2026-10-15) |
-| `cron/prompt_scan.py` | `cronjob-tools-allowlist-argo-bearer` | argo/karakeep/hyperdx bearer allowlist plus the loopback audio door (`127.0.0.1:7792`, exact authority) so a legitimate cron curl stops tripping `exfil_curl_auth_header` |
-| `gateway/run_bootstrap.py` | `gateway-start-predecessor-grace` | non-`--replace` startup (launchd KeepAlive) gets a 20s/1s poll grace for a still-dying predecessor PID before refusing — continues (clearing stale PID/lock like `--replace` does) if it exits, refuses as before if it doesn't. Never signals the target |
-| `tools/skill_manager_tool.py` | `skill-manager-colon-hint` | `_validate_frontmatter` stays fail-closed on a YAML `ScannerError`, but appends a hint when the message is "mapping values are not allowed here" — an unquoted `key: value: with-a-colon` description |
-| `tools/checkpoint_manager.py` | `checkpoint-store-integrity` | three fixes in the shared shadow store, one file: (1) the staging `git add -A` (upstream's `_stage_with_oversize_preflight` in `_take()`, `_stage_all` in the two diff callers) retries once on **any** transient failure — a stale gitlink (drop the dead gitlinks, `update-index --force-remove`) *and* a file deleted mid-walk by another process (`unable to stat …: No such file or directory`, the Claude Code scratch race); (2) ~~exclude refresh and drop of already-tracked excluded paths~~ retired at v0.23.1 — upstream's `_write_default_excludes` and `_unstage_excluded` do it; the patch keeps only the `claude-501/` entry in `DEFAULT_EXCLUDES` (Claude Code scratch under `/tmp` once sat at 1925 tracked paths / ~32 MB in the `/tmp` ref); (3) ~~store lock~~ retired at v0.21.6+669 — upstream's `checkpoint_pruning.store_lock` (cross-process `flock` around snapshot/diff/restore/gc) covers both the gc-vs-snapshot and the cross-process `indexes/<hash>.lock` race; (4) the logged stderr keeps its first line verbatim but is summarized, and the retry quotes the real cause — `add -A` prints advice before the error, so a commitless nested repo was filed as an innocent `Füge eingebettetes Repository hinzu: …` |
-
-Re-apply: `cd ~/.hermes/hermes-agent && git apply ~/SourceRoot/hermes-agent/patches/<name>.patch`.
-**Retired 2026-11-17 (v0.23.2):** `gateway-auto-tts-voice-only` — upstream grew `voice.auto_tts_mode: voice_only` (same rule, adapter-wide); `config.yaml` sets it. `docs/patches.md`.
-**Retired 2026-11-15 (Hermes is Claude-only):** `runtime-provider-iu-responses-api`,
-`transport-iu-reasoning-effort`, `utils-max-completion-tokens-gpt6` existed only for GPT on IU's
-OpenAI leg — reasons and the restore path in `docs/patches.md`.
-**Anything touching `cron/prompt_scan.py`, `runtime_provider.py`,
-`agent/transports/chat_completions.py`, `utils.py`, `gateway/run_bootstrap.py` or
-`config.yaml` needs a gateway restart** (`launchctl kickstart -k gui/$(id -u)/ai.hermes.gateway`)
-— modules are imported once at startup and `config.yaml` is read at startup too: a running
-process serves whatever model/patch state it started with, regardless of what `config.yaml` or
-these patched files say on disk. The 2026-10-08 brain switch (Haiku 5.5 on
-`anthropic_messages`) was live only after the gateway restart that day.
-
-**No approval prompts, no command guards (owner decision 2026-09-14) — do not re-add either.**
-Hermes runs like Claude Code with `--dangerously-skip-permissions` and is steered by
-**guidance, not gates**: SOUL.md *How you get things done* + the skills. `approvals.mode: 'off'`
-(`smart` turned flagged commands into approval prompts that stalled the turn 300 s and
-failed closed), cron/`-q`/unattended `approve`, `security.protected_instruction_files: false`
-(the `security.tirith_*` keys are gone — upstream removed the bundled tirith scanner, config v50). The local `tirith-hermes-guards` patch
-(pipeline allowlist, `download_then_execute`, `raw_agent_invocation`, `raw_repo_write`) was
-**deleted** with its tests — it produced friction and silent lane substitutions, not safety.
-Still blocking: upstream's hardline floor, the gateway-self-restart block, three irreversible
-`approvals.deny` globs. `make
-status` grades the config. **When Hermes does the wrong thing, fix SOUL.md or the skill** — make
-the guidance clearer; never answer with a new block.
-
-Per-file detail, every retired patch and why, the v0.18.x platform rewrite: **`docs/patches.md`**.
-
-## Model, context window and reasoning effort
-
-Numbers are **probed against the live IU endpoint**, not read off a model card — every
-published source disagrees in some direction. Re-probe after an endpoint change.
-
-| | Value | How established |
-|-|-|-|
-| Brain, `claude-haiku-5-5` (2026-11-04) | gateway `/anthropic` leg, `anthropic_messages`, `high`; `model.provider: gateway-anthropic` | modelpick bench: `high` 15/15 ~1.6 s (route tier EASY); `xhigh`/`max` think 50–100 s+. The gateway spends the Claude subscription credit pools first, IU's `/anthropic` only when none has credit. Revert to DeepSeek: the `chat_completions` block in 27c79af |
-| Seats | `agw routes` `hermes.{brain,compress,title,approval,vision}` | config.yaml carries them as literals; **`make seats-check`** (in `make check` and `make status`) fails when model, effort, `api_mode` or base URL drift from the route table. A tier change in agw = edit config.yaml + restart. The routes' GPT `fallback` field is ignored on purpose |
-| Former brains | Haiku 5.5 EU on IU direct (2026-10-08 → 10-20); `deepseek-v4.1-flash` (2026-10-20 → 11-04) | DeepSeek: 15/15 at every effort, 1.0 M window, `/responses` 404s — `chat_completions` is its only wire |
-| Pricing line | **100k input tokens** | Haiku 5.5 bills the *whole request* at 5x above it (`agw routes`, `longPromptTokens`). **Accepted by the owner (2026-11-04)**: long threads cost more and that is fine, so compaction is late (650k), not under the line |
-| Context, Haiku 5.5 | 1,000,000 (pinned) | the gateway's `/models` advertises 200k; the pin wins, `agent.context_pin` logs a harmless warning per run |
-| Efforts, Anthropic leg | `none, low, medium, high` | `xhigh` refused by the IU LiteLLM gateway |
-
-**Every model call goes through the local inference gateway** (`127.0.0.1:7794`, agent-workflows):
-`ANTHROPIC_BASE_URL` is its `/anthropic`, the key is the door token. Spec:
-`agent-workflows/docs/gateway.md`. **Hermes is Claude-only (owner decision 2026-11-15):** the brain,
-`compression` (agw's `cheap.summarize`), `title_generation` (`cheap.title`, effort `none`), `approval`
-and `vision` (Haiku 5.5, `none`) all run on the Anthropic leg, so the credit pools pay, and the gateway
-itself falls back to IU's `/anthropic` when no pool has credit (agent-workflows `docs/gateway.md`
-§Picking a pool). There is no GPT failover: IU's OpenAI and Anthropic paths share one personal key
-and cap, so it added no budget, only coverage of "IU Claude down, IU GPT up". The leg needs a
-`session_affinity_header: x-agw-session` entry (`providers.gateway-anthropic`): the
-lookup is by route URL, so a leg without an entry would send no session — the gateway binds a
-session to one credit org, and **prompt caches are per org**, so no session means no cache.
-Byte-exact passthrough: the `cache_control` markers Hermes sets are the cache. `prompt_caching.cache_ttl: auto` =
-1h for human-paced sources (Iris, CLI, desktop), 5m for cron/api. Verify in `agent.log`:
-`cache=N/M (100%)` from the second call on. **Select the leg by `model.provider`
-(`gateway-anthropic`), not `model.base_url`**; the native leg returns `msg_` ids (`chatcmpl-` ids
-would mean the chat-completions shim).
-
-**`model.api_mode: anthropic_messages` carries the effort** through upstream's `_thinking_kwargs`
-(Haiku 5.5+ is adaptive; `_is_pre_thinking_haiku` is false) — no local patch. There is no
-Hermes-side fallback: a 402/5xx from the gateway is a turn error, not a failover.
-- **`agent.log` is not rotated per process** — slice every read at the current process start
-  (`pgrep -f "hermes_cli.main gateway run"` → `ps -o lstart=`). `skills/hermes-gateway/` owns
-  this. **Hermes may not restart its own gateway.**
-- **The live key is `agent.reasoning_effort`, not `model.reasoning_effort`** (the latter was a
-  dead, never-read mirror and has been removed from `config.yaml`).
-- **Compaction triggers at 650,000 tokens** (absolute, ratio 0.65 of the 1M pin agrees; the *lower* of the two governs). Owner decision 2026-11-04 — an earlier 90k guess to stay under Haiku's 100k 5x line cut threads short and was reverted. Above 100k each request bills at 5x; prompt caching (reads at 0.1x of the base rate) keeps that bounded. Compaction invalidates the cached prefix once per compaction.
-
-**Auxiliary lanes are separately routed, not the brain** — all on the Anthropic leg, `provider`
-`custom` so the auxiliary client never reaches for `~/.claude` OAuth: `compression` (Haiku 5.5
-`high`), `title_generation` (Haiku 5.5 `none`; the CLI exits before the async title lands, the
-gateway does not), `approval` (Haiku 5.5; 0.9 s native vs 3.0 s through the OpenAI shim; Haiku 4.5
-approved `rm -rf ~/SourceRoot` in a probe, 5.5 denied it) and `vision` (Haiku 5.5 `none`; Sonnet 5.5 `medium` until 2026-11-16).
-`auxiliary.web_extract` and `auxiliary.session_search` are gone — upstream stopped reading them
-(`config_defaults.py`: "no longer use an auxiliary LLM... ignored"), so the blocks were dead
-weight. **`delegation.*` (subagent routing) exists but is unused** — a Hermes child gets no
-`.claude/rules`/`skills`/PR artifact, so repo work stays filed as issues. **Core-tool
-deferral is on** (`tools.tool_search.enabled: auto`) — measured −19.8% off the cached tool prefix
-every turn; if Hermes ever claims it can't schedule something, check `cronjob_manage` isn't
-wrongly deferred rather than disabling the feature.
-
-Full numbers, lane rationale, deferral measurement: **`docs/model-context-reasoning.md`**.
-
-## Shell script conventions
-
-**Under `set -euo pipefail`, any `$(producer | head -c N)` substitution dies with SIGPIPE (141)
-once `producer` exceeds `N` bytes** — `head` closes the pipe, `pipefail` makes the substitution
-non-zero, `set -e` ends the script, and the crash happens before the first `echo` so there is no
-log line. Guard **inside** the substitution: `$(git diff --cached | head -c 20000 || true)`. Any
-new script piping an unbounded producer into `head -c`/`tail -c` under `pipefail` needs it.
-The incident it came from: **`docs/shell-conventions.md`**.
-
-## Setup
-
-```bash
-make setup        # idempotent — symlinks, LaunchAgents, CC skills
-make status       # verify all of it
-make patch-check  # assert every patches/*.patch is applied to the live checkout
-```
-
-Prerequisites: `hermes` CLI installed, the audio door up (`curl http://127.0.0.1:7792/health`), 1Password CLI authenticated as
-`tkrumm`. `make help` lists the rest.
-
-## Editing Rules
-
-**Adding a Hermes skill:** create `skills/{name}/SKILL.md`, add `{name}` to `HERMES_SKILLS`, run
-`make setup`, then **restart the gateway** — the skills-index system prompt is cached
-**in-process** and nothing but a restart or `skill_manager_tool` clears it, so `hermes skills
-list` shows a new skill the running gateway still can't see.
-
-**Renaming or retiring a skill fails silently** — a cron job preloads skills *by name*, an
-unresolvable one logs `skill not found, skipping` at WARNING and the job still reports `ok`.
-`make status` asserts every skill in `~/.hermes/cron/jobs.json` resolves — run it after any
-rename.
-
-**`cron/jobs.json` is gitignored runtime state carrying its own copy of the prompt** — editing
-`cron/*.prompt.txt` alone changes nothing at runtime. Push through the CLI:
-`hermes cron edit <job_id> --prompt "$(cat cron/morning-briefing.prompt.txt)" --skill a --skill b`
-(`--clear-skills` applied after `--skill` wins — pass `--skill` alone to replace a set).
-`hermes cron run <job_id>` has **no dry-run and delivers for real** — retarget first
-(`--deliver local`), then restore. Detail: **`docs/scheduled-jobs.md`**.
-
-**Adding a CC slash command:** create `.claude/skills/{name}/SKILL.md` — auto-loaded here, no
-symlink or Makefile change. **Patches:** save the diff under `patches/`, add a table row in
-*Local Modifications*, put per-file detail in `docs/patches.md`.
-
-## Validate
-
-`make check` — shell syntax (`scripts/*.sh`), `compileall`, `make patch-check`, and every
-`tests/test_*.py` run as a script under the Hermes venv (they are standalone, not pytest).
-No side effects; non-zero on failure. `tests/test_checkpoint_store_excludes.py` is **not** in
-it — its gc / cross-process-lock cases fail intermittently on a clean tree (timing); run it
-with `make test-checkpoint` and read the failures before blaming a change.
-
-## Deploy
-
-`make deploy` — the checkout *is* the live config (symlinked into `~/.hermes`), so deploy =
-`make setup` + `launchctl kickstart -k` of `ai.hermes.gateway` **and** `com.jkrumm.hermes-serve` + `make verify`
-(retried ~1 min while the API server reconnects). On failure it rolls back to `HEAD~1` (detached,
-clean tree only), repeats, and exits non-zero either way; return with `git switch master`.
-It restarts the gateway, which drops in-flight turns — and **Hermes itself may never run
-it** (it may not restart its own gateway). Edits to `SOUL.md` and skills need no deploy
-beyond the skills-index restart noted in *Editing Rules*.
-
-## Verify & Monitor
-
-**Factory manifest:** `project.yaml` (software-factory `docs/design.md` §9) — `deploy.mode make`, target `mini`
-verified by `make verify`, 5m hold, ship by push. `make version` prints the checkout's HEAD sha (the checkout is
-the live config), which the factory compares with the shipped commit.
-- **Weekly hygiene probes** (`hygiene.probes` in `project.yaml`, run by the factory, not a LaunchAgent): `upstream` =
-  **`make upstream-check`** (installed `hermes --version` vs the newest stable upstream tag — canary, rc, abandoned and
-  date tags excluded; prints installed / latest / commits behind; exit 0 current, 1 behind with a last line naming the
-  `/hermes-update` skill, 2 could not tell) and `live` = `make verify`. Read-only: the lead that takes a finding runs
-  `/hermes-update` and `make deploy`. `docs/scheduled-jobs.md` §Weekly hygiene probes.
-
-- **`make verify`** — gateway pid alive, `gateway_state.json` api_server
-  `connected`, API `/health` 200 on the tailnet bind (`op://hermes/gateway/host`), the inference gateway (`:7794`) healthy and accepting the door token, `hermes serve`
-  answering on `:9119` **and gated** (`auth_required`, unauthenticated ws-ticket 401), all patches
-  applied. Exit 0 = healthy.
-- **Heartbeat:** `hermes-liveness.sh` (300 s LaunchAgent) pushes the Uptime Kuma push monitor
-  at `op://hermes/uptime-kuma/agent-push-url`; the backup job has its own
-  (`backup-push-url`). A red heartbeat means the gateway, the API server or the secret cache is down.
-  Both liveness scripts try the success push three times and then exit 75 (EX_TEMPFAIL): the check
-  ran, Kuma was not reached; jobrun-grade reports it as "undelivered", not as the job failing.
-  Skips that tell Kuma `down` stay exit 0; an unresolvable push URL stays a real failure.
-- **OTel:** none — Hermes emits no traces; `service.name` does not apply.
-- **`make logs`** — bounded tail of `gateway.error.log`, `errors.log`, `agent.log`
-  (`~/.hermes/logs/`). Slice `agent.log` at the current process start (see *Model, context
-  window and reasoning effort*).
-
-## Gotchas
-
-- **Gateway restart is the owner's** (and `make deploy`'s). Changes to `config.yaml`,
-  patched upstream files or `SOUL.md`'s cached prompt are not live until it.
-- **API sessions are keyed by the first message.** Re-sending an identical test prompt to
-  `/v1/chat/completions` resumes the previous session (and its still-running turn) — reword it.
-  A smoke that files real work (`capture`) opens a real GitHub issue; close it.
-- **Repo work is filed, never done in the repo** — a model told only "you can run
-  anything" debugged a flaky gateway test in the live checkout itself (Wave 3 smoke,
-  2026-10-04). The routing table in `SOUL.md` is the control; fix wording there, not with a gate.
-- Gotchas with their own incident write-up live in the sections above (SIGPIPE under
-  `pipefail`, `cron/jobs.json` carrying its own prompt copy).
+| Notify the owner | cron: `scripts/ntfy-publish.sh <topic>`; turns: the reply |
+
+Hermes never reads the agw/rd agent lists or the Herdr pane list for fleet status. Herdr safety: never `hc server stop|restart`, `hc update`, `hc machine update`, `hc send --force` or `hc attach`; every `hc read|get|wait|interrupt` takes an explicit target; keep `hc wait` under ~150 s (terminal tool cap 180 s). No approval stack: `plugins:` and `HERMES_PLUGINS` are empty.
+
+## Traps that every change meets
+
+- **Gateway restart is the owner's and `make deploy`'s; Hermes may not restart its own gateway.** `config.yaml`, `SOUL.md`'s cached prompt and any patched upstream file (`cron/prompt_scan.py`, `runtime_provider.py`, `agent/transports/chat_completions.py`, `utils.py`, `gateway/run_bootstrap.py`) are not live until `launchctl kickstart -k gui/$(id -u)/ai.hermes.gateway`. After a `hermes update`, restart `com.jkrumm.hermes-serve` too.
+- **No approval prompts, no command guards (owner decision 2026-09-14): do not re-add either.** Steer by guidance in `SOUL.md` and the skills. `approvals.mode` is `off`; when Hermes does the wrong thing, make the guidance clearer.
+- **Never run `hermes model` on the mini.** It writes a plaintext `~/.hermes/.env` that shadows the door-token names. In `secrets.command`, write the door token as `$t`, never `${t}` (config loading expands `${...}` first). Rotating it means editing `~/.agent-workflows/data/door-tokens`, then restarting the gateway **and** `com.jkrumm.hermes-serve`. Rotating `API_SERVER_KEY` means restarting the gateway and iris.
+- **Scheduled jobs are LaunchAgents, never macOS crontab:** a `crontab -` write needs Full Disk Access and hangs forever on the headless mini. `hermes cron create --script` rejects any substantial script: keep entry points thin, logic in an imported module.
+- **`cron/jobs.json` is gitignored runtime state with its own copy of the prompt.** Editing `cron/*.prompt.txt` changes nothing at runtime; push with `hermes cron edit <job_id> --prompt "$(cat …)" --skill a --skill b`. `hermes cron run` has no dry-run and delivers for real: retarget with `--deliver local` first.
+- **A skill is durable only if symlinked from this repo.** `HERMES_SKILLS` in the Makefile is the source of truth; `fleet` is linked from the factory checkout (`HERMES_EXTERNAL_SKILLS`). A new skill needs `make setup` and a gateway restart (the skills index is cached in-process); a new plugin also needs `hermes plugins enable <name>`. Renaming or retiring a skill fails silently in cron (`skill not found, skipping`, job still `ok`): run `make status` after any rename.
+- **Under `set -euo pipefail`, `$(producer | head -c N)` dies with SIGPIPE (141).** Write `$(… | head -c N || true)`.
+- **Model facts are probed, and the route table owns them.** `make seats-check` (in `make check`) fails when `config.yaml` drifts from `agw routes`; a tier change in agw means editing `config.yaml` plus a restart. Hermes is Claude-only; every call goes through the local inference gateway (`127.0.0.1:7794`). The live effort key is `agent.reasoning_effort`. Compaction triggers at 650,000 tokens (owner decision 2026-11-04). Slice `agent.log` at the current process start; it is not rotated per process.
+- **Argo is the personal and work API.** The `work` skill is read-only across M365, Confluence and GitLab, with Jira as the one write exception. Briefings carry exactly three work signals: today's calendar, Jira sprint commitments, GitLab MRs needing action.
+- **agw reads its own config; callers set `AGW_CALLER=hermes`.** `agw research`, `agw podcast` and `agw otel` exit 10 `pending` after ~110 s: resume with `agw run wait <runId>`.
+- **API sessions are keyed by the first message:** an identical test prompt to `/v1/chat/completions` resumes the old session, so reword it. A smoke that files real work (`capture`) opens a real issue; close it.
+
+## Local modifications to upstream
+
+One `.patch` per patched upstream file in `patches/`; `ls patches/` is the count and `make patch-check` proves they are applied, so never restate the number. Re-apply after `hermes update`: `cd ~/.hermes/hermes-agent && git apply ~/SourceRoot/hermes-agent/patches/<name>.patch` (`/hermes-update` carries the loop). The table of patches, their purpose and every retirement is in `docs/patches.md`. Baseline v0.23.2, `stable` channel.
+
+## Validate and deploy
+
+- `make check`: shell syntax, `compileall`, `make patch-check`, `make seats-check` and every `tests/test_*.py` under the Hermes venv (standalone, not pytest). No side effects. `tests/test_checkpoint_store_excludes.py` is not in it (intermittent timing failures on a clean tree): run `make test-checkpoint` and read the failures before blaming a change.
+- `make setup` (idempotent symlinks and LaunchAgents), `make status`, `make verify` (exit 0 = healthy), `make logs`.
+- `make deploy` = `make setup` + restart of `ai.hermes.gateway` and `com.jkrumm.hermes-serve` + `make verify`. It drops in-flight turns, and Hermes itself may never run it. On failure it rolls back to `HEAD~1` (detached): return with `git switch master`. Edits to `SOUL.md` and skills need no deploy beyond the skills-index restart.
+- Factory manifest: `project.yaml`, `deploy.mode make`, verified by `make verify`, ship by push. `make version` prints the checkout's HEAD sha.
+- Per-repo agent skills in `.claude/skills/`: `/hermes-validate` (test routing, fix `SOUL.md` / `SKILL.md`), `/hermes-update` (pull upstream, re-apply patches, restart).
