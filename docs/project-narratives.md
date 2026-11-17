@@ -121,3 +121,18 @@ monkeypatched `subprocess.run` recording every git/node invocation. Run:
 ```bash
 ~/.hermes/hermes-agent/venv/bin/python3 tests/test_project_narratives.py
 ```
+
+<!-- MOVED-NARRATIVES: moved verbatim from the root AGENTS.md (Project narratives, 963 bytes) -->
+
+## Project narratives (project-narratives)
+
+Daily vault pages, one per active repo, written by the `agw narrative` workflow
+into `wiki/engineering/projects/<project>.md` — what
+a project is, where it stands, how it got there. Less is more: a project with
+no substantive change gets no revision and no mention, gated by a pure
+`needs_revision()` (HEAD moved or a newer Claude Code transcript) before any
+model call. `scripts/project-narratives.py --run` is the cron entry (job `9909f808fe17`, daily 06:30,
+via `narratives-cron.py`); `--bootstrap a,b,c` writes for human review without committing. It
+takes brain-sync's `mkdir` lock around add/commit, pushes (fail-soft), and POSTs each written
+page to Argo `/api/agents/narratives` on loopback (`http://127.0.0.1:7737/api`, the native Argo; override `HERMES_NARRATIVE_ARGO_BASE`; best-effort, a 404 is non-fatal).
+Every commit names the vault (`git -C ~/SourceRoot/brain …`). **`docs/project-narratives.md`**.

@@ -146,3 +146,14 @@ installed version from `hermes --version`, and compares it with the newest tag m
 line names the `/hermes-update` skill. It only reads and fetches: Hermes never restarts its own
 gateway, so the lead that takes the finding runs `/hermes-update` and `make deploy`.
 `tests/test_upstream_check.py` covers the exit codes against a throwaway upstream repo.
+
+<!-- MOVED-CRON-PRERUN: moved verbatim from the root AGENTS.md (Cron pre-run scripts, 502 bytes) -->
+
+**Hermes cron pre-run scripts** (run by `hermes-agent` before each run, not launchd):
+`briefing-context.py`/`briefing-coverage.py` feed the morning briefing (TickTick + GitHub
+coverage).
+`narratives-cron.py` is the same thin-loader shape for `project-narratives.py`.
+
+**`hermes cron create --script` rejects any substantial script** (`cron/lifecycle_guard.py`
+fails closed on an exhausted recursion budget) — keep entry points thin, logic in an imported
+module. Detail: **`docs/scheduled-jobs.md`**.

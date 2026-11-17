@@ -109,3 +109,60 @@ model server". Read on v0.22.2, and exercised against the live gateway through a
 | Managed llama.cpp (`conversation_loop.py:459`, `chat_completion_local.py`) | unchanged | Guarded by `is_managed_endpoint`, which is false |
 | Unexplained context rejection (`turn_overflow.py:413`) | **changed** | A "too large" error with no 4+ digit number, on a request under the window's rejection fraction, now fails the turn as retryable instead of compressing. Hermes assumes a busy local slot. Upstream errors normally quote the token count, which skips this branch |
 
+<!-- MOVED-MODEL: moved verbatim from the root AGENTS.md (Model, context window and reasoning effort, 5524 bytes) -->
+
+## Model, context window and reasoning effort
+
+Numbers are **probed against the live IU endpoint**, not read off a model card — every
+published source disagrees in some direction. Re-probe after an endpoint change.
+
+| | Value | How established |
+|-|-|-|
+| Brain, `claude-haiku-5-5` (2026-11-04) | gateway `/anthropic` leg, `anthropic_messages`, `high`; `model.provider: gateway-anthropic` | modelpick bench: `high` 15/15 ~1.6 s (route tier EASY); `xhigh`/`max` think 50–100 s+. The gateway spends the Claude subscription credit pools first, IU's `/anthropic` only when none has credit. Revert to DeepSeek: the `chat_completions` block in 27c79af |
+| Seats | `agw routes` `hermes.{brain,compress,title,approval,vision}` | config.yaml carries them as literals; **`make seats-check`** (in `make check` and `make status`) fails when model, effort, `api_mode` or base URL drift from the route table. A tier change in agw = edit config.yaml + restart. The routes' GPT `fallback` field is ignored on purpose |
+| Former brains | Haiku 5.5 EU on IU direct (2026-10-08 → 10-20); `deepseek-v4.1-flash` (2026-10-20 → 11-04) | DeepSeek: 15/15 at every effort, 1.0 M window, `/responses` 404s — `chat_completions` is its only wire |
+| Pricing line | **100k input tokens** | Haiku 5.5 bills the *whole request* at 5x above it (`agw routes`, `longPromptTokens`). **Accepted by the owner (2026-11-04)**: long threads cost more and that is fine, so compaction is late (650k), not under the line |
+| Context, Haiku 5.5 | 1,000,000 (pinned) | the gateway's `/models` advertises 200k; the pin wins, `agent.context_pin` logs a harmless warning per run |
+| Efforts, Anthropic leg | `none, low, medium, high` | `xhigh` refused by the IU LiteLLM gateway |
+
+**Every model call goes through the local inference gateway** (`127.0.0.1:7794`, agent-workflows):
+`ANTHROPIC_BASE_URL` is its `/anthropic`, the key is the door token. Spec:
+`agent-workflows/docs/gateway.md`. **Hermes is Claude-only (owner decision 2026-11-15):** the brain,
+`compression` (agw's `cheap.summarize`), `title_generation` (`cheap.title`, effort `none`), `approval`
+and `vision` (Haiku 5.5, `none`) all run on the Anthropic leg, so the credit pools pay, and the gateway
+itself falls back to IU's `/anthropic` when no pool has credit (agent-workflows `docs/gateway.md`
+§Picking a pool). There is no GPT failover: IU's OpenAI and Anthropic paths share one personal key
+and cap, so it added no budget, only coverage of "IU Claude down, IU GPT up". The leg needs a
+`session_affinity_header: x-agw-session` entry (`providers.gateway-anthropic`): the
+lookup is by route URL, so a leg without an entry would send no session — the gateway binds a
+session to one credit org, and **prompt caches are per org**, so no session means no cache.
+Byte-exact passthrough: the `cache_control` markers Hermes sets are the cache. `prompt_caching.cache_ttl: auto` =
+1h for human-paced sources (Iris, CLI, desktop), 5m for cron/api. Verify in `agent.log`:
+`cache=N/M (100%)` from the second call on. **Select the leg by `model.provider`
+(`gateway-anthropic`), not `model.base_url`**; the native leg returns `msg_` ids (`chatcmpl-` ids
+would mean the chat-completions shim).
+
+**`model.api_mode: anthropic_messages` carries the effort** through upstream's `_thinking_kwargs`
+(Haiku 5.5+ is adaptive; `_is_pre_thinking_haiku` is false) — no local patch. There is no
+Hermes-side fallback: a 402/5xx from the gateway is a turn error, not a failover.
+- **`agent.log` is not rotated per process** — slice every read at the current process start
+  (`pgrep -f "hermes_cli.main gateway run"` → `ps -o lstart=`). `skills/hermes-gateway/` owns
+  this. **Hermes may not restart its own gateway.**
+- **The live key is `agent.reasoning_effort`, not `model.reasoning_effort`** (the latter was a
+  dead, never-read mirror and has been removed from `config.yaml`).
+- **Compaction triggers at 650,000 tokens** (absolute, ratio 0.65 of the 1M pin agrees; the *lower* of the two governs). Owner decision 2026-11-04 — an earlier 90k guess to stay under Haiku's 100k 5x line cut threads short and was reverted. Above 100k each request bills at 5x; prompt caching (reads at 0.1x of the base rate) keeps that bounded. Compaction invalidates the cached prefix once per compaction.
+
+**Auxiliary lanes are separately routed, not the brain** — all on the Anthropic leg, `provider`
+`custom` so the auxiliary client never reaches for `~/.claude` OAuth: `compression` (Haiku 5.5
+`high`), `title_generation` (Haiku 5.5 `none`; the CLI exits before the async title lands, the
+gateway does not), `approval` (Haiku 5.5; 0.9 s native vs 3.0 s through the OpenAI shim; Haiku 4.5
+approved `rm -rf ~/SourceRoot` in a probe, 5.5 denied it) and `vision` (Haiku 5.5 `none`; Sonnet 5.5 `medium` until 2026-11-16).
+`auxiliary.web_extract` and `auxiliary.session_search` are gone — upstream stopped reading them
+(`config_defaults.py`: "no longer use an auxiliary LLM... ignored"), so the blocks were dead
+weight. **`delegation.*` (subagent routing) exists but is unused** — a Hermes child gets no
+`.claude/rules`/`skills`/PR artifact, so repo work stays filed as issues. **Core-tool
+deferral is on** (`tools.tool_search.enabled: auto`) — measured −19.8% off the cached tool prefix
+every turn; if Hermes ever claims it can't schedule something, check `cronjob_manage` isn't
+wrongly deferred rather than disabling the feature.
+
+Full numbers, lane rationale, deferral measurement: **`docs/model-context-reasoning.md`**.

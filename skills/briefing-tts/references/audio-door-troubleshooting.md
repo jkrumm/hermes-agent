@@ -65,4 +65,4 @@ grep -i agw-run-id /tmp/test.hdr
 ```
 
 No local TTS path exists to fall back to — the door is the only backend
-(see repo `AGENTS.md`'s audio section).
+(see `docs/audio-door.md`).

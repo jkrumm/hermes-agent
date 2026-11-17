@@ -111,3 +111,54 @@ Re-apply after `hermes update`: **one `.patch` file per patched upstream file** 
 - ~~`agent/chat_completion_helpers.py` — `stream-error-transient-openai-classes`~~ **retired at v0.22.7 (2026-11-04)**: upstream now lists `openai.APIConnectionError` itself; the remaining `openai.APITimeoutError` gap only touches the `chat_completions` streaming path, which now carries just the failover. If `hermes_log:*` cards for stream timeouts return, port the one-term change from git history (27c79af).
 
 - ~~`utils.py` — `utils-max-completion-tokens-gpt6`~~ **retired 2026-11-15 (Claude-only)**: it made `model_forces_max_completion_tokens` match `gpt-6` for the failover `gpt-6-luna`, the only OpenAI-leg model left. Restore from `git log -- patches/utils-max-completion-tokens-gpt6.patch`.
+
+<!-- MOVED-PATCHES: moved verbatim from the root AGENTS.md (Local modifications to upstream, 5583 bytes) -->
+
+## Local Modifications to Upstream
+
+Re-apply after `hermes update`: **one `.patch` file per patched upstream file**, each with `git
+apply --3way` (`/hermes-update` carries the loop). `ls patches/` is the count, `make patch-check`
+proves they are applied — deliberately not restated here (it drifted repeatedly). Baseline
+**v0.23.2** (`stable` channel), upstream `ae2a81ccc0` (2026-11-17).
+
+**2026-09-07 — every patch moved file.** Upstream landed 5503 commits in six days under an
+unchanged version number, splitting every monolith apart. The **patch names are unchanged**
+(identifiers cited by `# LOCAL MODIFICATION (patches/<name>.patch)` markers), so three now name a
+file they no longer touch — read the table's left column, not the patch name.
+
+| Upstream file | `patches/…` | What it does |
+|-|-|-|
+| `tools/tts_tool_openai.py` + `tools/tts_tool.py` | `tts-tool-audio-title` | name saved audio from the gateway's `X-Audio-Title` header instead of `tts_<timestamp>.mp3` |
+| `hermes_cli/web_routers/audio.py` | `serve-speak-summary` | Desktop relay read-aloud summarization in `hermes serve`. **Active again** since serve was restored 2026-10-15 (dormant 2026-09-07 → 2026-10-15) |
+| `cron/prompt_scan.py` | `cronjob-tools-allowlist-argo-bearer` | argo/karakeep/hyperdx bearer allowlist plus the loopback audio door (`127.0.0.1:7792`, exact authority) so a legitimate cron curl stops tripping `exfil_curl_auth_header` |
+| `gateway/run_bootstrap.py` | `gateway-start-predecessor-grace` | non-`--replace` startup (launchd KeepAlive) gets a 20s/1s poll grace for a still-dying predecessor PID before refusing — continues (clearing stale PID/lock like `--replace` does) if it exits, refuses as before if it doesn't. Never signals the target |
+| `tools/skill_manager_tool.py` | `skill-manager-colon-hint` | `_validate_frontmatter` stays fail-closed on a YAML `ScannerError`, but appends a hint when the message is "mapping values are not allowed here" — an unquoted `key: value: with-a-colon` description |
+| `tools/checkpoint_manager.py` | `checkpoint-store-integrity` | three fixes in the shared shadow store, one file: (1) the staging `git add -A` (upstream's `_stage_with_oversize_preflight` in `_take()`, `_stage_all` in the two diff callers) retries once on **any** transient failure — a stale gitlink (drop the dead gitlinks, `update-index --force-remove`) *and* a file deleted mid-walk by another process (`unable to stat …: No such file or directory`, the Claude Code scratch race); (2) ~~exclude refresh and drop of already-tracked excluded paths~~ retired at v0.23.1 — upstream's `_write_default_excludes` and `_unstage_excluded` do it; the patch keeps only the `claude-501/` entry in `DEFAULT_EXCLUDES` (Claude Code scratch under `/tmp` once sat at 1925 tracked paths / ~32 MB in the `/tmp` ref); (3) ~~store lock~~ retired at v0.21.6+669 — upstream's `checkpoint_pruning.store_lock` (cross-process `flock` around snapshot/diff/restore/gc) covers both the gc-vs-snapshot and the cross-process `indexes/<hash>.lock` race; (4) the logged stderr keeps its first line verbatim but is summarized, and the retry quotes the real cause — `add -A` prints advice before the error, so a commitless nested repo was filed as an innocent `Füge eingebettetes Repository hinzu: …` |
+
+Re-apply: `cd ~/.hermes/hermes-agent && git apply ~/SourceRoot/hermes-agent/patches/<name>.patch`.
+**Retired 2026-11-17 (v0.23.2):** `gateway-auto-tts-voice-only` — upstream grew `voice.auto_tts_mode: voice_only` (same rule, adapter-wide); `config.yaml` sets it. `docs/patches.md`.
+**Retired 2026-11-15 (Hermes is Claude-only):** `runtime-provider-iu-responses-api`,
+`transport-iu-reasoning-effort`, `utils-max-completion-tokens-gpt6` existed only for GPT on IU's
+OpenAI leg — reasons and the restore path in `docs/patches.md`.
+**Anything touching `cron/prompt_scan.py`, `runtime_provider.py`,
+`agent/transports/chat_completions.py`, `utils.py`, `gateway/run_bootstrap.py` or
+`config.yaml` needs a gateway restart** (`launchctl kickstart -k gui/$(id -u)/ai.hermes.gateway`)
+— modules are imported once at startup and `config.yaml` is read at startup too: a running
+process serves whatever model/patch state it started with, regardless of what `config.yaml` or
+these patched files say on disk. The 2026-10-08 brain switch (Haiku 5.5 on
+`anthropic_messages`) was live only after the gateway restart that day.
+
+**No approval prompts, no command guards (owner decision 2026-09-14) — do not re-add either.**
+Hermes runs like Claude Code with `--dangerously-skip-permissions` and is steered by
+**guidance, not gates**: SOUL.md *How you get things done* + the skills. `approvals.mode: 'off'`
+(`smart` turned flagged commands into approval prompts that stalled the turn 300 s and
+failed closed), cron/`-q`/unattended `approve`, `security.protected_instruction_files: false`
+(the `security.tirith_*` keys are gone — upstream removed the bundled tirith scanner, config v50). The local `tirith-hermes-guards` patch
+(pipeline allowlist, `download_then_execute`, `raw_agent_invocation`, `raw_repo_write`) was
+**deleted** with its tests — it produced friction and silent lane substitutions, not safety.
+Still blocking: upstream's hardline floor, the gateway-self-restart block, three irreversible
+`approvals.deny` globs. `make
+status` grades the config. **When Hermes does the wrong thing, fix SOUL.md or the skill** — make
+the guidance clearer; never answer with a new block.
+
+Per-file detail, every retired patch and why, the v0.18.x platform rewrite: **`docs/patches.md`**.

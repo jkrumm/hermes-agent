@@ -160,7 +160,7 @@ MEDIA:/Users/jkrumm/.hermes/cache/audio/filename.mp3
 ```
 The delivery system picks it up and attaches the MP3. (The native
 `text_to_speech` tool names its output from the door's `X-Audio-Title`
-header instead — see the repo `AGENTS.md`'s `tts-tool-audio-title.patch`
+header instead — see `docs/patches.md`'s `tts-tool-audio-title.patch`
 note. With the urllib pattern above you name the file yourself, per the
 conventions below, and can fall back to the header title for ad-hoc audio.)
 
