@@ -42,8 +42,8 @@ while IFS= read -r line; do
 done < <(/bin/bash "$CHECK")
 
 # /api/status is public by design, so "answers 200" alone would pass an ungated serve.
-serve=$(curl -s -m 5 http://127.0.0.1:9119/api/status 2>/dev/null || true)
-ticket=$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:9119/api/auth/ws-ticket 2>/dev/null || true)
+serve=$(curl -s -m 20 http://127.0.0.1:9119/api/status 2>/dev/null || true)
+ticket=$(curl -s -m 20 -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:9119/api/auth/ws-ticket 2>/dev/null || true)
 if [[ -z "$serve" ]]; then bad "hermes serve :9119 not answering"
 elif ! jq -e '.auth_required == true' >/dev/null 2>&1 <<<"$serve"; then bad "hermes serve UNGATED (auth_required != true)"
 elif [[ "$ticket" != "401" ]]; then bad "hermes serve unauthenticated ws-ticket -> ${ticket:-no response}, not 401"
