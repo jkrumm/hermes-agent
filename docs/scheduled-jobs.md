@@ -153,7 +153,3 @@ gateway, so the lead that takes the finding runs `/hermes-update` and `make depl
 `briefing-context.py`/`briefing-coverage.py` feed the morning briefing (TickTick + GitHub
 coverage).
 `narratives-cron.py` is the same thin-loader shape for `project-narratives.py`.
-
-**`hermes cron create --script` rejects any substantial script** (`cron/lifecycle_guard.py`
-fails closed on an exhausted recursion budget) — keep entry points thin, logic in an imported
-module. Detail: **`docs/scheduled-jobs.md`**.
