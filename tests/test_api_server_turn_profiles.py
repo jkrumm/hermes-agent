@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""The api_server turn-profile helpers (patches/api-server-turn-profiles.patch): the Iris system message
+"""The api_server turn-profile helpers (patches/api-server-turn-profiles.patch, wired in by
+patches/session-api-turn-profile-hook.patch): the Iris system message
 selects a profile, the iris skill is preloaded into the prompt, the preload is byte-identical across
 sessions (prompt cache), and the API admission still applies both the preload and the profile's effort.
 
@@ -65,6 +66,8 @@ check(other == {"ephemeral_system_prompt": "You are a helpful assistant.", "mode
 import inspect  # noqa: E402
 
 from gateway import session_api_turn  # noqa: E402
+
+check({"ephemeral_system_prompt", "model_options"} <= set(session_api_turn._SETTING_KEYS), "admission settings still carry the keys the profile edits")
 
 admit_src = inspect.getsource(session_api_turn.admit_api_steps)
 check(
