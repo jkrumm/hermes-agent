@@ -8,7 +8,7 @@ diagnosis from scratch for anything listed here.
 
 The alert posts themselves are not readable by Hermes any more (Kuma/HyperDX post to the
 ntfy topic `alerts`); the owner relays the text, or `hermes-ops.sh alerts` shows the
-factory's health and open asks.
+factory's health and what needs the owner.
 
 ---
 

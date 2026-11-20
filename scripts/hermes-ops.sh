@@ -663,30 +663,30 @@ for line in d.get("lines", []):
 PY
 }
 
-# The factory's current health lines and open asks, read through the `factory` CLI
-# (`factory read health` + `asks`, the /v1 read API). No fallback: when the CLI fails
+# The factory's current health lines and what waits on the owner, read through the `factory` CLI
+# (`factory read health` + `needs`, the /v1 read API). No fallback: when the CLI fails
 # its own error JSON is printed and this exits non-zero. n caps the lines per section.
 cmd_alerts() {
   local n="${1:-40}"
   valid_int "count" "$n"
-  AUDIT_TARGET="factory/health,asks"
+  AUDIT_TARGET="factory/health,needs"
   need factory
   need timeout
-  local fmt=plain health asks rc
+  local fmt=plain health needs rc
   [ "$JSON" = 1 ] && fmt=json
   health=$(timeout "$HTTP_TIMEOUT" factory read health --format "$fmt" 2>&1) \
     || { rc=$?; remote_err "factory read health failed (exit $rc): $health"; }
-  asks=$(timeout "$HTTP_TIMEOUT" factory read asks --format "$fmt" 2>&1) \
-    || { rc=$?; remote_err "factory read asks failed (exit $rc): $asks"; }
-  JSON="$JSON" N="$n" python3 - "$health" "$asks" <<'PY'
+  needs=$(timeout "$HTTP_TIMEOUT" factory read needs --format "$fmt" 2>&1) \
+    || { rc=$?; remote_err "factory read needs failed (exit $rc): $needs"; }
+  JSON="$JSON" N="$n" python3 - "$health" "$needs" <<'PY'
 import json, os, sys
-health, asks = sys.argv[1], sys.argv[2]
+health, needs = sys.argv[1], sys.argv[2]
 n = int(os.environ["N"])
 if os.environ["JSON"] == "1":
     print(json.dumps({"verb": "alerts", "ok": True, "tier": "A",
-                      "health": json.loads(health), "asks": json.loads(asks)}, indent=2))
+                      "health": json.loads(health), "needs": json.loads(needs)}, indent=2))
     sys.exit()
-for title, body in (("health", health), ("asks", asks)):
+for title, body in (("health", health), ("needs", needs)):
     lines = body.splitlines()
     print(f"== {title} ==")
     print("\n".join(lines[:n]) if lines else "(nothing open)")
@@ -1270,7 +1270,7 @@ TIER A — read-only, safe to allowlist (no --why, no --confirm)
   monitors [filter]             All monitors, name-filtered, with uptime1d/30d
   containers <host>             Container state/health/restart counts
   logs <host> <container> [n]   Container logs, default n=200
-  alerts [n]                    The factory's health lines + open asks (`factory read`), n lines each, default 40
+  alerts [n]                    The factory's health lines + what needs the owner (`factory read`), n lines each, default 40
   env-check                     `op run --env-file=.env.tpl -- true` on homelab + vps.
                                 One dangling 1Password ref breaks ALL three homelab
                                 crons and corrupts the next uk-sync. Check it first.

@@ -38,7 +38,7 @@ Hermes reads repos badly: an LLM with a `terminal` tool cannot use a repo's `AGE
 
 | Need | Path |
 |-|-|
-| Read fleet / Issue / ask / health state | `fleet` skill, `factory read overview\|needs\|flow\|chain\|issues\|issue\|asks\|health\|sessions\|accounts\|friction` (read-only `FACTORY_READ_TOKEN`) |
+| Read fleet / Issue / ask / health state | `fleet` skill, `factory read overview\|needs\|flow\|chain\|issues\|issue\|health\|sessions\|accounts\|friction` (read-only `FACTORY_READ_TOKEN`) |
 | File agent work ("do X", "let an agent …") | `fleet` skill, `factory signal file` (`FACTORY_SIGNAL_TOKEN`, `--from owner:hermes`) |
 | File a GitHub issue / todo | `capture` |
 | Personal data and service state (TickTick, Gmail, calendar, Docker, Kuma) | `argo-api` |

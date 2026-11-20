@@ -58,7 +58,7 @@ log lines) is `references/macos-host-pressure.md`.
 | `monitors [filter]` | Per-monitor state, name-filtered | `uptime1d`/`uptime30d` date the breakage: fresh outage ≈ 0.0x on 1d with a healthy 30d; `type=group` rows cascade from children and are symptoms |
 | `containers <host>` | Container state, health, restart count | A climbing `restarts` with `state=running` is a crash loop, not a healthy container |
 | `logs <host> <container> [n]` | What the container says (default n=200) | Find the OK→ERROR transition, not just the tail. Container clocks are +02:00; argo is UTC |
-| `alerts [n]` | The factory's current health lines and open asks (`factory read health` + `asks`) | Not past alert posts — Kuma/HyperDX posts are not readable any more. Timestamps are UTC |
+| `alerts [n]` | The factory's current health lines and what needs the owner (`factory read health` + `needs`) | Not past alert posts — Kuma/HyperDX posts are not readable any more. Timestamps are UTC |
 | `env-check` | "Can `op run` resolve every ref on homelab + vps?" | Failure lists the **dangling 1Password item names**. This is the single highest-leverage check in the fleet — see Traps |
 | `sync-drift` | "Is what's committed what's running?" | Read `inSync` on the `deployedTruth: true` rows. `ok:false` means the clone could not be probed — unknown, *not* clean |
 | `kuma-db <preset> [args]` | Fixed uptime-kuma DB reads, no free-form SQL | `monitor-config` (empty hostname / `http://:port/` = corruption fingerprint) · `heartbeats <id>` (last 25 beats; last `1`→first `0/2` dates the break) · `push-tokens` (prefix only) · `created-dates` (a monitor born mid-incident was hand-added) |

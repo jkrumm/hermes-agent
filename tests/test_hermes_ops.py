@@ -104,7 +104,7 @@ sys.stdout.write(body + "\\n" + status)
 sys.exit(0)
 """
 
-# `factory read health|asks` stub: OPS_TEST_FACTORY_EXIT != 0 prints the CLI's error JSON on stdout.
+# `factory read health|needs` stub: OPS_TEST_FACTORY_EXIT != 0 prints the CLI's error JSON on stdout.
 FAKE_FACTORY = """#!/usr/bin/env python3
 import json, os, sys
 
@@ -877,12 +877,12 @@ def test_alerts_reads_the_factory(h: Harness):
     proc = h.run(["alerts", "3"], env_extra={"OPS_TEST_FACTORY_LOG": str(log)})
     case("plain: exit 0", proc.returncode == 0, proc.stderr)
     case("plain: both sections, capped at n lines",
-         "== health ==" in proc.stdout and "== asks ==" in proc.stdout
+         "== health ==" in proc.stdout and "== needs ==" in proc.stdout
          and "health row 2" in proc.stdout and "health row 3" not in proc.stdout
          and "2 more line(s)" in proc.stdout, proc.stdout)
     calls = [json.loads(l) for l in _log_text(log).splitlines()]
-    case("plain: only health and asks are read",
-         calls == [["read", "health", "--format", "plain"], ["read", "asks", "--format", "plain"]], str(calls))
+    case("plain: only health and needs are read",
+         calls == [["read", "health", "--format", "plain"], ["read", "needs", "--format", "plain"]], str(calls))
     case("no Slack/argo read", "slack" not in _log_text(log).lower(), _log_text(log))
 
     proc = h.run(["alerts", "--json"])
@@ -890,7 +890,7 @@ def test_alerts_reads_the_factory(h: Harness):
         data = json.loads(proc.stdout)
         case("json: one object with both reads",
              proc.returncode == 0 and data.get("ok") is True
-             and data["health"] == {"items": ["health"]} and data["asks"] == {"items": ["asks"]}, proc.stdout)
+             and data["health"] == {"items": ["health"]} and data["needs"] == {"items": ["needs"]}, proc.stdout)
     except json.JSONDecodeError as exc:
         case("json: parseable", False, f"{exc}: {proc.stdout!r}")
 

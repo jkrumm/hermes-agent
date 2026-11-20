@@ -49,7 +49,7 @@ software-factory Issue 259 adds a read). Work from what the owner relays, then p
 
 - A `✅`-prefixed message is the recovery pairing; its absence is a reason a row
   can sit open, not evidence the service is down.
-- For the factory's own view of open problems: `skill_view('fleet')` (`health` + `asks`).
+- For the factory's own view of open problems: `skill_view('fleet')` (`health` + `needs`).
 
 ### Public services
 

@@ -62,7 +62,7 @@ the gateway's Anthropic leg — as do the older rows.
   Block Kit digest to a Slack channel. Paused 2026-09-08 after reposting the same blocked pane
   ~35 times in two days; retired 2026-09-11. `agents-overview.py` and its briefing section were
   removed with the Slack gateway (2026-11): fleet state is read with `factory read` (overview,
-  issues, asks, health, sessions) over the `/v1` API.
+  issues, needs, health, sessions) over the `/v1` API.
 - **`b7a45b694f80` — quota-nudge** — retired 2026-10-30 (F1 Wave 6). The software factory
   babysits every session `rd` and the factory start: `~/SourceRoot/software-factory/AGENTS.md`.
 - **`9919cec4a6d5` — Fleet babysitter** — retired 2026-10-30 (F1 Wave 6), same replacement.
