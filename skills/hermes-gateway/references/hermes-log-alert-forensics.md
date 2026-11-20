@@ -6,8 +6,8 @@ A Hermes ERROR line reaches you through an alert relay or a log read. There is n
 ledger item behind it; this skill is the triage for the
 line itself — deciding whether it is a real fault, and then reporting or filing it.
 
-`alert-liveness-forensics` owns producer-side liveness for Beszel / UptimeKuma /
-HyperDX; it does not cover this family. `hermes-gateway` owns gateway health and
+`alert-liveness-forensics` owns producer-side liveness for UptimeKuma / HyperDX /
+the homelab watchdog; it does not cover this family. `hermes-gateway` owns gateway health and
 Rule 0 (slice every log read at the current process start) — obey that first, then
 come here.
 
