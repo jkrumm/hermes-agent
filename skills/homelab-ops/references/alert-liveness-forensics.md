@@ -12,7 +12,7 @@ This skill owns **what the producer's own state says right now.**
 ## Procedure
 
 1. **Identify the producer behind the alert text.** The title names it: a bare
-   sentence (`HomeLab CPU above threshold`) is a resource-scraper (Beszel); a
+   sentence (`🌡️ HomeLab CPU hot`) is the homelab watchdog; a
    bracketed one (`[Gluetun - Docker] [:red_circle: Down] …`) is UptimeKuma; an
    emoji-led one (`🚨 <service> <event> >= 1 (1h)`) is HyperDX. The
    producer, not the channel, holds the live state.
@@ -31,31 +31,16 @@ This skill owns **what the producer's own state says right now.**
 
 ## Recipes
 
-### Beszel — homelab resource thresholds
+### Host metric alerts — ClickStack and the watchdog
 
-Emits bare sentences with no bot-alert prefix, which is why this family arrives
-as "unstructured prose". Metrics: `CPU`, `Memory`, `Disk`, `LoadAvg5`,
-`Temperature`, `Status`.
+Beszel was removed on 2026-11-19; host metrics are ClickStack alerts (emoji-led, see above) and CPU temperature is the
+homelab watchdog's `🌡️ HomeLab CPU hot` / "cool again" pair. Probe the producer, not the message:
 
-```bash
-ssh homelab "python3 -c \"
-import sqlite3
-c = sqlite3.connect('/mnt/hdd/beszel/data.db')
-c.row_factory = sqlite3.Row
-for r in c.execute('select * from alerts'): print(dict(r))
-for r in c.execute('select * from alerts_history order by rowid desc limit 15'): print(dict(r))
-\""
-```
-
-- `alerts` = current state per metric: `name`, `value` (the threshold), `triggered`
-  (0/1), `updated`. `triggered = 1` means it holds now.
-- `alerts_history` = one row per firing, `created` + `resolved`. **An empty
-  `resolved` means still firing** — this is the column that separates "cleared
-  after 40 minutes" from "open now"; `alerts.triggered` alone cannot.
-- `system_stats` = the time series (`type` is the bucket, e.g. `1m`; `stats` is a
-  JSON blob with `cpu`, `la`/`la5`, `dp`/`du`/`dr` for disk, `t` for temperature).
-  Use it for the value now, `alerts_history` for whether it is still firing.
-- The bind mount is root-owned but world-readable, so no sudo is needed.
+- **ClickStack rule:** `AGW_CALLER=hermes agw hdx query clickstack_get_alert` lists every alert with `state`
+  (`OK` or alerting); `get_alert {"id"}` adds the recent evaluations, so "did it cross, and is it still over" is one call.
+  Recipes and the tile re-run: skill `hyperdx`, and `references/host-metric-alert-triage.md` for the host metrics.
+- **Watchdog thermal:** its state dir is root-only; read the live package temperature from the kernel
+  (`ssh homelab`, `/sys/class/hwmon/hwmon*/temp1_input`, millidegrees). Hot at a 30 min mean >= 90 °C, cleared below 85 °C.
 
 ### Alert posts (UptimeKuma, HyperDX, watchdogs)
 
@@ -73,10 +58,6 @@ One call settles a "new incident" line:
 
 ## Pitfalls
 
-- **A distroless container has no shell — read its state from the host.**
-  `docker exec <container> sh` dies `exec: "sh": executable file not found in
-  $PATH` on the Beszel images. Its state is a SQLite file on a host bind mount, so
-  `ssh <host> "python3 -c …"` reads it without the container cooperating.
 - **A recurring digest line is not a new finding.** A digest that re-selects every
   open row will print the same lines for as long as the rows stay open. A family
   present for a week is a standing defect in the loop that reports it — say that
@@ -90,10 +71,10 @@ One call settles a "new incident" line:
   from the title (`Homelab Backup - Push` → `uk:homelab-backup-push`). A rule written
   against the number silently stops matching.
 - **A one-shot alert's ledger row keeps the firing timestamp, so an old-looking digest
-  line can still be live.** Beszel fires once on the threshold crossing and emits nothing
-  more until it resolves, so the event's `last_seen` stays at that moment while the
-  condition holds — read `alerts_history.resolved`, never the row's age, before calling a
-  resource-threshold line stale.
+  line can still be live.** The watchdog's thermal alert fires once on the threshold crossing and
+  emits nothing more until it clears, so the event's `last_seen` stays at that moment while the
+  condition holds — read the live sensor (or a ClickStack alert's `state`), never the row's age,
+  before calling a resource-threshold line stale.
 - **A duplicate-heavy rule file is its own finding.** Auto-appended rules are not
   deduplicated, so count *unique* match values as well as entries before reading a
   policy file as a rule set, and report the duplication rather than quietly
