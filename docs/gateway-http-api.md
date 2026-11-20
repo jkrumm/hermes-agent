@@ -84,30 +84,3 @@ Telemetry that catches a repeat: `fresh agent built: session=<8> platform=<p> in
 `init`, is the pre-agent setup time; `Turn ended` to `response ready` is the post-turn persistence time. A gap
 above a few seconds in either with a small `init` points at setup or persistence under host load, not at agent
 construction. The slow `hermes` step also shows in Iris's own traces (HyperDX, `iris-server`), which is how this was found.
-
-<!-- MOVED-GATEWAY-HTTP: moved verbatim from the root AGENTS.md (Gateway HTTP exposure and Iris turns, 2080 bytes) -->
-
-## Gateway HTTP Exposure (iris)
-
-The gateway runs an OpenAI-compatible HTTP API alongside the CLI and Desktop; **iris** (the voice and chat
-app on the mini) is its consumer. The argo dashboard chat was removed 2026-10-30 and its
-`tag:vps → tag:mac :8642` ACL grant with it. Four env vars (framework keys in
-`hermes_cli/config.py`), resolved at startup from `.env.tpl` via `secrets.command`:
-
-| Var | Value |
-|-|-|
-| `API_SERVER_ENABLED` / `API_SERVER_PORT` | `true` / `8642` — literals |
-| `API_SERVER_HOST` | the mini's Tailscale IP — **tailnet-only bind**, no LAN listener. `op://hermes/gateway/host` (never a literal in git) |
-| `API_SERVER_KEY` | bearer gating **every** request, even loopback. `op://hermes/gateway/api-server-key` (iris reads it as `HERMES_TOKEN`) |
-
-Rotate the key, then restart the gateway and iris. Mismatch = **401**; connection-refused = not
-bound to the host iris uses. Verify and rotation steps: **`docs/gateway-http-api.md`**.
-
-**Iris turns (Wave 21, 2026-11-04):** Iris no longer classifies voice memos — every memo except mode
-Transcribe goes to Hermes as a session turn whose per-turn `system_message` says "This turn comes from Iris…
-Load skill_view('iris')". `skills/iris/` decides (answer / `capture` / `obsidian` note / `herdr` tab prompt to an existing terminal / `fleet`: read fleet state, or file agent work via `factory signal file` when the memo says *start*) and
-ends the reply with one ```` ```iris ```` JSON block (`kind`, `headline` only) that Iris parses; legacy builds
-append `The owner picked: Journal.|Chat.|Tab.`. Brain notes are filed straight to their home (log entry, existing page, new `wiki/` note — the obsidian skill's
-*Filing a note*; vault-lint, then `scripts/brain-commit.sh`'s brain-sync lock); `skills/iris/scripts/iris-note.py` is the `Inbox/` path
-for journal reflections and memos with no clear home (journal frontmatter). SOUL.md has one routing row; CLI and Desktop unaffected.
-Tool events for Iris's `actions`: SSE `tool.started|completed|failed`, field `tool_name`. **`docs/gateway-http-api.md`**.
