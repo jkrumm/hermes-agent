@@ -31,7 +31,7 @@ the `docs/patches.md` table, put per-file detail in `docs/patches.md`.
 
 `make deploy` — the checkout *is* the live config (symlinked into `~/.hermes`), so deploy =
 `make setup` + `launchctl kickstart -k` of `ai.hermes.gateway` **and** `com.jkrumm.hermes-serve` + `make verify`
-(retried ~1 min while the API server reconnects). On failure it rolls back to `HEAD~1` (detached,
+(polled for up to `VERIFY_TIMEOUT` seconds, default 600, while the API server reconnects — minutes on a loaded host). On failure it rolls back to `HEAD~1` (detached,
 clean tree only), repeats, and exits non-zero either way; return with `git switch master`.
 It restarts the gateway, which drops in-flight turns — and **Hermes itself may never run
 it** (it may not restart its own gateway). Edits to `SOUL.md` and skills need no deploy
