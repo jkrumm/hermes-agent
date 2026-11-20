@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Every ```iris-show example in skills/iris/SKILL.md validates against Iris's exported
+"""Every ```iris-show example in skills/iris/references/artifacts.md validates against Iris's exported
 `artifacts.show-spec` JSON Schema; every ```iris-doc example has a valid info string.
 
 The schema lives in the iris repo (``IRIS_SCHEMA`` overrides the default sibling checkout);
@@ -17,7 +17,7 @@ import sys
 import jsonschema
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-SKILL = ROOT / "skills" / "iris" / "SKILL.md"
+SKILL = ROOT / "skills" / "iris" / "references" / "artifacts.md"
 SCHEMA = pathlib.Path(
     os.environ.get("IRIS_SCHEMA", os.path.expanduser("~/SourceRoot/iris/contracts/schema/artifacts.show-spec.json"))
 )
