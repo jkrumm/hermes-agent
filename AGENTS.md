@@ -63,7 +63,7 @@ Hermes never reads the agw/rd agent lists or the Herdr pane list for fleet statu
 
 ## Local modifications to upstream
 
-One `.patch` per patched upstream file in `patches/`; `ls patches/` is the count and `make patch-check` proves they are applied, so never restate the number. Re-apply after `hermes update`: `cd ~/.hermes/hermes-agent && git apply ~/SourceRoot/hermes-agent/patches/<name>.patch` (`/hermes-update` carries the loop). The table of patches, their purpose and every retirement is in `docs/patches.md`. Baseline v0.23.2, `stable` channel.
+One `.patch` per patched upstream file in `patches/`; `ls patches/` is the count and `make patch-check` proves they are applied, so never restate the number. Re-apply after `hermes update`: `cd ~/.hermes/hermes-agent && git apply ~/SourceRoot/hermes-agent/patches/<name>.patch` (`/hermes-update` carries the loop). The table of patches, their purpose and every retirement is in `docs/patches.md`. Baseline v0.23.3, `stable` channel.
 
 ## Validate and deploy
 

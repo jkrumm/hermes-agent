@@ -28,8 +28,8 @@ from pathlib import Path
 
 sys.path.insert(0, "/Users/jkrumm/.hermes/hermes-agent")
 
-from tools import checkpoint_manager as cm  # noqa: E402
-from tools.checkpoint_manager import CheckpointManager  # noqa: E402
+from agent.checkpoints import manager as cm  # noqa: E402
+from agent.checkpoints.manager import CheckpointManager  # noqa: E402
 
 failures = []
 

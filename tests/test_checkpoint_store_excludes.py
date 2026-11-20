@@ -22,7 +22,7 @@ Two defects, one subsystem, both observed live on 2026-09-15:
    ``objects/<xx>/`` fanout directory mid-write (``Konnte Datei …/objects/21/… nicht schreiben``)
    and a per-project index is not a gc reachability root, so a snapshot's staged-but-uncommitted
    blobs are prunable mid-flight.  Our reentrant-lock fix was retired at v0.21.6+669: upstream's
-   ``tools/checkpoint_pruning.store_lock`` (a cross-process ``flock`` around snapshot, diff,
+   ``agent/checkpoints/pruning.store_lock`` (a cross-process ``flock`` around snapshot, diff,
    restore and gc) covers it.  Section 5 still asserts the cross-process outcome.
 
 Run:  ~/.hermes/hermes-agent/venv/bin/python3 tests/test_checkpoint_store_excludes.py
@@ -38,8 +38,8 @@ from pathlib import Path
 
 sys.path.insert(0, "/Users/jkrumm/.hermes/hermes-agent")
 
-from tools import checkpoint_manager as cm  # noqa: E402
-from tools.checkpoint_manager import CheckpointManager  # noqa: E402
+from agent.checkpoints import manager as cm  # noqa: E402
+from agent.checkpoints.manager import CheckpointManager  # noqa: E402
 
 failures = []
 
@@ -237,7 +237,7 @@ finally:
 
 
 print("store access is serialized by upstream's store_lock")
-from tools import checkpoint_pruning as cp  # noqa: E402
+from agent.checkpoints import pruning as cp  # noqa: E402
 check("upstream store_lock exists", callable(getattr(cp, "store_lock", None)), True)
 
 
@@ -293,7 +293,7 @@ for i in range(300):
 XP_CHILD = (
     "import logging,sys,pathlib\n"
     f"sys.path.insert(0, {str(Path(cm.__file__).parents[1])!r})\n"
-    "import tools.checkpoint_manager as cm\n"
+    "import agent.checkpoints.manager as cm\n"
     f"cm._resolve_checkpoint_base = lambda: pathlib.Path({str(XP_BASE)!r})\n"
     'logging.basicConfig(level=logging.ERROR, format="%(levelname)s %(message)s")\n'
     f"mgr = cm.CheckpointManager(enabled=True, max_snapshots=50)\n"

@@ -124,7 +124,7 @@ Reproduce any store operation by exporting exactly those three.
   snapshots and a gc interleave **in one process**, and a per-project index is not a gc
   reachability root — so a snapshot's staged-but-uncommitted blobs are also prunable
   between `add -A` and `write-tree`. **Since v0.21.6+669 (2026-10-11) upstream's
-  `tools/checkpoint_pruning.store_lock` (cross-process `flock`) covers this and the next race;
+  `agent/checkpoints/pruning.store_lock` (cross-process `flock`) covers this and the next race;
   our locks below were retired.** Historical: **fixed in code** (2026-09-15): one reentrant
   `_STORE_LOCK` now covers every store-touching git call and the whole `_take` sequence.
   If you see this line again, the patch is missing — check `make patch-check`, do not
@@ -252,8 +252,8 @@ issues (`gh issue list`) for an existing one before filing.
 
 ## A fix on disk is not a fix in the running gateway
 
-`tools/checkpoint_manager.py` is imported **once** by the gateway process
-(`agent/agent_init.py` → `from tools.checkpoint_manager import CheckpointManager`), so editing it
+`agent/checkpoints/manager.py` (`tools/checkpoint_manager.py` before upstream v0.23.3) is imported **once** by the gateway process
+(`agent/agent_init.py` → `from agent.checkpoints.manager import CheckpointManager`), so editing it
 does nothing until that process restarts. Python has no hot reload here, and the module's own log
 lines are the tell: after a patch lands, the next gateway snapshot should print the new markers
 (`Dropped N now-excluded path(s)…`, `Retrying checkpoint staging…`). If it prints neither, the

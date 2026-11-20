@@ -155,7 +155,7 @@ the file set:
 git diff HEAD --name-only        # must be exactly the patched files
 grep -n "_rename_with_title"          tools/tts_tool.py
 grep -n "x-audio-title"               tools/tts_tool_openai.py
-grep -n "_stage_all_with_gitlink_recovery" tools/checkpoint_manager.py
+grep -n "_stage_all_with_gitlink_recovery" agent/checkpoints/manager.py
 grep -n "_sanitize_trusted_api_fence" cron/prompt_scan.py
 grep -n "_SPEAK_SUMMARY"              hermes_cli/web_routers/audio.py
 ```
