@@ -39,6 +39,26 @@ thinking summary and a short answer in one write, so all deltas land within ~25 
 a per-request `model_options: {"reasoning_effort": "none"}` makes text stream from the first token. Measurements:
 `docs/research/2026-11-10-assistant-delta-burst.md`.
 
+### Measured before and after (Issue 2517)
+
+Hermes log, real Iris system message, fresh session each. Before: production turns of 2026-11-16/17 (`agent.log`).
+After: 2026-11-20 on the deployed change; note memos were dry runs (no vault writes), run while the host load average
+was about 110, so seconds are inflated and only token and call counts compare cleanly. The first call's cache write
+also moves with the core-tool set (15 tools on 11-16, 14 on 11-20, about 2.5k tokens).
+
+| Fresh turn | API calls | Cache-write tokens | Output tokens | Seconds |
+|-|-|-|-|-|
+| Chat, before (2 turns) | 2 | 31,662 (25,001 system + 6,665 `skill_view`) | 636, 657 | 7.9, 8.3 |
+| Chat, after (3 turns) | 1 | 24,803 (cold, the skill is in the system prompt) | 244, 448, 324 | 3.5, 5.0, 3.9 |
+| Note, before (2 turns) | 5, 4 | 43,873, 44,162 | 4,795, 5,740 | 32.2, 37.7 |
+| Note, after (N1, N3, N4) | 5, 5, 6 | about 15–16k after a warm 24.8k prefix | 3,794, 4,352, 2,347 | 36, 36, 55 (load ~110) |
+
+What changed per turn: no `skill_view('iris')` decision call (the chat turn's second call is gone; a note turn loads
+`references/note.md` and `obsidian` together in its first call), and the iris text is 7.4 KB instead of 16 KB
+(about 3.4k tokens instead of 6.7k). The target of 6k fewer cache-write tokens is met only against the 15-tool
+baseline (31.7k to 24.8k); at the same tool set it is 3.3k, the size of the skill itself. Note-turn time is dominated by
+the 2–5k output tokens of thinking at `high`; the bench (docs/model-context-reasoning.md) kept `high`.
+
 ## Cold-start stall of 2026-11-18 (Issue 2517)
 
 A note turn (Iris memo 8afcb5) logged nothing for 35 s between `inbound message` (19:22:49) and the first
