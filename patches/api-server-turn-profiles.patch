@@ -1,8 +1,8 @@
 diff --git a/gateway/platforms/api_server.py b/gateway/platforms/api_server.py
-index 3a96882f8c..ea10d945da 100644
+index 3a96882f8c..9e23e99052 100644
 --- a/gateway/platforms/api_server.py
 +++ b/gateway/platforms/api_server.py
-@@ -266,6 +266,37 @@ def _resolve_request_runtime_agent_kwargs(provider: str, target_model: Optional[
+@@ -266,6 +266,42 @@ def _resolve_request_runtime_agent_kwargs(provider: str, target_model: Optional[
          "credential_pool": runtime.get("credential_pool")}
  
  
@@ -27,6 +27,11 @@ index 3a96882f8c..ea10d945da 100644
 +    """LOCAL MODIFICATION: the profile's preloaded skill blocks followed by the caller's system_message.
 +    The skill text is a pure function of the skill files (never of the session), so every turn of every
 +    session carries the same bytes and the prompt cache holds. A missing skill is logged and skipped."""
++    # `replace` rewrites phrases of the caller's message (the same bytes every turn): Iris's message still says
++    # "Load skill_view('iris')", which makes the model fetch the skill it already carries in the prompt.
++    for old, new in (profile.get("replace") or {}).items():
++        if isinstance(old, str) and isinstance(new, str) and ephemeral_system_prompt:
++            ephemeral_system_prompt = ephemeral_system_prompt.replace(old, new)
 +    names = [s for s in (profile.get("skills") or []) if isinstance(s, str) and s.strip()]
 +    if not names:
 +        return ephemeral_system_prompt
@@ -40,7 +45,7 @@ index 3a96882f8c..ea10d945da 100644
  def _request_agent_overrides(
      body: Any, *, virtual_model: Optional[str] = None, allow_bare_model: bool = True
  ) -> dict[str, Any]:
-@@ -2187,6 +2218,7 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
+@@ -2187,6 +2223,7 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
          ``gateway_session_key`` persists across transcripts (memory scope), unlike ``session_id``;
          ``route`` / ``session_model`` are mutually exclusive; ``confirmed_runtime_lock`` beats the
          session ``/model`` override, disables the fallback chain and fails closed."""
@@ -48,7 +53,7 @@ index 3a96882f8c..ea10d945da 100644
          from run_agent import AIAgent
          from gateway.run import (
              _checkpoint_agent_kwargs, _current_max_iterations, _resolve_runtime_agent_kwargs,
-@@ -2209,6 +2241,9 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
+@@ -2209,6 +2246,9 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
              session_model=session_model, confirmed_runtime_lock=confirmed_runtime_lock,
              gateway_session_key=gateway_session_key, session_id=session_id)
          user_config = _load_gateway_config()
@@ -58,7 +63,7 @@ index 3a96882f8c..ea10d945da 100644
          enabled_toolsets = sorted(_get_platform_tools(user_config, "api_server"))
          # Same gate the messaging gateway and TUI apply: ``display.interim_assistant_messages``
          # off means no callback is installed, so mid-turn commentary never leaves the agent.
-@@ -2222,6 +2257,8 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
+@@ -2222,6 +2262,8 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
              max_iterations = policy.max_iterations
          # Reasoning resolves against the model that actually runs (per-model overrides), so only
          # after the precedence chain settles; an explicit request wins.
@@ -67,7 +72,7 @@ index 3a96882f8c..ea10d945da 100644
          if request_reasoning_config is None:
              request_reasoning_config = GatewayRunner._load_reasoning_config(model)
          agent_kwargs = {
-@@ -2247,7 +2284,14 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
+@@ -2247,7 +2289,14 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
              "memory_manager": self._memory_sessions.checkout(session_id)}
          if request_service_tier is not _REQUEST_OPTION_MISSING:
              agent_kwargs["service_tier"] = request_service_tier

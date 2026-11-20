@@ -41,7 +41,9 @@ check(_match_turn_profile({}, IRIS) == {}, "a config without profiles matches no
 first = _turn_profile_prompt(profile, IRIS, "session-a")
 second = _turn_profile_prompt(profile, IRIS, "session-b")
 check(first == second, "the preloaded prompt is byte-identical across sessions")
-check(first.endswith(IRIS), "the caller's system message comes last")
+rewritten = first.rsplit("\n\n", 1)[-1]
+check(rewritten.startswith("This turn comes from Iris"), "the caller's system message comes last")
+check("Load skill_view('iris')" not in rewritten and "already loaded in your system prompt" in rewritten, "the skill_view instruction is rewritten")
 check("name: iris" in first and "Decide — first match wins" in first, "the iris skill body is in the prompt")
 skill_bytes = len((ROOT / "skills" / "iris" / "SKILL.md").read_bytes())
 check(skill_bytes < 9000, f"the preloaded iris SKILL.md stays lean ({skill_bytes} bytes; artifacts and note filing live in references/)")

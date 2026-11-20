@@ -610,6 +610,10 @@ api_server_turn_profiles:
   - name: iris
     match: "This turn comes from Iris"
     skills: [iris]
+    # Iris's own message tells the model to load the skill it already carries; without this the model still
+    # calls skill_view('iris') on every turn and pays for the skill twice. Retires once Iris sends the new text.
+    replace:
+      "Load skill_view('iris') and follow it": "Follow the iris skill, which is already loaded in your system prompt (do not call skill_view for it)"
     reasoning_effort: high
 logging:
   level: INFO
