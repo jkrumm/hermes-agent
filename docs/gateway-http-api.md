@@ -39,6 +39,32 @@ thinking summary and a short answer in one write, so all deltas land within ~25 
 a per-request `model_options: {"reasoning_effort": "none"}` makes text stream from the first token. Measurements:
 `docs/research/2026-11-10-assistant-delta-burst.md`.
 
+## Cold-start stall of 2026-11-18 (Issue 2517)
+
+A note turn (Iris memo 8afcb5) logged nothing for 35 s between `inbound message` (19:22:49) and the first
+`tools.registry` line (19:23:24), then took 11 s from `Turn ended` to `response ready`. What the logs show:
+
+- **No evict before it.** The idle-TTL evict (3750 s) for that session is at 20:26, an hour after the turn; the turn
+  was a brand-new session on a gateway that had been up for 30 h. A real evict followed by a rebuild (the same
+  session on 2026-11-20 08:28) took 0.2 s from `inbound message` to the registry lines: agent construction after an
+  evict does not stall.
+- **The event loop was alive.** `GET /health` was answered at 19:23:22, inside the silent window. The wait was in a
+  worker thread before `AIAgent()` ran (pre-agent setup, session resolve, history load).
+- **Host load is the best remaining candidate, not proven.** On 2026-11-20 the load average was 110 while three
+  leads ran checks; a gateway restart needed over 60 s to bind the API server (`make deploy` verify gave up twice).
+  Hermes logs the load average only at shutdown, so 11-18 has no record. The skills snapshot was rewritten at 19:23
+  that day (a cold scan); the same scan measures 0.4 s now, so it is not the 35 s.
+- **Partly reproduced.** The first agent build after a gateway restart took `init=14.3 s` at load ~110 (09:31 on
+  11-20); the ten builds after it took `init` 0.04–1.0 s and 0.1–1.0 s from `inbound message` to the build. So a
+  cold process pays once, and host load multiplies it. The 11-18 turn came 30 h into a process, so that does not
+  explain it; a repeat now shows up as a large `init` or as a large gap with a small one (below).
+
+Telemetry that catches a repeat: `fresh agent built: session=<8> platform=<p> init=<s>` in `gateway.log`
+(`patches/session-execution-build-timing.patch`). The `inbound message` line, minus this line's timestamp, minus its
+`init`, is the pre-agent setup time; `Turn ended` to `response ready` is the post-turn persistence time. A gap
+above a few seconds in either with a small `init` points at setup or persistence under host load, not at agent
+construction. The slow `hermes` step also shows in Iris's own traces (HyperDX, `iris-server`), which is how this was found.
+
 <!-- MOVED-GATEWAY-HTTP: moved verbatim from the root AGENTS.md (Gateway HTTP exposure and Iris turns, 2080 bytes) -->
 
 ## Gateway HTTP Exposure (iris)
