@@ -9,7 +9,7 @@ The root `AGENTS.md` was 45,819 bytes against a 12,000-byte budget (`rules/writi
 | Cron pre-run scripts, `--script` limit (104–111) | 502 | `MOVED-CRON-PRERUN` | `docs/scheduled-jobs.md` | the thin-entry-point rule |
 | Herdr steering (113–122) | 852 | `MOVED-HERDR` | `docs/agent-routing.md` | the `hc` safety list |
 | Secrets (123–169) | 3395 | `MOVED-SECRETS` | `docs/secrets-command.md` | `hermes model` ban, `$t` rule, rotation restarts |
-| Gateway HTTP exposure, Iris turns (170–194) | 2080 | `MOVED-GATEWAY-HTTP` | `docs/gateway-http-api.md` | key rotation restart |
+| Gateway HTTP exposure, Iris turns (170–194) | 2080 | none: the moved copy was removed as a duplicate of the doc’s own sections | `docs/gateway-http-api.md` | key rotation restart |
 | Hermes Desktop (195–216) | 1580 | `MOVED-DESKTOP` | `docs/hermes-serve.md` | serve restart after `hermes update` |
 | Homelab API integration (217–236) | 1632 | `MOVED-ARGO` | `docs/argo-surface.md` | `work` skill scope, briefing work signals |
 | Research, web, WeatherOrb, hyperdx, podcast, agw transport (237–314) | 5544 | `MOVED-AGW-DOORS` | `docs/agw-doors.md` | `AGW_CALLER`, exit 10 resume |
