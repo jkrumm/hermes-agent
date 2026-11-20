@@ -600,6 +600,17 @@ tools:
     threshold_pct: 10
     search_default_limit: 5
     max_search_limit: 20
+# Per-turn profiles for the HTTP API (patches/api-server-turn-profiles.patch). A profile applies when its
+# `match` text occurs in the caller's system_message. Iris turns start with the iris skill already in the
+# system prompt (no skill_view round trip; the text is the same bytes every turn, so the prompt cache holds)
+# and carry their own reasoning effort. Bench 2026-11-20 (docs/model-context-reasoning.md): medium is 2-4x
+# faster on note memos but chose a different home on one and skipped the vault search on another, so Iris
+# stays on high. This key is the Iris-only lever; the global agent.reasoning_effort is untouched.
+api_server_turn_profiles:
+  - name: iris
+    match: "This turn comes from Iris"
+    skills: [iris]
+    reasoning_effort: high
 logging:
   level: INFO
   max_size_mb: 5

@@ -29,11 +29,11 @@ tailnet IP.
 
 Iris posts `POST /api/sessions` `{id: <memo uuid>, source}` then `POST /api/sessions/<id>/chat/stream`
 `{message: <transcript>, system_message}`. `source` is only Iris's label (unknown values map to `api_server`), so the
-`system_message` is the marker: it tells Hermes to load `skill_view('iris')`, which ends every reply with one
+`system_message` is the marker: `api_server_turn_profiles` in `config.yaml` matches "This turn comes from Iris" and preloads the iris skill into the system prompt (the message still says "Load skill_view('iris')"; the skill tells the model it is already loaded). The skill ends every reply with one
 ```` ```iris ```` block (`{"kind","headline"}`; the spoken line is Iris's own `triage`). Legacy app builds append `The owner picked: <Mode>.`
 Stream events (`gateway/platforms/api_server.py`, `_handle_session_chat_stream`): `assistant.delta`,
 `tool.started` / `tool.completed` / `tool.failed` (`{message_id, tool_name, preview, args}`), `assistant.completed`
-(`content`), `run.completed`, `done`. The skill, its note script and the validation recipe: `skills/iris/`.
+(`content`), `run.completed`, `done`. The skill, its note script and the validation recipe: `skills/iris/`. `SKILL.md` is the preloaded core (turn rules, decide table, reply, closing block); `references/note.md` (brain-note filing) and `references/artifacts.md` (`iris-show` / `iris-doc` fences) load only for a note or an artifact memo, so a chat turn pays for the core alone. Iris's own `IRIS_SYSTEM_MESSAGE` (iris repo, `server/src/adapters/hermes.ts`) is untouched.
 **`assistant.delta` is live but bursty after thinking** (Issue 681): with adaptive thinking at `high`, Haiku 5.5 flushes the
 thinking summary and a short answer in one write, so all deltas land within ~25 ms. Hermes and the inference gateway buffer nothing;
 a per-request `model_options: {"reasoning_effort": "none"}` makes text stream from the first token. Measurements:

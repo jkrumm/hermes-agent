@@ -52,6 +52,26 @@ upstream's `_thinking_kwargs` carries the effort. There is no Hermes-side fallba
 
 **Compaction triggered at 240,000 tokens until 2026-11-04 (now 650,000, see the note at the top)**, set as an absolute `compression.threshold_tokens` rather than as a ratio, because the ratio alone is not readable: `auxiliary.compression.context_length` is 850,000 (kept below the brain's real 1,000,000 window — DeepSeek does prompt-cache here, 92–96% of input on live sessions (modelpick `hermes-brain.md` §2026-09-13 correction)), the configured `threshold` is upstream's 0.50, and the *lower* of the two governs. Two ratio traps worth knowing before touching those numbers — a window **under 512K** gets its threshold floored at **0.75** by `_SMALL_CTX_THRESHOLD_PERCENT` (so the old `256000` + `threshold: 0.18` pair really triggered at 192k, not the 46k the arithmetic suggests; 850,000 is comfortably above the floor either way), and the auxiliary compression model's own `context_length` **clamps the trigger down to itself** (`conversation_compression.py`, `if aux_context < threshold`) — which is why `auxiliary.compression.context_length` stays a deliberate 850,000, not the model's full window or the default 200,000. Staying under 240k also keeps prompts below the **272k mark where OpenAI bills input at 2× and output at 1.5×** for the gpt-5.x-family models still in play (fallback, title_generation).
 
+## Iris turns: effort bench, medium against high (2026-11-20)
+
+Question: does `reasoning_effort: medium` cut the 12–18 s of thinking on an Iris note turn without changing what Hermes does? Method: the live gateway, real Iris `system_message`, one session per case, `model_options.reasoning_effort` per request (no config change), the arms run side by side, 6 note memos, 3 chat turns, 2 follow-ups, n = 1 per cell. Every turn was a dry run: an extra system line told the model to state the command and target path instead of writing, committing or creating tasks, so the bench left the vault and TickTick alone (the actions are compared by tool calls and the stated command). Seconds are wall clock per turn with six turns in flight at once, so only the ratios mean anything.
+
+| Case | high s | medium s | Both blocks valid | Action |
+|-|-|-|-|-|
+| N1 (note) | 12.4 | 9.2 | yes | dial-in-log entry (both) |
+| N2 (note) | 30.9 | 10.4 | yes | high: new vault note; medium: GitHub issue on the repo |
+| N3 (note) | 24.4 | 7.0 | yes | Inbox script (both) |
+| N4 (note) | 13.1 | 19.5 | yes | new wiki/engineering note (both); medium also fired a stray no-op browser call |
+| N5 (note) | 33.3 | 7.6 | yes | high: searched the vault, then TickTick task + page entry; medium: same split but loaded neither `capture` nor `obsidian` and ran no vault search (home guessed) |
+| N6 (note) | 6.5 | 7.2 | yes | TickTick task, same payload (both) |
+| C1 (chat) | 4.2 | 4.6 | yes | chat, no tools (both) |
+| C2 (chat) | 5.5 | 5.6 | yes | answer (both) |
+| C3 (chat) | 4.7 | 4.3 | yes | chat (both) |
+| F1 (follow-up) | 6.4 | 2.8 | yes | dial-in correction, same entry (both) |
+| F2 (follow-up) | 2.4 | 2.4 | yes | answer (both) |
+
+Verdict: **keep `high` for Iris.** Medium is faster on notes (mean 10.1 s against 20.1 s over the six note memos) and every closing `iris` block was valid at both levels, but medium changed the action on N2 (a GitHub issue where high filed a vault note) and chose the N5 homes without loading `obsidian` or searching the vault. That is the same shape as the 2026-10-08 bench ("medium dropped a task"), so the rule stands: no regression is worth the seconds. Chat turns and follow-ups made the same choices at both levels and took about the same time (F1 aside), so there is little to win there. The lever is `api_server_turn_profiles[].reasoning_effort` in `config.yaml` (Iris only; `agent.reasoning_effort` stays `high`). A re-bench needs n above 1 per cell and the real side effects, in a sandboxed vault.
+
 ## Auxiliary lanes are separately routed — they are not the brain
 
 `auxiliary.<task>.{provider,model,base_url,api_key,api_mode}` picks a model per task; unset lanes fall through to `auto`, which means the flagship at `high`. Three are pinned off the brain deliberately:

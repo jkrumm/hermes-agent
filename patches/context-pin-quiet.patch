@@ -1,0 +1,15 @@
+diff --git a/agent/context_pin.py b/agent/context_pin.py
+index 75c87e7f0f..6f12f397ca 100644
+--- a/agent/context_pin.py
++++ b/agent/context_pin.py
+@@ -116,7 +116,9 @@ def warn_once_on_pin_disagreement(model: str, base_url: str, config_context_leng
+     if key in _warned_pins:
+         return False
+     _warned_pins.add(key)
+-    logger.warning(
++    # LOCAL MODIFICATION (patches/context-pin-quiet.patch): DEBUG, not WARNING. The pin is
++    # deliberate here (the gateway's Anthropic leg serves 1M; models.dev lists 200k for the model).
++    logger.debug(
+         "model.context_length pins %s at %s tokens but the provider advertises %s; the pin wins. "
+         "Remove model.context_length from config.yaml to use the advertised window.",
+         model, f"{config_context_length:,}", f"{advertised:,}",

@@ -1,0 +1,84 @@
+diff --git a/gateway/platforms/api_server.py b/gateway/platforms/api_server.py
+index 3a96882f8c..ea10d945da 100644
+--- a/gateway/platforms/api_server.py
++++ b/gateway/platforms/api_server.py
+@@ -266,6 +266,37 @@ def _resolve_request_runtime_agent_kwargs(provider: str, target_model: Optional[
+         "credential_pool": runtime.get("credential_pool")}
+ 
+ 
++def _match_turn_profile(user_config: Any, ephemeral_system_prompt: Optional[str]) -> dict[str, Any]:
++    """LOCAL MODIFICATION (patches/api-server-turn-profiles.patch): the first
++    ``api_server_turn_profiles`` entry of config.yaml whose ``match`` substring occurs in the
++    caller's system_message, else {}. A profile carries ``skills`` (preloaded into the turn's
++    system prompt, so call 1 does work instead of a skill_view round trip) and ``reasoning_effort``
++    (applied when the request sets none). The source label of a session is not carried to the agent;
++    the system_message is the only per-turn marker a client such as Iris controls."""
++    profiles = user_config.get("api_server_turn_profiles") if isinstance(user_config, dict) else None
++    if not ephemeral_system_prompt or not isinstance(profiles, list):
++        return {}
++    for profile in profiles:
++        marker = profile.get("match") if isinstance(profile, dict) else None
++        if isinstance(marker, str) and marker and marker in ephemeral_system_prompt:
++            return profile
++    return {}
++
++
++def _turn_profile_prompt(profile: dict[str, Any], ephemeral_system_prompt: Optional[str], session_id: Optional[str]) -> Optional[str]:
++    """LOCAL MODIFICATION: the profile's preloaded skill blocks followed by the caller's system_message.
++    The skill text is a pure function of the skill files (never of the session), so every turn of every
++    session carries the same bytes and the prompt cache holds. A missing skill is logged and skipped."""
++    names = [s for s in (profile.get("skills") or []) if isinstance(s, str) and s.strip()]
++    if not names:
++        return ephemeral_system_prompt
++    from agent.skill_commands import build_preloaded_skills_prompt, format_missing_skills
++    skills_prompt, _loaded, missing = build_preloaded_skills_prompt(names, task_id=session_id)
++    if missing:
++        logger.warning("api_server turn profile: skipping %s", format_missing_skills(missing))
++    return f"{skills_prompt}\n\n{ephemeral_system_prompt}" if skills_prompt else ephemeral_system_prompt
++
++
+ def _request_agent_overrides(
+     body: Any, *, virtual_model: Optional[str] = None, allow_bare_model: bool = True
+ ) -> dict[str, Any]:
+@@ -2187,6 +2218,7 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
+         ``gateway_session_key`` persists across transcripts (memory scope), unlike ``session_id``;
+         ``route`` / ``session_model`` are mutually exclusive; ``confirmed_runtime_lock`` beats the
+         session ``/model`` override, disables the fallback chain and fails closed."""
++        _build_started = time.monotonic()  # LOCAL MODIFICATION: agent-build phase timing (cold-start stall telemetry)
+         from run_agent import AIAgent
+         from gateway.run import (
+             _checkpoint_agent_kwargs, _current_max_iterations, _resolve_runtime_agent_kwargs,
+@@ -2209,6 +2241,9 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
+             session_model=session_model, confirmed_runtime_lock=confirmed_runtime_lock,
+             gateway_session_key=gateway_session_key, session_id=session_id)
+         user_config = _load_gateway_config()
++        turn_profile = _match_turn_profile(user_config, ephemeral_system_prompt)  # LOCAL MODIFICATION
++        if turn_profile:
++            ephemeral_system_prompt = _turn_profile_prompt(turn_profile, ephemeral_system_prompt, session_id)
+         enabled_toolsets = sorted(_get_platform_tools(user_config, "api_server"))
+         # Same gate the messaging gateway and TUI apply: ``display.interim_assistant_messages``
+         # off means no callback is installed, so mid-turn commentary never leaves the agent.
+@@ -2222,6 +2257,8 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
+             max_iterations = policy.max_iterations
+         # Reasoning resolves against the model that actually runs (per-model overrides), so only
+         # after the precedence chain settles; an explicit request wins.
++        if request_reasoning_config is None and turn_profile.get("reasoning_effort"):  # LOCAL MODIFICATION
++            request_reasoning_config = _request_reasoning_config({"reasoning_effort": turn_profile["reasoning_effort"]})
+         if request_reasoning_config is None:
+             request_reasoning_config = GatewayRunner._load_reasoning_config(model)
+         agent_kwargs = {
+@@ -2247,7 +2284,14 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
+             "memory_manager": self._memory_sessions.checkout(session_id)}
+         if request_service_tier is not _REQUEST_OPTION_MISSING:
+             agent_kwargs["service_tier"] = request_service_tier
++        _init_started = time.monotonic()
+         agent = AIAgent(**agent_kwargs)
++        # LOCAL MODIFICATION: one line per API-server agent build. A turn whose inbound-to-first-API-call gap
++        # is large while both phases here are small stalled before this method (pre-agent setup) or after it.
++        logger.info(
++            "api_server agent built: session=%s resolve=%.2fs init=%.2fs profile=%s",
++            session_id, _init_started - _build_started, time.monotonic() - _init_started,
++            turn_profile.get("name", "-"))
+         attach_primary_auth_failure(agent, failure_for_route(_primary_auth_failure, resolved_route, runtime_kwargs))
+         route_source = (
+             "session_model_lock" if confirmed_runtime_lock
