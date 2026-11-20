@@ -27,7 +27,7 @@ verify_with_retry() {
   # A restart first drains in-flight agent turns (gateway_state=draining) for as long as
   # they run — a drain is not a failure, so wait it out before the bounded polling. No cap:
   # a drain waits on agent turns (agent-limits rule); each poll is logged so a stuck one shows.
-  local state deadline=$((SECONDS + ${VERIFY_TIMEOUT:-600}))
+  local state deadline
   sleep 10
   state=$(jq -r '.gateway_state // ""' "$STATE" 2>/dev/null)
   while [ "$state" = draining ]; do
@@ -35,6 +35,7 @@ verify_with_retry() {
     sleep 10
     state=$(jq -r '.gateway_state // ""' "$STATE" 2>/dev/null)
   done
+  deadline=$((SECONDS + ${VERIFY_TIMEOUT:-600})) # starts after the drain: a long drain must not eat the poll budget
   while [ "$SECONDS" -lt "$deadline" ]; do
     make --no-print-directory verify >/dev/null 2>&1 && return 0
     sleep 8
