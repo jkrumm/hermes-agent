@@ -290,9 +290,10 @@ XP_WORK.mkdir(parents=True)
 for i in range(300):
     (XP_WORK / f"f{i:03d}.txt").write_text(f"content {i}\n")
 
+HERMES_ROOT = Path(cm.__file__).parents[2]  # agent/checkpoints/manager.py -> the checkout root
 XP_CHILD = (
     "import logging,sys,pathlib\n"
-    f"sys.path.insert(0, {str(Path(cm.__file__).parents[1])!r})\n"
+    f"sys.path.insert(0, {str(HERMES_ROOT)!r})\n"
     "import agent.checkpoints.manager as cm\n"
     f"cm._resolve_checkpoint_base = lambda: pathlib.Path({str(XP_BASE)!r})\n"
     'logging.basicConfig(level=logging.ERROR, format="%(levelname)s %(message)s")\n'
@@ -300,9 +301,10 @@ XP_CHILD = (
     f"print(mgr.ensure_checkpoint({str(XP_WORK)!r}, reason='xproc'))\n"
 )
 _xp_env = dict(os.environ)
-_xp_env["PYTHONPATH"] = str(Path(cm.__file__).parents[1])
+_xp_env["PYTHONPATH"] = str(HERMES_ROOT)
 
 collisions = 0
+child_failures = 0
 rounds = 4
 for _ in range(rounds):
     procs = [
@@ -312,8 +314,12 @@ for _ in range(rounds):
     ]
     for p in procs:
         _out, _err = p.communicate(timeout=300)
+        if p.returncode != 0:
+            child_failures += 1
+            print(f"  child exited {p.returncode}: {_err.strip()[-300:]}")
         if "File exists" in _err or "Unable to create" in _err:
             collisions += 1
+check("every cross-process child ran to completion", child_failures, 0)
 check("no cross-process index-lock collision", collisions, 0)
 shutil.rmtree(XP_ROOT, ignore_errors=True)
 
