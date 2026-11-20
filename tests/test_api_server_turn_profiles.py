@@ -66,7 +66,11 @@ import inspect  # noqa: E402
 
 from gateway import session_api_turn  # noqa: E402
 
-check("_apply_turn_profile(settings," in inspect.getsource(session_api_turn.admit_api_steps), "admit_api_steps applies the profile")
+admit_src = inspect.getsource(session_api_turn.admit_api_steps)
+check(
+    0 <= admit_src.find("_apply_turn_profile(settings,") < admit_src.find("payload = json.loads("),
+    "admit_api_steps applies the profile before the settings are frozen into the payload",
+)
 
 if failures:
     print("FAIL")

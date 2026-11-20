@@ -1,0 +1,26 @@
+diff --git a/gateway/session_execution.py b/gateway/session_execution.py
+index b18ed05a37..dd6fe2724f 100644
+--- a/gateway/session_execution.py
++++ b/gateway/session_execution.py
+@@ -163,7 +163,8 @@ class GatewaySessionAgentMixin:
+         from gateway.session_policy import policy_for_source
+         from gateway.session_worker_construct import session_prefill
+         policy = policy_for_source(runner, src)
+-        return ctx.AIAgent(
++        _build_started = time.monotonic()  # LOCAL MODIFICATION (patches/session-execution-build-timing.patch): cold-build timing
++        agent = ctx.AIAgent(
+             model=turn_route["model"], **turn_route["runtime"], **_checkpoint_agent_kwargs(ctx.user_config),
+             max_iterations=max_iterations, quiet_mode=not bool(policy and policy.verbose), verbose_logging=False,
+             enabled_toolsets=ctx.enabled_toolsets, disabled_toolsets=ctx.disabled_toolsets,
+@@ -192,6 +193,11 @@ class GatewaySessionAgentMixin:
+             # None leaves the agent reading the owner's config, as before.
+             run_budget_seconds=policy.run_budget_seconds if policy else None,
+         )
++        # LOCAL MODIFICATION: one line per fresh agent build. A turn whose inbound-to-first-API-call gap is large
++        # while this is small stalled before the build (pre-agent setup) or after the turn ended.
++        logger.info("fresh agent built: session=%s platform=%s init=%.2fs", str(ctx.session_id)[:8], platform_key,
++                    time.monotonic() - _build_started)
++        return agent
+ 
+     def _resolve_turn_agent(self, turn_route, platform_key, combined_ephemeral, max_iterations, reasoning_config, pr):
+         """Reuse this session's cached AIAgent (frozen system prompt + tool schemas → prompt cache
