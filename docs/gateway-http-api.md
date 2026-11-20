@@ -29,7 +29,7 @@ tailnet IP.
 
 Iris posts `POST /api/sessions` `{id: <memo uuid>, source}` then `POST /api/sessions/<id>/chat/stream`
 `{message: <transcript>, system_message}`. `source` is only Iris's label (unknown values map to `api_server`), so the
-`system_message` is the marker: `api_server_turn_profiles` in `config.yaml` matches "This turn comes from Iris" and preloads the iris skill into the system prompt (the message still says "Load skill_view('iris')"; the skill tells the model it is already loaded). The skill ends every reply with one
+`system_message` is the marker: `api_server_turn_profiles` in `config.yaml` matches "This turn comes from Iris", preloads the iris skill into the system prompt and rewrites the message's "Load skill_view('iris') and follow it" into "Follow the iris skill, which is already loaded" (applied once per admission in `admit_api_steps`, `docs/patches.md`). The skill ends every reply with one
 ```` ```iris ```` block (`{"kind","headline"}`; the spoken line is Iris's own `triage`). Legacy app builds append `The owner picked: <Mode>.`
 Stream events (`gateway/platforms/api_server.py`, `_handle_session_chat_stream`): `assistant.delta`,
 `tool.started` / `tool.completed` / `tool.failed` (`{message_id, tool_name, preview, args}`), `assistant.completed`

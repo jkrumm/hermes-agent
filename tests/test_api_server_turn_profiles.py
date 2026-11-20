@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The api_server turn-profile helpers (patches/api-server-turn-profiles.patch): the Iris system message
 selects a profile, the iris skill is preloaded into the prompt, the preload is byte-identical across
-sessions (prompt cache), and _create_agent still applies both the preload and the profile's effort.
+sessions (prompt cache), and the API admission still applies both the preload and the profile's effort.
 
 Run:  ~/.hermes/hermes-agent/venv/bin/python3 tests/test_api_server_turn_profiles.py
 """
@@ -13,7 +13,7 @@ import yaml
 HERMES = pathlib.Path.home() / ".hermes" / "hermes-agent"
 sys.path.insert(0, str(HERMES))
 
-from gateway.platforms.api_server import _match_turn_profile, _turn_profile_prompt  # noqa: E402
+from gateway.platforms.api_server import _apply_turn_profile, _match_turn_profile, _turn_profile_prompt  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 config = yaml.safe_load((ROOT / "config.yaml").read_text())
@@ -50,17 +50,23 @@ check(skill_bytes < 9000, f"the preloaded iris SKILL.md stays lean ({skill_bytes
 check(_turn_profile_prompt({"skills": ["no-such-skill-2517"]}, IRIS, "s") == IRIS, "a missing skill leaves the message as sent")
 check(_turn_profile_prompt({}, IRIS, "s") == IRIS, "a profile without skills leaves the message as sent")
 
+settings = {"ephemeral_system_prompt": IRIS, "model_options": None}
+_apply_turn_profile(settings, config, "session-a")
+check(settings["ephemeral_system_prompt"] == _turn_profile_prompt(profile, IRIS, "session-a"),
+      "an admission's settings get the preloaded, rewritten system message")
+check(settings["model_options"] == {"reasoning_effort": "high"}, "an admission without an effort gets the profile's")
+own = {"ephemeral_system_prompt": IRIS, "model_options": {"reasoning_effort": "low", "service_tier": "x"}}
+_apply_turn_profile(own, config, "session-a")
+check(own["model_options"] == {"reasoning_effort": "low", "service_tier": "x"}, "a request that names its own effort keeps it")
+other = {"ephemeral_system_prompt": "You are a helpful assistant.", "model_options": None}
+_apply_turn_profile(other, config, "session-a")
+check(other == {"ephemeral_system_prompt": "You are a helpful assistant.", "model_options": None}, "another system message is left alone")
+
 import inspect  # noqa: E402
 
-from gateway.platforms.api_server import APIServerAdapter  # noqa: E402
+from gateway import session_api_turn  # noqa: E402
 
-create_src = inspect.getsource(APIServerAdapter._create_agent)
-check("_match_turn_profile(user_config, ephemeral_system_prompt)" in create_src, "_create_agent selects the profile")
-check("_turn_profile_prompt(turn_profile," in create_src, "_create_agent preloads the profile's skills")
-check(
-    'request_reasoning_config is None and turn_profile.get("reasoning_effort")' in create_src,
-    "_create_agent applies the profile's effort only when the request set none",
-)
+check("_apply_turn_profile(settings," in inspect.getsource(session_api_turn.admit_api_steps), "admit_api_steps applies the profile")
 
 if failures:
     print("FAIL")

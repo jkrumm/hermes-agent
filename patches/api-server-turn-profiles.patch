@@ -1,8 +1,8 @@
 diff --git a/gateway/platforms/api_server.py b/gateway/platforms/api_server.py
-index 3a96882f8c..9e23e99052 100644
+index 3a96882f8c..f0dae64075 100644
 --- a/gateway/platforms/api_server.py
 +++ b/gateway/platforms/api_server.py
-@@ -266,6 +266,42 @@ def _resolve_request_runtime_agent_kwargs(provider: str, target_model: Optional[
+@@ -266,6 +266,58 @@ def _resolve_request_runtime_agent_kwargs(provider: str, target_model: Optional[
          "credential_pool": runtime.get("credential_pool")}
  
  
@@ -10,9 +10,10 @@ index 3a96882f8c..9e23e99052 100644
 +    """LOCAL MODIFICATION (patches/api-server-turn-profiles.patch): the first
 +    ``api_server_turn_profiles`` entry of config.yaml whose ``match`` substring occurs in the
 +    caller's system_message, else {}. A profile carries ``skills`` (preloaded into the turn's
-+    system prompt, so call 1 does work instead of a skill_view round trip) and ``reasoning_effort``
-+    (applied when the request sets none). The source label of a session is not carried to the agent;
-+    the system_message is the only per-turn marker a client such as Iris controls."""
++    system prompt, so call 1 does work instead of a skill_view round trip), ``replace`` (phrases of
++    the caller's message to rewrite) and ``reasoning_effort`` (applied when the request sets none).
++    The source label of a session is not carried to the agent; the system_message is the only
++    per-turn marker a client such as Iris controls."""
 +    profiles = user_config.get("api_server_turn_profiles") if isinstance(user_config, dict) else None
 +    if not ephemeral_system_prompt or not isinstance(profiles, list):
 +        return {}
@@ -42,48 +43,63 @@ index 3a96882f8c..9e23e99052 100644
 +    return f"{skills_prompt}\n\n{ephemeral_system_prompt}" if skills_prompt else ephemeral_system_prompt
 +
 +
++def _apply_turn_profile(settings: dict[str, Any], user_config: Any, session_id: Optional[str]) -> None:
++    """LOCAL MODIFICATION: apply the matching turn profile to an API admission's ``settings`` in place
++    (``ephemeral_system_prompt``, ``model_options.reasoning_effort``). Called once per admission, before
++    the settings are persisted, so a replayed admission carries the same bytes. A request that names its
++    own effort keeps it."""
++    profile = _match_turn_profile(user_config, settings.get("ephemeral_system_prompt"))
++    if not profile:
++        return
++    settings["ephemeral_system_prompt"] = _turn_profile_prompt(profile, settings.get("ephemeral_system_prompt"), session_id)
++    effort = profile.get("reasoning_effort")
++    options = settings.get("model_options")
++    if effort and not (isinstance(options, dict) and ("reasoning_effort" in options or "reasoning" in options)):
++        settings["model_options"] = {**(options if isinstance(options, dict) else {}), "reasoning_effort": effort}
++
++
  def _request_agent_overrides(
      body: Any, *, virtual_model: Optional[str] = None, allow_bare_model: bool = True
  ) -> dict[str, Any]:
-@@ -2187,6 +2223,7 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
-         ``gateway_session_key`` persists across transcripts (memory scope), unlike ``session_id``;
-         ``route`` / ``session_model`` are mutually exclusive; ``confirmed_runtime_lock`` beats the
-         session ``/model`` override, disables the fallback chain and fails closed."""
-+        _build_started = time.monotonic()  # LOCAL MODIFICATION: agent-build phase timing (cold-start stall telemetry)
-         from run_agent import AIAgent
-         from gateway.run import (
-             _checkpoint_agent_kwargs, _current_max_iterations, _resolve_runtime_agent_kwargs,
-@@ -2209,6 +2246,9 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
-             session_model=session_model, confirmed_runtime_lock=confirmed_runtime_lock,
-             gateway_session_key=gateway_session_key, session_id=session_id)
-         user_config = _load_gateway_config()
-+        turn_profile = _match_turn_profile(user_config, ephemeral_system_prompt)  # LOCAL MODIFICATION
-+        if turn_profile:
-+            ephemeral_system_prompt = _turn_profile_prompt(turn_profile, ephemeral_system_prompt, session_id)
-         enabled_toolsets = sorted(_get_platform_tools(user_config, "api_server"))
-         # Same gate the messaging gateway and TUI apply: ``display.interim_assistant_messages``
-         # off means no callback is installed, so mid-turn commentary never leaves the agent.
-@@ -2222,6 +2262,8 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
-             max_iterations = policy.max_iterations
-         # Reasoning resolves against the model that actually runs (per-model overrides), so only
-         # after the precedence chain settles; an explicit request wins.
-+        if request_reasoning_config is None and turn_profile.get("reasoning_effort"):  # LOCAL MODIFICATION
-+            request_reasoning_config = _request_reasoning_config({"reasoning_effort": turn_profile["reasoning_effort"]})
-         if request_reasoning_config is None:
-             request_reasoning_config = GatewayRunner._load_reasoning_config(model)
-         agent_kwargs = {
-@@ -2247,7 +2289,14 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
-             "memory_manager": self._memory_sessions.checkout(session_id)}
-         if request_service_tier is not _REQUEST_OPTION_MISSING:
-             agent_kwargs["service_tier"] = request_service_tier
-+        _init_started = time.monotonic()
-         agent = AIAgent(**agent_kwargs)
-+        # LOCAL MODIFICATION: one line per API-server agent build. A turn whose inbound-to-first-API-call gap
-+        # is large while both phases here are small stalled before this method (pre-agent setup) or after it.
-+        logger.info(
-+            "api_server agent built: session=%s resolve=%.2fs init=%.2fs profile=%s",
-+            session_id, _init_started - _build_started, time.monotonic() - _init_started,
-+            turn_profile.get("name", "-"))
-         attach_primary_auth_failure(agent, failure_for_route(_primary_auth_failure, resolved_route, runtime_kwargs))
-         route_source = (
-             "session_model_lock" if confirmed_runtime_lock
+diff --git a/gateway/session_api_turn.py b/gateway/session_api_turn.py
+index 3b15bc312e..5194d44950 100644
+--- a/gateway/session_api_turn.py
++++ b/gateway/session_api_turn.py
+@@ -155,6 +155,11 @@ def admit_api_steps(adapter, **kwargs):
+     sid = authority.logical_owner(sid)
+     authority._require_admission_open()
+     settings = {key: kwargs.get(key) for key in _SETTING_KEYS}
++    # LOCAL MODIFICATION (patches/api-server-turn-profiles.patch): a configured system_message marker
++    # (Iris) preloads its skill and effort here, before the settings are persisted and replayed.
++    from gateway.platforms.api_server import _apply_turn_profile
++    from gateway.run import _load_gateway_config
++    _apply_turn_profile(settings, _load_gateway_config(), sid)
+     # Route credentials remain in the server's configuration, never admission JSON.
+     route = settings.get('route')
+     if route and route.get('api_key'):
+diff --git a/gateway/session_execution.py b/gateway/session_execution.py
+index b18ed05a37..2d02a2cc46 100644
+--- a/gateway/session_execution.py
++++ b/gateway/session_execution.py
+@@ -163,7 +163,8 @@ class GatewaySessionAgentMixin:
+         from gateway.session_policy import policy_for_source
+         from gateway.session_worker_construct import session_prefill
+         policy = policy_for_source(runner, src)
+-        return ctx.AIAgent(
++        _build_started = time.monotonic()  # LOCAL MODIFICATION (patches/api-server-turn-profiles.patch): cold-build timing
++        agent = ctx.AIAgent(
+             model=turn_route["model"], **turn_route["runtime"], **_checkpoint_agent_kwargs(ctx.user_config),
+             max_iterations=max_iterations, quiet_mode=not bool(policy and policy.verbose), verbose_logging=False,
+             enabled_toolsets=ctx.enabled_toolsets, disabled_toolsets=ctx.disabled_toolsets,
+@@ -192,6 +193,11 @@ class GatewaySessionAgentMixin:
+             # None leaves the agent reading the owner's config, as before.
+             run_budget_seconds=policy.run_budget_seconds if policy else None,
+         )
++        # LOCAL MODIFICATION: one line per fresh agent build. A turn whose inbound-to-first-API-call gap is large
++        # while this is small stalled before the build (pre-agent setup) or after the turn ended.
++        logger.info("fresh agent built: session=%s platform=%s init=%.2fs", str(ctx.session_id)[:8], platform_key,
++                    time.monotonic() - _build_started)
++        return agent
+ 
+     def _resolve_turn_agent(self, turn_route, platform_key, combined_ephemeral, max_iterations, reasoning_config, pr):
+         """Reuse this session's cached AIAgent (frozen system prompt + tool schemas → prompt cache
