@@ -20,11 +20,14 @@ apply_and_restart() {
 }
 
 verify_with_retry() {
-  # The API server needs a while after boot to report connected.
+  # The API server needs a while after boot to report connected: seconds on an idle host,
+  # minutes under load (2026-11-20, load 50: the secrets helper timed out and the API bound
+  # minutes after the restart). Poll until VERIFY_TIMEOUT seconds (default 600) have passed,
+  # not a fixed count, so a loaded host is waited out while a healthy one returns at once.
   # A restart first drains in-flight agent turns (gateway_state=draining) for as long as
-  # they run — a drain is not a failure, so wait it out before the bounded retries. No cap:
+  # they run — a drain is not a failure, so wait it out before the bounded polling. No cap:
   # a drain waits on agent turns (agent-limits rule); each poll is logged so a stuck one shows.
-  local n state
+  local state deadline=$((SECONDS + ${VERIFY_TIMEOUT:-600}))
   sleep 10
   state=$(jq -r '.gateway_state // ""' "$STATE" 2>/dev/null)
   while [ "$state" = draining ]; do
@@ -32,7 +35,7 @@ verify_with_retry() {
     sleep 10
     state=$(jq -r '.gateway_state // ""' "$STATE" 2>/dev/null)
   done
-  for n in 1 2 3 4 5 6; do
+  while [ "$SECONDS" -lt "$deadline" ]; do
     make --no-print-directory verify >/dev/null 2>&1 && return 0
     sleep 8
   done
