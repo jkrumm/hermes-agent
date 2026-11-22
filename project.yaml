@@ -12,8 +12,6 @@ signals:
   github:
     author: jkrumm
     since: 2026-11-07T06:30:00Z
-# One lead at a time: `make deploy` (scripts/deploy.sh) restarts the single gateway and serve LaunchAgents on the mini, so deploys cannot overlap.
-leads: 1
 hygiene:
   # Weekly hygiene probes (the factory's `hygiene` loop): `make <target>`, exit 0 is clean,
   # anything else is one finding. Both are read-only; the lead that takes a finding runs /hermes-update and make deploy.
