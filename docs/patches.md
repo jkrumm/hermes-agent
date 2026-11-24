@@ -28,6 +28,8 @@ Upstream moved `_start_gateway_replace_existing_instance` into `gateway/run_boot
 the same no-grace refusal there, so the hunk ports verbatim (the helpers are imported from
 `gateway.run` at the top of the function). Expect that move at the next stable release..
 
+**Ported 2026-11-24 at v0.23.4 (upstream `caafe5389a` → `8fc0374447`, 1143 commits):** all ten patches applied unchanged with `git apply --3way`, no hunk or path moved. `hermes update --yes --no-gateway-restart` restored the autostash without a conflict; the live tree byte-compares equal to the patches applied on a pristine v0.23.4.
+
 **Ported 2026-11-20 at v0.23.3 (upstream `ae2a81ccc0` → `caafe5389a`, 1675 commits):** nine patches applied unchanged; `checkpoint-store-integrity` only changed target path (`tools/checkpoint_manager.py` → `agent/checkpoints/manager.py`, a pure move, 1871 → 1872 lines), so its hunks and the `LOCAL MODIFICATION` markers carried over untouched. Both checkpoint suites import the new module paths. `hermes update` restored the stash without a conflict; the live tree byte-compares equal to the patches applied on a pristine v0.23.3.
 
 **Ported 2026-11-17 at v0.23.2 (upstream `3b42157858` → `ae2a81ccc0`, 8154 commits):** rehearsed in a
@@ -123,7 +125,7 @@ Re-apply after `hermes update`: **one `.patch` file per patched upstream file** 
 Re-apply after `hermes update`: **one `.patch` file per patched upstream file**, each with `git
 apply --3way` (`/hermes-update` carries the loop). `ls patches/` is the count, `make patch-check`
 proves they are applied — deliberately not restated here (it drifted repeatedly). Baseline
-**v0.23.3** (`stable` channel), upstream `caafe5389a` (2026-11-20).
+**v0.23.4** (`stable` channel), upstream `8fc0374447` (2026-11-23).
 
 **2026-09-07 — every patch moved file.** Upstream landed 5503 commits in six days under an
 unchanged version number, splitting every monolith apart. The **patch names are unchanged**
