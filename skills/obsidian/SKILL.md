@@ -19,9 +19,13 @@ Use the terminal. Don't say you lack access to the vault — reading and writing
 
 ## Access model — CLI first, filesystem fallback
 
-**Primary — Obsidian CLI** (`/usr/local/bin/obsidian`, command form `obsidian <command> key=value`):
+**Primary — Obsidian CLI** (`obsidian`, first on PATH; command form `obsidian <command> key=value`):
 - `file=<name>` resolves by note name like a wikilink; `path=<folder/note.md>` is an exact path relative to the vault root.
 - Quote values with spaces: `name="My Note"`. Use `\n` for newlines in `content=`.
+- `content=` turns **every** `\n` into a newline and `\t` into a tab, with no escape, so text holding a backslash (LaTeX, a regex, a Windows path) is corrupted. Write such text, and any body over about 4 KB, to the file directly instead.
+- **The CLI exits 0 even when a command fails** (`Error: File "…" not found.`, rc 0). Read the output before reporting a write as done.
+- `vault=<name>` only works as the first parameter. A file name containing a dot needs its extension (`name="v1.2 notes.md"`).
+- `append` and `prepend` take `heading=<name>` to write under an existing section. Rename and move with `obsidian rename` / `obsidian move`, never `mv`: only the app rewrites the links pointing at the note.
 - Confirm it's live with `obsidian version`. If that errors (Obsidian not running), use the filesystem fallback.
 
 **Fallback — filesystem** (`~/SourceRoot/brain/**/*.md`): raw markdown read/write. Works always, but no metadata cache, no backlink/Dataview resolution, and the running Obsidian only notices on its next file-watch tick. Use only when the CLI is down.
