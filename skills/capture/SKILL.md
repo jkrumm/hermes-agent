@@ -35,6 +35,7 @@ You decide where it lands. No double-tracking — one item, one home.
 **Not a task at all? Redirect — don't force it into TickTick/GitHub:**
 - A **link/article/video to read or keep later**, or a snippet to re-find → the `karakeep` skill (read-later bucket).
 - A **durable idea / knowledge note** to develop → the `obsidian` skill (the vault).
+- A todo he puts **"aufs Canvas"** (he names the canvas) → the `obsidian` skill, section Day canvas. Without that word a todo stays here.
 - A request to **have an agent do the work now** ("let an agent …", "start an agent on …") → the `fleet` skill (one factory Issue). A GitHub issue stays the answer to "file / note / open an issue".
 - A request to **research something now and report back** (not a task to remember) → the `agw-research` skill (cited answer via `agw research`). Note the split: "research X" / "recherchier mal" = answer now → `agw-research`; **"remind me to research X / look into Y later"** = a task to track → TickTick (the `Research Z` row above).
 

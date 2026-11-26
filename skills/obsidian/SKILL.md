@@ -4,7 +4,7 @@ description: Read, search, and write Johannes's Obsidian vault (the PARA second 
 version: 1.0.0
 metadata:
   hermes:
-    tags: [obsidian, vault, notes, note, second-brain, pkm, knowledge, inbox, search, backlinks, dataview, wikilink, markdown, capture, resource, inspiration]
+    tags: [obsidian, vault, notes, canvas, note, second-brain, pkm, knowledge, inbox, search, backlinks, dataview, wikilink, markdown, capture, resource, inspiration]
     related_skills: [capture, karakeep, argo-api]
 ---
 
@@ -200,6 +200,21 @@ obsidian delete path="<path>"        # goes to trash; `permanent` only on an exp
 - **"inspiration / competitor / tool for project X"** → `Projects/X/notes/inspiration-<slug>.md`.
 - **"what do I have on X" / "find my note about X"** → `search` / `search:context`, then `read` the hit.
 - **"what links to / relates to Y"** → `backlinks` + `links`.
+- **"aufs Canvas" / "auf mein Canvas" / "was steht auf meinem Canvas"** → the day canvas (next section).
+
+## Day canvas — `CANVAS.canvas`
+
+The vault root holds `CANVAS.canvas`, Johannes's day scratchpad: throwaway todos and notes for today. It is the one place a todo goes into the vault, and only when he names the canvas; any other todo or reminder is `capture` → TickTick. The layout is his, so go through the script, which edits only the card that starts with `# Today`:
+
+```bash
+cd ~/SourceRoot/brain
+node .scripts/canvas.mjs list              # every text card, Today first
+node .scripts/canvas.mjs add "<todo>"      # one todo per call
+node .scripts/canvas.mjs done "<words>"    # ticks the first open line containing <words>; exit 1 = no match
+~/.hermes/scripts/brain-commit.sh "canvas: <what changed>" CANVAS.canvas
+```
+
+Never hand-edit the JSON, and never move, resize or delete a card. Skip vault-lint for a canvas write (it checks notes only); commit as above after every `add` or `done`.
 
 ## Filing a note — find its home, then write it there
 
@@ -238,7 +253,7 @@ The `capture` skill routes; this is the shared model:
 ## Guardrails
 
 - **Do not write journal entries** — except notes from an Iris voice-memo turn, which `skill_view('iris')` owns (script `skills/iris/scripts/iris-note.py` → `Inbox/`, tags `[journal, iris]`, for reflections and memos with no home; it commits through `brain-commit.sh`, so the Sync guardrail below is met). Everything else: the voice-first journal is a separate, paused subsystem with its own tone rules and ingest pipeline — currently blocked pending a new vault target (see `journal/PRD.md`). If asked to journal, say it isn't wired up yet rather than improvising an entry.
-- **Never write to the vault root**; no clear home → `Inbox/`.
+- **Never write to the vault root**; no clear home → `Inbox/`. The day canvas (`CANVAS.canvas`, via its script) is the one exception.
 - **The `daily:*` and `template:*`/`templates` CLI verbs are dead.** Their backing core plugins (`daily-notes`, `templates`) are disabled and the `02_Daily/`/`09_Templates/` folders were removed 2026-08-02. Never call them. If asked to "add to my daily note", say daily notes were retired rather than improvising a location.
 - **`wiki/` and `Inbox/`** — prefer `append`/`property:set` over rewriting a whole file (a log takes its new entry where the log puts it).
 - **`Areas/` and `Projects/` (the curated surface) are rewritten, never appended.** Appending is how a curated page accumulates decision logs, stale status lines, and superseded options. Anything dated — a status update, a `Nachtrag`, a rejected option, a decision log — belongs in `wiki/` or nowhere. If the only way to add something is at the bottom, it's the wrong layer: write a `wiki/` note and link down to it from the curated page instead.
