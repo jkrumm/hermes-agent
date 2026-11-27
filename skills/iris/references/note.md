@@ -9,6 +9,7 @@ A note, idea, observation, measurement or plan goes **straight to its home in th
 | A shot or measurement for an existing log (a coffee dial-in) | `wiki/coffee/dial-in-log.md`: a new entry in the log's own format, newest on top |
 | An idea or fact for something that already has a page (a project, an Area, a `wiki/` concept) | that page, rewritten in the relevant section — never appended |
 | A durable concept with no page | a new `wiki/<domain>/…` note, full frontmatter, the level's `index.md` updated |
+| A gift idea, or a fact about a person (size, prescription, what they like) | `wiki/personal/facts.md`, the person's subsection under `## Gift ideas` (create it if missing); never the Inbox |
 | A journal-style reflection, or no clear home | `Inbox/`, via the script below |
 
 Search the vault before you choose (`obsidian search`, `agw brain`); the memo's own title is never the home. Prose follows `~/SourceRoot/brain/voice.md`; a page longer than a few paragraphs goes through `agw prose` first. A `wiki/` note or log entry is English (the vault rule, numbers verbatim); an Inbox note keeps the memo's language. After every write: `node .scripts/vault-lint.mjs` in the vault (0 errors), then `~/.hermes/scripts/brain-commit.sh "<what and why>" <paths>`. A memo that names two homes is two writes.
